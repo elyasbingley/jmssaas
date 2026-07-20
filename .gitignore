@@ -1,0 +1,28 @@
+node_modules/
+.turbo/
+dist/
+build/
+
+# Expo
+apps/mobile/.expo/
+apps/mobile/web-build/
+apps/mobile/dist/
+
+# Env
+.env
+.env.local
+*.env
+!.env.example
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Tauri (added in a later phase)
+desktop/target/
+
+# OS / editor
+.DS_Store
+*.log
+.vscode/*
+!.vscode/extensions.json

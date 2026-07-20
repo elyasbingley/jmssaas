@@ -1,0 +1,32 @@
+# PowerSync sync rules for Phase 1.
+# Uploaded via the PowerSync dashboard (Instance > Sync Rules) - see docs/SETUP.md.
+#
+# One bucket per tenant, keyed off the caller's profile row (resolved from
+# their Supabase JWT). Phase 1 has a single tenant, but this is already
+# tenant-scoped so Phase 3 (many tenants) needs no rule rewrite.
+#
+# Only the tables required to be offline-editable per Phase 1 scope are
+# synced to devices: clients, client_sites, job_cards (+ notes/files) and
+# tasks, plus profiles as a read-only reference for names/roles. Quotes,
+# invoices, templates and calendar events are office/PC workflows and are
+# read directly from Supabase when online, not synced to local SQLite.
+#
+# This bucket is tenant-wide (every device in a tenant gets all of that
+# tenant's data) rather than filtered further per-technician. That's a
+# deliberate Phase 1 simplification for a small crew - write access is
+# still enforced server-side by Postgres RLS regardless of what's synced
+# to a device. Revisit if the crew grows enough that per-technician
+# bucket filtering (limiting synced job_cards to assigned_technician_id)
+# is worth the added complexity.
+
+bucket_definitions:
+  tenant_data:
+    parameters: select tenant_id from profiles where id = request.user_id()
+    data:
+      - select * from clients where tenant_id = bucket.tenant_id
+      - select * from client_sites where tenant_id = bucket.tenant_id
+      - select * from job_cards where tenant_id = bucket.tenant_id
+      - select * from job_notes where tenant_id = bucket.tenant_id
+      - select * from job_files where tenant_id = bucket.tenant_id
+      - select * from tasks where tenant_id = bucket.tenant_id
+      - select * from profiles where tenant_id = bucket.tenant_id
