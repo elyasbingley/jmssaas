@@ -57,3 +57,36 @@ export const lineItemSchema = z.object({
   sort_order: z.number().int().default(0),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
+
+export const createQuoteSchema = z.object({
+  client_id: z.string().uuid(),
+  job_card_id: z.string().uuid().optional(),
+  template_id: z.string().uuid().optional(),
+  quote_number: z.string().min(1, "Quote number is required"),
+  expiry_date: z.string().date().optional(),
+  notes: z.string().optional(),
+  line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
+});
+export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+
+export const createInvoiceSchema = z.object({
+  client_id: z.string().uuid(),
+  job_card_id: z.string().uuid().optional(),
+  quote_id: z.string().uuid().optional(),
+  invoice_number: z.string().min(1, "Invoice number is required"),
+  due_date: z.string().date().optional(),
+  notes: z.string().optional(),
+  line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
+});
+export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+
+export const createCalendarEventSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  start_at: z.string().datetime(),
+  end_at: z.string().datetime(),
+  all_day: z.boolean().default(false),
+  job_card_id: z.string().uuid().optional(),
+  task_id: z.string().uuid().optional(),
+});
+export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>;

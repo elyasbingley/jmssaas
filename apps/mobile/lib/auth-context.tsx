@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { useQuery } from "@powersync/react";
+import { useQuery, useStatus } from "@powersync/react";
 import type { Profile } from "@jmssaas/shared";
 import { supabase } from "./supabase";
 import { connectPowerSync, disconnectPowerSync } from "./powersync";
@@ -9,6 +9,17 @@ interface AuthContextValue {
   session: Session | null;
   profile: Profile | null;
   isLoading: boolean;
+  /**
+   * True while a signed-in session has no local profile row yet and this
+   * device has never completed a full PowerSync sync. A brand-new install
+   * that loses signal moments after login would otherwise sit with
+   * `profile: null` forever - screens guard writes on `if (!profile)
+   * return`, which would silently no-op with no explanation to the tech.
+   * `hasSynced` is persisted in local SQLite and, once true, stays true
+   * across restarts - so this only ever gates the one-time initial sync,
+   * never normal offline use on a device that's synced before.
+   */
+  isWaitingForFirstSync: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -47,6 +58,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { data: profiles } = useQuery<Profile>("SELECT * FROM profiles WHERE id = ?", [session?.user.id ?? ""]);
   const profile = session ? (profiles[0] ?? null) : null;
 
+  const status = useStatus();
+  const isWaitingForFirstSync = session != null && !profile && status.hasSynced !== true;
+
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -57,7 +71,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, profile, isLoading, signIn, signOut }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ session, profile, isLoading, isWaitingForFirstSync, signIn, signOut }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

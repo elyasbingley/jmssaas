@@ -5,6 +5,7 @@ import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createClientSchema, type Client } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
+import { AppNavBar } from "../../components/AppNavBar";
 
 export default function ClientsScreen() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function ClientsScreen() {
 
   return (
     <View style={styles.container}>
+      <AppNavBar />
       <View style={styles.header}>
         <Text style={styles.subtitle}>{clients.length} client{clients.length === 1 ? "" : "s"}</Text>
         <Pressable onPress={signOut}>

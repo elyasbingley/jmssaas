@@ -114,16 +114,66 @@ is this same web build wrapped in Tauri).
    photo should sync to Supabase - check the `job_cards`/`job_notes` tables and
    the `job-files` storage bucket in the dashboard to confirm.
 
+## 8. Try Tasks, Quotes/Invoices, and Calendar
+
+Use the nav strip at the top of the Clients/Tasks/Quotes/Invoices/Calendar
+list screens to move between sections.
+
+- **Tasks** work offline the same way job cards do (PowerSync-synced) -
+  create a standalone task or one linked to a job card, tap its status chip
+  to cycle `todo -> in_progress -> done`, and it'll queue and sync like any
+  other offline write.
+- **Quotes and invoices** are Supabase-direct and need a connection - turn on
+  airplane mode on one of these screens to see the "No connection" state
+  instead of a silent failure. Create a quote with a few line items, watch
+  the GST-inclusive total update live, then use "Convert to invoice" to copy
+  it into a new invoice.
+- **Calendar** is also online-only. Create an event and optionally link it to
+  a job card or task; a technician can edit an event only if it's linked to
+  a job/task assigned to them (matching the `calendar_events` RLS policy),
+  otherwise only the admin can.
+- To try templates, insert a row into `templates` (`type: 'quote'` or
+  `'invoice'`, `default_line_items` as a JSON array matching the line item
+  shape) via the SQL editor, then use "Load from template" on the new
+  quote/invoice screen.
+
 ## Known gaps / next steps
 
 - **Desktop (Tauri)**: not scaffolded yet by design (see the mobile-first
   decision on this branch) - the plan is to wrap this same Expo web build once
   the core workflow is validated on mobile.
-- **Quotes, invoices, tasks UI, calendar, Gmail/Calendar integration**: the
-  database schema, RLS policies and PowerSync schema already cover Phase 1's
-  full scope, but only the client -> job card -> notes/photos vertical slice has
-  screens built. These are office/PC workflows and were intentionally left for
-  a follow-up pass rather than being scaffolded speculatively.
+- **Gmail/Calendar Google integration**: `calendar_events` has
+  `google_calendar_id`/`google_event_id`/`last_synced_at` columns and the
+  calendar UI tolerates them being null (shows "Not synced with Google
+  Calendar yet"), but nothing writes to them - two-way sync and Gmail sending
+  are still unbuilt. Email sending isn't started at all yet.
+- **Tenant-wide local sync vs. per-technician RLS**: the PowerSync sync rule
+  in `powersync/sync-rules.yaml` downloads a tenant's *entire* `tasks` and
+  `job_cards` tables to every device, not just what's assigned to that
+  technician - `app/tasks/index.tsx` and the job card list apply the "assigned
+  to me" filter client-side in the query, but the data physically sits in
+  local SQLite on a technician's device even though Postgres RLS would block
+  them from fetching another tech's jobs directly. Fine for a small trusted
+  crew in Phase 1; revisit with per-technician bucket filtering (documented
+  as a deferred option in the sync rules file) if the crew grows or this
+  becomes a real privacy concern.
+- **Quote/invoice line item edits aren't transactional**: saving edited line
+  items on `app/quotes/[id].tsx` / `app/invoices/[id].tsx` deletes the
+  existing `quote_line_items`/`invoice_line_items` rows and re-inserts the
+  edited set as two separate Supabase calls, not one transaction - a failure
+  between the two would leave a quote/invoice with no line items. The correct
+  fix is a Postgres RPC function to do it atomically, which is a schema
+  change and so wasn't added without checking first.
+- **No native date/time picker**: calendar event start/end times are plain
+  "YYYY-MM-DD" + "HH:MM" text fields (`app/calendar/new.tsx`,
+  `app/calendar/[id].tsx`), matching the plain-text date fields already used
+  for due dates and quote/invoice expiry - functional, but a real date/time
+  picker (`@react-native-community/datetimepicker` or similar) would be a
+  natural follow-up and wasn't added here to avoid introducing a new native
+  dependency mid-task.
+- **Client/job-card/template pickers are simple filtered lists**: fine at
+  Phase 1's scale (one small business), not paginated or virtualized - revisit
+  if client/job counts grow large enough to matter.
 - **`react-native-worklets` peer warning**: `pnpm install` reports an unmet peer
   range from `expo-modules-core`. This sandbox's network policy blocks the Expo
   CLI's compatibility-check endpoint, so `npx expo install --fix` couldn't be run
