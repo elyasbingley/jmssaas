@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { v4 as uuidv4 } from "uuid";
 import { calculateDocumentTotals, formatCentsAsAud, type LineItemFormInput, type Quote, type QuoteStatus } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -62,43 +61,33 @@ export default function QuoteDetailScreen() {
     refetch();
   };
 
+  // Shared by Save and Convert: persists the quote's notes/expiry_date plus
+  // whatever's currently in the line item editor. The line item write goes
+  // through the replace_quote_line_items RPC (see
+  // supabase/migrations/20260721000100_atomic_line_item_rpcs.sql), which
+  // deletes+reinserts the set and recomputes subtotal/gst/total from it in
+  // one transaction, instead of the old two-call delete-then-insert that
+  // could leave a quote with no line items if the second call failed.
+  const persistQuoteAndLineItems = async () => {
+    const { error: updateError } = await supabase
+      .from("quotes")
+      .update({ notes: notes || null, expiry_date: expiryDate || null })
+      .eq("id", id);
+    if (updateError) throw updateError;
+
+    const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
+      p_quote_id: id,
+      p_items: lineItems,
+    });
+    if (rpcError) throw rpcError;
+  };
+
   const handleSave = async () => {
     if (!profile) return;
     setSaving(true);
     setSaveError(null);
     try {
-      const totals = calculateDocumentTotals(lineItems);
-      const { error: updateError } = await supabase
-        .from("quotes")
-        .update({
-          notes: notes || null,
-          expiry_date: expiryDate || null,
-          subtotal_cents: totals.subtotal_cents,
-          gst_cents: totals.gst_cents,
-          total_cents: totals.total_cents,
-        })
-        .eq("id", id);
-      if (updateError) throw updateError;
-
-      // Simplest correct way to reconcile an edited line item list without
-      // diffing adds/edits/removes: replace the set for this quote.
-      const { error: deleteError } = await supabase.from("quote_line_items").delete().eq("quote_id", id);
-      if (deleteError) throw deleteError;
-      const { error: insertError } = await supabase.from("quote_line_items").insert(
-        lineItems.map((item, index) => ({
-          id: uuidv4(),
-          tenant_id: profile.tenant_id,
-          quote_id: id,
-          item_type: item.item_type,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-        }))
-      );
-      if (insertError) throw insertError;
-
+      await persistQuoteAndLineItems();
       refetch();
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed to save");
@@ -116,40 +105,18 @@ export default function QuoteDetailScreen() {
     setConverting(true);
     setConvertError(null);
     try {
-      const totals = calculateDocumentTotals(lineItems);
-      const invoiceId = uuidv4();
-      const { error: invoiceError } = await supabase.from("invoices").insert({
-        id: invoiceId,
-        tenant_id: profile.tenant_id,
-        client_id: data.quote.client_id,
-        job_card_id: data.quote.job_card_id,
-        quote_id: data.quote.id,
-        invoice_number: invoiceNumber.trim(),
-        status: "draft",
-        issue_date: new Date().toISOString().slice(0, 10),
-        due_date: dueDate || null,
-        subtotal_cents: totals.subtotal_cents,
-        gst_cents: totals.gst_cents,
-        total_cents: totals.total_cents,
-        notes: notes || null,
-        created_by: profile.id,
-      });
-      if (invoiceError) throw invoiceError;
+      // Persist any pending edits first, so the invoice is created from
+      // exactly what's on screen rather than a possibly-stale DB copy - the
+      // convert_quote_to_invoice RPC reads quote_line_items as persisted,
+      // it doesn't take the in-memory editor state as input.
+      await persistQuoteAndLineItems();
 
-      const { error: itemsError } = await supabase.from("invoice_line_items").insert(
-        lineItems.map((item, index) => ({
-          id: uuidv4(),
-          tenant_id: profile.tenant_id,
-          invoice_id: invoiceId,
-          item_type: item.item_type,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-        }))
-      );
-      if (itemsError) throw itemsError;
+      const { data: invoiceId, error } = await supabase.rpc("convert_quote_to_invoice", {
+        p_quote_id: id,
+        p_invoice_number: invoiceNumber.trim(),
+        p_due_date: dueDate || null,
+      });
+      if (error) throw error;
 
       setConvertVisible(false);
       router.replace(`/invoices/${invoiceId}`);

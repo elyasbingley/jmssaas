@@ -136,6 +136,11 @@ list screens to move between sections.
   `'invoice'`, `default_line_items` as a JSON array matching the line item
   shape) via the SQL editor, then use "Load from template" on the new
   quote/invoice screen.
+- To check the per-technician sync scoping (see the known-gaps note below),
+  sign in as a technician on a second device/simulator, assign yourself
+  (as admin) to one job card, and confirm that device only ever shows that
+  one job card and its own notes/tasks - not the rest of the tenant's jobs -
+  even after a full reinstall and fresh first sync.
 
 ## Known gaps / next steps
 
@@ -147,23 +152,61 @@ list screens to move between sections.
   calendar UI tolerates them being null (shows "Not synced with Google
   Calendar yet"), but nothing writes to them - two-way sync and Gmail sending
   are still unbuilt. Email sending isn't started at all yet.
-- **Tenant-wide local sync vs. per-technician RLS**: the PowerSync sync rule
-  in `powersync/sync-rules.yaml` downloads a tenant's *entire* `tasks` and
-  `job_cards` tables to every device, not just what's assigned to that
-  technician - `app/tasks/index.tsx` and the job card list apply the "assigned
-  to me" filter client-side in the query, but the data physically sits in
-  local SQLite on a technician's device even though Postgres RLS would block
-  them from fetching another tech's jobs directly. Fine for a small trusted
-  crew in Phase 1; revisit with per-technician bucket filtering (documented
-  as a deferred option in the sync rules file) if the crew grows or this
-  becomes a real privacy concern.
-- **Quote/invoice line item edits aren't transactional**: saving edited line
-  items on `app/quotes/[id].tsx` / `app/invoices/[id].tsx` deletes the
-  existing `quote_line_items`/`invoice_line_items` rows and re-inserts the
-  edited set as two separate Supabase calls, not one transaction - a failure
-  between the two would leave a quote/invoice with no line items. The correct
-  fix is a Postgres RPC function to do it atomically, which is a schema
-  change and so wasn't added without checking first.
+- **Tenant-wide local sync vs. per-technician RLS - fixed**: `powersync/sync-rules.yaml`
+  used to download a tenant's *entire* `job_cards`/`job_notes`/`job_files`/`tasks`
+  tables to every device. It's now split by role: admins still get the full
+  tenant (`admin_job_data` bucket), technicians get a bucket instantiated
+  per job card assigned to them (`technician_assigned_jobs`, which also
+  scopes that job's own notes and files - full nested scoping, not just
+  `job_cards` itself) plus tasks assigned directly to them
+  (`technician_own_tasks`). `clients`/`client_sites`/`profiles` remain
+  tenant-wide for everyone, unchanged, since any tech can look up any
+  client on site. One deliberate loose end: neither technician bucket's
+  parameter query excludes admins by role (that would need a join against
+  `profiles` inside the parameter query - kept out since there's no way to
+  confirm PowerSync's sync-rules SQL parser accepts a join there without a
+  live instance, and none is provisioned in this environment). Harmless in
+  practice - if an admin is ever also someone's `assigned_technician_id`
+  (e.g. the business owner doing field work themselves), they'd just
+  receive that data via an extra bucket path, not extra *data*, since
+  `admin_job_data` already gives them everything. Worth a quick sanity
+  check against a real PowerSync instance once one's provisioned, in case
+  joins in parameter queries turn out not to be supported.
+
+  What *was* validated here: this sandbox has a real Postgres 16 install
+  (no Docker, so the usual `supabase start` local dev flow doesn't work,
+  but the `postgres`/`postgresql-client` packages are present), so every
+  migration - including the new one below - was run end-to-end against a
+  throwaway database with hand-built stubs for the Supabase-specific bits
+  (`auth.uid()`, `auth.users`, `storage.foldername()`, the
+  `authenticated`/`anon` roles and their default grants). All three
+  migrations applied cleanly, and every query in `powersync/sync-rules.yaml`
+  (with `bucket.*`/`request.user_id()` swapped for literal test values) ran
+  without error against the real schema - including confirming end-to-end
+  that a job card assigned to a technician is what
+  `technician_assigned_jobs`'s parameter query returns, and that a
+  `job_notes` row scoped by that job's id returns only that job's own note.
+  This is real verification of the SQL, just not of PowerSync's own bucket
+  evaluation, which only the actual sync service can do.
+- **Quote/invoice line item edits - fixed**: saving edited line items on
+  `app/quotes/[id].tsx` / `app/invoices/[id].tsx`, and converting a quote to
+  an invoice, used to be two separate Supabase calls each (delete-then-insert,
+  or insert-invoice-then-insert-line-items) - a failure between the two could
+  leave a quote/invoice with mismatched or missing line items. Both are now
+  single atomic Postgres RPC calls
+  (`supabase/migrations/20260721000100_atomic_line_item_rpcs.sql`:
+  `replace_quote_line_items`, `replace_invoice_line_items`,
+  `convert_quote_to_invoice`), which also recompute totals server-side from
+  the line items actually being stored rather than trusting client-supplied
+  totals. Functionally tested against the real Postgres 16 instance
+  mentioned above: as a technician, `replace_quote_line_items` is correctly
+  rejected by RLS ("new row violates row-level security policy"); as the
+  admin, it correctly recomputes and persists totals (verified against a
+  hand-computed expected value), and calling it a second time with a
+  different item set *replaces* rather than appends (line item count and
+  totals both update to match the new set, not the old plus the new).
+  `convert_quote_to_invoice` was verified to produce an invoice whose
+  totals and line items match the quote's at conversion time.
 - **No native date/time picker**: calendar event start/end times are plain
   "YYYY-MM-DD" + "HH:MM" text fields (`app/calendar/new.tsx`,
   `app/calendar/[id].tsx`), matching the plain-text date fields already used

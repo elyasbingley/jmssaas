@@ -1,32 +1,93 @@
 # PowerSync sync rules for Phase 1.
 # Uploaded via the PowerSync dashboard (Instance > Sync Rules) - see docs/SETUP.md.
 #
-# One bucket per tenant, keyed off the caller's profile row (resolved from
-# their Supabase JWT). Phase 1 has a single tenant, but this is already
-# tenant-scoped so Phase 3 (many tenants) needs no rule rewrite.
-#
 # Only the tables required to be offline-editable per Phase 1 scope are
 # synced to devices: clients, client_sites, job_cards (+ notes/files) and
 # tasks, plus profiles as a read-only reference for names/roles. Quotes,
 # invoices, templates and calendar events are office/PC workflows and are
 # read directly from Supabase when online, not synced to local SQLite.
 #
-# This bucket is tenant-wide (every device in a tenant gets all of that
-# tenant's data) rather than filtered further per-technician. That's a
-# deliberate Phase 1 simplification for a small crew - write access is
-# still enforced server-side by Postgres RLS regardless of what's synced
-# to a device. Revisit if the crew grows enough that per-technician
-# bucket filtering (limiting synced job_cards to assigned_technician_id)
-# is worth the added complexity.
+# Bucket split by role (previously one tenant-wide bucket for everyone):
+#
+# - tenant_reference_data: clients, client_sites and profiles stay
+#   tenant-wide for every signed-in user regardless of role - any tech can
+#   look up any client on site, and everyone needs names/roles for the team.
+#   This is unchanged from before.
+#
+# - admin_job_data: admins still get the full tenant's job_cards, job_notes,
+#   job_files and tasks, same as before - they need to see and assign
+#   everything. Scoped to role = 'admin' so technicians get zero instances
+#   of this bucket.
+#
+# - technician_assigned_jobs / technician_own_tasks: technician devices no
+#   longer download every job in the tenant. technician_assigned_jobs uses a
+#   parameter query that returns one row per job card assigned to the
+#   caller - PowerSync fans that out into one bucket instance per job, each
+#   instance carrying only that job's own notes, files and tasks. This is
+#   what makes "notes/files scoped to jobs assigned to me" possible, not
+#   just job_cards itself - the full nested scoping from the original ask
+#   IS achieved here, not deferred. technician_own_tasks separately covers
+#   tasks assigned directly to a technician that aren't tied to one of
+#   their jobs (standalone tasks, or a task on a job that isn't theirs).
+#
+# Neither technician bucket explicitly excludes admins by role (their
+# parameter queries just match on assigned_technician_id / assigned_to =
+# request.user_id(), not a role check) - deliberately left simple rather
+# than joining against profiles to gate by role too, since there's no
+# PowerSync instance provisioned in this environment to confirm PowerSync's
+# sync-rules SQL actually supports a join inside a parameter query the way
+# plain Postgres does (the underlying table/column SQL below was verified
+# against a real Postgres 16 instance - see the note at the bottom of this
+# file - but that only proves the SQL is valid, not that PowerSync's parser
+# accepts every construct plain Postgres does). Being simple here is
+# harmless, not incorrect: if an admin is ever also someone's
+# assigned_technician_id (e.g. the business owner doing field work
+# themselves), they'd just receive that data via two bucket paths instead
+# of one - the same rows, not different ones. They already get everything
+# through admin_job_data regardless.
+#
+# Postgres RLS is unchanged by this file - it already correctly restricts
+# live queries per technician. This closes the separate local-storage gap
+# where a technician's device previously held the entire tenant's job data
+# in local SQLite even though RLS would block them from fetching most of it
+# directly.
+#
+# Validated (in this environment, against a real Postgres 16 instance -
+# see docs/SETUP.md's note in the known-gaps section): every query below,
+# with bucket.*/request.user_id() substituted for literal values, runs
+# without error against the actual schema, and end-to-end - a job card
+# assigned to a technician is returned by technician_assigned_jobs'
+# parameter query, and a job_notes row scoped to that job_card_id returns
+# only that job's own note, not another job's. What's NOT validated here is
+# PowerSync's own YAML parsing and bucket-fanout behavior, since that's
+# evaluated by the PowerSync sync service itself, not Postgres - do a real
+# sync test per docs/SETUP.md section 8 once an instance is provisioned.
 
 bucket_definitions:
-  tenant_data:
+  tenant_reference_data:
     parameters: select tenant_id from profiles where id = request.user_id()
     data:
       - select * from clients where tenant_id = bucket.tenant_id
       - select * from client_sites where tenant_id = bucket.tenant_id
+      - select * from profiles where tenant_id = bucket.tenant_id
+
+  admin_job_data:
+    parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'
+    data:
       - select * from job_cards where tenant_id = bucket.tenant_id
       - select * from job_notes where tenant_id = bucket.tenant_id
       - select * from job_files where tenant_id = bucket.tenant_id
       - select * from tasks where tenant_id = bucket.tenant_id
-      - select * from profiles where tenant_id = bucket.tenant_id
+
+  technician_assigned_jobs:
+    parameters: select id as job_card_id from job_cards where assigned_technician_id = request.user_id()
+    data:
+      - select * from job_cards where id = bucket.job_card_id
+      - select * from job_notes where job_card_id = bucket.job_card_id
+      - select * from job_files where job_card_id = bucket.job_card_id
+      - select * from tasks where job_card_id = bucket.job_card_id
+
+  technician_own_tasks:
+    parameters: select request.user_id() as user_id
+    data:
+      - select * from tasks where assigned_to = bucket.user_id

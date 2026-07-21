@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { v4 as uuidv4 } from "uuid";
-import { calculateDocumentTotals, type Invoice, type InvoiceStatus, type LineItemFormInput } from "@jmssaas/shared";
+import type { Invoice, InvoiceStatus, LineItemFormInput } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
 import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
@@ -61,35 +60,22 @@ export default function InvoiceDetailScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      const totals = calculateDocumentTotals(lineItems);
       const { error: updateError } = await supabase
         .from("invoices")
-        .update({
-          notes: notes || null,
-          due_date: dueDate || null,
-          subtotal_cents: totals.subtotal_cents,
-          gst_cents: totals.gst_cents,
-          total_cents: totals.total_cents,
-        })
+        .update({ notes: notes || null, due_date: dueDate || null })
         .eq("id", id);
       if (updateError) throw updateError;
 
-      const { error: deleteError } = await supabase.from("invoice_line_items").delete().eq("invoice_id", id);
-      if (deleteError) throw deleteError;
-      const { error: insertError } = await supabase.from("invoice_line_items").insert(
-        lineItems.map((item, index) => ({
-          id: uuidv4(),
-          tenant_id: profile.tenant_id,
-          invoice_id: id,
-          item_type: item.item_type,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-        }))
-      );
-      if (insertError) throw insertError;
+      // Atomic: replaces this invoice's line items and recomputes its
+      // subtotal/gst/total from them in one transaction (see
+      // supabase/migrations/20260721000100_atomic_line_item_rpcs.sql),
+      // instead of the old two-call delete-then-insert that could leave an
+      // invoice with no line items if the second call failed.
+      const { error: rpcError } = await supabase.rpc("replace_invoice_line_items", {
+        p_invoice_id: id,
+        p_items: lineItems,
+      });
+      if (rpcError) throw rpcError;
 
       refetch();
     } catch (e) {
