@@ -7,8 +7,10 @@ Google Cloud OAuth client, and fill in the resulting values in `apps/mobile/.env
 ## 1. Prerequisites
 
 - Node 20+, pnpm (`corepack enable` will pick up the pinned version)
-- The [Expo Go](https://expo.dev/go) app on your phone (fastest way to test on a
-  real device), or Xcode/Android Studio for a simulator
+- A free [Expo](https://expo.dev) account, for [EAS Build](https://docs.expo.dev/build/introduction/)
+  (`npm install -g eas-cli`, then `eas login`) - **not** the Expo Go app. PowerSync
+  requires a native SQLite module that Expo Go can't load; see step 6.
+- An Android phone (or emulator) to install the development build on
 - A free [Supabase](https://supabase.com) account
 - A [PowerSync](https://powersync.com) account (free tier is fine for Phase 1)
 
@@ -92,20 +94,56 @@ Fill in the three `EXPO_PUBLIC_*` values from steps 2 and 4. These are safe to
 expose in the client bundle (anon key + PowerSync endpoint, both meaningless
 without a valid RLS-scoped session).
 
-## 6. Run it
+## 6. Build and install a development build
+
+Neither Expo Go nor the web build work for this project once PowerSync is in the
+loop:
+
+- **Expo Go can't run it.** PowerSync's React Native SDK needs
+  `@journeyapps/react-native-quick-sqlite`, a native module - Expo Go only ships
+  with a fixed set of pre-bundled native modules and can't load custom ones.
+  Trying anyway fails with `Could not resolve
+  @journeyapps/react-native-quick-sqlite` followed by every route erroring out.
+- **The web build doesn't work either** - `@journeyapps/react-native-quick-sqlite`
+  has no web implementation, so `pnpm --filter mobile web` / pressing `w` will
+  fail the same way. PowerSync does support web via a separate
+  `@powersync/web` package (WASM SQLite), but that's additional setup this repo
+  hasn't done yet - a real gap, not just an inconvenience (see known gaps below).
+  The "desktop app" story (Tauri wrapping a web build) is blocked on this too.
+
+What you need instead is a **development build**: a real app binary, built once
+via EAS's cloud build service (no local Android Studio needed), installed
+directly on the device, and reused for everyday development from then on -
+regular code changes still hot-reload through it exactly like Expo Go would.
+You only need to rebuild if you add or change a native dependency.
+
+```bash
+cd apps/mobile
+eas login                                        # once, if you haven't already
+eas build --profile development --platform android
+```
+
+This uses the `development` profile in `apps/mobile/eas.json` (internal
+distribution, produces an installable `.apk` rather than a Play Store `.aab`).
+When the build finishes, EAS prints a link/QR code - open it on the phone and
+install the APK directly (you'll need to allow installs from unknown sources
+the first time).
+
+Then, same as any Expo project:
 
 ```bash
 pnpm install
 pnpm --filter mobile dev
 ```
 
-Scan the QR code with Expo Go, or press `w` in the terminal to open the web build
-(useful for a quick check without a device - remember the "desktop app" later on
-is this same web build wrapped in Tauri).
+Open the app you just installed on the phone - it connects to this dev server
+the same way Expo Go would, just with the native SQLite module actually
+present this time.
 
 ## 7. Try the vertical slice
 
-1. Sign in with the admin account you created in step 3.
+1. Sign in with the admin account you created in step 3, inside the
+   development build installed in step 6 (not Expo Go, not the web build).
 2. Create a client, then a job card for that client.
 3. Open the job card, add a note, and attach a photo (camera or library).
 4. Turn on airplane mode and repeat - notes, job cards and photos should all
@@ -137,16 +175,42 @@ list screens to move between sections.
   shape) via the SQL editor, then use "Load from template" on the new
   quote/invoice screen.
 - To check the per-technician sync scoping (see the known-gaps note below),
-  sign in as a technician on a second device/simulator, assign yourself
-  (as admin) to one job card, and confirm that device only ever shows that
-  one job card and its own notes/tasks - not the rest of the tenant's jobs -
-  even after a full reinstall and fresh first sync.
+  sign in as a technician on a second device (or an Android emulator with the
+  same development build installed), assign yourself (as admin) to one job
+  card, and confirm that device only ever shows that one job card and its own
+  notes/tasks - not the rest of the tenant's jobs - even after a full
+  reinstall and fresh first sync.
 
 ## Known gaps / next steps
 
+- **Expo Go / web can't run this app - fixed with a development build**:
+  confirmed against a real Android device - `@journeyapps/react-native-quick-sqlite`
+  (PowerSync's native SQLite module, required by `@powersync/react-native`) was
+  missing from `apps/mobile/package.json` entirely, and even once present it's a
+  native module Expo Go can't load. Fixed by adding the dependency explicitly,
+  adding `expo-dev-client` (+ its plugin entry in `app.json`), and adding
+  `apps/mobile/eas.json` with a `development` build profile (internal
+  distribution, Android APK) - see the rewritten step 6 above. Not added:
+  a plugin entry for `@journeyapps/react-native-quick-sqlite` itself - its
+  config plugin only does something on iOS with `use_frameworks!` enabled
+  (confirmed by reading the plugin's source, which just wires up
+  `withUseFrameworks`), and this project doesn't set that iOS option; revisit
+  if `useFrameworks` is ever turned on. Also not verified: the exact current
+  EAS CLI version - `eas.json`'s `cli` block deliberately omits a `version`
+  pin rather than guess one, since this sandbox couldn't reach EAS to check
+  (same network policy gap as the Supabase provisioning session below) - EAS
+  CLI will fill it in the first time `eas build:configure` or `eas build` runs
+  locally.
+- **Web support for PowerSync**: `@journeyapps/react-native-quick-sqlite` has
+  no web implementation, so the web build (`pnpm --filter mobile web` /
+  pressing `w`) fails the same way Expo Go does. PowerSync does support web via
+  a separate `@powersync/web` package (WASM SQLite over IndexedDB), but wiring
+  up a platform-specific PowerSync database factory (native SQLite on
+  mobile, WASM on web) hasn't been done - a real gap, not just an
+  inconvenience, since it blocks the desktop (Tauri-wraps-web) story below too.
 - **Desktop (Tauri)**: not scaffolded yet by design (see the mobile-first
-  decision on this branch) - the plan is to wrap this same Expo web build once
-  the core workflow is validated on mobile.
+  decision on this branch) - also now blocked on the web PowerSync gap above,
+  in addition to Tauri itself not being scaffolded.
 - **Gmail/Calendar Google integration**: `calendar_events` has
   `google_calendar_id`/`google_event_id`/`last_synced_at` columns and the
   calendar UI tolerates them being null (shows "Not synced with Google
