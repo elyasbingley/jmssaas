@@ -5,6 +5,11 @@ export const createClientSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   notes: z.string().optional(),
+  address_line1: z.string().optional(),
+  address_line2: z.string().optional(),
+  suburb: z.string().optional(),
+  state: z.string().optional(),
+  postcode: z.string().optional(),
 });
 export type CreateClientInput = z.infer<typeof createClientSchema>;
 
@@ -39,6 +44,12 @@ export const createJobNoteSchema = z.object({
 });
 export type CreateJobNoteInput = z.infer<typeof createJobNoteSchema>;
 
+export const createTaskNoteSchema = z.object({
+  task_id: z.string().uuid(),
+  body: z.string().min(1, "Note can't be empty"),
+});
+export type CreateTaskNoteInput = z.infer<typeof createTaskNoteSchema>;
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -62,7 +73,8 @@ export const createQuoteSchema = z.object({
   client_id: z.string().uuid(),
   job_card_id: z.string().uuid().optional(),
   template_id: z.string().uuid().optional(),
-  quote_number: z.string().min(1, "Quote number is required"),
+  // Not user-entered - assigned by a Postgres trigger on insert (QT001,
+  // QT002, ...). See the ux_overhaul migration.
   expiry_date: z.string().date().optional(),
   notes: z.string().optional(),
   line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
@@ -73,7 +85,8 @@ export const createInvoiceSchema = z.object({
   client_id: z.string().uuid(),
   job_card_id: z.string().uuid().optional(),
   quote_id: z.string().uuid().optional(),
-  invoice_number: z.string().min(1, "Invoice number is required"),
+  // Not user-entered - assigned by a Postgres trigger on insert (INV001,
+  // INV002, ...). See the ux_overhaul migration.
   due_date: z.string().date().optional(),
   notes: z.string().optional(),
   line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
@@ -83,6 +96,8 @@ export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export const createCalendarEventSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
+  location: z.string().optional(),
+  guests: z.string().optional(),
   start_at: z.string().datetime(),
   end_at: z.string().datetime(),
   all_day: z.boolean().default(false),

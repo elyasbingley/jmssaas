@@ -3,9 +3,10 @@
 #
 # Only the tables required to be offline-editable per Phase 1 scope are
 # synced to devices: clients, client_sites, job_cards (+ notes/files) and
-# tasks, plus profiles as a read-only reference for names/roles. Quotes,
-# invoices, templates and calendar events are office/PC workflows and are
-# read directly from Supabase when online, not synced to local SQLite.
+# tasks (+ notes/files), plus profiles as a read-only reference for
+# names/roles. Quotes, invoices, templates and calendar events are office/PC
+# workflows and are read directly from Supabase when online, not synced to
+# local SQLite.
 #
 # Bucket split by role (previously one tenant-wide bucket for everyone):
 #
@@ -78,6 +79,8 @@ bucket_definitions:
       - select * from job_notes where tenant_id = bucket.tenant_id
       - select * from job_files where tenant_id = bucket.tenant_id
       - select * from tasks where tenant_id = bucket.tenant_id
+      - select * from task_notes where tenant_id = bucket.tenant_id
+      - select * from task_files where tenant_id = bucket.tenant_id
 
   technician_assigned_jobs:
     parameters: select id as job_card_id from job_cards where assigned_technician_id = request.user_id()
@@ -86,8 +89,12 @@ bucket_definitions:
       - select * from job_notes where job_card_id = bucket.job_card_id
       - select * from job_files where job_card_id = bucket.job_card_id
       - select * from tasks where job_card_id = bucket.job_card_id
+      - select * from task_notes where job_card_id = bucket.job_card_id
+      - select * from task_files where job_card_id = bucket.job_card_id
 
   technician_own_tasks:
     parameters: select request.user_id() as user_id
     data:
       - select * from tasks where assigned_to = bucket.user_id
+      - select * from task_notes where assigned_to = bucket.user_id
+      - select * from task_files where assigned_to = bucket.user_id

@@ -40,6 +40,13 @@ export interface Client {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  // Primary business address, distinct from ClientSite (which models
+  // per-job site addresses - a client can have several, this is just one).
+  address_line1: string | null;
+  address_line2: string | null;
+  suburb: string | null;
+  state: string | null;
+  postcode: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -65,6 +72,10 @@ export interface JobCard {
   tenant_id: string;
   client_id: string;
   site_id: string | null;
+  // Auto-assigned by a Postgres trigger on insert (see the ux_overhaul
+  // migration) - null on a device until this row round-trips through a
+  // sync after creation (see docs/SETUP.md known-gaps for why).
+  number: string | null;
   title: string;
   description: string | null;
   status: JobStatus;
@@ -103,6 +114,8 @@ export interface Task {
   id: string;
   tenant_id: string;
   job_card_id: string | null;
+  // Auto-assigned by a Postgres trigger on insert - see JobCard.number.
+  number: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -111,6 +124,27 @@ export interface Task {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskNote {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskFile {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 export interface Template {
@@ -188,6 +222,8 @@ export interface CalendarEvent {
   tenant_id: string;
   title: string;
   description: string | null;
+  location: string | null;
+  guests: string | null;
   start_at: string;
   end_at: string;
   all_day: boolean;

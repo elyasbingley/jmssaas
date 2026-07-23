@@ -22,6 +22,11 @@ const clients = new Table(
     email: column.text,
     phone: column.text,
     notes: column.text,
+    address_line1: column.text,
+    address_line2: column.text,
+    suburb: column.text,
+    state: column.text,
+    postcode: column.text,
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
@@ -51,6 +56,9 @@ const job_cards = new Table(
     tenant_id: column.text,
     client_id: column.text,
     site_id: column.text,
+    // Assigned server-side on insert (see the ux_overhaul migration) - null
+    // locally until this row round-trips through a sync after creation.
+    number: column.text,
     title: column.text,
     description: column.text,
     status: column.text,
@@ -93,6 +101,8 @@ const tasks = new Table(
   {
     tenant_id: column.text,
     job_card_id: column.text,
+    // Assigned server-side on insert - see job_cards.number above.
+    number: column.text,
     title: column.text,
     description: column.text,
     status: column.text,
@@ -105,8 +115,38 @@ const tasks = new Table(
   { indexes: { job: ["job_card_id"], assignee: ["assigned_to"] } }
 );
 
-// Tracks local download/upload state for job_files attachments (photos).
-// See lib/attachments.ts in apps/mobile for the queue that drives this.
+// Notes/files attached to a task - same shape as job_notes/job_files,
+// offline-capable so a technician can add a note or photo to a task with no
+// reception, same as job cards.
+const task_notes = new Table(
+  {
+    tenant_id: column.text,
+    task_id: column.text,
+    author_id: column.text,
+    body: column.text,
+    created_at: column.text,
+  },
+  { indexes: { task: ["task_id"] } }
+);
+
+const task_files = new Table(
+  {
+    tenant_id: column.text,
+    task_id: column.text,
+    storage_path: column.text,
+    file_name: column.text,
+    mime_type: column.text,
+    size_bytes: column.integer,
+    uploaded_by: column.text,
+    created_at: column.text,
+  },
+  { indexes: { task: ["task_id"] } }
+);
+
+// Tracks local download/upload state for job_files/task_files attachments
+// (photos). See lib/attachments.ts in apps/mobile for the queue that drives
+// this - one AttachmentTable is shared by both, since PowerSync's queue is
+// keyed by attachment id, not by which parent table it belongs to.
 const attachments = new AttachmentTable();
 
 export const AppSchema = new Schema({
@@ -117,6 +157,8 @@ export const AppSchema = new Schema({
   job_notes,
   job_files,
   tasks,
+  task_notes,
+  task_files,
   attachments,
 });
 

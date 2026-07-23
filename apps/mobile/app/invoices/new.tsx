@@ -34,7 +34,6 @@ export default function NewInvoiceScreen() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
-  const [invoiceNumber, setInvoiceNumber] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([emptyLineItem(0)]);
@@ -54,7 +53,6 @@ export default function NewInvoiceScreen() {
     const result = createInvoiceSchema.safeParse({
       client_id: client?.id,
       job_card_id: jobCard?.id,
-      invoice_number: invoiceNumber,
       due_date: dueDate || undefined,
       notes,
       line_items: lineItems,
@@ -77,7 +75,6 @@ export default function NewInvoiceScreen() {
         tenant_id: profile.tenant_id,
         client_id: result.data.client_id,
         job_card_id: result.data.job_card_id ?? null,
-        invoice_number: result.data.invoice_number,
         status: "draft",
         issue_date: now.slice(0, 10),
         due_date: result.data.due_date ?? null,
@@ -136,14 +133,6 @@ export default function NewInvoiceScreen() {
             {jobCard?.title ?? (client ? "Select a job card" : "Pick a client first")}
           </Text>
         </Pressable>
-
-        <Text style={styles.sectionTitle}>Invoice number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. INV-1001"
-          value={invoiceNumber}
-          onChangeText={setInvoiceNumber}
-        />
 
         <Text style={styles.sectionTitle}>Due date (optional)</Text>
         <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={dueDate} onChangeText={setDueDate} />

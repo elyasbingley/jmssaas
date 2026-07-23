@@ -35,7 +35,6 @@ export default function NewQuoteScreen() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
-  const [quoteNumber, setQuoteNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([emptyLineItem(0)]);
@@ -55,7 +54,6 @@ export default function NewQuoteScreen() {
     const result = createQuoteSchema.safeParse({
       client_id: client?.id,
       job_card_id: jobCard?.id,
-      quote_number: quoteNumber,
       expiry_date: expiryDate || undefined,
       notes,
       line_items: lineItems,
@@ -78,7 +76,6 @@ export default function NewQuoteScreen() {
         tenant_id: profile.tenant_id,
         client_id: result.data.client_id,
         job_card_id: result.data.job_card_id ?? null,
-        quote_number: result.data.quote_number,
         status: "draft",
         issue_date: now.slice(0, 10),
         expiry_date: result.data.expiry_date ?? null,
@@ -141,9 +138,6 @@ export default function NewQuoteScreen() {
             {jobCard?.title ?? (client ? "Select a job card" : "Pick a client first")}
           </Text>
         </Pressable>
-
-        <Text style={styles.sectionTitle}>Quote number</Text>
-        <TextInput style={styles.input} placeholder="e.g. Q-1001" value={quoteNumber} onChangeText={setQuoteNumber} />
 
         <Text style={styles.sectionTitle}>Expiry date (optional)</Text>
         <TextInput
