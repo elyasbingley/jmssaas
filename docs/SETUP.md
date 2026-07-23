@@ -183,6 +183,39 @@ list screens to move between sections.
 
 ## Known gaps / next steps
 
+- **PowerSync connection stuck in a loop after sign-in - fixed**: confirmed
+  against a real Android device (once the dev-build fix below let the app
+  actually run) - after signing in, the app sat on "Setting up your account"
+  forever, with nothing in the Metro logs but PowerSync's own `Trying to
+  close for the second time` warning repeated indefinitely. Root cause,
+  confirmed by reading `@powersync/common`'s actual source rather than
+  guessed: the `useEffect` in `auth-context.tsx` that calls
+  `connectPowerSync()` depended on the Supabase `session` *object*, which
+  gets replaced with a new reference on more than just sign-in/out -
+  notably the immediate `INITIAL_SESSION` emission right after subscribing,
+  and periodic `TOKEN_REFRESHED` events. PowerSync's `ConnectionManager`
+  treats every `connect()` call as "abort whatever's in flight and restart
+  with the latest parameters" (by design, for legitimate reconnect
+  scenarios), so the extra, spurious `connect()` calls meant the sync
+  connection kept getting aborted before it could ever finish - it never
+  crashed, it just never completed. Fixed by keying the effect on
+  `session?.user.id` instead (a stable string that only changes on an
+  actual sign-in/sign-out/user-switch), and confirmed `connector.ts`'s
+  `fetchCredentials` was already doing the right thing independently
+  (fetches a fresh Supabase token on every call, not a stale closed-over
+  value) - PowerSync's SDK calls that itself whenever it needs a new token,
+  so the effect never needed to force a reconnect for token refresh anyway.
+  Also added dev-gated debug logging (`apps/mobile/lib/powersync.ts`, via
+  `@powersync/common`'s `createBaseLogger()` - confirmed against the
+  installed package's actual API, not assumed) so a similar issue would
+  surface PowerSync's own connection-attempt logs instead of just the bare
+  warning next time. **This fix is confirmed from reading the actual
+  PowerSync source (`ConnectionManager.connect()`'s documented
+  abort-and-restart behavior, and the exact `Trying to close for the second
+  time` string traced to its RSocket transport layer), not a guess - but it
+  still needs to be verified on the real device again, since there's no way
+  to test an actual PowerSync connection from this sandboxed session (same
+  network policy gap noted throughout this doc).**
 - **Expo Go / web can't run this app - fixed with a development build**:
   confirmed against a real Android device - `@journeyapps/react-native-quick-sqlite`
   (PowerSync's native SQLite module, required by `@powersync/react-native`) was

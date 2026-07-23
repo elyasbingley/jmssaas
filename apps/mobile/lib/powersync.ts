@@ -1,10 +1,30 @@
 import "react-native-get-random-values";
 import { PowerSyncDatabase } from "@powersync/react-native";
-import { AttachmentQueue, AttachmentState, type Transaction, type AttachmentRecord } from "@powersync/common";
+import {
+  AttachmentQueue,
+  AttachmentState,
+  createBaseLogger,
+  LogLevel,
+  type Transaction,
+  type AttachmentRecord,
+} from "@powersync/common";
 import { AppSchema } from "@jmssaas/shared";
 import { v4 as uuidv4 } from "uuid";
 import { SupabaseConnector } from "./connector";
 import { ExpoLocalStorageAdapter, SupabaseRemoteStorageAdapter, jobFileMetaData, watchJobFileAttachments } from "./attachments";
+
+// Dev-only debug logging. PowerSyncDatabase (and everything it creates
+// internally - ConnectionManager, the sync stream implementation, etc.)
+// defaults to a named logger derived from this same base logger, so setting
+// the level here before construction is enough to surface what would
+// otherwise be silent internals: connection attempts, retries, and the
+// underlying cause the next time something like the connect-loop bug in
+// auth-context.tsx produces a bare warning with no context.
+if (__DEV__) {
+  const logger = createBaseLogger();
+  logger.useDefaults();
+  logger.setLevel(LogLevel.DEBUG);
+}
 
 export const powersync = new PowerSyncDatabase({
   schema: AppSchema,
