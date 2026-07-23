@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { calculateDocumentTotals, formatCentsAsAud, type LineItemFormInput, type Quote, type QuoteStatus } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
@@ -8,6 +8,9 @@ import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { LineItemEditor } from "../../../components/LineItemEditor";
+import { CenteredModal } from "../../../components/CenteredModal";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 const STATUS_LABELS: Record<QuoteStatus, string> = {
@@ -18,7 +21,18 @@ const STATUS_LABELS: Record<QuoteStatus, string> = {
   expired: "Expired",
 };
 
-type QuoteRow = Quote & { clients: { name: string } | null };
+type QuoteRow = Quote & { clients: { name: string } | null; job_cards: { title: string } | null };
+
+function parseDate(s: string): Date | null {
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function toDateInput(d: Date | null): string {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function QuoteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,7 +43,7 @@ export default function QuoteDetailScreen() {
 
   const { data, loading, refetch } = useSupabaseFetch(async () => {
     const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
-      supabase.from("quotes").select("*, clients(name)").eq("id", id).single(),
+      supabase.from("quotes").select("*, clients(name), job_cards(title)").eq("id", id).single(),
       supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
     ]);
     if (quoteError) throw quoteError;
@@ -39,12 +53,11 @@ export default function QuoteDetailScreen() {
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
+  const [expiryDate, setExpiryDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [convertVisible, setConvertVisible] = useState(false);
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState<Date | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
 
@@ -52,7 +65,7 @@ export default function QuoteDetailScreen() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.quote.notes ?? "");
-      setExpiryDate(data.quote.expiry_date ?? "");
+      setExpiryDate(parseDate(data.quote.expiry_date ?? ""));
     }
   }, [data]);
 
@@ -71,7 +84,7 @@ export default function QuoteDetailScreen() {
   const persistQuoteAndLineItems = async () => {
     const { error: updateError } = await supabase
       .from("quotes")
-      .update({ notes: notes || null, expiry_date: expiryDate || null })
+      .update({ notes: notes || null, expiry_date: toDateInput(expiryDate) || null })
       .eq("id", id);
     if (updateError) throw updateError;
 
@@ -98,10 +111,6 @@ export default function QuoteDetailScreen() {
 
   const handleConvert = async () => {
     if (!profile || !data) return;
-    if (!invoiceNumber.trim()) {
-      setConvertError("Invoice number is required");
-      return;
-    }
     setConverting(true);
     setConvertError(null);
     try {
@@ -111,10 +120,11 @@ export default function QuoteDetailScreen() {
       // it doesn't take the in-memory editor state as input.
       await persistQuoteAndLineItems();
 
+      // No invoice number passed - the assign_invoice_number trigger
+      // assigns the next INV### automatically, same as every other invoice.
       const { data: invoiceId, error } = await supabase.rpc("convert_quote_to_invoice", {
         p_quote_id: id,
-        p_invoice_number: invoiceNumber.trim(),
-        p_due_date: dueDate || null,
+        p_due_date: toDateInput(dueDate) || null,
       });
       if (error) throw error;
 
@@ -148,6 +158,11 @@ export default function QuoteDetailScreen() {
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Text style={styles.title}>{data.quote.quote_number}</Text>
         <Text style={styles.subtitle}>{data.quote.clients?.name ?? "Unknown client"}</Text>
+        {data.quote.job_cards ? (
+          <Pressable onPress={() => router.push(`/jobs/${data.quote.job_card_id}`)}>
+            <Text style={styles.link}>Job: {data.quote.job_cards.title}</Text>
+          </Pressable>
+        ) : null}
 
         <Text style={styles.sectionTitle}>Status</Text>
         <View style={styles.statusRow}>
@@ -164,20 +179,16 @@ export default function QuoteDetailScreen() {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>Expiry date</Text>
-        <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={expiryDate} onChangeText={setExpiryDate} editable={isAdmin} />
+        <View style={styles.fieldSpacing}>
+          <DateField label="Expiry date" value={expiryDate} onChange={setExpiryDate} mode="date" placeholder="No expiry date" />
+        </View>
 
         <Text style={styles.sectionTitle}>Line items</Text>
         <LineItemEditor items={lineItems} onChange={setLineItems} />
 
-        <Text style={styles.sectionTitle}>Notes</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-          editable={isAdmin}
-        />
+        <View style={styles.fieldSpacing}>
+          <FormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin} />
+        </View>
 
         {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
@@ -194,30 +205,20 @@ export default function QuoteDetailScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={convertVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Convert to invoice</Text>
-            <Text style={styles.modalTotal}>{formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents)}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Invoice number (e.g. INV-1001)"
-              value={invoiceNumber}
-              onChangeText={setInvoiceNumber}
-            />
-            <TextInput style={styles.input} placeholder="Due date (YYYY-MM-DD, optional)" value={dueDate} onChangeText={setDueDate} />
-            {convertError ? <Text style={styles.error}>{convertError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setConvertVisible(false)}>
-                <Text style={styles.link}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.saveButton} onPress={handleConvert} disabled={converting}>
-                <Text style={styles.saveButtonText}>{converting ? "Converting..." : "Create invoice"}</Text>
-              </Pressable>
-            </View>
-          </View>
+      <CenteredModal visible={convertVisible} onClose={() => setConvertVisible(false)}>
+        <Text style={styles.modalTitle}>Convert to invoice</Text>
+        <Text style={styles.modalTotal}>{formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents)}</Text>
+        <DateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+        {convertError ? <Text style={styles.error}>{convertError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setConvertVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.saveButton} onPress={handleConvert} disabled={converting}>
+            <Text style={styles.saveButtonText}>{converting ? "Converting..." : "Create invoice"}</Text>
+          </Pressable>
         </View>
-      </Modal>
+      </CenteredModal>
     </>
   );
 }
@@ -232,7 +233,7 @@ const styles = StyleSheet.create({
   statusChipActive: { backgroundColor: "#1d4ed8" },
   statusChipText: { color: "#374151", fontWeight: "600" },
   statusChipTextActive: { color: "#fff" },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
@@ -240,10 +241,8 @@ const styles = StyleSheet.create({
   convertButton: { borderRadius: 8, padding: 14, alignItems: "center", marginTop: 12, backgroundColor: "#f3f4f6" },
   convertButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 16 },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
   modalTitle: { fontSize: 18, fontWeight: "700" },
   modalTotal: { fontSize: 22, fontWeight: "800", color: "#111827" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
+  link: { color: "#1d4ed8", fontWeight: "600", marginTop: 4 },
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import type { Invoice, InvoiceStatus, LineItemFormInput } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
@@ -8,6 +8,8 @@ import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { LineItemEditor } from "../../../components/LineItemEditor";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -18,17 +20,29 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
   void: "Void",
 };
 
-type InvoiceRow = Invoice & { clients: { name: string } | null };
+type InvoiceRow = Invoice & { clients: { name: string } | null; job_cards: { title: string } | null };
+
+function parseDate(s: string): Date | null {
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function toDateInput(d: Date | null): string {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
 
   const { data, loading, refetch } = useSupabaseFetch(async () => {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
-      supabase.from("invoices").select("*, clients(name)").eq("id", id).single(),
+      supabase.from("invoices").select("*, clients(name), job_cards(title)").eq("id", id).single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
     ]);
     if (invoiceError) throw invoiceError;
@@ -38,7 +52,7 @@ export default function InvoiceDetailScreen() {
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -46,7 +60,7 @@ export default function InvoiceDetailScreen() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.invoice.notes ?? "");
-      setDueDate(data.invoice.due_date ?? "");
+      setDueDate(parseDate(data.invoice.due_date ?? ""));
     }
   }, [data]);
 
@@ -62,7 +76,7 @@ export default function InvoiceDetailScreen() {
     try {
       const { error: updateError } = await supabase
         .from("invoices")
-        .update({ notes: notes || null, due_date: dueDate || null })
+        .update({ notes: notes || null, due_date: toDateInput(dueDate) || null })
         .eq("id", id);
       if (updateError) throw updateError;
 
@@ -105,6 +119,11 @@ export default function InvoiceDetailScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
       <Text style={styles.title}>{data.invoice.invoice_number}</Text>
       <Text style={styles.subtitle}>{data.invoice.clients?.name ?? "Unknown client"}</Text>
+      {data.invoice.job_cards ? (
+        <Pressable onPress={() => router.push(`/jobs/${data.invoice.job_card_id}`)}>
+          <Text style={styles.link}>Job: {data.invoice.job_cards.title}</Text>
+        </Pressable>
+      ) : null}
 
       <Text style={styles.sectionTitle}>Status</Text>
       <View style={styles.statusRow}>
@@ -121,20 +140,16 @@ export default function InvoiceDetailScreen() {
         ))}
       </View>
 
-      <Text style={styles.sectionTitle}>Due date</Text>
-      <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={dueDate} onChangeText={setDueDate} editable={isAdmin} />
+      <View style={styles.fieldSpacing}>
+        <DateField label="Due date" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+      </View>
 
       <Text style={styles.sectionTitle}>Line items</Text>
       <LineItemEditor items={lineItems} onChange={setLineItems} />
 
-      <Text style={styles.sectionTitle}>Notes</Text>
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        value={notes}
-        onChangeText={setNotes}
-        multiline
-        editable={isAdmin}
-      />
+      <View style={styles.fieldSpacing}>
+        <FormField label="Notes" placeholder="Payment terms, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin} />
+      </View>
 
       {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
@@ -157,10 +172,11 @@ const styles = StyleSheet.create({
   statusChipActive: { backgroundColor: "#1d4ed8" },
   statusChipText: { color: "#374151", fontWeight: "600" },
   statusChipTextActive: { color: "#fff" },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
   saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
+  link: { color: "#1d4ed8", fontWeight: "600", marginTop: 4 },
 });

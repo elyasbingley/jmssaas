@@ -6,7 +6,6 @@ import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
-import { AppNavBar } from "../../../components/AppNavBar";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
@@ -36,7 +35,6 @@ export default function QuotesScreen() {
   if (!isOnline) {
     return (
       <View style={styles.container}>
-        <AppNavBar />
         <RequiresConnectionNotice label="Quotes" />
       </View>
     );
@@ -44,7 +42,6 @@ export default function QuotesScreen() {
 
   return (
     <View style={styles.container}>
-      <AppNavBar />
       <FlatList
         data={quotes ?? []}
         keyExtractor={(item) => item.id}

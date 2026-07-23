@@ -36,6 +36,14 @@ export function jobFileMetaData(tenantId: string, jobCardId: string): string {
   return `${tenantId}/${jobCardId}`;
 }
 
+// Task file objects live under a `<tenant_id>/task-<task_id>/` prefix in the
+// same job-files bucket (see the storage policies added in the ux_overhaul
+// migration) - the `task-` marker is what lets those policies tell a task
+// file's folder apart from a job file's folder, since both share one bucket.
+export function taskFileMetaData(tenantId: string, taskId: string): string {
+  return `${tenantId}/task-${taskId}`;
+}
+
 export class ExpoLocalStorageAdapter implements LocalStorageAdapter {
   async initialize(): Promise<void> {
     await this.makeDir(ATTACHMENTS_DIR);
@@ -110,14 +118,20 @@ export class SupabaseRemoteStorageAdapter implements RemoteStorageAdapter {
   }
 }
 
-// Every row in job_files is a photo/file that should exist as an attachment.
-// This drives both directions: a job_files row synced down from another
-// device (no local attachment record yet) gets queued for download; one
-// created locally already has its attachment record from addJobPhoto below.
-export function watchJobFileAttachments(db: AbstractPowerSyncDatabase) {
+// Every row in job_files or task_files is a photo/file that should exist as
+// an attachment. This drives both directions: a row synced down from
+// another device (no local attachment record yet) gets queued for
+// download; one created locally already has its attachment record from
+// addJobPhoto/addTaskPhoto in lib/powersync.ts. Both tables feed the same
+// AttachmentQueue (see the AttachmentTable comment in
+// packages/shared/src/powersync/schema.ts), so this watches both with one
+// combined query rather than running two separate AttachmentQueues.
+export function watchFileAttachments(db: AbstractPowerSyncDatabase) {
   return (onUpdate: (items: WatchedAttachmentItem[]) => Promise<void>, signal: AbortSignal) => {
     db.watch(
-      "SELECT id, file_name, mime_type, tenant_id, job_card_id FROM job_files",
+      `SELECT id, file_name, mime_type, tenant_id, job_card_id, NULL as task_id FROM job_files
+       UNION ALL
+       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, task_id FROM task_files`,
       [],
       {
         onResult: (result: { rows?: { _array: any[] } }) => {
@@ -125,7 +139,9 @@ export function watchJobFileAttachments(db: AbstractPowerSyncDatabase) {
             id: row.id,
             filename: row.file_name,
             mediaType: row.mime_type ?? undefined,
-            metaData: jobFileMetaData(row.tenant_id, row.job_card_id),
+            metaData: row.job_card_id
+              ? jobFileMetaData(row.tenant_id, row.job_card_id)
+              : taskFileMetaData(row.tenant_id, row.task_id),
           }));
           void onUpdate(items);
         },

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createTaskSchema, type Task, type TaskStatus } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
-import { AppNavBar } from "../../../components/AppNavBar";
+import { CenteredModal } from "../../../components/CenteredModal";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -15,6 +17,11 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 type StatusFilter = TaskStatus | "all";
+
+function toDateInput(d: Date | null): string | undefined {
+  if (!d) return undefined;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function TasksScreen() {
   const router = useRouter();
@@ -41,14 +48,21 @@ export default function TasksScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState<Date | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setDueDate(null);
+    setFormError(null);
+  };
 
   const handleCreate = async () => {
     const result = createTaskSchema.safeParse({
       title,
       description,
-      due_date: dueDate || undefined,
+      due_date: toDateInput(dueDate),
     });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Invalid task");
@@ -72,17 +86,12 @@ export default function TasksScreen() {
       ]
     );
 
-    setTitle("");
-    setDescription("");
-    setDueDate("");
-    setFormError(null);
+    resetForm();
     setModalVisible(false);
   };
 
   return (
     <View style={styles.container}>
-      <AppNavBar />
-
       <View style={styles.filterRow}>
         {(["all", ...STATUSES] as StatusFilter[]).map((status) => (
           <Pressable
@@ -103,7 +112,10 @@ export default function TasksScreen() {
         renderItem={({ item }) => (
           <Pressable style={styles.row} onPress={() => router.push(`/tasks/${item.id}`)}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{item.title}</Text>
+              <View style={styles.rowTitleRow}>
+                <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
+                <Text style={styles.rowTitle}>{item.title}</Text>
+              </View>
               {item.due_date ? <Text style={styles.rowSubtitle}>Due {item.due_date}</Text> : null}
             </View>
             <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
@@ -119,41 +131,39 @@ export default function TasksScreen() {
         </Pressable>
       ) : null}
 
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New task</Text>
-            <TextInput style={styles.input} placeholder="Title" value={title} onChangeText={setTitle} />
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              placeholder="Description"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Due date (YYYY-MM-DD)"
-              value={dueDate}
-              onChangeText={setDueDate}
-            />
-            {formError ? <Text style={styles.error}>{formError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => {
-                  setModalVisible(false);
-                  setFormError(null);
-                }}
-              >
-                <Text style={styles.link}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.button} onPress={handleCreate}>
-                <Text style={styles.buttonText}>Save</Text>
-              </Pressable>
-            </View>
-          </View>
+      <CenteredModal
+        visible={modalVisible}
+        onClose={() => {
+          setModalVisible(false);
+          resetForm();
+        }}
+      >
+        <Text style={styles.modalTitle}>New task</Text>
+        <FormField label="Title" placeholder="Task title" value={title} onChangeText={setTitle} />
+        <FormField
+          label="Description (optional)"
+          placeholder="Description"
+          value={description}
+          onChangeText={setDescription}
+          multiline
+          style={styles.multiline}
+        />
+        <DateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+        {formError ? <Text style={styles.error}>{formError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable
+            onPress={() => {
+              setModalVisible(false);
+              resetForm();
+            }}
+          >
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={handleCreate}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
         </View>
-      </Modal>
+      </CenteredModal>
     </View>
   );
 }
@@ -173,6 +183,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#f0f0f0",
   },
+  rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
   rowTitle: { fontSize: 16, fontWeight: "600" },
   rowSubtitle: { color: "#6b7280", marginTop: 2 },
   statusBadge: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
@@ -189,10 +201,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   fabText: { color: "#fff", fontWeight: "700" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, gap: 12 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },

@@ -11,7 +11,13 @@ import {
 import { AppSchema } from "@jmssaas/shared";
 import { v4 as uuidv4 } from "uuid";
 import { SupabaseConnector } from "./connector";
-import { ExpoLocalStorageAdapter, SupabaseRemoteStorageAdapter, jobFileMetaData, watchJobFileAttachments } from "./attachments";
+import {
+  ExpoLocalStorageAdapter,
+  SupabaseRemoteStorageAdapter,
+  jobFileMetaData,
+  taskFileMetaData,
+  watchFileAttachments,
+} from "./attachments";
 
 // Dev-only debug logging. PowerSyncDatabase (and everything it creates
 // internally - ConnectionManager, the sync stream implementation, etc.)
@@ -59,7 +65,7 @@ export const attachmentQueue = new AttachmentQueue({
   db: powersync,
   localStorage: new ExpoLocalStorageAdapter(),
   remoteStorage: new SupabaseRemoteStorageAdapter(),
-  watchAttachments: watchJobFileAttachments(powersync),
+  watchAttachments: watchFileAttachments(powersync),
 });
 
 let syncStarted = false;
@@ -110,6 +116,46 @@ export async function addJobPhoto(params: {
           params.tenantId,
           params.jobCardId,
           `${params.tenantId}/${params.jobCardId}/${fileName}`,
+          fileName,
+          params.mediaType,
+          attachment.size ?? null,
+          params.uploadedBy,
+          new Date().toISOString(),
+        ]
+      );
+    },
+  });
+}
+
+// Same pattern as addJobPhoto, for task photo attachments (section 6 of the
+// UX pass - tasks reach parity with job cards for notes/photos).
+export async function addTaskPhoto(params: {
+  tenantId: string;
+  taskId: string;
+  uploadedBy: string;
+  imageArrayBuffer: ArrayBuffer;
+  mediaType: string;
+  fileExtension: string;
+}): Promise<void> {
+  const id = uuidv4();
+  const fileName = `${id}.${params.fileExtension}`;
+
+  await attachmentQueue.saveFile({
+    id,
+    data: params.imageArrayBuffer,
+    fileExtension: params.fileExtension,
+    mediaType: params.mediaType,
+    metaData: taskFileMetaData(params.tenantId, params.taskId),
+    updateHook: async (tx: Transaction, attachment: AttachmentRecord) => {
+      await tx.execute(
+        `INSERT INTO task_files
+           (id, tenant_id, task_id, storage_path, file_name, mime_type, size_bytes, uploaded_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          attachment.id,
+          params.tenantId,
+          params.taskId,
+          `${params.tenantId}/task-${params.taskId}/${fileName}`,
           fileName,
           params.mediaType,
           attachment.size ?? null,

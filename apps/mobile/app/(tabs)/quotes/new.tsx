@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -15,15 +15,26 @@ import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
-import { AppNavBar } from "../../../components/AppNavBar";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { LineItemEditor, emptyLineItem } from "../../../components/LineItemEditor";
 import { PickerModal } from "../../../components/PickerModal";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
+
+function toDateInput(d: Date | null): string {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function NewQuoteScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  // Cross-linking: arriving here from a job card's "+ New quote for this
+  // job" button pre-fills and locks the client/job so the created quote
+  // automatically links back (job_card_id), matching how the job then shows
+  // it in its own linked-quotes list.
+  const { jobCardId, clientId } = useLocalSearchParams<{ jobCardId?: string; clientId?: string }>();
 
   const { data: clients } = useQuery<Client>("SELECT * FROM clients ORDER BY name");
 
@@ -35,7 +46,7 @@ export default function NewQuoteScreen() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
-  const [expiryDate, setExpiryDate] = useState("");
+  const [expiryDate, setExpiryDate] = useState<Date | null>(null);
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([emptyLineItem(0)]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -50,11 +61,25 @@ export default function NewQuoteScreen() {
     [client?.id ?? ""]
   );
 
+  const lockedFromJob = !!jobCardId;
+
+  useEffect(() => {
+    if (clientId && clients.length > 0 && !client) {
+      setClient(clients.find((c) => c.id === clientId) ?? null);
+    }
+  }, [clientId, clients, client]);
+
+  useEffect(() => {
+    if (jobCardId && clientJobCards.length > 0 && !jobCard) {
+      setJobCard(clientJobCards.find((j) => j.id === jobCardId) ?? null);
+    }
+  }, [jobCardId, clientJobCards, jobCard]);
+
   const handleSubmit = async () => {
     const result = createQuoteSchema.safeParse({
       client_id: client?.id,
       job_card_id: jobCard?.id,
-      expiry_date: expiryDate || undefined,
+      expiry_date: toDateInput(expiryDate) || undefined,
       notes,
       line_items: lineItems,
     });
@@ -122,30 +147,30 @@ export default function NewQuoteScreen() {
     <>
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Text style={styles.sectionTitle}>Client</Text>
-        <Pressable style={styles.pickerField} onPress={() => setClientPickerVisible(true)}>
+        <Pressable
+          style={styles.pickerField}
+          onPress={() => !lockedFromJob && setClientPickerVisible(true)}
+          disabled={lockedFromJob}
+        >
           <Text style={client ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
             {client?.name ?? "Select a client"}
           </Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Linked job card (optional)</Text>
+        <Text style={styles.sectionTitle}>Linked job card{lockedFromJob ? "" : " (optional)"}</Text>
         <Pressable
           style={styles.pickerField}
-          onPress={() => client && setJobPickerVisible(true)}
-          disabled={!client}
+          onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
+          disabled={!client || lockedFromJob}
         >
           <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
             {jobCard?.title ?? (client ? "Select a job card" : "Pick a client first")}
           </Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Expiry date (optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="YYYY-MM-DD"
-          value={expiryDate}
-          onChangeText={setExpiryDate}
-        />
+        <View style={styles.fieldSpacing}>
+          <DateField label="Expiry date (optional)" value={expiryDate} onChange={setExpiryDate} mode="date" placeholder="No expiry date" />
+        </View>
 
         {templates && templates.length > 0 ? (
           <Pressable style={styles.templateButton} onPress={() => setTemplatePickerVisible(true)}>
@@ -156,14 +181,16 @@ export default function NewQuoteScreen() {
         <Text style={styles.sectionTitle}>Line items</Text>
         <LineItemEditor items={lineItems} onChange={setLineItems} />
 
-        <Text style={styles.sectionTitle}>Notes (optional)</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          placeholder="Terms, exclusions, etc."
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-        />
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Notes (optional)"
+            placeholder="Terms, exclusions, etc."
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            style={styles.multiline}
+          />
+        </View>
 
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
 
@@ -209,7 +236,7 @@ export default function NewQuoteScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   pickerFieldText: { fontSize: 16, color: "#111827" },

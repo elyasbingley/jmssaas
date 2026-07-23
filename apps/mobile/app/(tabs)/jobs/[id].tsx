@@ -1,21 +1,27 @@
 import { useState } from "react";
-import { Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
   createJobNoteSchema,
   createTaskSchema,
+  type Invoice,
   type JobCard,
   type JobNote,
   type JobStatus,
+  type Quote,
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
 import { addJobPhoto } from "../../../lib/powersync";
+import { FormField } from "../../../components/FormField";
+import { PhotoAttachments } from "../../../components/PhotoAttachments";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -39,7 +45,6 @@ const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = {
 
 interface JobFileWithLocalUri {
   id: string;
-  file_name: string;
   local_uri: string | null;
 }
 
@@ -48,6 +53,7 @@ export default function JobDetailScreen() {
   const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
+  const isOnline = useIsOnline();
 
   const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [id]);
   const job = jobRows[0];
@@ -63,13 +69,30 @@ export default function JobDetailScreen() {
   );
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, jf.file_name, a.local_uri
+    `SELECT jf.id, a.local_uri
        FROM job_files jf
        LEFT JOIN attachments a ON a.id = jf.id
       WHERE jf.job_card_id = ?
       ORDER BY jf.created_at DESC`,
     [id]
   );
+
+  // Quotes/invoices are online-only (see docs/SETUP.md), so unlike the rest
+  // of this screen they're fetched straight from Supabase rather than a
+  // PowerSync-watched local query, same as the quotes/invoices list screens.
+  const { data: linkedQuotes } = useSupabaseFetch<Quote[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("quotes").select("*").eq("job_card_id", id);
+    if (error) throw error;
+    return (data ?? []) as Quote[];
+  }, [id, isOnline]);
+
+  const { data: linkedInvoices } = useSupabaseFetch<Invoice[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("invoices").select("*").eq("job_card_id", id);
+    if (error) throw error;
+    return (data ?? []) as Invoice[];
+  }, [id, isOnline]);
 
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -119,37 +142,17 @@ export default function JobDetailScreen() {
     setNoteError(null);
   };
 
-  const pickAndUpload = async (source: "camera" | "library") => {
+  const handleUploadPhoto = async (photo: { base64: string; mimeType: string; fileExtension: string }) => {
     if (!profile || !job) return;
-
-    const permission =
-      source === "camera"
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Enable photo access in Settings to attach photos to job cards.");
-      return;
-    }
-
-    const pickerOptions: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], base64: true, quality: 0.6 };
-    const result =
-      source === "camera"
-        ? await ImagePicker.launchCameraAsync(pickerOptions)
-        : await ImagePicker.launchImageLibraryAsync(pickerOptions);
-
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    if (!asset?.base64) return;
-
     setUploading(true);
     try {
       await addJobPhoto({
         tenantId: profile.tenant_id,
         jobCardId: id,
         uploadedBy: profile.id,
-        imageArrayBuffer: decodeBase64(asset.base64),
-        mediaType: asset.mimeType ?? "image/jpeg",
-        fileExtension: asset.mimeType?.includes("png") ? "png" : "jpg",
+        imageArrayBuffer: decodeBase64(photo.base64),
+        mediaType: photo.mimeType,
+        fileExtension: photo.fileExtension,
       });
     } finally {
       setUploading(false);
@@ -167,6 +170,7 @@ export default function JobDetailScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.section}>
+        <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
         <Text style={styles.title}>{job.title}</Text>
         {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
       </View>
@@ -189,6 +193,46 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Quotes</Text>
+        {(linkedQuotes ?? []).map((q) => (
+          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/quotes/${q.id}`)}>
+            <Text style={styles.linkedRowText}>{q.quote_number}</Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
+        {isOnline ? (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push({ pathname: "/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+          >
+            <Text style={styles.linkButtonText}>+ New quote for this job</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.empty}>Connect to view or create quotes.</Text>
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Invoices</Text>
+        {(linkedInvoices ?? []).map((inv) => (
+          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/invoices/${inv.id}`)}>
+            <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
+        {isOnline ? (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push({ pathname: "/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+          >
+            <Text style={styles.linkButtonText}>+ New invoice for this job</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.empty}>Connect to view or create invoices.</Text>
+        )}
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Tasks</Text>
         {jobTasks.map((t) => (
           <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
@@ -207,12 +251,9 @@ export default function JobDetailScreen() {
         {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
         {profile?.role === "admin" ? (
           <View style={styles.addTaskRow}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="Add a task..."
-              value={taskTitle}
-              onChangeText={setTaskTitle}
-            />
+            <View style={{ flex: 1 }}>
+              <FormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
+            </View>
             <Pressable style={styles.button} onPress={handleAddTask}>
               <Text style={styles.buttonText}>Add</Text>
             </Pressable>
@@ -222,41 +263,13 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Photos {uploading ? "(uploading...)" : ""}</Text>
-        <FlatList
-          horizontal
-          data={files}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) =>
-            item.local_uri ? (
-              <Image source={{ uri: item.local_uri }} style={styles.photo} />
-            ) : (
-              <View style={[styles.photo, styles.photoPending]}>
-                <Text style={styles.photoPendingText}>Syncing...</Text>
-              </View>
-            )
-          }
-          ListEmptyComponent={<Text style={styles.empty}>No photos yet.</Text>}
-        />
-        <View style={styles.photoActions}>
-          <Pressable style={styles.button} onPress={() => pickAndUpload("camera")}>
-            <Text style={styles.buttonText}>Take photo</Text>
-          </Pressable>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => pickAndUpload("library")}>
-            <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Choose photo</Text>
-          </Pressable>
-        </View>
+        <Text style={styles.sectionTitle}>Photos</Text>
+        <PhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notes</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          placeholder="Add a note..."
-          value={noteText}
-          onChangeText={setNoteText}
-          multiline
-        />
+        <FormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
         {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
         <Pressable style={[styles.button, styles.addNoteButton]} onPress={handleAddNote}>
           <Text style={styles.buttonText}>Add note</Text>
@@ -276,6 +289,7 @@ export default function JobDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
   title: { fontSize: 20, fontWeight: "700" },
   description: { marginTop: 6, color: "#374151" },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
@@ -284,6 +298,10 @@ const styles = StyleSheet.create({
   statusChipActive: { backgroundColor: "#1d4ed8" },
   statusChipText: { color: "#374151", fontWeight: "600" },
   statusChipTextActive: { color: "#fff" },
+  linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  linkedRowText: { color: "#1d4ed8", fontWeight: "600" },
+  linkButton: { marginTop: 10, alignSelf: "flex-start" },
+  linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
   taskRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -295,17 +313,10 @@ const styles = StyleSheet.create({
   taskRowTitle: { fontSize: 15, color: "#111827", flex: 1, marginRight: 8 },
   taskStatusBadge: { backgroundColor: "#f3f4f6", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   taskStatusBadgeText: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-  addTaskRow: { flexDirection: "row", gap: 8, marginTop: 12, alignItems: "center" },
-  photo: { width: 96, height: 96, borderRadius: 8, marginRight: 8, backgroundColor: "#e5e7eb" },
-  photoPending: { alignItems: "center", justifyContent: "center" },
-  photoPendingText: { fontSize: 11, color: "#6b7280" },
-  photoActions: { flexDirection: "row", gap: 12, marginTop: 12 },
+  addTaskRow: { flexDirection: "row", gap: 8, marginTop: 12, alignItems: "flex-end" },
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  buttonSecondary: { backgroundColor: "#f3f4f6" },
   buttonText: { color: "#fff", fontWeight: "600" },
-  buttonSecondaryText: { color: "#1d4ed8" },
   addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 6 },
   noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },

@@ -6,7 +6,6 @@ import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
-import { AppNavBar } from "../../../components/AppNavBar";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -36,7 +35,6 @@ export default function InvoicesScreen() {
   if (!isOnline) {
     return (
       <View style={styles.container}>
-        <AppNavBar />
         <RequiresConnectionNotice label="Invoices" />
       </View>
     );
@@ -44,7 +42,6 @@ export default function InvoicesScreen() {
 
   return (
     <View style={styles.container}>
-      <AppNavBar />
       <FlatList
         data={invoices ?? []}
         keyExtractor={(item) => item.id}
