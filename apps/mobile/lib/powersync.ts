@@ -20,10 +20,32 @@ import { ExpoLocalStorageAdapter, SupabaseRemoteStorageAdapter, jobFileMetaData,
 // otherwise be silent internals: connection attempts, retries, and the
 // underlying cause the next time something like the connect-loop bug in
 // auth-context.tsx produces a bare warning with no context.
+//
+// Deliberately not using logger.useDefaults(): js-logger's built-in handler
+// routes DEBUG-level messages through console.debug specifically (see
+// js-logger's createDefaultHandler), and console.debug is not reliably
+// forwarded to the Metro terminal on a Hermes-based dev build the way
+// console.log/warn/error are - React Native's own JS console-forwarding
+// shim only runs when console._isPolyfilled is set, which is a legacy
+// JSC-only flag that Hermes doesn't set. That mismatch is a plausible
+// explanation for debug output going missing entirely, so this handler
+// avoids console.debug altogether and always logs through console.log
+// (or console.warn/console.error, which are already confirmed to reach
+// the terminal) instead.
 if (__DEV__) {
   const logger = createBaseLogger();
-  logger.useDefaults();
   logger.setLevel(LogLevel.DEBUG);
+  logger.setHandler((messages, context) => {
+    const args = Array.prototype.slice.call(messages);
+    if (context.name) args.unshift(`[${context.name}]`);
+    if (context.level === LogLevel.WARN) {
+      console.warn(...args);
+    } else if (context.level === LogLevel.ERROR) {
+      console.error(...args);
+    } else {
+      console.log(`[${context.level.name}]`, ...args);
+    }
+  });
 }
 
 export const powersync = new PowerSyncDatabase({

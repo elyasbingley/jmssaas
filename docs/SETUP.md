@@ -216,6 +216,31 @@ list screens to move between sections.
   still needs to be verified on the real device again, since there's no way
   to test an actual PowerSync connection from this sandboxed session (same
   network policy gap noted throughout this doc).**
+- **Debug logging added above produced zero output on device - fixed**:
+  after pulling the fix and doing a full fresh reload with a cleared Metro
+  cache, the app still showed only the bare `Trying to close for the
+  second time` warning - not even a single DEBUG-level connection-attempt
+  line. Traced to `js-logger` (the library `createBaseLogger()` wraps):
+  its built-in `useDefaults()` handler hardcodes `console.debug` as the
+  console method for `LogLevel.DEBUG` specifically (confirmed by reading
+  `js-logger`'s actual source, `createDefaultHandler`'s console-method
+  selection). Separately confirmed that React Native's own JS shim for
+  forwarding console output to the Metro terminal
+  (`setUpDeveloperTools.js`) only runs when `console._isPolyfilled` is
+  set, which is a legacy JSC-only flag - Hermes (this project's engine)
+  doesn't set it, so that forwarding path is dead code here and log
+  forwarding instead depends on Hermes's own native console handling,
+  which this session has no way to verify treats `console.debug` the same
+  as `console.log`/`warn`/`error`. Rather than guess, `powersync.ts` now
+  uses `logger.setHandler(...)` with a custom handler instead of
+  `useDefaults()`, so DEBUG/INFO/TRACE-level messages always go through
+  `console.log` (WARN/ERROR still go through `console.warn`/`console.error`,
+  which are already confirmed to reach the terminal). **The `console.debug`
+  root cause is confirmed from `js-logger`'s source; whether it's the
+  *complete* explanation for the zero-output symptom is not fully provable
+  from this sandbox (Hermes's native console behavior isn't something we
+  can inspect here) - but the fix removes the dependency on that unverified
+  behavior either way. Needs real-device re-verification.**
 - **Expo Go / web can't run this app - fixed with a development build**:
   confirmed against a real Android device - `@journeyapps/react-native-quick-sqlite`
   (PowerSync's native SQLite module, required by `@powersync/react-native`) was
