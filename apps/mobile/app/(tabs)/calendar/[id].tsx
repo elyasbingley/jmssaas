@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { CalendarEvent } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
-import { combineLocalDateTimeToIso, isoToLocalDateInput, isoToLocalTimeInput } from "../../../lib/datetime";
+import { openInMaps } from "../../../lib/maps";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 
 type CalendarEventRow = CalendarEvent & {
   job_cards: { title: string; assigned_technician_id: string | null } | null;
@@ -38,10 +40,10 @@ export default function CalendarEventDetailScreen() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [guests, setGuests] = useState("");
+  const [start, setStart] = useState<Date | null>(null);
+  const [end, setEnd] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -49,18 +51,15 @@ export default function CalendarEventDetailScreen() {
     if (event) {
       setTitle(event.title);
       setDescription(event.description ?? "");
-      setStartDate(isoToLocalDateInput(event.start_at));
-      setStartTime(isoToLocalTimeInput(event.start_at));
-      setEndDate(isoToLocalDateInput(event.end_at));
-      setEndTime(isoToLocalTimeInput(event.end_at));
+      setLocation(event.location ?? "");
+      setGuests(event.guests ?? "");
+      setStart(new Date(event.start_at));
+      setEnd(new Date(event.end_at));
     }
   }, [event]);
 
   const handleSave = async () => {
-    if (!event) return;
-    const startIso = combineLocalDateTimeToIso(startDate, event.all_day ? "00:00" : startTime);
-    const endIso = combineLocalDateTimeToIso(endDate, event.all_day ? "23:59" : endTime);
-    if (!startIso || !endIso || !title.trim()) {
+    if (!event || !start || !end || !title.trim()) {
       setSaveError("Title, start and end are required");
       return;
     }
@@ -73,8 +72,10 @@ export default function CalendarEventDetailScreen() {
         .update({
           title: title.trim(),
           description: description || null,
-          start_at: startIso,
-          end_at: endIso,
+          location: location || null,
+          guests: guests || null,
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
         })
         .eq("id", id);
       if (error) throw error;
@@ -118,32 +119,37 @@ export default function CalendarEventDetailScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.sectionTitle}>Title</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} editable={!!canEdit} />
+      <FormField label="Title" value={title} onChangeText={setTitle} editable={!!canEdit} />
 
-      <Text style={styles.sectionTitle}>Description</Text>
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        editable={!!canEdit}
-      />
+      <View style={styles.fieldSpacing}>
+        <DateField label="Start" value={start} onChange={setStart} mode={event.all_day ? "date" : "datetime"} />
+      </View>
+      <View style={styles.fieldSpacing}>
+        <DateField label="End" value={end} onChange={setEnd} mode={event.all_day ? "date" : "datetime"} />
+      </View>
 
-      <Text style={styles.sectionTitle}>Start</Text>
-      <View style={styles.dateTimeRow}>
-        <TextInput style={[styles.input, { flex: 1 }]} value={startDate} onChangeText={setStartDate} editable={!!canEdit} />
-        {!event.all_day ? (
-          <TextInput style={[styles.input, styles.timeInput]} value={startTime} onChangeText={setStartTime} editable={!!canEdit} />
+      <View style={styles.fieldSpacing}>
+        <FormField label="Guests" placeholder="No guests" value={guests} onChangeText={setGuests} editable={!!canEdit} autoCapitalize="none" />
+      </View>
+
+      <View style={styles.fieldSpacing}>
+        <FormField label="Location" placeholder="No location" value={location} onChangeText={setLocation} editable={!!canEdit} />
+        {location ? (
+          <Pressable onPress={() => openInMaps(location)}>
+            <Text style={styles.mapsLink}>Open in Maps</Text>
+          </Pressable>
         ) : null}
       </View>
 
-      <Text style={styles.sectionTitle}>End</Text>
-      <View style={styles.dateTimeRow}>
-        <TextInput style={[styles.input, { flex: 1 }]} value={endDate} onChangeText={setEndDate} editable={!!canEdit} />
-        {!event.all_day ? (
-          <TextInput style={[styles.input, styles.timeInput]} value={endTime} onChangeText={setEndTime} editable={!!canEdit} />
-        ) : null}
+      <View style={styles.fieldSpacing}>
+        <FormField
+          label="Description / link"
+          value={description}
+          onChangeText={setDescription}
+          multiline
+          style={styles.multiline}
+          editable={!!canEdit}
+        />
       </View>
 
       {event.job_cards ? (
@@ -180,11 +186,9 @@ export default function CalendarEventDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
-  dateTimeRow: { flexDirection: "row", gap: 8 },
-  timeInput: { width: 90 },
+  mapsLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6 },
   link: { color: "#1d4ed8", fontWeight: "600", marginTop: 16 },
   googleSyncNotice: { color: "#9ca3af", fontSize: 12, marginTop: 16 },
   error: { color: "#dc2626", marginTop: 12 },

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { FormField } from "../components/FormField";
 import { useAuth } from "../lib/auth-context";
 
@@ -23,27 +23,30 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Bingley Job Management</Text>
-      <FormField
-        label="Email"
-        placeholder="you@example.com"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <FormField label="Password" placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable style={styles.button} onPress={handleSubmit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
-      </Pressable>
-    </View>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <View style={styles.container}>
+        <Text style={styles.title}>Bingley Job Management</Text>
+        <FormField
+          label="Email"
+          placeholder="you@example.com"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <FormField label="Password" placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <Pressable style={styles.button} onPress={handleSubmit} disabled={submitting}>
+          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 16, textAlign: "center" },
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },

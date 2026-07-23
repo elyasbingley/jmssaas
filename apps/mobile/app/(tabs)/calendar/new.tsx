@@ -1,16 +1,21 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createCalendarEventSchema, type JobCard, type Task } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
-import { combineLocalDateTimeToIso } from "../../../lib/datetime";
 import { supabase } from "../../../lib/supabase";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { PickerModal } from "../../../components/PickerModal";
+import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 
+// Google-Calendar-style single creation flow: title, start, end, guests,
+// location, description/link, all in one screen rather than a multi-step
+// wizard. Start/end use DateField in "datetime" mode (one control per
+// field, not separate date+time text inputs like the previous version).
 export default function NewCalendarEventScreen() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -21,10 +26,11 @@ export default function NewCalendarEventScreen() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [guests, setGuests] = useState("");
+  const now = new Date();
+  const [start, setStart] = useState<Date>(now);
+  const [end, setEnd] = useState<Date>(new Date(now.getTime() + 60 * 60 * 1000));
   const [allDay, setAllDay] = useState(false);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
   const [task, setTask] = useState<Task | null>(null);
@@ -34,19 +40,19 @@ export default function NewCalendarEventScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    const startIso = combineLocalDateTimeToIso(startDate, allDay ? "00:00" : startTime);
-    const endIso = combineLocalDateTimeToIso(endDate || startDate, allDay ? "23:59" : endTime);
     const result = createCalendarEventSchema.safeParse({
       title,
       description,
-      start_at: startIso ?? undefined,
-      end_at: endIso ?? undefined,
+      location,
+      guests,
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
       all_day: allDay,
       job_card_id: jobCard?.id,
       task_id: task?.id,
     });
     if (!result.success) {
-      setFormError(result.error.issues[0]?.message ?? "Check the date and time fields");
+      setFormError(result.error.issues[0]?.message ?? "Check the form for errors");
       return;
     }
     if (!profile) return;
@@ -61,6 +67,8 @@ export default function NewCalendarEventScreen() {
           tenant_id: profile.tenant_id,
           title: result.data.title,
           description: result.data.description || null,
+          location: result.data.location || null,
+          guests: result.data.guests || null,
           start_at: result.data.start_at,
           end_at: result.data.end_at,
           all_day: result.data.all_day,
@@ -90,36 +98,42 @@ export default function NewCalendarEventScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.sectionTitle}>Title</Text>
-        <TextInput style={styles.input} placeholder="e.g. Roof inspection - Smith residence" value={title} onChangeText={setTitle} />
-
-        <Text style={styles.sectionTitle}>Description (optional)</Text>
-        <TextInput style={[styles.input, styles.multiline]} value={description} onChangeText={setDescription} multiline />
+        <FormField
+          label="Title"
+          placeholder="e.g. Roof inspection - Smith residence"
+          value={title}
+          onChangeText={setTitle}
+        />
 
         <Pressable style={styles.allDayRow} onPress={() => setAllDay((v) => !v)}>
           <View style={[styles.checkbox, allDay && styles.checkboxChecked]} />
           <Text style={styles.allDayLabel}>All day</Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Start</Text>
-        <View style={styles.dateTimeRow}>
-          <TextInput style={[styles.input, { flex: 1 }]} placeholder="YYYY-MM-DD" value={startDate} onChangeText={setStartDate} />
-          {!allDay ? (
-            <TextInput style={[styles.input, styles.timeInput]} placeholder="HH:MM" value={startTime} onChangeText={setStartTime} />
-          ) : null}
+        <View style={styles.fieldSpacing}>
+          <DateField label="Start" value={start} onChange={setStart} mode={allDay ? "date" : "datetime"} />
+        </View>
+        <View style={styles.fieldSpacing}>
+          <DateField label="End" value={end} onChange={setEnd} mode={allDay ? "date" : "datetime"} />
         </View>
 
-        <Text style={styles.sectionTitle}>End</Text>
-        <View style={styles.dateTimeRow}>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            placeholder="YYYY-MM-DD (defaults to start date)"
-            value={endDate}
-            onChangeText={setEndDate}
+        <View style={styles.fieldSpacing}>
+          <FormField label="Guests (optional)" placeholder="email@example.com, another@example.com" value={guests} onChangeText={setGuests} autoCapitalize="none" />
+        </View>
+
+        <View style={styles.fieldSpacing}>
+          <FormField label="Location (optional)" placeholder="Address" value={location} onChangeText={setLocation} />
+        </View>
+
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Description / link (optional)"
+            placeholder="Notes, video call link, etc."
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            style={styles.multiline}
           />
-          {!allDay ? (
-            <TextInput style={[styles.input, styles.timeInput]} placeholder="HH:MM" value={endTime} onChangeText={setEndTime} />
-          ) : null}
         </View>
 
         <Text style={styles.sectionTitle}>Linked job card (optional)</Text>
@@ -166,10 +180,8 @@ export default function NewCalendarEventScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16 },
+  fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
-  dateTimeRow: { flexDirection: "row", gap: 8 },
-  timeInput: { width: 90 },
   allDayRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
   checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: "#9ca3af" },
   checkboxChecked: { backgroundColor: "#1d4ed8", borderColor: "#1d4ed8" },
