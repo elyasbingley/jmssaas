@@ -14,8 +14,8 @@ import {
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { addJobPhoto } from "../../lib/powersync";
+import { useAuth } from "../../../lib/auth-context";
+import { addJobPhoto } from "../../../lib/powersync";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
 const STATUS_LABELS: Record<JobStatus, string> = {

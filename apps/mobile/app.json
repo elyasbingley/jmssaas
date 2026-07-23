@@ -36,7 +36,16 @@
           "photosPermission": "Bingley Job Management needs access to your photos to attach them to job cards.",
           "cameraPermission": "Bingley Job Management needs camera access to photograph jobs on site."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Bingley Job Management needs camera access to photograph jobs and tasks on site.",
+          "microphonePermission": "Bingley Job Management does not record audio - this permission is requested by the camera module but unused.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

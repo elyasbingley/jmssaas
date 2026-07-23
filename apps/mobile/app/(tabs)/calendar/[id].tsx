@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { CalendarEvent } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
-import { supabase } from "../../lib/supabase";
-import { combineLocalDateTimeToIso, isoToLocalDateInput, isoToLocalTimeInput } from "../../lib/datetime";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
+import { combineLocalDateTimeToIso, isoToLocalDateInput, isoToLocalTimeInput } from "../../../lib/datetime";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 
 type CalendarEventRow = CalendarEvent & {
   job_cards: { title: string; assigned_technician_id: string | null } | null;

@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { calculateDocumentTotals, formatCentsAsAud, type LineItemFormInput, type Quote, type QuoteStatus } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
-import { supabase } from "../../lib/supabase";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { LineItemEditor } from "../../components/LineItemEditor";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { LineItemEditor } from "../../../components/LineItemEditor";
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 const STATUS_LABELS: Record<QuoteStatus, string> = {

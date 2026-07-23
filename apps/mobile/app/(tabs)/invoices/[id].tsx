@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import type { Invoice, InvoiceStatus, LineItemFormInput } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
-import { supabase } from "../../lib/supabase";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { LineItemEditor } from "../../components/LineItemEditor";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { LineItemEditor } from "../../../components/LineItemEditor";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
 const STATUS_LABELS: Record<InvoiceStatus, string> = {

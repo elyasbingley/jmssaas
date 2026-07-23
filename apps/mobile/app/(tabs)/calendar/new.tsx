@@ -4,12 +4,12 @@ import { useRouter } from "expo-router";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createCalendarEventSchema, type JobCard, type Task } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { combineLocalDateTimeToIso } from "../../lib/datetime";
-import { supabase } from "../../lib/supabase";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../components/PickerModal";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { combineLocalDateTimeToIso } from "../../../lib/datetime";
+import { supabase } from "../../../lib/supabase";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { PickerModal } from "../../../components/PickerModal";
 
 export default function NewCalendarEventScreen() {
   const router = useRouter();

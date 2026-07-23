@@ -11,13 +11,13 @@ import {
   type LineItemFormInput,
   type Template,
 } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
-import { supabase } from "../../lib/supabase";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { LineItemEditor, emptyLineItem } from "../../components/LineItemEditor";
-import { PickerModal } from "../../components/PickerModal";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { LineItemEditor, emptyLineItem } from "../../../components/LineItemEditor";
+import { PickerModal } from "../../../components/PickerModal";
 
 export default function NewInvoiceScreen() {
   const router = useRouter();

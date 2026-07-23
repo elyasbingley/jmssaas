@@ -2,13 +2,13 @@ import { useMemo } from "react";
 import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import type { CalendarEvent } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { useIsOnline } from "../../lib/connectivity";
-import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
-import { supabase } from "../../lib/supabase";
-import { formatEventDateHeading, formatEventTimeRange, isoToLocalDateInput } from "../../lib/datetime";
-import { AppNavBar } from "../../components/AppNavBar";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
+import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { supabase } from "../../../lib/supabase";
+import { formatEventDateHeading, formatEventTimeRange, isoToLocalDateInput } from "../../../lib/datetime";
+import { AppNavBar } from "../../../components/AppNavBar";
+import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 
 export default function CalendarScreen() {
   const router = useRouter();

@@ -31,7 +31,7 @@ function RootNavigator() {
     if (!session && !inAuthGroup) {
       router.replace("/login");
     } else if (session && (inAuthGroup || segments.length === 0)) {
-      router.replace("/clients");
+      router.replace("/");
     }
   }, [session, isLoading, segments, router]);
 
@@ -59,23 +59,13 @@ function RootNavigator() {
     );
   }
 
+  // Only two top-level routes now: the (tabs) group (its own Tabs
+  // navigator, each tab wrapping its own native Stack - see
+  // app/(tabs)/_layout.tsx) and login, outside the tab bar entirely.
   return (
-    <Stack screenOptions={{ headerTitleStyle: { fontWeight: "600" } }}>
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="clients/index" options={{ title: "Clients" }} />
-      <Stack.Screen name="clients/[id]" options={{ title: "Client" }} />
-      <Stack.Screen name="jobs/[id]" options={{ title: "Job card" }} />
-      <Stack.Screen name="tasks/index" options={{ title: "Tasks" }} />
-      <Stack.Screen name="tasks/[id]" options={{ title: "Task" }} />
-      <Stack.Screen name="quotes/index" options={{ title: "Quotes" }} />
-      <Stack.Screen name="quotes/new" options={{ title: "New quote" }} />
-      <Stack.Screen name="quotes/[id]" options={{ title: "Quote" }} />
-      <Stack.Screen name="invoices/index" options={{ title: "Invoices" }} />
-      <Stack.Screen name="invoices/new" options={{ title: "New invoice" }} />
-      <Stack.Screen name="invoices/[id]" options={{ title: "Invoice" }} />
-      <Stack.Screen name="calendar/index" options={{ title: "Calendar" }} />
-      <Stack.Screen name="calendar/new" options={{ title: "New event" }} />
-      <Stack.Screen name="calendar/[id]" options={{ title: "Event" }} />
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="login" />
+      <Stack.Screen name="(tabs)" />
     </Stack>
   );
 }

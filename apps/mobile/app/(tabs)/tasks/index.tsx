@@ -4,8 +4,8 @@ import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createTaskSchema, type Task, type TaskStatus } from "@jmssaas/shared";
-import { useAuth } from "../../lib/auth-context";
-import { AppNavBar } from "../../components/AppNavBar";
+import { useAuth } from "../../../lib/auth-context";
+import { AppNavBar } from "../../../components/AppNavBar";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
