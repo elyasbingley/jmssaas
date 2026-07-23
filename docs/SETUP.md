@@ -154,8 +154,9 @@ present this time.
 
 ## 8. Try Tasks, Quotes/Invoices, and Calendar
 
-Use the nav strip at the top of the Clients/Tasks/Quotes/Invoices/Calendar
-list screens to move between sections.
+Sign-in now lands on a Home screen with a tile per section (Jobs, Quotes,
+Invoices, Tasks, Clients, Calendar); the same sections are also always
+reachable via the bottom tab bar.
 
 - **Tasks** work offline the same way job cards do (PowerSync-synced) -
   create a standalone task or one linked to a job card, tap its status chip
@@ -329,13 +330,19 @@ list screens to move between sections.
   totals both update to match the new set, not the old plus the new).
   `convert_quote_to_invoice` was verified to produce an invoice whose
   totals and line items match the quote's at conversion time.
-- **No native date/time picker**: calendar event start/end times are plain
-  "YYYY-MM-DD" + "HH:MM" text fields (`app/calendar/new.tsx`,
-  `app/calendar/[id].tsx`), matching the plain-text date fields already used
-  for due dates and quote/invoice expiry - functional, but a real date/time
-  picker (`@react-native-community/datetimepicker` or similar) would be a
-  natural follow-up and wasn't added here to avoid introducing a new native
-  dependency mid-task.
+- **No native date/time picker - fixed**: every plain-text date field in the
+  app (due dates, quote/invoice expiry/due dates, calendar start/end) now
+  uses `DateField` (`components/DateField.tsx`), a tappable picker built on
+  `@react-native-community/datetimepicker`, installed via `pnpm add` and
+  confirmed compatible by checking the installed package's own
+  `peerDependencies` against this project's Expo/React Native versions
+  (`expo: ">=52.0.0"`, satisfied by the installed `expo@57.0.7`) rather than
+  assumed. Android has no combined date+time native picker, only separate
+  date and time dialogs, so calendar events (which need both) show them as
+  two sequential steps there; iOS's inline picker supports both in one
+  control. **This needs real-device re-verification** - the same sandbox
+  network-policy gap noted throughout this doc means there's no way to
+  actually open a native date picker from here.
 - **Client/job-card/template pickers are simple filtered lists**: fine at
   Phase 1's scale (one small business), not paginated or virtualized - revisit
   if client/job counts grow large enough to matter.
@@ -350,3 +357,109 @@ list screens to move between sections.
   `@experimental`/`@alpha` upstream as of v1.57. Pin the PowerSync version
   deliberately when upgrading and check their changelog for breaking changes
   to this API specifically.
+
+## UX overhaul pass (labels, date pickers, numbering, navigation, calendar, camera)
+
+This was a large, single pass across the whole app's UI/UX, described up
+front as "the bare minimum for today" with further polish expected in a
+follow-up round. What follows documents the judgment calls made (three were
+flagged explicitly as needing reasoning, not a silent pick) and what's
+scoped down or still needs real-device verification.
+
+- **Sequential reference numbers - job cards/tasks vs. quotes/invoices**:
+  quotes (`QT001`...) and invoices (`INV001`...) are created online-only, so
+  a straightforward per-tenant counter assigned by a Postgres trigger on
+  insert is safe - there's never more than one in-flight insert racing for
+  the next number. Job cards (`J001`...) and tasks (`TSK001`...) are
+  offline-capable via PowerSync, so two technicians could each create one
+  while both offline; a naive "highest existing number + 1 computed on the
+  device" approach would let both compute the same number and collide the
+  moment they sync back up. The chosen approach is **reconcile on sync, not
+  on-device**: the `number` column starts NULL on every job card/task and is
+  only ever assigned by the same trigger mechanism, running in Postgres when
+  the row's upload lands there - never computed by the app. Two technicians
+  creating job cards offline at the same moment can't collide, because by
+  the time either row is actually assigned a number, the trigger has already
+  serialized the two inserts. The tradeoff: an offline-created job
+  card/task shows "Pending sync" instead of a number until the device
+  reconnects and that row round-trips through a sync - never a fabricated or
+  possibly-wrong number. No manual-renumber fallback UI was built, because
+  with this design a genuine collision isn't actually possible - there'd be
+  nothing to renumber. See the long comment block at the top of
+  `supabase/migrations/20260723000100_ux_overhaul.sql` for the full
+  reasoning, and it was functionally verified (not just typechecked)
+  against a local Postgres 16 instance: sequential per-tenant numbers,
+  correctly isolated between tenants, and the `convert_quote_to_invoice` RPC
+  auto-assigning an invoice number too.
+- **Task notes/files - separate tables, not polymorphic**: `task_notes` and
+  `task_files` mirror `job_notes`/`job_files` exactly rather than a single
+  polymorphic "notes"/"files" table with a `parent_type` column. The
+  codebase already has one such pair (job cards); a polymorphic table would
+  still need to look up the parent row in every RLS policy to check
+  assignment, so it wouldn't actually simplify anything - it would just
+  trade two statically-typed tables for one with a runtime-checked
+  discriminant. Both tables carry denormalized `job_card_id`/`assigned_to`
+  columns (copied from the parent task by a trigger on insert) rather than
+  requiring a join in PowerSync sync rules, since `powersync/sync-rules.yaml`
+  already notes that join support in sync-rule *data* queries isn't
+  confirmed against a real PowerSync instance from this sandbox - the same
+  caution applied to job_notes/job_files originally is applied consistently
+  here. Job card and task photo attachments share one `AttachmentQueue` and
+  one local `attachments` table (see `packages/shared/src/powersync/schema.ts`),
+  since PowerSync's queue is keyed by attachment id, not by which parent
+  table it belongs to.
+- **Client primary address vs. `client_sites`**: `client_sites` already
+  modeled job-site addresses (a client can have several, each optionally
+  flagged `is_primary`). The address added to `clients` directly is a
+  different concept - a single "this is where the client is" field that's
+  on file the moment a client is created, without forcing a `client_sites`
+  row to exist just to record an address for the common case (one
+  residential client, one address). Job cards were **not** given their own
+  address column: a job's site address is already covered by `site_id` (a
+  `client_sites` row) when one's picked, and by the client's own new address
+  field as a sensible default otherwise (shown read-only in the job creation
+  flow, not re-entered - see "auto-populate" below) - adding a third,
+  independent address field on `job_cards` itself would just be a place for
+  the other two to drift out of sync with, not a real gap.
+- **Auto-populate on job creation**: job cards have always referenced
+  `client_id` rather than storing a separate copy of the client's
+  name/address/email/phone, so there was never actually a place where those
+  needed retyping - the "auto-populate" work here is making that fact
+  visible in the UI: both job-creation flows (from a client's own page, and
+  from the Jobs tab's client picker) now show a read-only summary of the
+  picked client's contact details the moment a client is selected.
+- **Native dependencies added this pass need a fresh dev build**:
+  `@react-native-community/datetimepicker` and `expo-camera` are native
+  modules with config plugin entries now in `app.json` - like the earlier
+  PowerSync SQLite dependency, a JS-only reload isn't enough, you need
+  `eas build --profile development --platform android` again (see step 6
+  above) before any of the date pickers or the new camera screen will work
+  on device. Not attempted in this session, same reasoning as before (no
+  Expo login/network access from this sandbox).
+- **Calendar month/week/day/year views read the whole event table**: fine
+  at Phase 1 scale, but `app/(tabs)/calendar/index.tsx` fetches every
+  calendar event and filters by date client-side rather than querying a
+  date-range - revisit with a range-scoped fetch if event volume grows
+  enough to matter (same category of scoped-down decision as the
+  unpaginated client/job pickers noted above).
+- **Calendar guests field is free text, not real invitations**: `guests` on
+  a calendar event is a plain comma-separated text field, not validated
+  email addresses and not wired to any invitation/notification mechanism -
+  matches the existing Google Calendar sync gap noted below (no Google
+  Calendar integration yet at all), so "guests" is metadata for now, not a
+  functioning feature.
+- **Custom camera screen (`MultiCaptureCamera`) is unstyled/minimal**: takes
+  photos in one continuous session (the actual ask - not closing after each
+  shot) with a thumbnail strip and Done/Cancel, but has no flash toggle,
+  front/back camera switch, or zoom control. Flagged as a smaller polish
+  item per the "bare minimum for today" framing rather than gold-plated
+  here.
+- **Everything in this pass is confirmed from source/typecheck/local-Postgres
+  testing, not a live device**: same recurring constraint as the rest of
+  this doc - this sandbox's network policy blocks Supabase, PowerSync and
+  EAS, so none of the new UI (date pickers, camera, calendar views, the tab
+  bar's native transitions) has been seen running on an actual phone. The
+  Postgres-level changes (numbering, RLS, storage policies) were
+  functionally verified against a real local Postgres 16 instance, which is
+  a stronger check than typechecking alone but still not the same as an
+  on-device pass.

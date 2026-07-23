@@ -157,14 +157,14 @@ export default function NewQuoteScreen() {
           </Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Linked job card{lockedFromJob ? "" : " (optional)"}</Text>
+        <Text style={styles.sectionTitle}>Linked job{lockedFromJob ? "" : " (optional)"}</Text>
         <Pressable
           style={styles.pickerField}
           onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
           disabled={!client || lockedFromJob}
         >
           <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {jobCard?.title ?? (client ? "Select a job card" : "Pick a client first")}
+            {jobCard?.title ?? (client ? "Select a job" : "Pick a client first")}
           </Text>
         </Pressable>
 
@@ -213,7 +213,7 @@ export default function NewQuoteScreen() {
       />
       <PickerModal
         visible={jobPickerVisible}
-        title="Select job card"
+        title="Select a job"
         items={clientJobCards}
         getKey={(j) => j.id}
         getLabel={(j) => j.title}

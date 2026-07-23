@@ -136,7 +136,7 @@ export default function NewCalendarEventScreen() {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Linked job card (optional)</Text>
+        <Text style={styles.sectionTitle}>Linked job (optional)</Text>
         <Pressable style={styles.pickerField} onPress={() => setJobPickerVisible(true)}>
           <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
             {jobCard?.title ?? "None"}
@@ -157,7 +157,7 @@ export default function NewCalendarEventScreen() {
 
       <PickerModal
         visible={jobPickerVisible}
-        title="Select job card"
+        title="Select a job"
         items={jobCards}
         getKey={(j) => j.id}
         getLabel={(j) => j.title}

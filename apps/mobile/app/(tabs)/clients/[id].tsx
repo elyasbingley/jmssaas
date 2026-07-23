@@ -43,7 +43,7 @@ export default function ClientDetailScreen() {
   const handleCreate = async () => {
     const result = createJobCardSchema.safeParse({ client_id: id, title, description });
     if (!result.success) {
-      setFormError(result.error.issues[0]?.message ?? "Invalid job card");
+      setFormError(result.error.issues[0]?.message ?? "Invalid job");
       return;
     }
     if (!profile) return;
