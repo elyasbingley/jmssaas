@@ -7,6 +7,7 @@ import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { openInMaps } from "../../../lib/maps";
+import { getErrorMessage } from "../../../lib/errors";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
@@ -81,7 +82,8 @@ export default function CalendarEventDetailScreen() {
       if (error) throw error;
       refetch();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Failed to save");
+      console.error("[Calendar] Failed to save event", e);
+      setSaveError(getErrorMessage(e, "Failed to save (see console for details)"));
     } finally {
       setSaving(false);
     }

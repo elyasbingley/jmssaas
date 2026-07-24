@@ -463,3 +463,94 @@ scoped down or still needs real-device verification.
   functionally verified against a real local Postgres 16 instance, which is
   a stronger check than typechecking alone but still not the same as an
   on-device pass.
+
+## Follow-up UI fixes + edit everywhere
+
+This pass followed the first live retest of the UX overhaul above, once the
+`20260723000100_ux_overhaul.sql` migration was confirmed live on the real
+Supabase project (`supabase db push`, applied cleanly, sync confirmed
+working). Six items came out of that retest:
+
+- **Calendar event creation error handling**: traced rather than assumed -
+  `@supabase/postgrest-js@2.110.7`'s `PostgrestError` class was confirmed (by
+  reading its source directly) to extend `Error`, so the pre-existing
+  `e instanceof Error` check in `calendar/new.tsx` was already surfacing the
+  real Postgres/PostgREST message, not swallowing it down to the generic
+  fallback. The original "Failed to create event" report most likely
+  predates the migration going live (it added the `location`/`guests`
+  columns this screen writes to). Regardless, error reporting was improved
+  per the explicit instruction to do so: a new `apps/mobile/lib/errors.ts`
+  helper (`getErrorMessage`) appends `.hint` when present - Postgrest's own
+  doc comment calls `hint` "often the single most useful field" for
+  diagnosing a failure - and both `calendar/new.tsx` and `calendar/[id].tsx`
+  now `console.error` the full error object before showing the formatted
+  message, so `code`/`details` are available in the console even when hint
+  alone isn't enough.
+- **Edit-everywhere audit**: every entity was checked against "does it have
+  a working edit path, not just create/view":
+  - Clients - **was missing**, now added (`clients/[id].tsx`): an Edit link
+    opens a `CenteredModal` pre-filled with the client's current
+    name/phone/email/address/notes, reusing the same `FormField` layout as
+    client creation, saved back to the same row via `powersync.execute`.
+  - Job cards - **was missing** (title/description), now added
+    (`jobs/[id].tsx`): same `CenteredModal`/`FormField` pattern, validated
+    with `createJobCardSchema`.
+  - Tasks - **was missing** (title/description/due date), now added
+    (`tasks/[id].tsx`): same pattern, validated with `createTaskSchema`,
+    reusing `DateField` for the due date.
+  - Quotes and invoices - **verified already fully editable**, not assumed:
+    both screens (`quotes/[id].tsx`, `invoices/[id].tsx`) already have a
+    "Save changes" flow covering notes, expiry/due date, and line items via
+    the `LineItemEditor` + `replace_*_line_items` RPCs added in an earlier
+    pass. No changes needed.
+  - Calendar events - **verified already fully editable**, not assumed:
+    `calendar/[id].tsx` already supports editing title, description,
+    location, guests, and start/end via `DateField`, gated by `canEdit`
+    (admin or the assigned technician/task owner). No changes needed.
+  - RLS was checked, not assumed, for each newly-added edit path: `clients`,
+    `job_cards`, and `tasks` all have an `update own or admin` (or
+    equivalent tenant-scoped) policy with no admin-only restriction, so none
+    of the three new Edit buttons needed role-gating - consistent with the
+    existing ungated status-change controls on the same screens.
+  - Job detail screen also gained a client summary near the top (name,
+    phone, formatted address, tappable through to `/clients/:id`), fetched
+    via a `useQuery<Client>` on `job.client_id` - this was the specific gap
+    called out (job list already showed the client; job detail didn't). A
+    shared `formatClientAddress` helper (`apps/mobile/lib/format.ts`) keeps
+    the client and job detail screens' address formatting from drifting
+    apart.
+- **Camera controls (zoom/flip/flash)**: verified against the installed
+  `expo-camera@57.0.3` type declarations directly (not assumed from training
+  data, per this app's `AGENTS.md`) rather than an older prop shape:
+  `facing?: 'front' | 'back'`, `flash?: 'off' | 'on' | 'auto' | 'screen'`,
+  and `zoom?: number` (0-1, "a percentage of device's max zoom" per its own
+  doc comment - not a calibrated optical multiplier). `MultiCaptureCamera`
+  now has a front/back toggle (`facing`), a flash mode toggle cycling
+  off/on/auto (`flash`), and four zoom preset buttons (0.5x/1x/2x/5x)
+  mapped to fixed points in that 0-1 range.
+  **Known tradeoff**: expo-camera's `zoom` prop has no cross-device way to
+  learn the device's actual maximum zoom factor, so the preset values
+  (`0`, `0`, `0.25`, `0.6`) are a reasonable approximation, not a true
+  0.5x/1x/2x/5x. More significantly, the prop can only zoom *in* from the
+  default lens - there's no way to go wider than 1x through it (that would
+  need switching to an ultra-wide lens via the separate, iOS-only
+  `selectedLens` prop and `getAvailableLensesAsync()`, whose returned lens
+  identifiers aren't portable across devices/platforms in a way that could
+  be reliably mapped to a "0.5x" label). Rather than omit the 0.5x button
+  (which a normal camera app always shows) or build fragile per-platform
+  lens-ID matching, 0.5x is mapped to the same zoom value as 1x - it's a
+  no-op on this API, documented here rather than silently guessed past.
+- **Home screen status bar overlap**: `app/(tabs)/_layout.tsx` sets
+  `headerShown: false` on the whole `Tabs` navigator, and the Home tab
+  (`(tabs)/index.tsx`) is the only screen mounted directly under it with no
+  native header of its own - every other tab (Jobs, Quotes, Invoices,
+  Tasks, Clients, Calendar) wraps its screens in its own `Stack` with a
+  default (shown) header, which already accounts for the safe area. So only
+  Home needed a fix: its root `View` was swapped for `SafeAreaView` (from
+  `react-native-safe-area-context`, `edges={["top"]}`) so the header no
+  longer renders under the status bar/notch. `SafeAreaProvider` was already
+  present at the app root (`app/_layout.tsx`), just unused by any screen
+  until now. The login screen and the two loading/first-sync states in
+  `app/_layout.tsx` were checked and don't need the same fix - their
+  content is vertically centered rather than flush to the top, so there's
+  nothing to sit under the notch.

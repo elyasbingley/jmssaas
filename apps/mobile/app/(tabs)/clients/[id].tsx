@@ -3,8 +3,9 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
+import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
+import { formatClientAddress } from "../../../lib/format";
 import { CenteredModal } from "../../../components/CenteredModal";
 import { FormField } from "../../../components/FormField";
 
@@ -15,12 +16,6 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   completed: "Completed",
   invoiced: "Invoiced",
 };
-
-function formatAddress(client: Client): string | null {
-  const parts = [client.address_line1, client.address_line2, [client.suburb, client.state, client.postcode].filter(Boolean).join(" ")]
-    .filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : null;
-}
 
 export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -63,6 +58,74 @@ export default function ClientDetailScreen() {
     router.push(`/jobs/${jobId}`);
   };
 
+  // --- Edit client ---
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editAddressLine1, setEditAddressLine1] = useState("");
+  const [editAddressLine2, setEditAddressLine2] = useState("");
+  const [editSuburb, setEditSuburb] = useState("");
+  const [editState, setEditState] = useState("");
+  const [editPostcode, setEditPostcode] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEditModal = () => {
+    if (!client) return;
+    setEditName(client.name);
+    setEditPhone(client.phone ?? "");
+    setEditEmail(client.email ?? "");
+    setEditAddressLine1(client.address_line1 ?? "");
+    setEditAddressLine2(client.address_line2 ?? "");
+    setEditSuburb(client.suburb ?? "");
+    setEditState(client.state ?? "");
+    setEditPostcode(client.postcode ?? "");
+    setEditNotes(client.notes ?? "");
+    setEditError(null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    const result = createClientSchema.safeParse({
+      name: editName,
+      phone: editPhone,
+      email: editEmail,
+      address_line1: editAddressLine1,
+      address_line2: editAddressLine2,
+      suburb: editSuburb,
+      state: editState,
+      postcode: editPostcode,
+      notes: editNotes,
+    });
+    if (!result.success) {
+      setEditError(result.error.issues[0]?.message ?? "Invalid client");
+      return;
+    }
+
+    await powersync.execute(
+      `UPDATE clients
+          SET name = ?, phone = ?, email = ?, address_line1 = ?, address_line2 = ?,
+              suburb = ?, state = ?, postcode = ?, notes = ?, updated_at = ?
+        WHERE id = ?`,
+      [
+        result.data.name,
+        result.data.phone || null,
+        result.data.email || null,
+        result.data.address_line1 || null,
+        result.data.address_line2 || null,
+        result.data.suburb || null,
+        result.data.state || null,
+        result.data.postcode || null,
+        result.data.notes || null,
+        new Date().toISOString(),
+        id,
+      ]
+    );
+
+    setEditModalVisible(false);
+  };
+
   if (!client) {
     return (
       <View style={styles.container}>
@@ -71,12 +134,17 @@ export default function ClientDetailScreen() {
     );
   }
 
-  const address = formatAddress(client);
+  const address = formatClientAddress(client);
 
   return (
     <View style={styles.container}>
       <View style={styles.clientHeader}>
-        <Text style={styles.clientName}>{client.name}</Text>
+        <View style={styles.clientHeaderRow}>
+          <Text style={styles.clientName}>{client.name}</Text>
+          <Pressable onPress={openEditModal}>
+            <Text style={styles.link}>Edit</Text>
+          </Pressable>
+        </View>
         {client.phone ? <Text style={styles.clientMeta}>{client.phone}</Text> : null}
         {client.email ? <Text style={styles.clientMeta}>{client.email}</Text> : null}
         {address ? <Text style={styles.clientMeta}>{address}</Text> : null}
@@ -149,6 +217,50 @@ export default function ClientDetailScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit client</Text>
+        <FormField label="Name" placeholder="Client name" value={editName} onChangeText={setEditName} />
+        <FormField label="Phone" placeholder="Phone number" value={editPhone} onChangeText={setEditPhone} keyboardType="phone-pad" />
+        <FormField
+          label="Email"
+          placeholder="client@example.com"
+          value={editEmail}
+          onChangeText={setEditEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <FormField label="Address line 1" placeholder="Street address" value={editAddressLine1} onChangeText={setEditAddressLine1} />
+        <FormField label="Address line 2 (optional)" placeholder="Unit, floor, etc." value={editAddressLine2} onChangeText={setEditAddressLine2} />
+        <View style={styles.addressRow}>
+          <View style={styles.addressRowItem}>
+            <FormField label="Suburb" placeholder="Suburb" value={editSuburb} onChangeText={setEditSuburb} />
+          </View>
+          <View style={styles.addressRowItemSmall}>
+            <FormField label="State" placeholder="e.g. NSW" value={editState} onChangeText={setEditState} autoCapitalize="characters" />
+          </View>
+          <View style={styles.addressRowItemSmall}>
+            <FormField label="Postcode" placeholder="e.g. 2000" value={editPostcode} onChangeText={setEditPostcode} keyboardType="number-pad" />
+          </View>
+        </View>
+        <FormField
+          label="Notes (optional)"
+          placeholder="Notes"
+          value={editNotes}
+          onChangeText={setEditNotes}
+          multiline
+          style={styles.multiline}
+        />
+        {editError ? <Text style={styles.error}>{editError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setEditModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={handleSaveEdit}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+        </View>
+      </CenteredModal>
     </View>
   );
 }
@@ -156,6 +268,7 @@ export default function ClientDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   clientHeader: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb", gap: 4 },
+  clientHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   clientName: { fontSize: 20, fontWeight: "700" },
   clientMeta: { color: "#6b7280" },
   clientNotes: { marginTop: 8, color: "#374151" },
@@ -183,6 +296,9 @@ const styles = StyleSheet.create({
   clientSummaryLabel: { fontSize: 12, fontWeight: "700", color: "#6b7280", marginBottom: 2 },
   clientSummaryText: { fontSize: 15, fontWeight: "600", color: "#111827" },
   clientSummarySub: { fontSize: 13, color: "#6b7280" },
+  addressRow: { flexDirection: "row", gap: 8 },
+  addressRowItem: { flex: 2 },
+  addressRowItemSmall: { flex: 1 },
   multiline: { minHeight: 80, textAlignVertical: "top" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },

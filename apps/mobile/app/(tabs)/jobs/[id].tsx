@@ -5,8 +5,10 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
+  createJobCardSchema,
   createJobNoteSchema,
   createTaskSchema,
+  type Client,
   type Invoice,
   type JobCard,
   type JobNote,
@@ -20,6 +22,8 @@ import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { addJobPhoto } from "../../../lib/powersync";
+import { formatClientAddress } from "../../../lib/format";
+import { CenteredModal } from "../../../components/CenteredModal";
 import { FormField } from "../../../components/FormField";
 import { PhotoAttachments } from "../../../components/PhotoAttachments";
 
@@ -57,6 +61,9 @@ export default function JobDetailScreen() {
 
   const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [id]);
   const job = jobRows[0];
+
+  const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
+  const client = clientRows[0];
 
   const { data: notes } = useQuery<JobNote>(
     "SELECT * FROM job_notes WHERE job_card_id = ? ORDER BY created_at DESC",
@@ -102,6 +109,38 @@ export default function JobDetailScreen() {
 
   const handleStatusChange = async (status: JobStatus) => {
     await powersync.execute("UPDATE job_cards SET status = ? WHERE id = ?", [status, id]);
+  };
+
+  // --- Edit job title/description ---
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEditModal = () => {
+    if (!job) return;
+    setEditTitle(job.title);
+    setEditDescription(job.description ?? "");
+    setEditError(null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    const result = createJobCardSchema.safeParse({
+      client_id: job?.client_id,
+      title: editTitle,
+      description: editDescription,
+    });
+    if (!result.success) {
+      setEditError(result.error.issues[0]?.message ?? "Invalid job");
+      return;
+    }
+
+    await powersync.execute(
+      "UPDATE job_cards SET title = ?, description = ?, updated_at = ? WHERE id = ?",
+      [result.data.title, result.data.description || null, new Date().toISOString(), id]
+    );
+    setEditModalVisible(false);
   };
 
   const handleAddTask = async () => {
@@ -168,11 +207,27 @@ export default function JobDetailScreen() {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.section}>
-        <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
+          <Pressable onPress={openEditModal}>
+            <Text style={styles.link}>Edit</Text>
+          </Pressable>
+        </View>
         <Text style={styles.title}>{job.title}</Text>
         {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
+
+        {client ? (
+          <Pressable style={styles.clientCard} onPress={() => router.push(`/clients/${client.id}`)}>
+            <Text style={styles.clientCardName}>{client.name}</Text>
+            {client.phone ? <Text style={styles.clientCardMeta}>{client.phone}</Text> : null}
+            {formatClientAddress(client) ? (
+              <Text style={styles.clientCardMeta}>{formatClientAddress(client)}</Text>
+            ) : null}
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.section}>
@@ -283,15 +338,45 @@ export default function JobDetailScreen() {
         ))}
       </View>
     </ScrollView>
+
+    <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+      <Text style={styles.modalTitle}>Edit job</Text>
+      <FormField label="Title" placeholder="Job title" value={editTitle} onChangeText={setEditTitle} />
+      <FormField
+        label="Description (optional)"
+        placeholder="Description"
+        value={editDescription}
+        onChangeText={setEditDescription}
+        multiline
+        style={styles.multiline}
+      />
+      {editError ? <Text style={styles.error}>{editError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setEditModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveEdit}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
   title: { fontSize: 20, fontWeight: "700" },
   description: { marginTop: 6, color: "#374151" },
+  link: { color: "#1d4ed8", fontWeight: "600" },
+  clientCard: { marginTop: 12, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, gap: 2 },
+  clientCardName: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  clientCardMeta: { fontSize: 13, color: "#6b7280" },
+  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },

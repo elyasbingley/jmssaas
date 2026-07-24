@@ -4,11 +4,24 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createTaskNoteSchema, type Task, type TaskNote, type TaskStatus } from "@jmssaas/shared";
+import { createTaskNoteSchema, createTaskSchema, type Task, type TaskNote, type TaskStatus } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { addTaskPhoto } from "../../../lib/powersync";
+import { CenteredModal } from "../../../components/CenteredModal";
 import { FormField } from "../../../components/FormField";
+import { DateField } from "../../../components/DateField";
 import { PhotoAttachments } from "../../../components/PhotoAttachments";
+
+function parseDate(s: string): Date | null {
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function toDateInput(d: Date | null): string {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -53,6 +66,42 @@ export default function TaskDetailScreen() {
     await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [status, id]);
   };
 
+  // --- Edit task title/description/due date ---
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDueDate, setEditDueDate] = useState<Date | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEditModal = () => {
+    if (!task) return;
+    setEditTitle(task.title);
+    setEditDescription(task.description ?? "");
+    setEditDueDate(parseDate(task.due_date ?? ""));
+    setEditError(null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    const result = createTaskSchema.safeParse({
+      title: editTitle,
+      description: editDescription,
+      job_card_id: task?.job_card_id ?? undefined,
+      assigned_to: task?.assigned_to ?? undefined,
+      due_date: toDateInput(editDueDate) || undefined,
+    });
+    if (!result.success) {
+      setEditError(result.error.issues[0]?.message ?? "Invalid task");
+      return;
+    }
+
+    await powersync.execute(
+      "UPDATE tasks SET title = ?, description = ?, due_date = ?, updated_at = ? WHERE id = ?",
+      [result.data.title, result.data.description || null, result.data.due_date || null, new Date().toISOString(), id]
+    );
+    setEditModalVisible(false);
+  };
+
   const handleAddNote = async () => {
     const result = createTaskNoteSchema.safeParse({ task_id: id, body: noteText });
     if (!result.success) {
@@ -95,9 +144,15 @@ export default function TaskDetailScreen() {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.section}>
-        <Text style={styles.number}>{task.number ?? "Pending sync"}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.number}>{task.number ?? "Pending sync"}</Text>
+          <Pressable onPress={openEditModal}>
+            <Text style={styles.link}>Edit</Text>
+          </Pressable>
+        </View>
         <Text style={styles.title}>{task.title}</Text>
         {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
         {task.due_date ? <Text style={styles.meta}>Due {task.due_date}</Text> : null}
@@ -149,16 +204,46 @@ export default function TaskDetailScreen() {
         ))}
       </View>
     </ScrollView>
+
+    <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+      <Text style={styles.modalTitle}>Edit task</Text>
+      <FormField label="Title" placeholder="Task title" value={editTitle} onChangeText={setEditTitle} />
+      <FormField
+        label="Description (optional)"
+        placeholder="Description"
+        value={editDescription}
+        onChangeText={setEditDescription}
+        multiline
+        style={styles.multiline}
+      />
+      <View style={styles.fieldSpacing}>
+        <DateField label="Due date (optional)" value={editDueDate} onChange={setEditDueDate} mode="date" />
+      </View>
+      {editError ? <Text style={styles.error}>{editError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setEditModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveEdit}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
   title: { fontSize: 20, fontWeight: "700" },
   description: { marginTop: 6, color: "#374151" },
   meta: { marginTop: 8, color: "#6b7280" },
+  fieldSpacing: { marginTop: 16 },
+  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },

@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth-context";
 
 const TILES = [
@@ -21,7 +22,7 @@ export default function HomeScreen() {
   const { profile, signOut } = useAuth();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Bingley Job Management</Text>
@@ -40,7 +41,7 @@ export default function HomeScreen() {
           </Pressable>
         ))}
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

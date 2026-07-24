@@ -11,6 +11,7 @@ import { RequiresConnectionNotice } from "../../../components/RequiresConnection
 import { PickerModal } from "../../../components/PickerModal";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
+import { getErrorMessage } from "../../../lib/errors";
 
 // Google-Calendar-style single creation flow: title, start, end, guests,
 // location, description/link, all in one screen rather than a multi-step
@@ -81,7 +82,13 @@ export default function NewCalendarEventScreen() {
       if (error) throw error;
       router.replace(`/calendar/${data.id}`);
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Failed to create event");
+      // Log the full error object, not just its message - PostgrestError's
+      // most useful field is often `hint` (the actionable fix), which
+      // getErrorMessage below folds into the displayed string, but the
+      // full object (code/details too) is worth having in the console for
+      // anything that isn't self-explanatory from hint alone.
+      console.error("[Calendar] Failed to create event", e);
+      setFormError(getErrorMessage(e, "Failed to create event (see console for details)"));
     } finally {
       setSubmitting(false);
     }
