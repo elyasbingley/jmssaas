@@ -554,3 +554,174 @@ working). Six items came out of that retest:
   `app/_layout.tsx` were checked and don't need the same fix - their
   content is vertically centered rather than flush to the top, so there's
   nothing to sit under the notch.
+
+## Bug fixes, price book, line-item redesign, PDF generation, nav restructure
+
+A large six-phase pass. Phases were worked in dependency order (Phase 2's
+line-item shape before Phase 3/5, which build on it; Phase 6 was actually
+built *before* finishing Phase 5, despite the numbering, because Phase 6 was
+explicitly framed as existing "just enough to support Phase 5" - the PDF
+needs real company name/ABN/bank details, not blank placeholders).
+
+- **Phase 1 findings**:
+  - **Calendar list not updating after creation** - root cause identified
+    by code reading: `useSupabaseFetch` (the hook behind the online-only
+    quotes/invoices/calendar screens) only fetched on mount. List screens
+    like `calendar/index.tsx` stay mounted in their tab's Stack while you
+    push into a create/detail screen, so a newly-created row was invisible
+    until something else remounted the list. Fixed with a new
+    `useRefetchOnFocus` helper (`expo-router`'s `useFocusEffect`), applied
+    to the three list screens (calendar, quotes, invoices) and to the job
+    detail screen's linked-quotes/invoices, which had the identical bug.
+    Deliberately **not** folded into `useSupabaseFetch` itself - several
+    detail/edit screens (quote/invoice/event detail) seed local editable
+    state from the fetched data via `useEffect`, so a blanket focus-refetch
+    there would silently discard an unsaved in-progress edit the moment the
+    user navigated to a linked screen (e.g. "View linked job") and back.
+  - **DateTimePicker deprecation warning** - confirmed via the installed
+    `@react-native-community/datetimepicker@9.1.0` type declarations that
+    `onChange` is deprecated in favour of separate `onValueChange` (fires
+    only on an actual selection, with a non-optional `date`) and `onDismiss`
+    handlers. `DateField.tsx` updated to the new API.
+  - **"Quote creation doesn't work"** - could not literally reproduce
+    against live Supabase (this sandbox's network policy still blocks it,
+    same recurring constraint as every earlier pass). Code review found a
+    real, confirmed bug instead: `jobs/[id].tsx`'s "+ New quote/invoice for
+    this job" buttons weren't admin-gated, unlike the tab-level "+ New
+    quote" FAB - a non-admin technician could reach the create form, fill
+    it out correctly, and get rejected by the `admin writes - insert` RLS
+    policy on submit, surfacing as a raw Postgres RLS error. Fixed the
+    gating to match the tab-level FAB, and improved error surfacing on both
+    create flows (shows `.hint`, logs the full error) so any remaining
+    failure is diagnosable from the message shown rather than a generic
+    fallback string.
+- **Phase 2 - line item redesign**: the quantity formula was confirmed with
+  the person directly rather than guessed (the reference formula had no
+  quantity term, but a quantity field was also requested):
+  `Line Total = Qty x [(Labour Rate x Hours + Material Cost) x (1 + Markup%)]`.
+  `unit_price_cents` is kept as a real column/field - it now holds that
+  bracketed per-unit price, computed client-side
+  (`computeLineItemUnitPriceCents` in `packages/shared/src/money.ts`) - so
+  the existing GST/subtotal math (`quantity * unit_price_cents`, unchanged
+  since Phase 1 of the original build) never needed to change at all, only
+  what feeds it. Existing quote/invoice line items were backfilled by
+  treating their old `unit_price_cents` as pure material cost with zero
+  labour/markup (the person's own suggested default) - functionally
+  verified against a real local Postgres 16 instance that this leaves every
+  existing quote/invoice's stored totals unchanged to the cent (see
+  `supabase/migrations/20260724000100_line_item_redesign.sql`'s header
+  comment for why that's true by construction). The client-facing/internal
+  split is a new `LineItemSummary` component (description/qty/rate/amount
+  only) alongside the existing `LineItemEditor` (full breakdown, now with
+  in-place-editable rate/hours/material/markup fields, extending the
+  in-place editing the old editor already had for description/qty/price) -
+  `quotes/[id].tsx` and `invoices/[id].tsx` show the summary to non-admins
+  and the editor to admins. "Client-facing" is read as "non-admin", since
+  this app has no separate client login/portal yet - the only actual
+  client-facing artifact is the Phase 5 PDF, which reuses the same summary
+  data.
+- **Phase 3 - price book**: `price_book_categories` / `price_book_items` /
+  `price_book_item_variations`, RLS copied from the already-proven
+  quotes/quote_line_items shape (tenant-wide read, admin-only write) -
+  functionally verified applying cleanly against local Postgres alongside
+  every prior migration. Treated as another online-only, office/PC-workflow
+  data set (`useSupabaseFetch`, not PowerSync) since only admins manage it
+  and quote/invoice creation itself is already online-only. The "Add Line
+  Item" search bar (new `AddLineItemBar` component) does a live, debounced
+  `ilike` search rather than filtering an in-memory list like `PickerModal`
+  does elsewhere, matching the reference "3+ characters" search UX and
+  scaling better if the catalogue grows large. Selecting a result with
+  variations opens a small picker (base pricing or a named variation)
+  before pre-filling the line item; leaving the search blank and tapping
+  "Add custom item" falls through to a blank line item exactly as before.
+- **Phase 4 - navigation restructure**: Jobs/Quotes/Invoices/Clients/Price
+  Book moved from five separate top-level tabs into one Sales tab with its
+  own tile-grid landing screen (`(tabs)/sales/index.tsx`), matching Home's
+  tile pattern. Tasks and Calendar were **not** part of the five sections
+  named for combination, so they stay as their own top-level tabs alongside
+  Home and Sales - a fifth tab slot is left available in the bar for a
+  future Settings tab (not built - see Phase 6 below). Every internal route
+  reference to a moved screen (`/jobs/:id` -> `/sales/jobs/:id`, etc. -
+  there were 25+ across cross-links from earlier passes: job -> quote,
+  quote -> invoice, quote/invoice -> linked job, client -> job, task ->
+  linked job, calendar event -> linked job) was updated and the whole
+  workspace re-typechecks clean. Price Book's own route folder (`items/`,
+  `categories/`) was originally built as a top-level route outside the tabs
+  group in Phase 3 specifically so it wouldn't risk auto-appearing as an
+  unwanted tab-bar icon before Phase 4 had a real home for it; Phase 4 then
+  moved that whole folder under `(tabs)/sales/price-book/` as planned.
+- **Phase 5 - PDF generation**: **on-device generation was chosen**
+  (`expo-print`'s `printToFileAsync` rendering an HTML/CSS template, shared
+  out via `expo-sharing`), over a server-side approach (a Supabase Edge
+  Function generating the PDF). Reasoning: Edge Functions run on Deno
+  Deploy, a lightweight serverless runtime not suited to bundling/launching
+  a full headless browser (size/cold-start constraints) - a Deno-side PDF
+  library without a browser (e.g. `pdf-lib`) means manual coordinate-based
+  layout instead of CSS, which is a much worse fit for "match this specific
+  reference template's fonts/spacing/table styling closely," exactly the
+  concern flagged when asking for this decision to be made deliberately.
+  `expo-print` is a mature first-party Expo API built for exactly this, and
+  the whole quotes/invoices flow is already an on-device, office/PC-workflow
+  screen with no other backend surface - fits the existing architecture
+  with zero new infrastructure. Both packages were verified against their
+  installed v57 type declarations before use (`printToFileAsync(options):
+  Promise<{ uri, numberOfPages, base64? }>`, `Sharing.shareAsync(uri,
+  options)`), and the HTML-building functions (`lib/pdf.ts`) were smoke-
+  tested with `tsx` against fixture data confirming: totals match the
+  Phase 2 formula exactly ($690 subtotal on the confirmed worked example),
+  HTML-escaping works (a client name containing `&`, `<>`, and `"` renders
+  safely), the itemised table never contains labour rate/hours/material/
+  markup figures regardless of who exports it, and bank details appear only
+  on invoices, never quotes. Known gaps: **no reference PDF images were
+  actually available in this session** (the task described them as
+  attached, but this is a text-only conversation) - the layout was built
+  from the detailed textual spec (title/reference number, company block,
+  Bill To, dates, `# / Item & Description / Qty / Rate / Amount` table,
+  Sub Total/GST/Total, notes, bank details) rather than pixel-matched
+  against an actual image, so it should be checked against the real
+  reference once available. The company block is **text-only, no logo
+  image** - this app has no logo upload/storage feature, and adding one
+  wasn't in scope for this pass. Invoices' "Terms" line has no dedicated
+  persisted field (the schema only has `notes`, whose own placeholder text
+  elsewhere in the app - "Payment terms, etc." - already treats it as doing
+  double duty) - rather than add a new column, "Terms" is derived from
+  `due_date` (`"Due <date>"` or `"Due on receipt"`). Rendering fidelity
+  depends on the platform WebView (WKWebView on iOS, a Chromium-based print
+  path on Android), so it isn't pixel-identical cross-platform the way a
+  fixed headless-Chromium pipeline would be - acceptable for a business
+  document, not attempted to be perfected further here. Not seen running on
+  an actual device/print dialog, same sandbox constraint as every other
+  on-device feature in this project.
+- **Phase 6 - company settings**: added as columns on `tenants`
+  (`abn`, `business_address_*`, `license_number`, `bank_account_name`,
+  `bank_account_number`, `bank_bsb`) rather than a new `company_settings`
+  table - `tenants` is already exactly "one row per company" (it already
+  carries `name`), so a 1:1 side table would just be that same row split in
+  two for no structural reason; the business address uses the same
+  structured line1/line2/suburb/state/postcode shape already established
+  for clients/client_sites, for consistency. `tenants` had no UPDATE RLS
+  policy at all before this pass (provisioning went through the service
+  role) - added one, admin-only. The settings screen
+  (`app/company-settings.tsx`) is a single plain screen reached via a small
+  admin-only "Company Settings" link on Home, not a tab - a full Settings
+  tab/section is explicitly deferred, per the person's own instruction; the
+  tab bar has a slot left for it (see Phase 4 above) whenever that's built.
+  Functionally verified against local Postgres: the new admin-only UPDATE
+  policy allows an admin to save all ten fields, confirmed via a live
+  `update ... where id = ...` against a seeded tenant row.
+- **General - dependency installation this pass**: `expo-print` and
+  `expo-sharing` were added for Phase 5. Unlike every earlier native
+  dependency in this project's history, `pnpm install` actually succeeded
+  this time and pulled real packages (`expo-print@57.0.1`,
+  `expo-sharing@57.0.7`) - worth noting since it's a change from the
+  previously-documented "no network access from this sandbox" for anything
+  dependency-related. `npx expo install` itself still failed (its extra
+  React Native Directory compatibility-check network call is blocked
+  separately from the npm registry), so `pnpm install` was used instead and
+  the resolved versions pinned by hand to match. Both packages' APIs were
+  verified against their actual installed type declarations rather than
+  assumed. These are still native modules, so the same "needs a fresh dev
+  build" caveat as every previous native dependency applies -
+  `eas build --profile development --platform android` again before the
+  PDF export button will work on device (not attempted this session, no
+  EAS/Expo login access from this sandbox).

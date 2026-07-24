@@ -66,6 +66,7 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Settings" }} />
     </Stack>
   );
 }

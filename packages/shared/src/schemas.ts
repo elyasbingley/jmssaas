@@ -59,15 +59,49 @@ export const createTaskSchema = z.object({
 });
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
-export const lineItemSchema = z.object({
-  item_type: z.enum(["materials", "labour", "markup", "other"]),
+// Shared by a line item, a price book item, and a price book item variation
+// - all three price the same underlying thing (labour rate/hours, material
+// cost, markup%), just at different points in the pipeline (catalogue entry
+// vs. a specific quote/invoice line).
+export const priceBreakdownSchema = z.object({
+  labour_rate_cents: z.number().int().nonnegative().default(0),
+  labour_hours: z.number().nonnegative().default(0),
+  material_cost_cents: z.number().int().nonnegative().default(0),
+  markup_percent: z.number().nonnegative().default(0),
+});
+
+export const lineItemSchema = priceBreakdownSchema.extend({
   description: z.string().min(1),
   quantity: z.number().positive(),
+  // Derived from the breakdown fields above (see money.ts's
+  // computeLineItemUnitPriceCents) - not directly user-entered, but still
+  // validated here since it's what actually gets persisted and fed into
+  // calculate_line_item_totals.
   unit_price_cents: z.number().int().nonnegative(),
   gst_applicable: z.boolean().default(true),
   sort_order: z.number().int().default(0),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
+
+export const createPriceBookCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreatePriceBookCategoryInput = z.infer<typeof createPriceBookCategorySchema>;
+
+export const createPriceBookItemSchema = priceBreakdownSchema.extend({
+  category_id: z.string().uuid(),
+  description: z.string().min(1, "Description is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
+
+export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
+  price_book_item_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreatePriceBookVariationInput = z.infer<typeof createPriceBookVariationSchema>;
 
 export const createQuoteSchema = z.object({
   client_id: z.string().uuid(),
@@ -92,6 +126,21 @@ export const createInvoiceSchema = z.object({
   line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
 });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+
+export const updateCompanySettingsSchema = z.object({
+  name: z.string().min(1, "Company name is required"),
+  abn: z.string().optional(),
+  business_address_line1: z.string().optional(),
+  business_address_line2: z.string().optional(),
+  business_suburb: z.string().optional(),
+  business_state: z.string().optional(),
+  business_postcode: z.string().optional(),
+  license_number: z.string().optional(),
+  bank_account_name: z.string().optional(),
+  bank_account_number: z.string().optional(),
+  bank_bsb: z.string().optional(),
+});
+export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
 
 export const createCalendarEventSchema = z.object({
   title: z.string().min(1, "Title is required"),

@@ -11,15 +11,17 @@ import {
   type LineItemFormInput,
   type Template,
 } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
-import { supabase } from "../../../lib/supabase";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { LineItemEditor, emptyLineItem } from "../../../components/LineItemEditor";
-import { PickerModal } from "../../../components/PickerModal";
-import { FormField } from "../../../components/FormField";
-import { DateField } from "../../../components/DateField";
+import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
+import { getErrorMessage } from "../../../../lib/errors";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { LineItemEditor } from "../../../../components/LineItemEditor";
+import { emptyLineItem, normalizeLineItem } from "../../../../lib/line-items";
+import { PickerModal } from "../../../../components/PickerModal";
+import { FormField } from "../../../../components/FormField";
+import { DateField } from "../../../../components/DateField";
 
 function toDateInput(d: Date | null): string {
   if (!d) return "";
@@ -117,9 +119,12 @@ export default function NewQuoteScreen() {
           id: uuidv4(),
           tenant_id: profile.tenant_id,
           quote_id: quoteId,
-          item_type: item.item_type,
           description: item.description,
           quantity: item.quantity,
+          labour_rate_cents: item.labour_rate_cents,
+          labour_hours: item.labour_hours,
+          material_cost_cents: item.material_cost_cents,
+          markup_percent: item.markup_percent,
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
@@ -127,9 +132,10 @@ export default function NewQuoteScreen() {
       );
       if (lineItemsError) throw lineItemsError;
 
-      router.replace(`/quotes/${quoteId}`);
+      router.replace(`/sales/quotes/${quoteId}`);
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Failed to create quote");
+      console.error("[Quotes] Failed to create quote", e);
+      setFormError(getErrorMessage(e, "Failed to create quote (see console for details)"));
     } finally {
       setSubmitting(false);
     }
@@ -226,7 +232,7 @@ export default function NewQuoteScreen() {
         items={templates ?? []}
         getKey={(t) => t.id}
         getLabel={(t) => t.name}
-        onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => ({ ...item, sort_order: index })))}
+        onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => normalizeLineItem(item, index)))}
         onClose={() => setTemplatePickerVisible(false)}
       />
     </>

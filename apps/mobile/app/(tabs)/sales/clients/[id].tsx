@@ -4,10 +4,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { formatClientAddress } from "../../../lib/format";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { FormField } from "../../../components/FormField";
+import { useAuth } from "../../../../lib/auth-context";
+import { formatClientAddress } from "../../../../lib/format";
+import { CenteredModal } from "../../../../components/CenteredModal";
+import { FormField } from "../../../../components/FormField";
 
 const STATUS_LABELS: Record<JobStatus, string> = {
   new: "New",
@@ -55,7 +55,7 @@ export default function ClientDetailScreen() {
     setDescription("");
     setFormError(null);
     setModalVisible(false);
-    router.push(`/jobs/${jobId}`);
+    router.push(`/sales/jobs/${jobId}`);
   };
 
   // --- Edit client ---
@@ -156,7 +156,7 @@ export default function ClientDetailScreen() {
         data={jobCards}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/jobs/${item.id}`)}>
+          <Pressable style={styles.row} onPress={() => router.push(`/sales/jobs/${item.id}`)}>
             <View style={{ flex: 1 }}>
               <View style={styles.rowTitleRow}>
                 <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>

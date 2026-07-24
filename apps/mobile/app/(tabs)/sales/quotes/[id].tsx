@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { calculateDocumentTotals, formatCentsAsAud, type LineItemFormInput, type Quote, type QuoteStatus } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
-import { supabase } from "../../../lib/supabase";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { LineItemEditor } from "../../../components/LineItemEditor";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { FormField } from "../../../components/FormField";
-import { DateField } from "../../../components/DateField";
+import { calculateDocumentTotals, formatCentsAsAud, type Client, type LineItemFormInput, type Quote, type QuoteStatus, type Tenant } from "@jmssaas/shared";
+import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
+import { getErrorMessage } from "../../../../lib/errors";
+import { buildQuotePdfHtml } from "../../../../lib/pdf";
+import { exportPdf } from "../../../../lib/print";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { LineItemEditor, LineItemSummary } from "../../../../components/LineItemEditor";
+import { CenteredModal } from "../../../../components/CenteredModal";
+import { FormField } from "../../../../components/FormField";
+import { DateField } from "../../../../components/DateField";
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 const STATUS_LABELS: Record<QuoteStatus, string> = {
@@ -21,7 +24,7 @@ const STATUS_LABELS: Record<QuoteStatus, string> = {
   expired: "Expired",
 };
 
-type QuoteRow = Quote & { clients: { name: string } | null; job_cards: { title: string } | null };
+type QuoteRow = Quote & { clients: Client | null; job_cards: { title: string } | null };
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
@@ -43,7 +46,7 @@ export default function QuoteDetailScreen() {
 
   const { data, loading, refetch } = useSupabaseFetch(async () => {
     const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
-      supabase.from("quotes").select("*, clients(name), job_cards(title)").eq("id", id).single(),
+      supabase.from("quotes").select("*, clients(*), job_cards(title)").eq("id", id).single(),
       supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
     ]);
     if (quoteError) throw quoteError;
@@ -60,6 +63,8 @@ export default function QuoteDetailScreen() {
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (data) {
@@ -109,6 +114,34 @@ export default function QuoteDetailScreen() {
     }
   };
 
+  const handleExportPdf = async () => {
+    if (!data || !profile) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { data: tenant, error: tenantError } = await supabase
+        .from("tenants")
+        .select("*")
+        .eq("id", profile.tenant_id)
+        .single();
+      if (tenantError) throw tenantError;
+      if (!data.quote.clients) throw new Error("This quote has no client on file");
+
+      const html = buildQuotePdfHtml({
+        tenant: tenant as Tenant,
+        quote: data.quote,
+        client: data.quote.clients,
+        lineItems,
+      });
+      await exportPdf(html, `Quote ${data.quote.quote_number}`);
+    } catch (e) {
+      console.error("[Quotes] Failed to export PDF", e);
+      setExportError(getErrorMessage(e, "Failed to export PDF (see console for details)"));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleConvert = async () => {
     if (!profile || !data) return;
     setConverting(true);
@@ -129,7 +162,7 @@ export default function QuoteDetailScreen() {
       if (error) throw error;
 
       setConvertVisible(false);
-      router.replace(`/invoices/${invoiceId}`);
+      router.replace(`/sales/invoices/${invoiceId}`);
     } catch (e) {
       setConvertError(e instanceof Error ? e.message : "Failed to convert to invoice");
     } finally {
@@ -159,7 +192,7 @@ export default function QuoteDetailScreen() {
         <Text style={styles.title}>{data.quote.quote_number}</Text>
         <Text style={styles.subtitle}>{data.quote.clients?.name ?? "Unknown client"}</Text>
         {data.quote.job_cards ? (
-          <Pressable onPress={() => router.push(`/jobs/${data.quote.job_card_id}`)}>
+          <Pressable onPress={() => router.push(`/sales/jobs/${data.quote.job_card_id}`)}>
             <Text style={styles.link}>Job: {data.quote.job_cards.title}</Text>
           </Pressable>
         ) : null}
@@ -184,7 +217,7 @@ export default function QuoteDetailScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Line items</Text>
-        <LineItemEditor items={lineItems} onChange={setLineItems} />
+        {isAdmin ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
 
         <View style={styles.fieldSpacing}>
           <FormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin} />
@@ -197,6 +230,11 @@ export default function QuoteDetailScreen() {
             <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
           </Pressable>
         ) : null}
+
+        {exportError ? <Text style={styles.error}>{exportError}</Text> : null}
+        <Pressable style={styles.convertButton} onPress={handleExportPdf} disabled={exporting}>
+          <Text style={styles.convertButtonText}>{exporting ? "Preparing PDF..." : "Export PDF"}</Text>
+        </Pressable>
 
         {isAdmin ? (
           <Pressable style={styles.convertButton} onPress={() => setConvertVisible(true)}>

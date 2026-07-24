@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import type { CalendarEvent } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { useRefetchOnFocus, useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import {
   addDays,
@@ -31,11 +31,12 @@ export default function CalendarScreen() {
   const { profile } = useAuth();
   const isOnline = useIsOnline();
 
-  const { data: events, loading } = useSupabaseFetch<CalendarEvent[]>(async () => {
+  const { data: events, loading, refetch } = useSupabaseFetch<CalendarEvent[]>(async () => {
     const { data, error } = await supabase.from("calendar_events").select("*").order("start_at", { ascending: true });
     if (error) throw error;
     return (data ?? []) as CalendarEvent[];
   }, [isOnline]);
+  useRefetchOnFocus(refetch);
 
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [anchor, setAnchor] = useState(new Date());

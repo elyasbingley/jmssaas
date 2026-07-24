@@ -17,15 +17,15 @@ import {
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
-import { supabase } from "../../../lib/supabase";
-import { addJobPhoto } from "../../../lib/powersync";
-import { formatClientAddress } from "../../../lib/format";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { FormField } from "../../../components/FormField";
-import { PhotoAttachments } from "../../../components/PhotoAttachments";
+import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
+import { addJobPhoto } from "../../../../lib/powersync";
+import { formatClientAddress } from "../../../../lib/format";
+import { CenteredModal } from "../../../../components/CenteredModal";
+import { FormField } from "../../../../components/FormField";
+import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -87,19 +87,21 @@ export default function JobDetailScreen() {
   // Quotes/invoices are online-only (see docs/SETUP.md), so unlike the rest
   // of this screen they're fetched straight from Supabase rather than a
   // PowerSync-watched local query, same as the quotes/invoices list screens.
-  const { data: linkedQuotes } = useSupabaseFetch<Quote[]>(async () => {
+  const { data: linkedQuotes, refetch: refetchQuotes } = useSupabaseFetch<Quote[]>(async () => {
     if (!isOnline) return [];
     const { data, error } = await supabase.from("quotes").select("*").eq("job_card_id", id);
     if (error) throw error;
     return (data ?? []) as Quote[];
   }, [id, isOnline]);
+  useRefetchOnFocus(refetchQuotes);
 
-  const { data: linkedInvoices } = useSupabaseFetch<Invoice[]>(async () => {
+  const { data: linkedInvoices, refetch: refetchInvoices } = useSupabaseFetch<Invoice[]>(async () => {
     if (!isOnline) return [];
     const { data, error } = await supabase.from("invoices").select("*").eq("job_card_id", id);
     if (error) throw error;
     return (data ?? []) as Invoice[];
   }, [id, isOnline]);
+  useRefetchOnFocus(refetchInvoices);
 
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -220,7 +222,7 @@ export default function JobDetailScreen() {
         {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
 
         {client ? (
-          <Pressable style={styles.clientCard} onPress={() => router.push(`/clients/${client.id}`)}>
+          <Pressable style={styles.clientCard} onPress={() => router.push(`/sales/clients/${client.id}`)}>
             <Text style={styles.clientCardName}>{client.name}</Text>
             {client.phone ? <Text style={styles.clientCardMeta}>{client.phone}</Text> : null}
             {formatClientAddress(client) ? (
@@ -250,41 +252,41 @@ export default function JobDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quotes</Text>
         {(linkedQuotes ?? []).map((q) => (
-          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/quotes/${q.id}`)}>
+          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
             <Text style={styles.linkedRowText}>{q.quote_number}</Text>
           </Pressable>
         ))}
         {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
-        {isOnline ? (
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create quotes.</Text>
+        ) : profile?.role === "admin" ? (
           <Pressable
             style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+            onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
           >
             <Text style={styles.linkButtonText}>+ New quote for this job</Text>
           </Pressable>
-        ) : (
-          <Text style={styles.empty}>Connect to view or create quotes.</Text>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Invoices</Text>
         {(linkedInvoices ?? []).map((inv) => (
-          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/invoices/${inv.id}`)}>
+          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
             <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
           </Pressable>
         ))}
         {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
-        {isOnline ? (
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create invoices.</Text>
+        ) : profile?.role === "admin" ? (
           <Pressable
             style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+            onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
           >
             <Text style={styles.linkButtonText}>+ New invoice for this job</Text>
           </Pressable>
-        ) : (
-          <Text style={styles.empty}>Connect to view or create invoices.</Text>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.section}>

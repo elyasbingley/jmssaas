@@ -11,15 +11,17 @@ import {
   type LineItemFormInput,
   type Template,
 } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
-import { supabase } from "../../../lib/supabase";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { LineItemEditor, emptyLineItem } from "../../../components/LineItemEditor";
-import { PickerModal } from "../../../components/PickerModal";
-import { FormField } from "../../../components/FormField";
-import { DateField } from "../../../components/DateField";
+import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
+import { getErrorMessage } from "../../../../lib/errors";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { LineItemEditor } from "../../../../components/LineItemEditor";
+import { emptyLineItem, normalizeLineItem } from "../../../../lib/line-items";
+import { PickerModal } from "../../../../components/PickerModal";
+import { FormField } from "../../../../components/FormField";
+import { DateField } from "../../../../components/DateField";
 
 function toDateInput(d: Date | null): string {
   if (!d) return "";
@@ -113,9 +115,12 @@ export default function NewInvoiceScreen() {
           id: uuidv4(),
           tenant_id: profile.tenant_id,
           invoice_id: invoiceId,
-          item_type: item.item_type,
           description: item.description,
           quantity: item.quantity,
+          labour_rate_cents: item.labour_rate_cents,
+          labour_hours: item.labour_hours,
+          material_cost_cents: item.material_cost_cents,
+          markup_percent: item.markup_percent,
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
@@ -123,9 +128,10 @@ export default function NewInvoiceScreen() {
       );
       if (lineItemsError) throw lineItemsError;
 
-      router.replace(`/invoices/${invoiceId}`);
+      router.replace(`/sales/invoices/${invoiceId}`);
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Failed to create invoice");
+      console.error("[Invoices] Failed to create invoice", e);
+      setFormError(getErrorMessage(e, "Failed to create invoice (see console for details)"));
     } finally {
       setSubmitting(false);
     }
@@ -222,7 +228,7 @@ export default function NewInvoiceScreen() {
         items={templates ?? []}
         getKey={(t) => t.id}
         getLabel={(t) => t.name}
-        onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => ({ ...item, sort_order: index })))}
+        onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => normalizeLineItem(item, index)))}
         onClose={() => setTemplatePickerVisible(false)}
       />
     </>

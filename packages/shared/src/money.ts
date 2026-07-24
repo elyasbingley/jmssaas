@@ -7,6 +7,20 @@ import type { LineItemInput } from "./types";
 
 export const AU_GST_RATE = 0.1;
 
+// Line Total = Qty x [(Labour Rate x Hours + Material Cost) x (1 + Markup%)],
+// confirmed with the person. This computes the bracketed part - the
+// per-unit price before quantity is applied - which is what's stored as
+// unit_price_cents. Keeping it a separate function (not entangled with
+// lineItemSubtotalCents below) means the GST/subtotal math further down
+// stays completely untouched: it still just does quantity * unit_price_cents,
+// exactly as before this line-item redesign.
+export function computeLineItemUnitPriceCents(
+  item: Pick<LineItemInput, "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent">
+): number {
+  const preMarkupCents = item.labour_rate_cents * item.labour_hours + item.material_cost_cents;
+  return Math.round(preMarkupCents * (1 + item.markup_percent / 100));
+}
+
 export function lineItemSubtotalCents(item: Pick<LineItemInput, "quantity" | "unit_price_cents">): number {
   return Math.round(item.quantity * item.unit_price_cents);
 }

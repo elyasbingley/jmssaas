@@ -3,20 +3,17 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth-context";
 
+// Mirrors the tab bar (Sales, Tasks, Calendar - Home itself isn't a tile of
+// its own). Individual Jobs/Quotes/Invoices/Clients/Price Book tiles used
+// to live here directly; Phase 4 of this pass combined those five into the
+// Sales tab's own tile grid (see sales/index.tsx), so Home just points at
+// the three tabs now instead of duplicating their sub-sections.
 const TILES = [
-  { href: "/jobs", label: "Jobs", emoji: "🛠️" },
-  { href: "/quotes", label: "Quotes", emoji: "📄" },
-  { href: "/invoices", label: "Invoices", emoji: "🧾" },
+  { href: "/sales", label: "Sales", emoji: "💼" },
   { href: "/tasks", label: "Tasks", emoji: "✅" },
-  { href: "/clients", label: "Clients", emoji: "👥" },
   { href: "/calendar", label: "Calendar", emoji: "📅" },
 ] as const;
 
-// Landing screen (was the client list before this pass) - a home base with
-// one tile per section, in the order requested: Jobs, Quotes, Invoices,
-// Tasks, Clients, Calendar. Tapping a tile switches to that section's tab
-// (same route as the bottom tab bar - tabs and tiles both just push to
-// /jobs, /quotes, etc).
 export default function HomeScreen() {
   const router = useRouter();
   const { profile, signOut } = useAuth();
@@ -28,9 +25,16 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>Bingley Job Management</Text>
           {profile ? <Text style={styles.subtitle}>{profile.full_name}</Text> : null}
         </View>
-        <Pressable onPress={signOut}>
-          <Text style={styles.link}>Sign out</Text>
-        </Pressable>
+        <View style={styles.headerLinks}>
+          {profile?.role === "admin" ? (
+            <Pressable onPress={() => router.push("/company-settings")}>
+              <Text style={styles.link}>Company Settings</Text>
+            </Pressable>
+          ) : null}
+          <Pressable onPress={signOut}>
+            <Text style={styles.link}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.grid}>
@@ -56,6 +60,7 @@ const styles = StyleSheet.create({
   },
   greeting: { fontSize: 20, fontWeight: "700" },
   subtitle: { color: "#6b7280", marginTop: 2 },
+  headerLinks: { alignItems: "flex-end", gap: 8 },
   link: { color: "#1d4ed8", fontWeight: "600" },
   grid: { flexDirection: "row", flexWrap: "wrap", padding: 12, gap: 12 },
   tile: {

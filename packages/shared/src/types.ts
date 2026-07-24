@@ -12,13 +12,26 @@ export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired"
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "void";
 
-export type LineItemType = "materials" | "labour" | "markup" | "other";
-
 export type TemplateType = "quote" | "invoice";
 
+// abn/business address/license/bank fields were added specifically to
+// support the PDF export's company block and bank details section (see
+// money-generating docs/SETUP.md Phase 5/6 notes) - all optional since a
+// tenant can exist (and use the rest of the app) without ever filling them
+// in, they just won't show up on an exported PDF until it does.
 export interface Tenant {
   id: string;
   name: string;
+  abn: string | null;
+  business_address_line1: string | null;
+  business_address_line2: string | null;
+  business_suburb: string | null;
+  business_state: string | null;
+  business_postcode: string | null;
+  license_number: string | null;
+  bank_account_name: string | null;
+  bank_account_number: string | null;
+  bank_bsb: string | null;
   created_at: string;
 }
 
@@ -158,10 +171,20 @@ export interface Template {
   updated_at: string;
 }
 
+// Line Total = Qty x [(Labour Rate x Hours + Material Cost) x (1 + Markup%)]
+// (confirmed with the person - the reference formula had no quantity term,
+// but quantity was also requested as its own field; quantity multiplies the
+// whole bracketed amount). unit_price_cents holds that bracketed per-unit
+// price - it's a derived value (see money.ts's computeLineItemUnitPriceCents),
+// not directly user-entered, kept as a real column/field so the existing
+// subtotal math (quantity * unit_price_cents) doesn't need to change at all.
 export interface LineItemInput {
-  item_type: LineItemType;
   description: string;
   quantity: number;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
   unit_price_cents: number;
   gst_applicable: boolean;
   sort_order: number;
@@ -215,6 +238,46 @@ export interface InvoiceLineItem extends LineItemInput {
   id: string;
   tenant_id: string;
   invoice_id: string;
+}
+
+export interface PriceBookCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// The template a quote/invoice line item gets created from, not a line item
+// itself - no quantity or gst_applicable, those only apply once something's
+// actually added to a specific quote/invoice.
+export interface PriceBookItem {
+  id: string;
+  tenant_id: string;
+  category_id: string;
+  description: string;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PriceBookItemVariation {
+  id: string;
+  tenant_id: string;
+  price_book_item_id: string;
+  name: string;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CalendarEvent {

@@ -4,9 +4,9 @@ import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createClientSchema, type Client } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { FormField } from "../../../components/FormField";
+import { useAuth } from "../../../../lib/auth-context";
+import { CenteredModal } from "../../../../components/CenteredModal";
+import { FormField } from "../../../../components/FormField";
 
 export default function ClientsScreen() {
   const router = useRouter();
@@ -90,7 +90,7 @@ export default function ClientsScreen() {
         data={clients}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/clients/${item.id}`)}>
+          <Pressable style={styles.row} onPress={() => router.push(`/sales/clients/${item.id}`)}>
             <Text style={styles.rowTitle}>{item.name}</Text>
             {item.phone ? <Text style={styles.rowSubtitle}>{item.phone}</Text> : null}
           </Pressable>

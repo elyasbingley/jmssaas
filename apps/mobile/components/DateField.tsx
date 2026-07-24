@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import DateTimePicker, { type DateTimePickerChangeEvent } from "@react-native-community/datetimepicker";
 
 interface DateFieldProps {
   label: string;
@@ -41,11 +41,13 @@ export function DateField({ label, value, onChange, mode = "date", placeholder =
         : `${formatDate(value)}, ${formatTime(value)}`
     : placeholder;
 
-  const handleAndroidChange = (event: DateTimePickerEvent, selected?: Date) => {
-    if (event.type !== "set" || !selected) {
-      setVisible(false);
-      return;
-    }
+  // onChange (with its event.type === "set" | "dismissed" | "neutralButtonPressed"
+  // discriminant) is deprecated in @react-native-community/datetimepicker@9 in
+  // favour of three separate handlers: onValueChange only fires for an actual
+  // selection (its `date` is always defined, unlike onChange's optional one),
+  // onDismiss fires when the picker is closed without a selection, and
+  // onNeutralButtonPress (Android-only "Clear" button) isn't used here.
+  const handleAndroidValueChange = (_event: DateTimePickerChangeEvent, selected: Date) => {
     if (mode === "datetime" && androidStep === "date") {
       onChange(selected);
       setAndroidStep("time");
@@ -55,8 +57,12 @@ export function DateField({ label, value, onChange, mode = "date", placeholder =
     setVisible(false);
   };
 
-  const handleIosChange = (_event: DateTimePickerEvent, selected?: Date) => {
-    if (selected) onChange(selected);
+  const handleAndroidDismiss = () => {
+    setVisible(false);
+  };
+
+  const handleIosValueChange = (_event: DateTimePickerChangeEvent, selected: Date) => {
+    onChange(selected);
   };
 
   return (
@@ -71,7 +77,8 @@ export function DateField({ label, value, onChange, mode = "date", placeholder =
           value={value ?? new Date()}
           mode={mode === "datetime" ? androidStep : mode}
           display="default"
-          onChange={handleAndroidChange}
+          onValueChange={handleAndroidValueChange}
+          onDismiss={handleAndroidDismiss}
         />
       ) : null}
 
@@ -79,7 +86,12 @@ export function DateField({ label, value, onChange, mode = "date", placeholder =
         <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
           <Pressable style={styles.overlay} onPress={() => setVisible(false)}>
             <Pressable style={styles.iosCard} onPress={(e) => e.stopPropagation()}>
-              <DateTimePicker value={value ?? new Date()} mode={mode} display="inline" onChange={handleIosChange} />
+              <DateTimePicker
+                value={value ?? new Date()}
+                mode={mode}
+                display="inline"
+                onValueChange={handleIosValueChange}
+              />
               <Pressable style={styles.doneButton} onPress={() => setVisible(false)}>
                 <Text style={styles.doneButtonText}>Done</Text>
               </Pressable>

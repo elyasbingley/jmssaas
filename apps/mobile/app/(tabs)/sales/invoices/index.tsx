@@ -1,41 +1,42 @@
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import type { Quote, QuoteStatus } from "@jmssaas/shared";
+import type { Invoice, InvoiceStatus } from "@jmssaas/shared";
 import { formatCentsAsAud } from "@jmssaas/shared";
-import { useAuth } from "../../../lib/auth-context";
-import { useIsOnline } from "../../../lib/connectivity";
-import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
-import { supabase } from "../../../lib/supabase";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 
-const STATUS_LABELS: Record<QuoteStatus, string> = {
+const STATUS_LABELS: Record<InvoiceStatus, string> = {
   draft: "Draft",
   sent: "Sent",
-  accepted: "Accepted",
-  declined: "Declined",
-  expired: "Expired",
+  paid: "Paid",
+  overdue: "Overdue",
+  void: "Void",
 };
 
-type QuoteRow = Quote & { clients: { name: string } | null };
+type InvoiceRow = Invoice & { clients: { name: string } | null };
 
-export default function QuotesScreen() {
+export default function InvoicesScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
 
-  const { data: quotes, loading, refetch } = useSupabaseFetch<QuoteRow[]>(async () => {
+  const { data: invoices, loading, refetch } = useSupabaseFetch<InvoiceRow[]>(async () => {
     const { data, error } = await supabase
-      .from("quotes")
+      .from("invoices")
       .select("*, clients(name)")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return (data ?? []) as QuoteRow[];
+    return (data ?? []) as InvoiceRow[];
   }, [isOnline]);
+  useRefetchOnFocus(refetch);
 
   if (!isOnline) {
     return (
       <View style={styles.container}>
-        <RequiresConnectionNotice label="Quotes" />
+        <RequiresConnectionNotice label="Invoices" />
       </View>
     );
   }
@@ -43,13 +44,13 @@ export default function QuotesScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={quotes ?? []}
+        data={invoices ?? []}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} />}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/quotes/${item.id}`)}>
+          <Pressable style={styles.row} onPress={() => router.push(`/sales/invoices/${item.id}`)}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{item.quote_number}</Text>
+              <Text style={styles.rowTitle}>{item.invoice_number}</Text>
               <Text style={styles.rowSubtitle}>{item.clients?.name ?? "Unknown client"}</Text>
             </View>
             <View style={{ alignItems: "flex-end" }}>
@@ -58,12 +59,12 @@ export default function QuotesScreen() {
             </View>
           </Pressable>
         )}
-        ListEmptyComponent={!loading ? <Text style={styles.empty}>No quotes yet.</Text> : null}
-        contentContainerStyle={(quotes ?? []).length === 0 ? styles.emptyContainer : undefined}
+        ListEmptyComponent={!loading ? <Text style={styles.empty}>No invoices yet.</Text> : null}
+        contentContainerStyle={(invoices ?? []).length === 0 ? styles.emptyContainer : undefined}
       />
       {profile?.role === "admin" ? (
-        <Pressable style={styles.fab} onPress={() => router.push("/quotes/new")}>
-          <Text style={styles.fabText}>+ New quote</Text>
+        <Pressable style={styles.fab} onPress={() => router.push("/sales/invoices/new")}>
+          <Text style={styles.fabText}>+ New invoice</Text>
         </Pressable>
       ) : null}
     </View>

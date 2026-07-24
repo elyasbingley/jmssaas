@@ -155,7 +155,7 @@ export default function CalendarEventDetailScreen() {
       </View>
 
       {event.job_cards ? (
-        <Pressable onPress={() => router.push(`/jobs/${event.job_card_id}`)}>
+        <Pressable onPress={() => router.push(`/sales/jobs/${event.job_card_id}`)}>
           <Text style={styles.link}>Linked job: {event.job_cards.title}</Text>
         </Pressable>
       ) : null}

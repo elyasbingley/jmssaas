@@ -177,7 +177,7 @@ export default function TaskDetailScreen() {
 
       {task.job_card_id ? (
         <View style={styles.section}>
-          <Pressable onPress={() => router.push(`/jobs/${task.job_card_id}`)}>
+          <Pressable onPress={() => router.push(`/sales/jobs/${task.job_card_id}`)}>
             <Text style={styles.link}>View linked job</Text>
           </Pressable>
         </View>
