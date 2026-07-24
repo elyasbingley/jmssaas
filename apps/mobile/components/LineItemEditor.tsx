@@ -208,14 +208,20 @@ const styles = StyleSheet.create({
   gstToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
   gstToggleTextActive: { color: "#fff" },
   lineTotalRow: { flexDirection: "row", justifyContent: "space-between", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
-  lineTotalLabel: { color: "#6b7280", fontSize: 13 },
-  lineTotalValue: { fontWeight: "700", fontSize: 13 },
+  lineTotalLabel: { color: "#6b7280", fontSize: 13, flexShrink: 0 },
+  lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },
   totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", gap: 4 },
   totalsRow: { flexDirection: "row", justifyContent: "space-between" },
-  totalsLabel: { color: "#6b7280" },
-  totalsValue: { color: "#111827" },
-  totalsLabelBold: { fontWeight: "700" },
-  totalsValueBold: { fontWeight: "700" },
+  // flexShrink: 0 on both sides of a space-between row - without it, Yoga's
+  // flex layout can ask these Text nodes to shrink by a hair to resolve
+  // rounding in the available width, which on Android silently clips the
+  // last character with no ellipsis rather than wrapping ("Subtotal" ->
+  // "Subtota", "$690.01" -> "$690.0"). There's always enough width for this
+  // short text, so disabling shrink entirely is safe here.
+  totalsLabel: { color: "#6b7280", flexShrink: 0 },
+  totalsValue: { color: "#111827", flexShrink: 0 },
+  totalsLabelBold: { fontWeight: "700", flexShrink: 0 },
+  totalsValueBold: { fontWeight: "700", flexShrink: 0 },
   summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
   summaryRow: { flexDirection: "row", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },

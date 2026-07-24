@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
@@ -100,6 +100,20 @@ export default function TaskDetailScreen() {
       [result.data.title, result.data.description || null, result.data.due_date || null, new Date().toISOString(), id]
     );
     setEditModalVisible(false);
+  };
+
+  const handleDelete = () => {
+    Alert.alert("Delete task", "This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await powersync.execute("DELETE FROM tasks WHERE id = ?", [id]);
+          router.back();
+        },
+      },
+    ]);
   };
 
   const handleAddNote = async () => {
@@ -203,6 +217,14 @@ export default function TaskDetailScreen() {
           </View>
         ))}
       </View>
+
+      {profile?.role === "admin" ? (
+        <View style={styles.section}>
+          <Pressable style={styles.deleteButton} onPress={handleDelete}>
+            <Text style={styles.deleteButtonText}>Delete task</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ScrollView>
 
     <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
@@ -260,4 +282,6 @@ const styles = StyleSheet.create({
   noteBody: { fontSize: 15, color: "#111827" },
   noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
+  deleteButton: { borderRadius: 8, padding: 14, alignItems: "center", backgroundColor: "#fef2f2" },
+  deleteButtonText: { color: "#dc2626", fontWeight: "700" },
 });

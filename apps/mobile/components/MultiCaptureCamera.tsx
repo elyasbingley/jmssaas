@@ -99,29 +99,28 @@ export function MultiCaptureCamera({ visible, onClose, onDone }: MultiCaptureCam
   return (
     <Modal visible={visible} animationType="slide">
       <View style={styles.container}>
-        <CameraView ref={cameraRef} style={styles.camera} facing={facing} flash={flash} zoom={zoomValue}>
-          <View style={styles.topControls}>
-            <Pressable style={styles.topButton} onPress={cycleFlash}>
-              <Text style={styles.topButtonText}>Flash: {FLASH_LABELS[flash]}</Text>
-            </Pressable>
-            <Pressable style={styles.topButton} onPress={toggleFacing}>
-              <Text style={styles.topButtonText}>{facing === "back" ? "Front" : "Back"} camera</Text>
-            </Pressable>
-          </View>
-        </CameraView>
+        <CameraView ref={cameraRef} style={styles.camera} facing={facing} flash={flash} zoom={zoomValue} />
         <View style={styles.controls}>
           <View style={styles.zoomRow}>
-            {ZOOM_PRESETS.map((preset) => (
-              <Pressable
-                key={preset.label}
-                style={[styles.zoomButton, zoomLabel === preset.label && styles.zoomButtonActive]}
-                onPress={() => setZoomLabel(preset.label)}
-              >
-                <Text style={[styles.zoomButtonText, zoomLabel === preset.label && styles.zoomButtonTextActive]}>
-                  {preset.label}
-                </Text>
-              </Pressable>
-            ))}
+            <Pressable style={styles.sideIconButton} onPress={cycleFlash}>
+              <Text style={styles.sideIconButtonText}>⚡{"\n"}{FLASH_LABELS[flash]}</Text>
+            </Pressable>
+            <View style={styles.zoomPresetGroup}>
+              {ZOOM_PRESETS.map((preset) => (
+                <Pressable
+                  key={preset.label}
+                  style={[styles.zoomButton, zoomLabel === preset.label && styles.zoomButtonActive]}
+                  onPress={() => setZoomLabel(preset.label)}
+                >
+                  <Text style={[styles.zoomButtonText, zoomLabel === preset.label && styles.zoomButtonTextActive]}>
+                    {preset.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.sideIconButton} onPress={toggleFacing}>
+              <Text style={styles.sideIconButtonText}>🔄{"\n"}{facing === "back" ? "Front" : "Back"}</Text>
+            </Pressable>
           </View>
           {photos.length > 0 ? (
             <FlatList
@@ -152,21 +151,17 @@ export function MultiCaptureCamera({ visible, onClose, onDone }: MultiCaptureCam
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },
-  topControls: {
+  controls: { backgroundColor: "#000", paddingBottom: 24, paddingTop: 12 },
+  zoomRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
-  topButton: {
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  topButtonText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  controls: { backgroundColor: "#000", paddingBottom: 24, paddingTop: 12 },
-  zoomRow: { flexDirection: "row", justifyContent: "center", gap: 10, marginBottom: 12 },
+  zoomPresetGroup: { flexDirection: "row", gap: 10 },
+  sideIconButton: { width: 52, alignItems: "center", justifyContent: "center" },
+  sideIconButtonText: { color: "#fff", fontWeight: "600", fontSize: 11, textAlign: "center" },
   zoomButton: {
     width: 44,
     height: 44,
