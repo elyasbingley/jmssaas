@@ -23,6 +23,9 @@ export interface Tenant {
   id: string;
   name: string;
   abn: string | null;
+  email: string | null;
+  website: string | null;
+  logo_url: string | null;
   business_address_line1: string | null;
   business_address_line2: string | null;
   business_suburb: string | null;

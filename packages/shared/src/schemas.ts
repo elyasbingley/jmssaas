@@ -130,6 +130,8 @@ export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export const updateCompanySettingsSchema = z.object({
   name: z.string().min(1, "Company name is required"),
   abn: z.string().optional(),
+  email: z.string().email("Enter a valid email").optional().or(z.literal("")),
+  website: z.string().optional(),
   business_address_line1: z.string().optional(),
   business_address_line2: z.string().optional(),
   business_suburb: z.string().optional(),

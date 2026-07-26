@@ -47,3 +47,11 @@ export function calculateDocumentTotals(
 export function formatCentsAsAud(cents: number): string {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(cents / 100);
 }
+
+// Same numeric formatting as formatCentsAsAud but without the currency
+// symbol - matches the reference invoice/quote templates, where only the
+// prominent "Balance Due" figure carries a $ sign and every itemised/total
+// row in the body is plain "1,234.56".
+export function formatCentsPlain(cents: number): string {
+  return new Intl.NumberFormat("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100);
+}
