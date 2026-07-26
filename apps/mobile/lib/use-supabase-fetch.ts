@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "expo-router";
+import { getErrorMessage } from "./errors";
 
 // Small fetch-on-mount helper for the Supabase-direct (non-PowerSync) screens
 // - quotes, invoices, calendar. These are office/PC workflows by design (see
@@ -24,7 +25,10 @@ export function useSupabaseFetch<T>(fetcher: () => Promise<T>, deps: unknown[]) 
     setError(null);
     return fetcher()
       .then((result) => setData(result))
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
+      .catch((e) => {
+        console.error("[useSupabaseFetch] Failed to load", e);
+        setError(getErrorMessage(e, "Failed to load (see console for details)"));
+      })
       .finally(() => setLoading(false));
   }, deps);
 
