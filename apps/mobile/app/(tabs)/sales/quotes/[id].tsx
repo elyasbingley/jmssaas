@@ -44,7 +44,7 @@ export default function QuoteDetailScreen() {
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
 
-  const { data, loading, refetch } = useSupabaseFetch(async () => {
+  const { data, loading, error, refetch } = useSupabaseFetch(async () => {
     const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
       supabase.from("quotes").select("*, clients(*), job_cards(title)").eq("id", id).single(),
       supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
@@ -174,6 +174,17 @@ export default function QuoteDetailScreen() {
     return (
       <View style={styles.container}>
         <RequiresConnectionNotice label="Quotes" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.error}>{error}</Text>
+        <Pressable style={styles.saveButton} onPress={() => refetch()}>
+          <Text style={styles.saveButtonText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }

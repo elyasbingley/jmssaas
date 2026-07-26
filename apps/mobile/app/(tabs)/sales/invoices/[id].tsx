@@ -43,7 +43,7 @@ export default function InvoiceDetailScreen() {
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
 
-  const { data, loading, refetch } = useSupabaseFetch(async () => {
+  const { data, loading, error, refetch } = useSupabaseFetch(async () => {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
       supabase.from("invoices").select("*, clients(*), job_cards(title)").eq("id", id).single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
@@ -136,6 +136,17 @@ export default function InvoiceDetailScreen() {
     return (
       <View style={styles.container}>
         <RequiresConnectionNotice label="Invoices" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.error}>{error}</Text>
+        <Pressable style={styles.saveButton} onPress={() => refetch()}>
+          <Text style={styles.saveButtonText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
