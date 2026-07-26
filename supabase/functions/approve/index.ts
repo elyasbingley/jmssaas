@@ -122,7 +122,16 @@ function pageShell(bodyHtml: string): Response {
     <div class="page"><div class="card">${bodyHtml}</div></div>
   </body>
 </html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(html, {
+    status: 200,
+    headers: new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+      // Belt-and-suspenders against any intermediate cache (CDN, browser)
+      // serving back a stale response from an earlier deploy while this
+      // was being debugged - every request should hit the function fresh.
+      "Cache-Control": "no-store",
+    }),
+  });
 }
 
 function messagePage(title: string, body: string): Response {

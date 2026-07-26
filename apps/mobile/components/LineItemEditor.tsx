@@ -209,21 +209,26 @@ const styles = StyleSheet.create({
   gstToggleActive: { backgroundColor: "#111827" },
   gstToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
   gstToggleTextActive: { color: "#fff" },
-  lineTotalRow: { flexDirection: "row", justifyContent: "space-between", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
-  lineTotalLabel: { color: "#6b7280", fontSize: 13, flexShrink: 0 },
+  lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
+  lineTotalLabel: { color: "#6b7280", fontSize: 13, flex: 1 },
   lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },
   totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", gap: 4 },
-  totalsRow: { flexDirection: "row", justifyContent: "space-between" },
-  // flexShrink: 0 on both sides of a space-between row - without it, Yoga's
-  // flex layout can ask these Text nodes to shrink by a hair to resolve
-  // rounding in the available width, which on Android silently clips the
-  // last character with no ellipsis rather than wrapping ("Subtotal" ->
-  // "Subtota", "$690.01" -> "$690.0"). There's always enough width for this
-  // short text, so disabling shrink entirely is safe here.
-  totalsLabel: { color: "#6b7280", flexShrink: 0 },
-  totalsValue: { color: "#111827", flexShrink: 0 },
-  totalsLabelBold: { fontWeight: "700", flexShrink: 0 },
-  totalsValueBold: { fontWeight: "700", flexShrink: 0 },
+  // Deliberately not justifyContent: "space-between" with two auto-width
+  // Text children - that layout gives Yoga a tight target width to hit,
+  // and on Android it can resolve rounding by shaving a hair off the
+  // label's measured width, silently clipping its last character with no
+  // ellipsis ("Subtotal" -> "Subtota", "GST" -> "GS"). flexShrink: 0 alone
+  // didn't fully rule this out on every device/font-scale combination, so
+  // instead the label gets flex: 1 (it absorbs 100% of the row's leftover
+  // width after the value's own natural size, so it's never measured
+  // against a boundary it doesn't comfortably fit in) and the value keeps
+  // its natural width, right-aligned by textAlign - same visual result,
+  // structurally not the same class of bug.
+  totalsRow: { flexDirection: "row" },
+  totalsLabel: { color: "#6b7280", flex: 1 },
+  totalsValue: { color: "#111827", flexShrink: 0, textAlign: "right" },
+  totalsLabelBold: { fontWeight: "700", flex: 1 },
+  totalsValueBold: { fontWeight: "700", flexShrink: 0, textAlign: "right" },
   summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
   summaryRow: { flexDirection: "row", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
