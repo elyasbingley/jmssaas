@@ -172,7 +172,11 @@ export default function InvoiceDetailScreen() {
       });
       if (rpcError) throw rpcError;
 
-      const url = `${supabaseUrl}/functions/v1/approve/invoice/${token}`;
+      // Points at the static approval page in Storage, not the Edge
+      // Function directly - see docs/SETUP.md "Quote/invoice digital
+      // acceptance" for why (Supabase force-downgrades HTML responses from
+      // Edge Functions on the shared domain).
+      const url = `${supabaseUrl}/storage/v1/object/public/approval-pages/approval-page.html?type=invoice&token=${token}`;
       await Share.share({ message: `Please review and approve this invoice: ${url}` });
       refetch();
     } catch (e) {

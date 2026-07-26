@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Document Approval</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Helvetica, Arial, sans-serif; color: #111827; margin: 0; padding: 0; background: #f3f4f6; }
+      .page { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
+      .card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .logo { max-width: 200px; max-height: 80px; margin-bottom: 16px; }
+      .doc-title { font-size: 26px; margin: 0; }
+      .doc-number { color: #6b7280; font-weight: 700; font-size: 13px; margin-top: 4px; }
+      .meta { color: #374151; font-size: 13px; margin-top: 16px; line-height: 1.6; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+      th { text-align: left; font-size: 11px; color: #fff; padding: 8px; }
+      th.num, td.num { text-align: right; }
+      td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 13px; vertical-align: top; white-space: pre-wrap; }
+      .totals { width: 220px; margin-left: auto; margin-top: 16px; }
+      .totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+      .totals-row.total { border-top: 2px solid #111827; font-weight: 700; font-size: 16px; padding-top: 8px; margin-top: 4px; }
+      .notes { margin-top: 20px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+      .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-top: 12px; }
+      .badge.accepted { background: #dcfce7; color: #15803d; }
+      .badge.declined { background: #fee2e2; color: #b91c1c; }
+      form { margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+      label { display: block; font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+      input[type=text], textarea { width: 100%; padding: 12px; font-size: 15px; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 14px; font-family: inherit; }
+      button { border: none; border-radius: 8px; padding: 14px 20px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+      .accept-btn { background: #16a34a; color: #fff; }
+      .decline-btn { background: #f3f4f6; color: #b91c1c; margin-top: 10px; }
+      .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
+      .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="page"><div class="card" id="card">
+      <p class="message-body">Loading...</p>
+    </div></div>
+
+    <script>
+      // Static shell for the public quote/invoice approval page - hosted in
+      // Supabase Storage (see docs/SETUP.md "Quote/invoice digital
+      // acceptance" for why: Edge Functions on the shared *.supabase.co
+      // domain get their HTML responses force-downgraded to inert
+      // text/plain by the platform itself, a deliberate anti-phishing
+      // measure with no per-function opt-out short of a paid custom
+      // domain; Storage-served static files aren't subject to that, and
+      // the "approve" Edge Function now serves this page's data as plain
+      // JSON instead of pre-rendered HTML). One file, uploaded once -
+      // everything else (which document, its data) comes from the ?type=
+      // &token= query params and a fetch() to the function.
+
+      var ACCENT = { quote: "#1f2937", invoice: "#22a366" };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatCentsAsAud(cents) {
+        return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(cents / 100);
+      }
+
+      function formatDate(dateString) {
+        if (!dateString) return "-";
+        var d = new Date(dateString + "T00:00:00");
+        if (isNaN(d.getTime())) return dateString;
+        return d.toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" });
+      }
+
+      var params = new URLSearchParams(location.search);
+      var docType = params.get("type");
+      var token = params.get("token");
+      var functionUrl = location.origin + "/functions/v1/approve";
+      var card = document.getElementById("card");
+
+      function renderMessage(title, body) {
+        card.innerHTML =
+          '<p class="message-title">' + escapeHtml(title) + "</p>" +
+          '<p class="message-body">' + escapeHtml(body) + "</p>";
+      }
+
+      function renderLineItemsTable(items) {
+        var rows = items
+          .map(function (item) {
+            return (
+              "<tr>" +
+              "<td>" + escapeHtml(item.description) + "</td>" +
+              '<td class="num">' + item.quantity + "</td>" +
+              '<td class="num">' + formatCentsAsAud(item.unit_price_cents) + "</td>" +
+              '<td class="num">' + formatCentsAsAud(item.quantity * item.unit_price_cents) + "</td>" +
+              "</tr>"
+            );
+          })
+          .join("");
+        return (
+          "<table><thead><tr style=\"background: " + ACCENT[docType] + ";\">" +
+          "<th>Item &amp; Description</th>" +
+          '<th class="num" style="width: 50px;">Qty</th>' +
+          '<th class="num" style="width: 80px;">Rate</th>' +
+          '<th class="num" style="width: 90px;">Amount</th>' +
+          "</tr></thead><tbody>" + rows + "</tbody></table>"
+        );
+      }
+
+      function attachActionHandlers(doc) {
+        var acceptForm = document.getElementById("accept-form");
+        var declineForm = document.getElementById("decline-form");
+        if (acceptForm) {
+          acceptForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var name = document.getElementById("accept-name").value;
+            submitAction("accept", { name: name });
+          });
+        }
+        if (declineForm) {
+          declineForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var reason = document.getElementById("decline-reason").value;
+            submitAction("decline", { reason: reason });
+          });
+        }
+      }
+
+      function submitAction(action, extra) {
+        var title = docType === "invoice" ? "Invoice" : "Quote";
+        var body = Object.assign({ type: docType, token: token, action: action }, extra);
+        fetch(functionUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
+            if (data.error === "already_resolved") return renderMessage("Already resolved", "This document has already been accepted or declined.");
+            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
+            if (data.error === "name_required") return renderMessage("Name required", "Please enter your name to accept.");
+            if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            if (action === "accept") return renderMessage("Thank you", "You've accepted this " + title.toLowerCase() + ". We'll be in touch shortly.");
+            return renderMessage("Received", "You've declined this " + title.toLowerCase() + ". Thanks for letting us know.");
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+
+      function renderDoc(doc) {
+        var accent = ACCENT[docType];
+        var title = docType === "invoice" ? "Invoice" : "Quote";
+        var number = docType === "invoice" ? doc.invoice_number : doc.quote_number;
+        var dateLabel = docType === "invoice" ? "Due date" : "Expiry date";
+        var dateValue = docType === "invoice" ? doc.due_date : doc.expiry_date;
+
+        var statusBadge = "";
+        if (doc.status === "accepted") {
+          statusBadge = '<span class="badge accepted">Accepted by ' + escapeHtml(doc.accepted_by_name || "client") + "</span>";
+        } else if (doc.status === "declined") {
+          statusBadge = '<span class="badge declined">Declined</span>';
+        }
+
+        var actionSection = "";
+        if (doc.status === "accepted") {
+          actionSection = '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " has already been accepted. No further action is needed.</p>";
+        } else if (doc.status === "declined") {
+          actionSection =
+            '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " was declined" +
+            (doc.decline_reason ? ': "' + escapeHtml(doc.decline_reason) + '"' : ".") + "</p>";
+        } else {
+          actionSection =
+            '<form id="accept-form">' +
+            '<label for="accept-name">Type your full name to accept this ' + title.toLowerCase() + "</label>" +
+            '<input type="text" id="accept-name" placeholder="Full name" required />' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">I accept this ' + title.toLowerCase() + "</button>" +
+            "</form>" +
+            '<form id="decline-form">' +
+            '<label for="decline-reason">Decline instead (optional reason)</label>' +
+            '<textarea id="decline-reason" rows="3" placeholder="Let us know why (optional)"></textarea>' +
+            '<button type="submit" class="decline-btn">Decline this ' + title.toLowerCase() + "</button>" +
+            "</form>";
+        }
+
+        card.innerHTML =
+          (doc.tenant_logo_url ? '<img class="logo" src="' + escapeHtml(doc.tenant_logo_url) + '" />' : "") +
+          '<p class="doc-title" style="color: ' + accent + ';">' + title + "</p>" +
+          '<p class="doc-number"># ' + escapeHtml(number || "") + "</p>" +
+          statusBadge +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.tenant_name) + "</strong></div>" +
+          "<div>Prepared for " + escapeHtml(doc.client_name) + "</div>" +
+          "<div>Issued " + formatDate(doc.issue_date) + " &middot; " + dateLabel + " " + formatDate(dateValue) + "</div>" +
+          "</div>" +
+          renderLineItemsTable(doc.line_items) +
+          '<div class="totals">' +
+          '<div class="totals-row"><span>Sub Total</span><span>' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
+          '<div class="totals-row"><span>GST</span><span>' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
+          '<div class="totals-row total"><span>Total</span><span>' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
+          "</div>" +
+          (doc.notes ? '<div class="notes"><strong>Notes</strong><br/>' + escapeHtml(doc.notes) + "</div>" : "") +
+          actionSection;
+
+        attachActionHandlers(doc);
+      }
+
+      if (docType !== "quote" && docType !== "invoice") {
+        renderMessage("Not found", "This link is missing a document type or token.");
+      } else if (!token) {
+        renderMessage("Not found", "This link is missing a token.");
+      } else {
+        fetch(functionUrl + "?type=" + encodeURIComponent(docType) + "&token=" + encodeURIComponent(token))
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
+            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
+            if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            renderDoc(data);
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+    </script>
+  </body>
+</html>

@@ -219,7 +219,11 @@ export default function QuoteDetailScreen() {
       });
       if (rpcError) throw rpcError;
 
-      const url = `${supabaseUrl}/functions/v1/approve/quote/${token}`;
+      // Points at the static approval page in Storage, not the Edge
+      // Function directly - see docs/SETUP.md "Quote/invoice digital
+      // acceptance" for why (Supabase force-downgrades HTML responses from
+      // Edge Functions on the shared domain).
+      const url = `${supabaseUrl}/storage/v1/object/public/approval-pages/approval-page.html?type=quote&token=${token}`;
       await Share.share({ message: `Please review and approve this quote: ${url}` });
       refetch();
     } catch (e) {

@@ -728,12 +728,19 @@ needs real company name/ABN/bank details, not blank placeholders).
 
 ## Quote/invoice digital acceptance
 
-- **What was built**: a client-facing, unauthenticated web page (a Supabase
-  Edge Function, `supabase/functions/approve/index.ts`) at
-  `/functions/v1/approve/quote/:token` or `/approve/invoice/:token` where a
-  client can view a quote/invoice (same description/qty/rate/amount-only
-  view as the PDF/`LineItemSummary` - never the labour/material/markup
-  breakdown), then accept (typed full name) or decline (optional reason).
+- **What was built**: a client-facing, unauthenticated web page - a static
+  file (`supabase/static/approval-page.html`) hosted in a public Storage
+  bucket, calling a Supabase Edge Function (`supabase/functions/approve/`)
+  as a plain JSON data API - at
+  `.../storage/v1/object/public/approval-pages/approval-page.html?type=quote&token=...`
+  (or `type=invoice`) where a client can view a quote/invoice (same
+  description/qty/rate/amount-only view as the PDF/`LineItemSummary` -
+  never the labour/material/markup breakdown), then accept (typed full
+  name) or decline (optional reason). **This split (static page in
+  Storage + JSON-only function) wasn't the original design** - see the
+  "Edge Function no longer renders the HTML page itself" bullet further
+  down for why a first version that had the function render the page
+  directly didn't work in production.
   New columns on both `quotes` and `invoices`: `approval_status` (a
   dedicated enum, `sent`/`viewed`/`accepted`/`declined` - deliberately kept
   separate from the existing `status` column, which is the admin's own
@@ -796,18 +803,28 @@ needs real company name/ABN/bank details, not blank placeholders).
   accept calls; an unknown token returns `not_found`; declining without a
   prior accept sets `declined`/`declined_at`/`decline_reason`; accepting
   with an empty name returns `name_required`.
-- **NOT verified from this sandbox (needs a live Supabase project)**: the
-  Edge Function itself has never been deployed or invoked - `supabase
-  functions deploy approve` needs to be run against the real project, and
-  the actual HTML rendering, the `npm:@supabase/supabase-js@2` specifier
-  resolving correctly in the deployed Edge Runtime, and the end-to-end
-  path-based routing (`/functions/v1/approve/quote/<token>` reaching the
-  function with the right trailing segments) all need a real test against
-  a live deployment - this sandbox has no Supabase CLI login/project
-  access. The Edge Function's TypeScript also isn't covered by `pnpm
-  typecheck` (it's Deno, uses `Deno.serve`/`Deno.env`, and lives outside
-  both workspace packages' `tsconfig` roots on purpose) - its correctness
-  was reasoned through by hand and by mirroring the already-verified SQL
+- **Verified against a live deployment (by the person, not this sandbox -
+  it still has no Supabase CLI login/project access)**: the `approve`
+  function has been deployed and actually invoked in production - that's
+  how the `Content-Type`/CSP issue below was caught in the first place,
+  and how the earlier `UNAUTHORIZED_NO_AUTH_HEADER` issue was caught
+  before that. The `npm:@supabase/supabase-js@2` specifier resolves fine
+  in the deployed Edge Runtime, and `get_quote_for_approval` returned
+  correct real data end-to-end (logo, line items with a multi-line
+  description, correct totals) the first time the auth issue was fixed -
+  confirms the whole RPC/token layer genuinely works against the live
+  project, independent of the separate HTML-rendering problem. **Still not
+  verified from this sandbox**: the new static-page + JSON-API split
+  (`supabase/static/approval-page.html`'s own JS, and the rebuilt
+  `approve/index.ts`) hasn't been deployed/exercised live yet, since it
+  was written in direct response to what the live test above revealed -
+  the person still needs to redeploy the function, upload the static file,
+  and click a fresh link to confirm this round actually renders. The Edge
+  Function's TypeScript also isn't covered by `pnpm typecheck` (it's Deno,
+  uses `Deno.serve`/`Deno.env`, and lives outside both workspace packages'
+  `tsconfig` roots on purpose) - its correctness, and the static page's own
+  plain JS, was reasoned through by hand and by mirroring the already-
+  verified SQL
   contract, not compiler-checked.
 - **Deploying `approve` needs `verify_jwt = false`**: found once this was
   actually deployed and clicked - by default every Supabase Edge Function
@@ -822,6 +839,40 @@ needs real company name/ABN/bank details, not blank placeholders).
   honor this via `config.toml` for `supabase functions serve` locally, not
   for a deploy - if the error persists after deploying, redeploy with the
   flag explicit: `supabase functions deploy approve --no-verify-jwt`.
+- **The Edge Function no longer renders the HTML page itself - Supabase
+  force-downgrades it.** Found by actually deploying and clicking the
+  link, then inspecting the real response headers (`curl -D -` /
+  `Invoke-WebRequest`) after two rounds of the person still seeing raw
+  HTML text instead of a rendered page: the response came back with
+  `Content-Type: text/plain` (not the `text/html` the function explicitly
+  set) plus `Content-Security-Policy: default-src 'none'; sandbox` and
+  `X-Content-Type-Options: nosniff` - neither of which this code ever set.
+  That's Supabase's platform itself, not a bug in the function: Edge
+  Functions on the shared `*.supabase.co` domain get any HTML-looking
+  response force-downgraded to inert `text/plain`, a deliberate anti-
+  phishing measure (a function serving interactive HTML under a trusted
+  shared domain is exactly what that policy exists to block) with no
+  per-function header able to opt back out of it - the only real opt-out
+  is a custom domain, a paid-plan feature, out of scope here. Restructured
+  instead, staying inside the free tier and the existing stack: `approve`
+  is now a plain JSON API (GET returns the document, POST processes
+  accept/decline - JSON responses aren't subject to the HTML lockdown),
+  and the actual page is a static file,
+  `supabase/static/approval-page.html`, hosted in a new public Storage
+  bucket (`approval-pages`, added in
+  `20260729000100_approval_page_storage.sql`) - Storage-served files don't
+  get the same treatment, and Storage is already part of this app's stack
+  (same place the company logo lives). The page reads `?type=&token=` from
+  its own URL and does the rendering + form submission client-side with
+  plain `fetch()`, calling the same-origin function for data. **New
+  one-time deployment step**: after `supabase db push` and
+  `supabase functions deploy approve`, the static page has to be uploaded
+  to the bucket once (it's not created by any migration, since Storage
+  object *contents* aren't part of the SQL schema):
+  `supabase storage cp supabase/static/approval-page.html ss:///approval-pages/approval-page.html`
+  (or drag-and-drop it into the `approval-pages` bucket in the dashboard).
+  It only needs re-uploading if the page's own file is ever edited - not
+  on every deploy.
 - **Deliberately descoped this pass** (per the brief - reasonable future
   "v2" additions, not needed now): no canvas/Bezier-drawn signature (a
   typed name + explicit accept action is enough for a trade quote/invoice);
