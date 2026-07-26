@@ -109,7 +109,7 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
         <View style={styles.results}>
           {results.map((item) => (
             <Pressable key={item.id} style={styles.resultRow} onPress={() => handleSelectResult(item)}>
-              <Text style={styles.resultText} numberOfLines={2}>
+              <Text style={styles.resultText} numberOfLines={1}>
                 {item.description}
               </Text>
             </Pressable>

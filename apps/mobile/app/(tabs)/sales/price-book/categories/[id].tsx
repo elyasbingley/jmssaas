@@ -79,7 +79,7 @@ export default function PriceBookCategoryScreen() {
         <View style={styles.grid}>
           {(items ?? []).map((item) => (
             <Pressable key={item.id} style={styles.tile} onPress={() => router.push(`/sales/price-book/items/${item.id}`)}>
-              <Text style={styles.tileLabel} numberOfLines={2}>
+              <Text style={styles.tileLabel} numberOfLines={1}>
                 {item.description}
               </Text>
               <Text style={styles.tilePrice}>
