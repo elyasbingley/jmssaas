@@ -116,7 +116,7 @@ function renderCompanyBlock(tenant: Tenant): string {
     <div class="company-block">
       <p class="company-name">${escapeHtml(tenant.name)}</p>
       ${addressLines.map((line) => `<p class="company-detail">${escapeHtml(line)}</p>`).join("")}
-      ${tenant.abn ? `<p class="company-detail">VAT ${escapeHtml(tenant.abn)}</p>` : ""}
+      ${tenant.abn ? `<p class="company-detail">ABN ${escapeHtml(tenant.abn)}</p>` : ""}
       ${tenant.license_number ? `<p class="company-detail">License ${escapeHtml(tenant.license_number)}</p>` : ""}
       ${tenant.email ? `<p class="company-detail">${escapeHtml(tenant.email)}</p>` : ""}
       ${tenant.website ? `<p class="company-detail">${escapeHtml(tenant.website)}</p>` : ""}
