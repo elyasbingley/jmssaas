@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
-import { useQuery } from "@powersync/react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createCalendarEventSchema, type JobCard, type Task } from "@jmssaas/shared";
+import { createCalendarEventSchema, type JobCard, type Profile, type Task } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { supabase } from "../../../lib/supabase";
@@ -19,26 +19,48 @@ import { getErrorMessage } from "../../../lib/errors";
 // field, not separate date+time text inputs like the previous version).
 export default function NewCalendarEventScreen() {
   const router = useRouter();
+  const powersync = usePowerSync();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  // Arriving here from the Schedule/dispatch screen's "tap an unassigned
+  // job" flow (see app/schedule.tsx) pre-fills and locks the job the same
+  // way "+ New quote for this job" does on quotes/new.tsx, and defaults the
+  // date to the day the dispatcher was looking at - they still pick the
+  // actual time themselves.
+  const { jobCardId, date: dateParam } = useLocalSearchParams<{ jobCardId?: string; date?: string }>();
+  const lockedFromJob = !!jobCardId;
 
   const { data: jobCards } = useQuery<JobCard>("SELECT * FROM job_cards ORDER BY title");
   const { data: tasks } = useQuery<Task>("SELECT * FROM tasks ORDER BY title");
+  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles WHERE role = 'technician' ORDER BY full_name");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [guests, setGuests] = useState("");
-  const now = new Date();
-  const [start, setStart] = useState<Date>(now);
-  const [end, setEnd] = useState<Date>(new Date(now.getTime() + 60 * 60 * 1000));
+  const defaultStart = dateParam ? new Date(`${dateParam}T09:00:00`) : new Date();
+  const [start, setStart] = useState<Date>(defaultStart);
+  const [end, setEnd] = useState<Date>(new Date(defaultStart.getTime() + 60 * 60 * 1000));
   const [allDay, setAllDay] = useState(false);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
   const [task, setTask] = useState<Task | null>(null);
+  const [technician, setTechnician] = useState<Profile | null>(null);
   const [jobPickerVisible, setJobPickerVisible] = useState(false);
   const [taskPickerVisible, setTaskPickerVisible] = useState(false);
+  const [technicianPickerVisible, setTechnicianPickerVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (jobCardId && jobCards.length > 0 && !jobCard) {
+      const preselected = jobCards.find((j) => j.id === jobCardId) ?? null;
+      setJobCard(preselected);
+      if (preselected?.assigned_technician_id) {
+        setTechnician(technicians.find((t) => t.id === preselected.assigned_technician_id) ?? null);
+      }
+      if (preselected && !title) setTitle(preselected.title);
+    }
+  }, [jobCardId, jobCards, jobCard, technicians, title]);
 
   const handleSubmit = async () => {
     const result = createCalendarEventSchema.safeParse({
@@ -80,6 +102,26 @@ export default function NewCalendarEventScreen() {
         .select()
         .single();
       if (error) throw error;
+
+      // Dispatching a technician to a job here (not a bare/task-linked
+      // event) - job_cards is the offline-capable, PowerSync-synced table,
+      // so this goes through execute() rather than a direct Supabase call,
+      // same as every other job_cards write in the app. Only touches the
+      // row when a technician was actually picked, so linking a job to an
+      // event without picking anyone doesn't clobber an existing
+      // assignment. Bumping a "new" job to "scheduled" reflects that it now
+      // has a dispatched visit - later statuses (in_progress/completed/
+      // invoiced) are left alone.
+      if (jobCard && technician) {
+        await powersync.execute(
+          `UPDATE job_cards
+             SET assigned_technician_id = ?,
+                 status = CASE WHEN status = 'new' THEN 'scheduled' ELSE status END
+           WHERE id = ?`,
+          [technician.id, jobCard.id]
+        );
+      }
+
       router.replace(`/calendar/${data.id}`);
     } catch (e) {
       // Log the full error object, not just its message - PostgrestError's
@@ -143,12 +185,27 @@ export default function NewCalendarEventScreen() {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Linked job (optional)</Text>
-        <Pressable style={styles.pickerField} onPress={() => setJobPickerVisible(true)}>
+        <Text style={styles.sectionTitle}>Linked job{lockedFromJob ? "" : " (optional)"}</Text>
+        <Pressable
+          style={styles.pickerField}
+          onPress={() => !lockedFromJob && setJobPickerVisible(true)}
+          disabled={lockedFromJob}
+        >
           <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
             {jobCard?.title ?? "None"}
           </Text>
         </Pressable>
+
+        {jobCard ? (
+          <View style={styles.fieldSpacing}>
+            <Text style={styles.sectionTitle}>Technician (optional)</Text>
+            <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
+              <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {technician?.full_name ?? "Unassigned"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <Text style={styles.sectionTitle}>Linked task (optional)</Text>
         <Pressable style={styles.pickerField} onPress={() => setTaskPickerVisible(true)}>
@@ -170,6 +227,15 @@ export default function NewCalendarEventScreen() {
         getLabel={(j) => j.title}
         onSelect={setJobCard}
         onClose={() => setJobPickerVisible(false)}
+      />
+      <PickerModal
+        visible={technicianPickerVisible}
+        title="Select technician"
+        items={technicians}
+        getKey={(t) => t.id}
+        getLabel={(t) => t.full_name}
+        onSelect={setTechnician}
+        onClose={() => setTechnicianPickerVisible(false)}
       />
       <PickerModal
         visible={taskPickerVisible}

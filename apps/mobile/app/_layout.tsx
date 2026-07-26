@@ -59,14 +59,18 @@ function RootNavigator() {
     );
   }
 
-  // Only two top-level routes now: the (tabs) group (its own Tabs
+  // Outside the tab bar entirely: the (tabs) group (its own Tabs
   // navigator, each tab wrapping its own native Stack - see
-  // app/(tabs)/_layout.tsx) and login, outside the tab bar entirely.
+  // app/(tabs)/_layout.tsx), login, and a couple of standalone admin
+  // screens reached via a small link rather than their own tab
+  // (company-settings, schedule) - see docs/SETUP.md for why Schedule/
+  // dispatch was placed this way instead of a new tab.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Settings" }} />
+      <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
     </Stack>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import type { CalendarEvent } from "@jmssaas/shared";
+import { usePowerSync, useQuery } from "@powersync/react";
+import type { CalendarEvent, Profile } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
@@ -9,6 +10,7 @@ import { supabase } from "../../../lib/supabase";
 import { openInMaps } from "../../../lib/maps";
 import { getErrorMessage } from "../../../lib/errors";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { PickerModal } from "../../../components/PickerModal";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
 
@@ -20,6 +22,7 @@ type CalendarEventRow = CalendarEvent & {
 export default function CalendarEventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const powersync = usePowerSync();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
@@ -34,6 +37,8 @@ export default function CalendarEventDetailScreen() {
     return data as CalendarEventRow;
   }, [id, isOnline]);
 
+  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles WHERE role = 'technician' ORDER BY full_name");
+
   const canEdit =
     isAdmin ||
     (event?.job_cards && event.job_cards.assigned_technician_id === profile?.id) ||
@@ -45,6 +50,8 @@ export default function CalendarEventDetailScreen() {
   const [guests, setGuests] = useState("");
   const [start, setStart] = useState<Date | null>(null);
   const [end, setEnd] = useState<Date | null>(null);
+  const [technician, setTechnician] = useState<Profile | null>(null);
+  const [technicianPickerVisible, setTechnicianPickerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -56,7 +63,12 @@ export default function CalendarEventDetailScreen() {
       setGuests(event.guests ?? "");
       setStart(new Date(event.start_at));
       setEnd(new Date(event.end_at));
+      setTechnician(technicians.find((t) => t.id === event.job_cards?.assigned_technician_id) ?? null);
     }
+    // technicians deliberately excluded from deps - it's a live PowerSync
+    // query that shouldn't re-run this seed-from-server effect every time
+    // it re-renders, only when the fetched event itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event]);
 
   const handleSave = async () => {
@@ -80,6 +92,18 @@ export default function CalendarEventDetailScreen() {
         })
         .eq("id", id);
       if (error) throw error;
+
+      // Reassignment: admin-only, and only meaningful when this event has a
+      // linked job card - job_cards is the offline-capable table, so this
+      // goes through execute() like every other job_cards write, not a
+      // direct Supabase call.
+      if (isAdmin && event.job_card_id && technician?.id !== event.job_cards?.assigned_technician_id) {
+        await powersync.execute("UPDATE job_cards SET assigned_technician_id = ? WHERE id = ?", [
+          technician?.id ?? null,
+          event.job_card_id,
+        ]);
+      }
+
       refetch();
     } catch (e) {
       console.error("[Calendar] Failed to save event", e);
@@ -159,6 +183,18 @@ export default function CalendarEventDetailScreen() {
           <Text style={styles.link}>Linked job: {event.job_cards.title}</Text>
         </Pressable>
       ) : null}
+
+      {event.job_cards && isAdmin ? (
+        <View style={styles.fieldSpacing}>
+          <Text style={styles.techLabel}>Technician</Text>
+          <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
+            <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {technician?.full_name ?? "Unassigned"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {event.tasks ? (
         <Pressable onPress={() => router.push(`/tasks/${event.task_id}`)}>
           <Text style={styles.link}>Linked task: {event.tasks.title}</Text>
@@ -182,6 +218,16 @@ export default function CalendarEventDetailScreen() {
           <Text style={styles.deleteButtonText}>Delete event</Text>
         </Pressable>
       ) : null}
+
+      <PickerModal
+        visible={technicianPickerVisible}
+        title="Select technician"
+        items={technicians}
+        getKey={(t) => t.id}
+        getLabel={(t) => t.full_name}
+        onSelect={setTechnician}
+        onClose={() => setTechnicianPickerVisible(false)}
+      />
     </ScrollView>
   );
 }
@@ -192,6 +238,10 @@ const styles = StyleSheet.create({
   multiline: { minHeight: 70, textAlignVertical: "top" },
   mapsLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6 },
   link: { color: "#1d4ed8", fontWeight: "600", marginTop: 16 },
+  techLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
+  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
+  pickerFieldText: { fontSize: 16, color: "#111827" },
+  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
   googleSyncNotice: { color: "#9ca3af", fontSize: 12, marginTop: 16 },
   error: { color: "#dc2626", marginTop: 12 },
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },

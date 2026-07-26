@@ -835,3 +835,96 @@ needs real company name/ABN/bank details, not blank placeholders).
   the link (email sending isn't built at all yet - a separate, already-
   known future phase) - delivery today is entirely manual, the admin
   taps Share and picks whatever's in their phone's native Share sheet.
+
+## Schedule / dispatch board (mobile MVP)
+
+- **What was built**: a "Schedule" view (`app/schedule.tsx`, admin-only) with
+  an unassigned-jobs queue (job cards with no future-dated calendar event,
+  excluding completed/invoiced jobs) and a per-technician day view for a
+  navigable selected date, built by grouping `calendar_events` (joined to
+  `job_cards` for the assigned technician and to `clients` for
+  name/address) client-side rather than a new query per day tap - the same
+  "fetch once, filter in memory" shape `app/(tabs)/calendar/index.tsx`
+  already uses. Tapping an unassigned job opens `calendar/new` pre-filled
+  and locked to that job (same `lockedFromJob` pattern as "+ New quote for
+  this job" on `quotes/new.tsx`), defaulted to the date being viewed.
+  Tapping an already-scheduled job opens the existing `calendar/[id]` edit
+  screen - no new editing surface was built, per the brief.
+- **Reference spec adapted, not built literally**: the reference described
+  a desktop drag-and-drop timeline grid with live GPS, an automated
+  travel-time buffer (distance-matrix API), a Google Calendar busy-block
+  overlay, and WebSocket-based multi-dispatcher locking. None of that
+  fits a mobile-first app with no desktop client yet - drag gestures
+  fight normal scrolling on a phone, and the other four are each their own
+  significant integration. Built instead: tap-to-assign (tap an unassigned
+  job, then a job to reassign/reschedule), no GPS, no travel buffer, no
+  Google Calendar overlay (Google sync isn't built at all yet - separate
+  known future phase), no realtime locking. **The rich drag-and-drop board
+  is a deliberate deferral to revisit once a desktop app exists**, not an
+  oversight - the underlying data model (`calendar_events` linked to
+  `job_cards`) already supports it without a rewrite when that day comes.
+  A Supabase Realtime subscription would be the natural fit for a live
+  "someone else is viewing this" notice later if two dispatchers actually
+  collide in practice - not wired up now (`useRefetchOnFocus` covers the
+  common case of "I came back to this screen").
+- **Data model decision - `calendar_events` is the source of truth for
+  scheduling, not a new field on `job_cards`**: matches the brief's own
+  reasoning exactly - `calendar_events` already has the full creation/edit
+  UI (date/time pickers, guests, location, job/task linking) and already
+  supports a job needing multiple scheduled visits (nothing stops two
+  events linking to the same `job_card_id`), where a single new field on
+  `job_cards` would support neither and would create a second place that
+  could disagree with the calendar about when a job is actually happening.
+  **Worth flagging**: `job_cards` already has an unused `scheduled_at`
+  timestamp column (schema/types/zod schema all define it, going back to
+  the Phase 1 migration) that no screen in the app has ever read or
+  written - the brief's framing ("job cards don't currently have a
+  scheduled time") isn't quite accurate, there's a vestigial single-
+  timestamp field sitting there. This doesn't change the decision (a
+  single timestamp still can't represent an end time or multiple visits
+  the way `calendar_events` can, and building a second scheduling UI
+  around it would recreate exactly the two-places-can-disagree problem
+  the brief is trying to avoid) but it's left permanently unused by this
+  pass rather than silently repurposed - a future cleanup migration could
+  drop it, out of scope here.
+- **A real gap this feature had to fill, not silently work around**: the
+  app had no UI anywhere to assign or reassign a job's technician before
+  this pass - `job_cards.assigned_technician_id` existed in the schema
+  and was already used for RLS/per-technician filtering, but nothing ever
+  set it (job creation on `sales/jobs/index.tsx` doesn't collect it, and
+  the job detail screen doesn't expose it either). "Tap-to-assign" only
+  means something with a way to actually pick a technician, so a
+  Technician picker (searching `profiles` where `role = 'technician'`, the
+  same `PickerModal` component used everywhere else) was added to both
+  `calendar/new.tsx` (shown once a job is linked) and `calendar/[id].tsx`
+  (admin-only, shown when the event has a linked job) - selecting one
+  updates `job_cards.assigned_technician_id` via `powersync.execute` (the
+  offline-capable table's normal write path, not a direct Supabase call)
+  alongside the calendar event write. Creating a dispatch event also bumps
+  a `new` job to `scheduled` - later statuses are left alone - since the
+  `JobStatus` enum already has a `scheduled` state clearly meant for
+  exactly this moment.
+- **Entry point placement**: a small admin-only "Schedule / Dispatch ›"
+  link on the Calendar tab, opening `app/schedule.tsx` as a standalone
+  route (registered in `app/_layout.tsx` next to `company-settings`, same
+  pattern) - not a new tab and not a Home tile. Home's tile grid has its
+  own comment explaining it deliberately only mirrors the real tab bar
+  (Sales/Tasks/Calendar); adding a fourth tile there would break that
+  invariant for a feature that's fundamentally a different view over the
+  same `calendar_events` data Calendar already owns, not a new domain.
+  Reaching it from Calendar keeps it thematically where a dispatcher would
+  already be looking, without spending the tab bar's last reserved slot
+  (left for a future Settings tab, per the Phase 4 nav restructure).
+- **Verification status**: `pnpm typecheck` passes clean across the whole
+  workspace. This is a pure React Native feature over already-provisioned
+  Supabase tables/RLS (no migration, no new schema) and already-verified
+  `powersync.execute` write patterns identical to ones used elsewhere in
+  the app (`jobs/[id].tsx`'s status changes) - not independently re-run
+  against a live device/dev build from this sandbox, same constraint as
+  every other on-device UI feature in this project's history (no EAS/Expo
+  login access here). Worth checking on a real device once built: the
+  `disabled` prop on the locked job-picker `Pressable` in `calendar/new.tsx`
+  renders correctly (same pattern already used and presumably working on
+  `quotes/new.tsx`, not new to this pass), and that the per-technician day
+  view reads sensibly with a realistic number of technicians/jobs on a
+  small screen.

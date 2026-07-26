@@ -194,6 +194,14 @@ export default function CalendarScreen() {
 
   return (
     <View style={styles.container}>
+      {profile?.role === "admin" ? (
+        <View style={styles.scheduleLinkRow}>
+          <Pressable onPress={() => router.push("/schedule")}>
+            <Text style={styles.scheduleLink}>Schedule / Dispatch ›</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <View style={styles.viewModeRow}>
         {VIEW_MODES.map((mode) => (
           <Pressable
@@ -242,6 +250,8 @@ export default function CalendarScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  scheduleLinkRow: { alignItems: "flex-end", paddingHorizontal: 16, paddingTop: 12 },
+  scheduleLink: { color: "#1d4ed8", fontWeight: "600" },
   viewModeRow: { flexDirection: "row", gap: 8, padding: 12, paddingBottom: 4 },
   viewModeChip: { flex: 1, paddingVertical: 8, borderRadius: 14, backgroundColor: "#f3f4f6", alignItems: "center" },
   viewModeChipActive: { backgroundColor: "#111827" },
