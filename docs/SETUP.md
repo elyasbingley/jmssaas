@@ -809,6 +809,19 @@ needs real company name/ABN/bank details, not blank placeholders).
   both workspace packages' `tsconfig` roots on purpose) - its correctness
   was reasoned through by hand and by mirroring the already-verified SQL
   contract, not compiler-checked.
+- **Deploying `approve` needs `verify_jwt = false`**: found once this was
+  actually deployed and clicked - by default every Supabase Edge Function
+  requires a valid `Authorization` JWT header, so an unauthenticated
+  client clicking the link (no session, no header at all) was rejected by
+  the platform gateway itself before ever reaching the function's code
+  (`{"code":"UNAUTHORIZED_NO_AUTH_HEADER", ...}`). Added
+  `[functions.approve]` / `verify_jwt = false` to `supabase/config.toml` -
+  this is safe here specifically because the function's own access control
+  is the token, not a session (every read/write already goes through the
+  token-validated `SECURITY DEFINER` RPCs). Some Supabase CLI versions only
+  honor this via `config.toml` for `supabase functions serve` locally, not
+  for a deploy - if the error persists after deploying, redeploy with the
+  flag explicit: `supabase functions deploy approve --no-verify-jwt`.
 - **Deliberately descoped this pass** (per the brief - reasonable future
   "v2" additions, not needed now): no canvas/Bezier-drawn signature (a
   typed name + explicit accept action is enough for a trade quote/invoice);

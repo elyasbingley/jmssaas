@@ -24,3 +24,15 @@ enable_signup = false
 
 [storage]
 enabled = true
+
+[functions.approve]
+# This function serves the public quote/invoice acceptance page - the
+# client clicking the link is never signed in and sends no Authorization
+# header at all, so with the default verify_jwt = true the platform
+# gateway rejects every request before it even reaches the function code
+# (UNAUTHORIZED_NO_AUTH_HEADER). The function is still safe to expose
+# unauthenticated: every read/write it does goes through the token-
+# validated SECURITY DEFINER RPCs added in
+# supabase/migrations/20260728000100_quote_invoice_approval.sql, which is
+# the actual access control here, not JWT verification.
+verify_jwt = false
