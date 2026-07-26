@@ -46,7 +46,11 @@ export default function QuoteDetailScreen() {
 
   const { data, loading, error, refetch } = useSupabaseFetch(async () => {
     const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
-      supabase.from("quotes").select("*, clients(*), job_cards(title)").eq("id", id).single(),
+      supabase
+        .from("quotes")
+        .select("*, clients(*), job_cards!quotes_job_card_id_fkey(title)")
+        .eq("id", id)
+        .single(),
       supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
     ]);
     if (quoteError) throw quoteError;

@@ -45,7 +45,11 @@ export default function InvoiceDetailScreen() {
 
   const { data, loading, error, refetch } = useSupabaseFetch(async () => {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
-      supabase.from("invoices").select("*, clients(*), job_cards(title)").eq("id", id).single(),
+      supabase
+        .from("invoices")
+        .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title)")
+        .eq("id", id)
+        .single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
     ]);
     if (invoiceError) throw invoiceError;
