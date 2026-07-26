@@ -8,12 +8,15 @@ import {
   createJobCardSchema,
   createJobNoteSchema,
   createTaskSchema,
+  formatCentsAsAud,
   type Client,
   type Invoice,
+  type InvoiceLineItem,
   type JobCard,
   type JobNote,
   type JobStatus,
   type Quote,
+  type QuoteLineItem,
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
@@ -26,6 +29,7 @@ import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -50,6 +54,32 @@ const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = {
 interface JobFileWithLocalUri {
   id: string;
   local_uri: string | null;
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+// labour_rate_cents/labour_hours/material_cost_cents on a line item are the
+// PER UNIT cost breakdown that fed into that line's unit_price_cents (see
+// computeLineItemUnitPriceCents in packages/shared/src/money.ts) - not
+// already multiplied by quantity - so a line's actual total cost has to
+// scale by quantity here the same way lineItemSubtotalCents scales the
+// charged amount.
+function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
+  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
+}
+
+function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
+  return Math.round(item.quantity * item.material_cost_cents);
+}
+
+interface CostingDoc {
+  id: string;
+  type: "quote" | "invoice";
+  number: string;
+  status: string;
+  total_cents: number;
 }
 
 export default function JobDetailScreen() {
@@ -102,6 +132,67 @@ export default function JobDetailScreen() {
     return (data ?? []) as Invoice[];
   }, [id, isOnline]);
   useRefetchOnFocus(refetchInvoices);
+
+  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
+  const isAdmin = profile?.role === "admin";
+
+  // Only fetched once the person actually opens Job Costing (not needed for
+  // the Details tab's plain quote/invoice number lists above) - avoids a
+  // couple of extra round trips on every job screen visit for a tab most
+  // views of this screen won't touch.
+  const quoteIds = (linkedQuotes ?? []).map((q) => q.id).join(",");
+  const invoiceIds = (linkedInvoices ?? []).map((inv) => inv.id).join(",");
+
+  const { data: quoteLineItems, loading: quoteLineItemsLoading } = useSupabaseFetch<QuoteLineItem[]>(async () => {
+    const ids = quoteIds ? quoteIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", ids);
+    if (error) throw error;
+    return (data ?? []) as QuoteLineItem[];
+  }, [isOnline, activeTab, quoteIds]);
+
+  const { data: invoiceLineItems, loading: invoiceLineItemsLoading } = useSupabaseFetch<InvoiceLineItem[]>(async () => {
+    const ids = invoiceIds ? invoiceIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("invoice_line_items").select("*").in("invoice_id", ids);
+    if (error) throw error;
+    return (data ?? []) as InvoiceLineItem[];
+  }, [isOnline, activeTab, invoiceIds]);
+
+  const costingDocs: CostingDoc[] = [
+    ...(linkedQuotes ?? []).map((q) => ({
+      id: q.id,
+      type: "quote" as const,
+      number: q.quote_number,
+      status: q.status,
+      total_cents: q.total_cents,
+    })),
+    ...(linkedInvoices ?? []).map((inv) => ({
+      id: inv.id,
+      type: "invoice" as const,
+      number: inv.invoice_number,
+      status: inv.status,
+      total_cents: inv.total_cents,
+    })),
+  ];
+
+  const allCostingLineItems = [...(quoteLineItems ?? []), ...(invoiceLineItems ?? [])];
+  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+  const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+  const totalChargedCents = costingDocs.reduce((sum, doc) => sum + doc.total_cents, 0);
+  // Margin here is "charged minus cost", i.e. it treats the line item
+  // markup% as the margin - matching how computeLineItemUnitPriceCents
+  // already builds markup into the rate. Total charged is GST-inclusive
+  // (it's each document's total_cents) while labour/material cost are
+  // GST-exclusive, so this margin/margin% also includes the GST slice of
+  // revenue - a small overstatement worth knowing about. It can also
+  // double-count a quote that was converted to an invoice, since both stay
+  // linked to the job and both get summed - if that's not the intent,
+  // filtering converted quotes (status "accepted" with a matching invoice)
+  // out of the aggregate would be the fix.
+  const marginCents = totalChargedCents - (totalLabourCents + totalMaterialCents);
+  const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
+  const costingLoading = quoteLineItemsLoading || invoiceLineItemsLoading;
 
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -232,6 +323,81 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
+      {isAdmin ? (
+        <View style={styles.tabRow}>
+          <Pressable
+            style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("details")}
+          >
+            <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tabButton, activeTab === "costing" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("costing")}
+          >
+            <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {activeTab === "costing" && isAdmin ? (
+        !isOnline ? (
+          <View style={styles.section}>
+            <RequiresConnectionNotice label="Job costing" />
+          </View>
+        ) : (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Linked documents</Text>
+            {costingDocs.map((doc) => (
+              <Pressable
+                key={doc.id}
+                style={styles.costingDocRow}
+                onPress={() => router.push(doc.type === "quote" ? `/sales/quotes/${doc.id}` : `/sales/invoices/${doc.id}`)}
+              >
+                <View>
+                  <Text style={styles.costingDocNumber}>{doc.number}</Text>
+                  <Text style={styles.costingDocMeta}>
+                    {doc.type === "quote" ? "Quote" : "Invoice"} · {capitalize(doc.status)}
+                  </Text>
+                </View>
+                <Text style={styles.costingDocTotal}>{formatCentsAsAud(doc.total_cents)}</Text>
+              </Pressable>
+            ))}
+            {costingDocs.length === 0 ? (
+              <Text style={styles.empty}>No quotes or invoices linked to this job yet.</Text>
+            ) : costingLoading ? (
+              <Text style={styles.empty}>Loading costing breakdown...</Text>
+            ) : (
+              <>
+                <Text style={[styles.sectionTitle, styles.costingSummaryTitle]}>Summary</Text>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Labour cost</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalLabourCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Material cost</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalMaterialCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Total charged</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalChargedCents)}</Text>
+                </View>
+                <View style={[styles.costingSummaryRow, styles.costingSummaryRowBold]}>
+                  <Text style={styles.costingSummaryLabelBold}>Margin</Text>
+                  <Text style={styles.costingSummaryValueBold}>{formatCentsAsAud(marginCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Margin %</Text>
+                  <Text style={styles.costingSummaryValue}>{marginPercent.toFixed(1)}%</Text>
+                </View>
+              </>
+            )}
+          </View>
+        )
+      ) : null}
+
+      {activeTab === "details" || !isAdmin ? (
+        <>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Status</Text>
         <View style={styles.statusRow}>
@@ -339,6 +505,8 @@ export default function JobDetailScreen() {
           </View>
         ))}
       </View>
+        </>
+      ) : null}
     </ScrollView>
 
     <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
@@ -380,6 +548,29 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
+  tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
+  tabButtonActive: { backgroundColor: "#1d4ed8" },
+  tabButtonText: { color: "#374151", fontWeight: "700" },
+  tabButtonTextActive: { color: "#fff" },
+  costingDocRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#f0f0f0",
+  },
+  costingDocNumber: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  costingDocMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
+  costingDocTotal: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  costingSummaryTitle: { marginTop: 20 },
+  costingSummaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
+  costingSummaryRowBold: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", marginTop: 4, paddingTop: 10 },
+  costingSummaryLabel: { color: "#6b7280", fontSize: 13 },
+  costingSummaryValue: { color: "#111827", fontSize: 13, fontWeight: "600" },
+  costingSummaryLabelBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
+  costingSummaryValueBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
   statusChipActive: { backgroundColor: "#1d4ed8" },
