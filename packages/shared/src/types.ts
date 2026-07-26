@@ -12,6 +12,12 @@ export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired"
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "void";
 
+// Tracks the client's response to the digital approval link, entirely
+// separate from the `status` column above (which is the internal
+// draft/sent/paid/... workflow state an admin can change freely at any
+// time). Null until an approval link has ever been generated.
+export type ApprovalStatus = "sent" | "viewed" | "accepted" | "declined";
+
 export type TemplateType = "quote" | "invoice";
 
 // abn/business address/license/bank fields were added specifically to
@@ -210,6 +216,14 @@ export interface Quote {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  approval_status: ApprovalStatus | null;
+  access_token: string | null;
+  token_expires_at: string | null;
+  viewed_at: string | null;
+  accepted_at: string | null;
+  accepted_by_name: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -235,6 +249,14 @@ export interface Invoice {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  approval_status: ApprovalStatus | null;
+  access_token: string | null;
+  token_expires_at: string | null;
+  viewed_at: string | null;
+  accepted_at: string | null;
+  accepted_by_name: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
 }
 
 export interface InvoiceLineItem extends LineItemInput {

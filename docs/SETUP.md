@@ -725,3 +725,100 @@ needs real company name/ABN/bank details, not blank placeholders).
   `eas build --profile development --platform android` again before the
   PDF export button will work on device (not attempted this session, no
   EAS/Expo login access from this sandbox).
+
+## Quote/invoice digital acceptance
+
+- **What was built**: a client-facing, unauthenticated web page (a Supabase
+  Edge Function, `supabase/functions/approve/index.ts`) at
+  `/functions/v1/approve/quote/:token` or `/approve/invoice/:token` where a
+  client can view a quote/invoice (same description/qty/rate/amount-only
+  view as the PDF/`LineItemSummary` - never the labour/material/markup
+  breakdown), then accept (typed full name) or decline (optional reason).
+  New columns on both `quotes` and `invoices`: `approval_status` (a
+  dedicated enum, `sent`/`viewed`/`accepted`/`declined` - deliberately kept
+  separate from the existing `status` column, which is the admin's own
+  internal draft/sent/paid/etc. workflow state the admin can already change
+  freely; conflating the two would mean flipping `status` by hand looked
+  identical to a real client acceptance), `access_token`, `token_expires_at`,
+  `viewed_at`, `accepted_at`/`accepted_by_name`,
+  `declined_at`/`decline_reason`. In-app: a status badge, a "Generate &
+  share approval link" button (admin-only) that hands the link to the
+  native Share sheet, and the line-item editor swaps to the read-only
+  `LineItemSummary` once accepted or declined.
+- **Immutability is a Postgres trigger, not a UI courtesy**: once a
+  quote/invoice's `approval_status = 'accepted'`, a `BEFORE` trigger on
+  `quote_line_items`/`invoice_line_items` rejects every insert/update/
+  delete, and a second trigger on `quotes`/`invoices` themselves blocks
+  changes specifically to `subtotal_cents`/`gst_cents`/`total_cents` (other
+  fields like `notes` stay editable). This is what actually stops
+  `replace_quote_line_items`/`replace_invoice_line_items` post-acceptance -
+  both are `SECURITY INVOKER`, so the existing "admin writes" RLS policy
+  alone wouldn't have caught this (an admin still legitimately has that
+  policy's permission); the trigger fires regardless of who's calling,
+  closing the same gap the atomic RPC migration's own comment already
+  flagged writes needing a "real guarantee" for. The in-app editor being
+  hidden for `declined` too (not just `accepted`) is a UI-only choice, not
+  mirrored by a matching Postgres trigger - declined documents aren't
+  locked at the database level, only accepted ones are, per the brief.
+- **Public access uses `SECURITY DEFINER` RPCs, not a service-role key in
+  the Edge Function**: `get_quote_for_approval`/`accept_quote_by_token`/
+  `decline_quote_by_token` (and the invoice equivalents) run as the
+  function owner so an unauthenticated caller (no `auth.uid()`, RLS would
+  otherwise reject everything) can still look up and act on a document by
+  its token - every one of these re-validates expiry and current
+  `approval_status` before doing anything, so the token alone is the
+  credential, revoked/scoped to exactly six functions
+  (`revoke ... from public` + explicit `grant ... to anon, authenticated`)
+  rather than a broad service-role credential embedded in the Edge
+  Function's request-handling code.
+- **Link generation** (`generate_quote_approval_link`/
+  `generate_invoice_approval_link`) is plain `SECURITY INVOKER`, called by
+  the admin from the app - only creates a token if one doesn't already
+  exist (per the brief); regenerating an expired link isn't handled yet,
+  worth adding if a link needs to outlive its 30-day default. That 30-day
+  `token_expires_at` window is a judgment call, not specified in the brief.
+- **Verified from this sandbox (real, not assumed)**: the entire SQL layer
+  - migration applies cleanly on top of every prior migration, all four
+  triggers, all eight functions, and every grant/revoke - was run
+  end-to-end against a real local Postgres 16 instance (same throwaway-
+  database-with-Supabase-stubs approach as previous passes, extended with
+  `raw_user_meta_data` on the `auth.users` stub so `handle_new_user` could
+  provision a real admin profile). Confirmed live: generating a link sets
+  `approval_status = 'sent'`; viewing via `get_quote_for_approval` as the
+  `anon` role transitions it to `'viewed'` and returns only description/
+  qty/unit_price_cents per line (no cost breakdown); accepting sets
+  `accepted`/`accepted_at`/`accepted_by_name` and a second accept attempt
+  correctly returns `already_resolved`; **`replace_quote_line_items` is
+  actually rejected by the trigger once accepted** (the core guarantee this
+  feature exists for); a direct `update quotes set total_cents = ...` is
+  also rejected post-acceptance while a `notes` update on the same row
+  still succeeds; an expired token returns `expired` for both the view and
+  accept calls; an unknown token returns `not_found`; declining without a
+  prior accept sets `declined`/`declined_at`/`decline_reason`; accepting
+  with an empty name returns `name_required`.
+- **NOT verified from this sandbox (needs a live Supabase project)**: the
+  Edge Function itself has never been deployed or invoked - `supabase
+  functions deploy approve` needs to be run against the real project, and
+  the actual HTML rendering, the `npm:@supabase/supabase-js@2` specifier
+  resolving correctly in the deployed Edge Runtime, and the end-to-end
+  path-based routing (`/functions/v1/approve/quote/<token>` reaching the
+  function with the right trailing segments) all need a real test against
+  a live deployment - this sandbox has no Supabase CLI login/project
+  access. The Edge Function's TypeScript also isn't covered by `pnpm
+  typecheck` (it's Deno, uses `Deno.serve`/`Deno.env`, and lives outside
+  both workspace packages' `tsconfig` roots on purpose) - its correctness
+  was reasoned through by hand and by mirroring the already-verified SQL
+  contract, not compiler-checked.
+- **Deliberately descoped this pass** (per the brief - reasonable future
+  "v2" additions, not needed now): no canvas/Bezier-drawn signature (a
+  typed name + explicit accept action is enough for a trade quote/invoice);
+  no SHA-256 document hash or S3 Object Lock (the Postgres trigger above
+  already gives real immutability); no geolocation capture; no WebSocket
+  layer for live status updates (a Supabase Realtime subscription would be
+  the fit here if a live-updating badge is ever wanted, without any new
+  infrastructure - not wired up now, the existing "come back to the screen
+  and it refetches" pattern via `useRefetchOnFocus`/manual refetch is what
+  actually updates the badge for now); no automated email/SMS delivery of
+  the link (email sending isn't built at all yet - a separate, already-
+  known future phase) - delivery today is entirely manual, the admin
+  taps Share and picks whatever's in their phone's native Share sheet.

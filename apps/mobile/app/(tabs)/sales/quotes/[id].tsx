@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { calculateDocumentTotals, formatCentsAsAud, type Client, type LineItemFormInput, type Quote, type QuoteStatus, type Tenant } from "@jmssaas/shared";
+import {
+  calculateDocumentTotals,
+  formatCentsAsAud,
+  type ApprovalStatus,
+  type Client,
+  type LineItemFormInput,
+  type Quote,
+  type QuoteStatus,
+  type Tenant,
+} from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
-import { supabase } from "../../../../lib/supabase";
+import { supabase, supabaseUrl } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
 import { buildQuotePdfHtml } from "../../../../lib/pdf";
 import { exportPdf } from "../../../../lib/print";
@@ -22,6 +31,16 @@ const STATUS_LABELS: Record<QuoteStatus, string> = {
   accepted: "Accepted",
   declined: "Declined",
   expired: "Expired",
+};
+
+// The client's response to the approval link - distinct from the STATUSES
+// chips above, which are the admin's own internal workflow state and can
+// be changed freely regardless of whether a client has ever seen the doc.
+const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
+  sent: "Link sent - awaiting response",
+  viewed: "Viewed by client - awaiting response",
+  accepted: "Accepted by client",
+  declined: "Declined by client",
 };
 
 type QuoteRow = Quote & { clients: Client | null; job_cards: { title: string } | null };
@@ -69,6 +88,17 @@ export default function QuoteDetailScreen() {
   const [converting, setConverting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Once the client has actually responded, the line items/totals are
+  // locked at the database level too (see the accepted case's trigger in
+  // supabase/migrations/20260728000100_quote_invoice_approval.sql) - the
+  // editor is hidden for "declined" as well so the admin doesn't edit a
+  // document the client has already seen and responded to without
+  // re-sending it, even though only "accepted" is hard-enforced in
+  // Postgres.
+  const isLocked = data?.quote.approval_status === "accepted" || data?.quote.approval_status === "declined";
 
   useEffect(() => {
     if (data) {
@@ -174,6 +204,32 @@ export default function QuoteDetailScreen() {
     }
   };
 
+  // Generates the token if one doesn't exist yet (idempotent - see
+  // generate_quote_approval_link), then hands the resulting link straight
+  // to the native Share sheet. There's no automated delivery (email/SMS)
+  // yet - see docs/SETUP.md known-gaps - so the admin picks how to send it
+  // themselves from whatever the Share sheet offers on their device.
+  const handleGenerateAndShareLink = async () => {
+    if (!data) return;
+    setGeneratingLink(true);
+    setLinkError(null);
+    try {
+      const { data: token, error: rpcError } = await supabase.rpc("generate_quote_approval_link", {
+        p_quote_id: id,
+      });
+      if (rpcError) throw rpcError;
+
+      const url = `${supabaseUrl}/functions/v1/approve/quote/${token}`;
+      await Share.share({ message: `Please review and approve this quote: ${url}` });
+      refetch();
+    } catch (e) {
+      console.error("[Quotes] Failed to generate approval link", e);
+      setLinkError(getErrorMessage(e, "Failed to generate approval link (see console for details)"));
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
   if (!isOnline) {
     return (
       <View style={styles.container}>
@@ -212,6 +268,38 @@ export default function QuoteDetailScreen() {
           </Pressable>
         ) : null}
 
+        {data.quote.approval_status ? (
+          <View
+            style={[
+              styles.approvalBadge,
+              data.quote.approval_status === "accepted" && styles.approvalBadgeAccepted,
+              data.quote.approval_status === "declined" && styles.approvalBadgeDeclined,
+            ]}
+          >
+            <Text
+              style={[
+                styles.approvalBadgeText,
+                data.quote.approval_status === "accepted" && styles.approvalBadgeTextAccepted,
+                data.quote.approval_status === "declined" && styles.approvalBadgeTextDeclined,
+              ]}
+            >
+              {APPROVAL_STATUS_LABELS[data.quote.approval_status]}
+            </Text>
+          </View>
+        ) : null}
+        {data.quote.approval_status === "declined" && data.quote.decline_reason ? (
+          <Text style={styles.declineReason}>Reason: {data.quote.decline_reason}</Text>
+        ) : null}
+
+        {isAdmin ? (
+          <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
+            <Text style={styles.linkButtonText}>
+              {generatingLink ? "Generating..." : data.quote.access_token ? "Share approval link" : "Generate & share approval link"}
+            </Text>
+          </Pressable>
+        ) : null}
+        {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
+
         <Text style={styles.sectionTitle}>Status</Text>
         <View style={styles.statusRow}>
           {STATUSES.map((status) => (
@@ -232,15 +320,20 @@ export default function QuoteDetailScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Line items</Text>
-        {isAdmin ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+        {isLocked ? (
+          <Text style={styles.lockedNotice}>
+            This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
+          </Text>
+        ) : null}
+        {isAdmin && !isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
 
         <View style={styles.fieldSpacing}>
-          <FormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin} />
+          <FormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
         </View>
 
         {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
-        {isAdmin ? (
+        {isAdmin && !isLocked ? (
           <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
             <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
           </Pressable>
@@ -289,6 +382,16 @@ const styles = StyleSheet.create({
   fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
+  approvalBadge: { alignSelf: "flex-start", backgroundColor: "#fef9c3", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, marginTop: 10 },
+  approvalBadgeAccepted: { backgroundColor: "#dcfce7" },
+  approvalBadgeDeclined: { backgroundColor: "#fee2e2" },
+  approvalBadgeText: { fontSize: 12, fontWeight: "700", color: "#854d0e" },
+  approvalBadgeTextAccepted: { color: "#15803d" },
+  approvalBadgeTextDeclined: { color: "#b91c1c" },
+  declineReason: { color: "#b91c1c", fontSize: 13, marginTop: 6 },
+  linkButton: { alignSelf: "flex-start", marginTop: 10 },
+  linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
+  lockedNotice: { color: "#6b7280", fontSize: 13, marginBottom: 8 },
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
   saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   convertButton: { borderRadius: 8, padding: 14, alignItems: "center", marginTop: 12, backgroundColor: "#f3f4f6" },
