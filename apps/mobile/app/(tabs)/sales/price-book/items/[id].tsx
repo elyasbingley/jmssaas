@@ -9,6 +9,7 @@ import {
   type PriceBookItem,
   type PriceBookItemVariation,
 } from "@jmssaas/shared";
+import { useAuth } from "../../../../../lib/auth-context";
 import { useIsOnline } from "../../../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../../lib/supabase";
@@ -40,6 +41,7 @@ const emptyVariationForm: VariationFormState = {
 export default function PriceBookItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { profile } = useAuth();
   const isOnline = useIsOnline();
 
   const { data: item, refetch: refetchItem } = useSupabaseFetch<PriceBookItem>(async () => {
@@ -166,10 +168,13 @@ export default function PriceBookItemScreen() {
       setVariationError(result.error.issues[0]?.message ?? "Check the form for errors");
       return;
     }
+    if (!profile) return;
     try {
       const { error } = editingVariationId
         ? await supabase.from("price_book_item_variations").update(result.data).eq("id", editingVariationId)
-        : await supabase.from("price_book_item_variations").insert(result.data);
+        : await supabase
+            .from("price_book_item_variations")
+            .insert({ ...result.data, tenant_id: profile.tenant_id });
       if (error) throw error;
       setVariationModalVisible(false);
       refetchVariations();

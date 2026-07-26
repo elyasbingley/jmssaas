@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { createPriceBookCategorySchema, type PriceBookCategory } from "@jmssaas/shared";
+import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
@@ -16,6 +17,7 @@ import { FormField } from "../../../../components/FormField";
 // is a plain online Supabase fetch rather than a PowerSync-watched query.
 export default function PriceBookScreen() {
   const router = useRouter();
+  const { profile } = useAuth();
   const isOnline = useIsOnline();
 
   const { data: categories, refetch } = useSupabaseFetch<PriceBookCategory[]>(async () => {
@@ -40,10 +42,13 @@ export default function PriceBookScreen() {
       setFormError(result.error.issues[0]?.message ?? "Invalid category");
       return;
     }
+    if (!profile) return;
     setSubmitting(true);
     setFormError(null);
     try {
-      const { error } = await supabase.from("price_book_categories").insert(result.data);
+      const { error } = await supabase
+        .from("price_book_categories")
+        .insert({ ...result.data, tenant_id: profile.tenant_id });
       if (error) throw error;
       setName("");
       setModalVisible(false);

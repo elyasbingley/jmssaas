@@ -6,6 +6,7 @@ import {
   createPriceBookItemSchema,
   formatCentsAsAud,
 } from "@jmssaas/shared";
+import { useAuth } from "../../../../../lib/auth-context";
 import { supabase } from "../../../../../lib/supabase";
 import { getErrorMessage } from "../../../../../lib/errors";
 import { FormField } from "../../../../../components/FormField";
@@ -17,6 +18,7 @@ function parseNumber(text: string): number {
 export default function NewPriceBookItemScreen() {
   const { categoryId } = useLocalSearchParams<{ categoryId: string }>();
   const router = useRouter();
+  const { profile } = useAuth();
 
   const [description, setDescription] = useState("");
   const [labourRate, setLabourRate] = useState("0");
@@ -46,11 +48,16 @@ export default function NewPriceBookItemScreen() {
       setFormError(result.error.issues[0]?.message ?? "Check the form for errors");
       return;
     }
+    if (!profile) return;
 
     setSubmitting(true);
     setFormError(null);
     try {
-      const { data, error } = await supabase.from("price_book_items").insert(result.data).select().single();
+      const { data, error } = await supabase
+        .from("price_book_items")
+        .insert({ ...result.data, tenant_id: profile.tenant_id })
+        .select()
+        .single();
       if (error) throw error;
       router.replace(`/sales/price-book/items/${data.id}`);
     } catch (e) {
