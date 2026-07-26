@@ -66,6 +66,7 @@ const BASE_STYLES = `
   th { text-align: left; font-size: 10px; text-transform: uppercase; color: #6b7280; border-bottom: 2px solid #111827; padding: 6px 8px; }
   th.num, td.num { text-align: right; }
   td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; vertical-align: top; }
+  td.desc { white-space: pre-wrap; }
   .totals { width: 260px; margin-left: auto; margin-bottom: 28px; }
   .totals-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; }
   .totals-row.total { border-top: 2px solid #111827; font-weight: 700; font-size: 14px; padding-top: 8px; margin-top: 4px; }
@@ -108,7 +109,7 @@ function renderItemsTable(lineItems: LineItemFormInput[]): string {
       (item, index) => `
       <tr>
         <td>${index + 1}</td>
-        <td>${escapeHtml(item.description)}</td>
+        <td class="desc">${escapeHtml(item.description)}</td>
         <td class="num">${item.quantity}</td>
         <td class="num">${formatCentsAsAud(item.unit_price_cents)}</td>
         <td class="num">${formatCentsAsAud(lineItemSubtotalCents(item))}</td>

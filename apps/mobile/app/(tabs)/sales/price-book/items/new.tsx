@@ -72,9 +72,11 @@ export default function NewPriceBookItemScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
       <FormField
         label="Description"
-        placeholder="e.g. Supply and install colorbond gutter"
+        placeholder={"e.g. Tile Replacement\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
         value={description}
         onChangeText={setDescription}
+        multiline
+        style={styles.multilineInput}
       />
 
       <View style={styles.fieldGrid}>
@@ -111,6 +113,7 @@ export default function NewPriceBookItemScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  multilineInput: { minHeight: 90, textAlignVertical: "top" },
   fieldGrid: { flexDirection: "row", gap: 12, marginTop: 16 },
   fieldCell: { flex: 1 },
   previewBox: { marginTop: 20, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12 },

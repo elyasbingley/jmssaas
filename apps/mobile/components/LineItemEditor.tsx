@@ -47,10 +47,11 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           </View>
 
           <TextInput
-            style={styles.input}
-            placeholder="Description (e.g. supply and install valley channel)"
+            style={[styles.input, styles.descriptionInput]}
+            placeholder={"Description (e.g. supply and install valley channel)\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
             value={item.description}
             onChangeText={(text) => updateItem(index, { description: text })}
+            multiline
           />
 
           <View style={styles.fieldGrid}>
@@ -200,6 +201,7 @@ const styles = StyleSheet.create({
   removeButton: { marginLeft: "auto" },
   removeButtonText: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, fontSize: 15 },
+  descriptionInput: { minHeight: 90, textAlignVertical: "top" },
   fieldGrid: { flexDirection: "row", gap: 8 },
   fieldCell: { flex: 1, gap: 4 },
   fieldLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
