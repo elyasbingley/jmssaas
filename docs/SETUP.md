@@ -1451,13 +1451,36 @@ needs real company name/ABN/bank details, not blank placeholders).
   (`au.bingley.jmssaas`) plus your signing certificate's SHA-1, and set
   `GOOGLE_MAPS_API_KEY_ANDROID` in `apps/mobile/.env` (see the updated
   `.env.example`). This is a native-only secret, deliberately not
-  `EXPO_PUBLIC_`-prefixed - it's read directly from `.env` by
-  `apps/mobile/app.config.js` (see below) and baked into
-  `AndroidManifest.xml` at prebuild time, never inlined into the JS
-  bundle. There's no in-app way to surface a friendly error for a missing
-  key the way `EXPO_PUBLIC_APPROVAL_PAGE_URL` does - it's consumed at
-  native build time, not JS runtime, so a missing/wrong key just shows up
-  as a blank/broken map on the Android device itself.
+  `EXPO_PUBLIC_`-prefixed - it's read by `apps/mobile/app.config.js` (see
+  below) and baked into `AndroidManifest.xml` at prebuild time, never
+  inlined into the JS bundle. There's no in-app way to surface a friendly
+  error for a missing key the way `EXPO_PUBLIC_APPROVAL_PAGE_URL` does -
+  it's consumed at native build time, not JS runtime, so a missing/wrong
+  key doesn't fail the build; the app installs fine and only then crashes
+  on-device the moment the map screen mounts (`IllegalStateException: API
+  key not found`), confirmed exactly this way on a real device.
+- **`.env` alone is NOT enough for `eas build` - confirmed wrong by that
+  same live crash, corrected here rather than silently fixed**. The
+  original version of this note claimed `.env` was sufficient because
+  `app.config.js` reads it directly. That's true for anything evaluating
+  `app.config.js` *locally* (`expo start`, a local prebuild) - it is
+  **not** true for `eas build`, which runs on Expo's own cloud servers
+  against a fresh clone of the git repo. `.env` is (correctly) gitignored,
+  so it never reaches that server, `GOOGLE_MAPS_API_KEY_ANDROID` was
+  `undefined` when `app.config.js` ran during the cloud build, and the
+  resulting APK shipped with no key in its manifest at all - installed and
+  ran fine right up until the map screen tried to mount. The actual fix:
+  register the key as an **EAS environment variable** (visible to the
+  cloud build, not just your local shell), which `app.config.js` already
+  reads via `process.env.GOOGLE_MAPS_API_KEY_ANDROID` as its first choice
+  (the `.env` parsing is the *fallback*, for local builds only):
+  ```
+  eas env:create --name GOOGLE_MAPS_API_KEY_ANDROID --value "your-key" --visibility sensitive --environment development
+  ```
+  Repeat with `--environment preview`/`--environment production` once
+  those profiles exist. Re-run `eas build` after this - the key has to be
+  registered *before* the build that needs it, not just before you install
+  the resulting APK.
 - **`app.json` became `app.config.js`, a real structural change**: this
   was needed so `GOOGLE_MAPS_API_KEY_ANDROID` could be read from `.env` at
   config-evaluation time - the Expo CLI's automatic `.env` loading is only
@@ -1499,6 +1522,18 @@ needs real company name/ABN/bank details, not blank placeholders).
   falls back to the device's current position (`getCurrentPositionAsync`,
   hence the location permission), then to a fixed default region
   (Sydney) as a last resort where the person is expected to pan manually.
+  **Bug found and fixed from live device testing**: the original code only
+  requested location permission in the current-position fallback path,
+  after already attempting `geocodeAsync` first - reasonable for iOS,
+  where `CLGeocoder` is a pure lookup needing no permission at all, but
+  wrong for Android: its native `Geocoder` (what `geocodeAsync` calls
+  under the hood) threw `Not authorized to use location services` on a
+  real Android device, confirming it does require permission there too.
+  Fixed by requesting permission once, up front, before attempting
+  geocoding at all - a denied/unavailable permission still falls through
+  the same chain (geocode fails the same way it would offline, then skips
+  straight to the default region instead of also trying
+  `getCurrentPositionAsync`).
 - **A facet has no independent lifecycle of its own, so it isn't a child
   table** - it's never queried, filtered, or joined outside its parent
   measurement, so it's stored as a `jsonb` array on `job_measurements`

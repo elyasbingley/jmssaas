@@ -82,6 +82,24 @@ export default function MeasureRoofScreen() {
     let cancelled = false;
 
     async function resolveRegion() {
+      // Unlike iOS's CLGeocoder (a pure lookup, no permission needed),
+      // Android's native Geocoder - what Location.geocodeAsync uses under
+      // the hood - requires location permission on some OS versions/OEMs
+      // even for forward geocoding, confirmed live ("Not authorized to use
+      // location services" thrown from geocodeAsync itself on a real
+      // device). Request permission up front, before attempting geocoding
+      // at all, so both the geocoding attempt and the current-position
+      // fallback below have it - a denied/unavailable permission just means
+      // geocodeAsync fails the same way it would offline, falling through
+      // to the same fallback chain either way.
+      let permissionGranted = false;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        permissionGranted = status === "granted";
+      } catch (e) {
+        console.error("[MeasureRoof] Failed to request location permission", e);
+      }
+
       if (address) {
         try {
           const results = await Location.geocodeAsync(address);
@@ -102,8 +120,7 @@ export default function MeasureRoofScreen() {
       }
 
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
+        if (permissionGranted) {
           const position = await Location.getCurrentPositionAsync({});
           if (!cancelled) {
             setRegion({
