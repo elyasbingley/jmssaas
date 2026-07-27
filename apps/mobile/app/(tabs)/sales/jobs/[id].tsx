@@ -547,6 +547,19 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Roof Measurement</Text>
+        <Pressable
+          style={styles.measureButton}
+          onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
+        >
+          <Text style={styles.measureButtonText}>📐 Measure Roof</Text>
+        </Pressable>
+        <Text style={styles.measureHint}>
+          Draw roof sections on a satellite map and save the total area to this job's notes.
+        </Text>
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notes</Text>
         <FormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
         {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
@@ -677,6 +690,9 @@ const styles = StyleSheet.create({
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   buttonText: { color: "#fff", fontWeight: "600" },
   addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
+  measureButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
+  measureButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  measureHint: { color: "#6b7280", fontSize: 12, marginTop: 8 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 6 },
   noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },

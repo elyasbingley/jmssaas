@@ -467,3 +467,43 @@ export interface LowStockItem {
   reorder_threshold: number;
   ideal_stock: number;
 }
+
+export interface Coordinate {
+  lat: number;
+  lng: number;
+}
+
+// One traced section of roof within a JobMeasurement - "Main House Roof",
+// "Garage", "Rear Pergola". flat_area_sqm/true_area_sqm are computed
+// client-side (see geo.ts's polygonFlatAreaSqm/trueAreaSqm) and persisted
+// alongside the raw coordinates rather than recomputed on every read, so a
+// saved measurement's numbers stay exactly what was shown/saved even if
+// the area math is refined later.
+export interface Facet {
+  id: string;
+  name: string;
+  pitch_degrees: number;
+  flat_area_sqm: number;
+  true_area_sqm: number;
+  coordinates: Coordinate[];
+}
+
+// A saved roof measurement against a job - append-style history (like
+// JobNote), not a single mutable record per job, since a roof can
+// legitimately be re-measured over time. total_flat_area_sqm/
+// total_true_area_sqm are the sum of every facet's own area, stored
+// redundantly so screens/reports can read one number without summing
+// `facets` themselves - see the roof_measurements migration.
+export interface JobMeasurement {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  title: string;
+  facets: Facet[];
+  total_flat_area_sqm: number;
+  total_true_area_sqm: number;
+  snapshot_path: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}

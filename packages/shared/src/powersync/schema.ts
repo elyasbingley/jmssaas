@@ -236,6 +236,29 @@ const job_files = new Table(
   { indexes: { job: ["job_card_id"] } }
 );
 
+// A saved roof measurement - job-scoped field data like job_notes/
+// job_files above, so it's offline-capable the same way (a technician
+// drawing/saving a measurement with no reception). `facets` is the
+// jsonb array from Postgres, round-tripped as a JSON string locally
+// (PowerSync's SQLite columns are TEXT/INTEGER/REAL only, no native JSON
+// type) - see the roof_measurements migration and Facet in types.ts for
+// the shape encoded inside it.
+const job_measurements = new Table(
+  {
+    tenant_id: column.text,
+    job_card_id: column.text,
+    title: column.text,
+    facets: column.text,
+    total_flat_area_sqm: column.real,
+    total_true_area_sqm: column.real,
+    snapshot_path: column.text,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { job: ["job_card_id"] } }
+);
+
 const tasks = new Table(
   {
     tenant_id: column.text,
@@ -295,6 +318,7 @@ export const AppSchema = new Schema({
   job_cards,
   job_notes,
   job_files,
+  job_measurements,
   tasks,
   task_notes,
   task_files,

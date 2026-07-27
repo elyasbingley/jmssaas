@@ -220,3 +220,32 @@ export const createInventoryItemSchema = z.object({
   ideal_stock: z.number().int().nonnegative().default(10),
 });
 export type CreateInventoryItemInput = z.infer<typeof createInventoryItemSchema>;
+
+export const coordinateSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+export type CoordinateInput = z.infer<typeof coordinateSchema>;
+
+// 0-60° matches the measurement screen's stepper range - covers everything
+// from a flat roof up to a genuinely steep pitch; anything beyond that is
+// rare enough on a house that it wasn't worth extending the UI for.
+export const facetSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1, "Name is required"),
+  pitch_degrees: z.number().min(0).max(60),
+  flat_area_sqm: z.number().nonnegative(),
+  true_area_sqm: z.number().nonnegative(),
+  coordinates: z.array(coordinateSchema).min(3, "A facet needs at least 3 points"),
+});
+export type FacetInput = z.infer<typeof facetSchema>;
+
+export const createJobMeasurementSchema = z.object({
+  job_card_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required").default("Roof Measurement"),
+  facets: z.array(facetSchema).min(1, "Add at least one facet"),
+  total_flat_area_sqm: z.number().nonnegative(),
+  total_true_area_sqm: z.number().nonnegative(),
+  snapshot_path: z.string().optional(),
+});
+export type CreateJobMeasurementInput = z.infer<typeof createJobMeasurementSchema>;

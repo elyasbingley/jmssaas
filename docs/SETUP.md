@@ -1408,3 +1408,140 @@ needs real company name/ABN/bank details, not blank placeholders).
   on-device sync caveats as every prior sync-rules change in this project.
   The item edit flow, supplier filter chips, and the supplier-labelled PDF
   output have not been exercised in a running app.
+
+## Built-in map for roof measurements
+
+- **What was built**: a satellite-map polygon tool for measuring roof
+  facets on-site. `job_measurements` (append-style history, like
+  `job_notes` - a roof can legitimately be re-measured over time) stores
+  one or more facets as jsonb (`id`, `name`, `pitch_degrees`,
+  `flat_area_sqm`, `true_area_sqm`, `coordinates`), plus the tenant-wide
+  totals and an optional snapshot path. A new
+  `sales/jobs/measure.tsx` screen (reached via a "📐 Measure Roof" button
+  on the job detail screen, right after Photos) shows a `react-native-maps`
+  `MapView` in `mapType="satellite"`, centered on the job's site/client
+  address (geocoded) or the device's current location as a fallback.
+  Tapping the map adds a vertex to whichever facet is currently "active";
+  a bottom drawer lists every facet with a rename-on-tap name, a +/-5°
+  pitch stepper (0-60°), and live flat/true area figures. "Save & Append
+  to Job Card" takes a snapshot of the map, attaches it as a job photo via
+  the existing `addJobPhoto`/attachment-queue pipeline (already
+  offline-capable - nothing new needed there), inserts the
+  `job_measurements` row, and appends a formatted summary (date, total
+  true area, per-facet breakdown) as a `job_notes` row - all via
+  `powersync.execute()`, so the whole flow works with no connection.
+- **New native dependencies - this needs a new dev-client/EAS build**:
+  `react-native-maps` (satellite map, polygon drawing, snapshot capture)
+  and `expo-location` (geocoding + current-location fallback) are both
+  native modules, added to `apps/mobile/package.json` and to the config
+  plugins list. Neither is optional or JS-only - like every other native
+  dependency added this project (react-native-quick-sqlite, expo-camera,
+  etc.), existing installs need a fresh native build before this feature
+  will work; a plain JS reload is not enough this time.
+- **A real new external requirement: an Android Google Maps API key**.
+  iOS deliberately needs no key - `react-native-maps` uses Apple's native
+  MapKit there by default (`PROVIDER_DEFAULT`), which supports
+  `mapType="satellite"` with no setup or cost. Android has no equivalent
+  "just use the OS's own maps" option - `react-native-maps` always uses
+  the Google Maps SDK on Android, and that SDK requires a key just to
+  render *any* tiles, satellite included. This is a genuine new
+  prerequisite, on top of Supabase/PowerSync: create a key at
+  [Google Cloud Console](https://console.cloud.google.com/google/maps-apis),
+  enable "Maps SDK for Android", restrict it to this app's package name
+  (`au.bingley.jmssaas`) plus your signing certificate's SHA-1, and set
+  `GOOGLE_MAPS_API_KEY_ANDROID` in `apps/mobile/.env` (see the updated
+  `.env.example`). This is a native-only secret, deliberately not
+  `EXPO_PUBLIC_`-prefixed - it's read directly from `.env` by
+  `apps/mobile/app.config.js` (see below) and baked into
+  `AndroidManifest.xml` at prebuild time, never inlined into the JS
+  bundle. There's no in-app way to surface a friendly error for a missing
+  key the way `EXPO_PUBLIC_APPROVAL_PAGE_URL` does - it's consumed at
+  native build time, not JS runtime, so a missing/wrong key just shows up
+  as a blank/broken map on the Android device itself.
+- **`app.json` became `app.config.js`, a real structural change**: this
+  was needed so `GOOGLE_MAPS_API_KEY_ANDROID` could be read from `.env` at
+  config-evaluation time - the Expo CLI's automatic `.env` loading is only
+  documented for `EXPO_PUBLIC_`-prefixed vars going into the JS bundle,
+  not for arbitrary vars being available in `process.env` when
+  `app.config.js` itself runs. Rather than depend on undocumented
+  behaviour, `app.config.js` parses `apps/mobile/.env` itself (a few lines
+  of hand-rolled parsing, no new dependency) and reads
+  `GOOGLE_MAPS_API_KEY_ANDROID` from that. Every other field is an
+  unchanged copy of the old `app.json`, which was deleted rather than
+  left alongside the new file (Expo prefers `app.config.js` when both
+  exist, so keeping both would just be a stale, confusing duplicate).
+- **"Geodesic flat polygon area" is an equirectangular approximation, not
+  a full ellipsoidal geodesic algorithm - a deliberate, documented
+  simplification**. `polygonFlatAreaSqm` in `packages/shared/src/geo.ts`
+  projects each vertex to local planar metres (centred on the polygon's
+  own mean latitude) and runs the standard shoelace formula, rather than
+  pulling in a Vincenty/Karney-style geodesic library. At roof/building
+  scale (tens to a few hundred m²) the difference between this and a true
+  ellipsoidal calculation is negligible - this is the same approach
+  industry roof/solar measurement tools use at this scale. "Geodesic" here
+  means "accounts for real-world metres via latitude, not raw lat/lng
+  degrees," not "ellipsoidal surface area."
+- **Pitch compensation** (`trueAreaSqm`) is exactly the requested
+  `flatArea / cos(pitchRadians)`, with a guard against `pitch >= 90°`
+  (`cos <= 0`) that should never trigger given the UI's 0-60° stepper
+  range, but is there in case this function is ever called from somewhere
+  that doesn't enforce that bound.
+- **Centering "on the job address" uses `expo-location`'s
+  `geocodeAsync`, not a paid geocoding REST API** - forward geocoding
+  through `expo-location` uses the *device's own* native geocoding
+  (Apple's on iOS, Google Play services' on Android), the same thing
+  Maps/Search apps use, at no extra cost and with no separate API key
+  needed. This avoids standing up a second Google API key/service (a raw
+  REST Geocoding API key shipped in the client would also be a real
+  security smell - unlike a native SDK key restricted by package name/SHA-1,
+  a REST key is much harder to lock down safely from a mobile client). If
+  geocoding the job's site/client address returns nothing, the screen
+  falls back to the device's current position (`getCurrentPositionAsync`,
+  hence the location permission), then to a fixed default region
+  (Sydney) as a last resort where the person is expected to pan manually.
+- **A facet has no independent lifecycle of its own, so it isn't a child
+  table** - it's never queried, filtered, or joined outside its parent
+  measurement, so it's stored as a `jsonb` array on `job_measurements`
+  rather than a normalised `job_measurement_facets` table, avoiding
+  migration/RLS/PowerSync overhead for something with no real relational
+  need. `total_flat_area_sqm`/`total_true_area_sqm` are stored redundantly
+  (derivable by summing facets) purely so other screens/reports can read
+  one number without parsing jsonb - same reasoning as other denormalised
+  totals elsewhere in this schema (e.g. quote/invoice `total_cents`).
+- **RLS mirrors `job_notes`/`job_files` exactly** (visibility and insert
+  follow the parent `job_cards` row - admin sees/edits everything, a
+  technician only their own assigned job), since this is the same
+  "job-scoped field data" shape. Unlike `job_notes` (append-only, no
+  update policy), an update policy was added - a technician mid-measurement
+  may need to fix a mis-tapped point or re-save after adjusting a pitch,
+  not just create a new row every time. Delete is admin-only, matching
+  `job_files`.
+- **Only a finished facet's points can't be edited afterwards** - once
+  "Finish facet" is tapped, that facet is locked (can still be deleted and
+  redrawn, but not have individual points added/removed). This was a
+  deliberate scope simplification to keep the active-facet state machine
+  simple (exactly one facet can ever be "being drawn" at a time); the
+  screen does support undoing the *last* point of the facet currently
+  being drawn, so a mis-tap doesn't require restarting that facet from
+  scratch.
+- **Verified from this sandbox**: the migration was applied cleanly
+  against a real local Postgres 16 instance alongside all 16 prior
+  migrations. RLS was exercised live: an assigned technician could
+  insert/select/update their job's measurement; an unassigned technician
+  saw zero rows and was rejected on insert; the assigned technician's
+  delete attempt was silently filtered (0 rows affected) while an admin's
+  delete succeeded. `pnpm typecheck` passes clean across the whole
+  workspace, including the new native map/location types. `app.config.js`
+  was confirmed to `require()` cleanly and produce the expected plugin
+  list. There is still no `build` script anywhere in this repo, consistent
+  with every prior phase's note on this - `typecheck` remains the actual
+  cross-package gate.
+- **NOT verified from this sandbox**: this is the first native map/GPS
+  integration in the app, and none of it has run on a real device or
+  simulator - no dev-client build exists yet with `react-native-maps`/
+  `expo-location` linked in, so the satellite rendering, tap-to-draw
+  interaction, snapshot capture, and geocoding fallback chain are all
+  unverified beyond `tsc`'s type-checking. Same PowerSync YAML-parsing/
+  on-device sync caveat as every prior sync-rules change in this project.
+  A fresh EAS/dev-client build and a real Android Google Maps API key are
+  both required before this can be tested at all - see above.

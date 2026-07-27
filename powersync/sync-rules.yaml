@@ -55,7 +55,12 @@
 # - admin_job_data: admins still get the full tenant's job_cards, job_notes,
 #   job_files and tasks, same as before - they need to see and assign
 #   everything. Scoped to role = 'admin' so technicians get zero instances
-#   of this bucket.
+#   of this bucket. job_measurements (roof_measurements migration) joined
+#   both this bucket and technician_assigned_jobs below alongside job_notes/
+#   job_files - it's the same "job-scoped field data" shape (a technician
+#   drawing/saving a roof measurement on-site needs it to work with no
+#   reception, same as adding a note or photo), and Postgres RLS already
+#   restricts it to admin-or-assigned-technician the same way.
 #
 # - technician_assigned_jobs / technician_own_tasks: technician devices no
 #   longer download every job in the tenant. technician_assigned_jobs uses a
@@ -123,6 +128,7 @@ bucket_definitions:
       - select * from job_cards where tenant_id = bucket.tenant_id
       - select * from job_notes where tenant_id = bucket.tenant_id
       - select * from job_files where tenant_id = bucket.tenant_id
+      - select * from job_measurements where tenant_id = bucket.tenant_id
       - select * from tasks where tenant_id = bucket.tenant_id
       - select * from task_notes where tenant_id = bucket.tenant_id
       - select * from task_files where tenant_id = bucket.tenant_id
@@ -133,6 +139,7 @@ bucket_definitions:
       - select * from job_cards where id = bucket.job_card_id
       - select * from job_notes where job_card_id = bucket.job_card_id
       - select * from job_files where job_card_id = bucket.job_card_id
+      - select * from job_measurements where job_card_id = bucket.job_card_id
       - select * from tasks where job_card_id = bucket.job_card_id
       - select * from task_notes where job_card_id = bucket.job_card_id
       - select * from task_files where job_card_id = bucket.job_card_id
