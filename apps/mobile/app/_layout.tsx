@@ -62,17 +62,21 @@ function RootNavigator() {
   // Outside the tab bar entirely: the (tabs) group (its own Tabs
   // navigator, each tab wrapping its own native Stack - see
   // app/(tabs)/_layout.tsx), login, and a couple of standalone admin
-  // screens reached via a small link rather than their own tab
-  // (company-settings, schedule, team, job-setup) - see docs/SETUP.md for
-  // why Schedule/dispatch was placed this way instead of a new tab.
+  // screens (company-settings, schedule, team, job-setup) - see
+  // docs/SETUP.md for why Schedule/dispatch was placed this way instead of
+  // a new tab. company-settings/team/job-setup are now reached from the
+  // Settings tab's list (see (tabs)/settings/index.tsx) rather than a
+  // header link on Home - the route names/files are unchanged, only the
+  // header titles below were renamed to match that list's labels (Company
+  // Details/Team-Staff/Job Card Setup).
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Settings" }} />
+      <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Details" }} />
       <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
-      <Stack.Screen name="team" options={{ headerShown: true, title: "Team" }} />
-      <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Setup" }} />
+      <Stack.Screen name="team" options={{ headerShown: true, title: "Team/Staff" }} />
+      <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />
     </Stack>
   );
 }

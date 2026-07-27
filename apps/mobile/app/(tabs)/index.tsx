@@ -1,7 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
+import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
+import { supabase } from "../../lib/supabase";
 
 // Mirrors the tab bar (Sales, Tasks, Calendar - Home itself isn't a tile of
 // its own). Individual Jobs/Quotes/Invoices/Clients/Price Book tiles used
@@ -27,30 +30,44 @@ export default function HomeScreen() {
   const router = useRouter();
   const { profile, signOut } = useAuth();
   const tiles = profile?.role === "admin" ? [...TILES, SCHEDULE_TILE] : TILES;
+  const isAdmin = profile?.role === "admin";
+
+  // Company Settings/Team/Job Setup links used to live in this header - all
+  // three moved to the new Settings tab (see (tabs)/settings/index.tsx), so
+  // this header is back to just identifying the business + sign out.
+  //
+  // The header title used to be a hardcoded app name ("Bingley Job
+  // Management"). It's now the tenant's own name, sourced from Company
+  // Details > Company Name (tenants.name) - same Supabase-direct fetch
+  // company-settings.tsx already uses, since `tenants` isn't a PowerSync
+  // table. Tapping it jumps straight to Company Details for admins, who are
+  // the only ones who can change it. Once this app has its own product
+  // name, that name is meant to sit on the right side of this header,
+  // opposite the company name - not built yet, there's just nothing there
+  // to put it next to until then.
+  const { data: tenant } = useSupabaseFetch<Tenant>(async () => {
+    if (!profile?.tenant_id) return null as unknown as Tenant;
+    const { data, error } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+    if (error) throw error;
+    return data as Tenant;
+  }, [profile?.tenant_id]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Bingley Job Management</Text>
+          {tenant ? (
+            isAdmin ? (
+              <Pressable onPress={() => router.push("/company-settings")}>
+                <Text style={styles.greeting}>{tenant.name}</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.greeting}>{tenant.name}</Text>
+            )
+          ) : null}
           {profile ? <Text style={styles.subtitle}>{profile.full_name}</Text> : null}
         </View>
         <View style={styles.headerLinks}>
-          {profile?.role === "admin" ? (
-            <Pressable onPress={() => router.push("/company-settings")}>
-              <Text style={styles.link}>Company Settings</Text>
-            </Pressable>
-          ) : null}
-          {profile?.role === "admin" ? (
-            <Pressable onPress={() => router.push("/team")}>
-              <Text style={styles.link}>Team</Text>
-            </Pressable>
-          ) : null}
-          {profile?.role === "admin" ? (
-            <Pressable onPress={() => router.push("/job-setup")}>
-              <Text style={styles.link}>Job Setup</Text>
-            </Pressable>
-          ) : null}
           <Pressable onPress={signOut}>
             <Text style={styles.link}>Sign out</Text>
           </Pressable>

@@ -96,7 +96,7 @@ export default function TeamScreen() {
   if (!isOnline) {
     return (
       <View style={styles.container}>
-        <RequiresConnectionNotice label="Team" />
+        <RequiresConnectionNotice label="Team/Staff" />
       </View>
     );
   }
