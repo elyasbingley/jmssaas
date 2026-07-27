@@ -355,3 +355,44 @@ export interface CalendarEvent {
   created_at: string;
   updated_at: string;
 }
+
+// A physical place stock lives - "Ute 1", "Main Warehouse", a shelf.
+// Admin-managed setup data, same shape/RLS as ServiceCategory.
+export interface InventoryLocation {
+  id: string;
+  tenant_id: string;
+  name: string;
+  type: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The quantity of a PriceBookItem held at a given InventoryLocation.
+// Unlike InventoryLocation, this is tenant-wide *writable* - see the
+// inventory_stock_control migration's RLS comment.
+export interface InventoryLevel {
+  id: string;
+  tenant_id: string;
+  location_id: string;
+  item_id: string;
+  quantity: number;
+  reorder_threshold: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Not its own table - an InventoryLevel joined with its item/location/
+// category names for display in the Low-Stock queue and the shopping list
+// PDF. Built client-side (see the inventory screen's join over the three
+// PowerSync-local tables), not a server view.
+export interface LowStockItem {
+  inventory_level_id: string;
+  location_id: string;
+  location_name: string;
+  item_id: string;
+  item_description: string;
+  category_id: string | null;
+  category_name: string | null;
+  quantity: number;
+  reorder_threshold: number;
+}

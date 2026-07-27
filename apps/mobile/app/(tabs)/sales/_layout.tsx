@@ -15,6 +15,7 @@ export default function SalesLayout() {
       <Stack.Screen name="clients" />
       <Stack.Screen name="jobs" />
       <Stack.Screen name="price-book" />
+      <Stack.Screen name="inventory" />
     </Stack>
   );
 }

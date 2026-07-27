@@ -1178,3 +1178,103 @@ needs real company name/ABN/bank details, not blank placeholders).
   per-technician sync rule sections above), and no on-device sync/offline
   test of `job-setup.tsx` or the Jobs list filters against a real running
   app.
+
+## Inventory & stock control
+
+- **What was built**: multi-location inventory tracking on top of the
+  existing price book catalogue - `inventory_locations` (a physical place
+  stock lives: "Ute 1", "Main Warehouse") and `inventory_levels` (the
+  quantity of a `price_book_items` row held at a given location, with a
+  `reorder_threshold`). A new `sales/inventory/index.tsx` screen (a sixth
+  tile in the Sales grid, next to Price Book) has a location switcher, a
+  price-book-category filter, and +/- buttons on each item card that write
+  straight to local SQLite via `powersync.execute()`. A second "Out of
+  Stock / Need to Order" tab shows every `inventory_levels` row across
+  every location where `quantity <= reorder_threshold` (red badge at
+  `quantity = 0`), with a "Generate Shopping List" button that builds a
+  PDF (`buildShoppingListPdfHtml` in `lib/pdf.ts`) grouped by location and
+  shares it via the existing `exportPdf` helper (`lib/print.ts` needed no
+  changes - it was already a generic HTML-to-PDF-and-share function, not
+  quote/invoice-specific).
+- **Reused the price book catalogue instead of a separate "inventory
+  item" list**: `inventory_levels.item_id` references `price_book_items`
+  directly. The alternative - a standalone inventory item table - would
+  mean maintaining two parallel catalogues (and reconciling them) for what
+  is, in this business, the same underlying thing: a priced item that can
+  either go on a quote/invoice or get tracked as stock. This does mean
+  inventory can only track items that already exist in the price book;
+  that was judged the right tradeoff over a duplicate catalogue.
+- **A real architectural tension, resolved deliberately**: price book
+  (`price_book_categories`/`price_book_items`) was, until this feature,
+  Supabase-direct and online-only - the earlier reasoning being that it's
+  admin-managed catalogue data only touched while building a quote/invoice,
+  itself an online-only workflow (see the price_book migration and the
+  job-categories section above, which explicitly kept price book
+  online-only for that reason). Inventory breaks that assumption: a
+  technician adjusting stock from their ute with no signal needs to see
+  the item's actual name, not a bare `item_id`, for "stock adjustments
+  work seamlessly offline" to be true in any meaningful sense. Rather than
+  denormalizing the item name onto `inventory_levels` (which would need
+  its own sync-on-rename logic) or leaving the inventory screen unusable
+  offline, `price_book_categories`/`price_book_items` were added to the
+  PowerSync `tenant_reference_data` bucket alongside the new inventory
+  tables (see `powersync/sync-rules.yaml`'s updated comment). This exposes
+  nothing new - both tables' RLS was already tenant-wide read, not
+  admin-only, so this only changes *when* the data reaches a device, not
+  *who* can see it. The existing Price Book admin screens
+  (`sales/price-book/**`) are untouched and still fetch directly from
+  Supabase; this is an additive local read path for inventory, not a
+  migration of the old screens onto PowerSync.
+- **RLS is split differently between the two new tables, deliberately**:
+  `inventory_locations` (naming/managing "Ute 1"/"Main Warehouse") is
+  occasional setup/configuration, so it's admin-write/tenant-read, the
+  same shape as `service_categories`/`job_lifecycle_stages`/
+  `price_book_categories`. `inventory_levels` (the day-to-day quantity a
+  technician taps +/- on) is tenant-wide *writable* by design - insert and
+  update are open to any tenant member, matching the `clients` table's
+  "small crew, everyone needs to be able to edit it" precedent - only
+  delete (removing a stock line entirely) is admin-only. A technician
+  tapping "+" on an item with no existing stock row at that location
+  inserts a brand-new `inventory_levels` row themselves (`quantity = 1`,
+  `reorder_threshold` defaulted to 5) - this needed to be a tenant-wide
+  insert policy, not just update, for that first-tap-creates-the-row flow
+  to work without an admin having to pre-provision every location/item
+  pairing up front.
+- **Reorder quantity in the PDF is a simple default, not forecasting**:
+  `suggestedReorderQuantity` in `lib/pdf.ts` is just
+  `max(reorder_threshold - quantity, 1)` - enough to bring that location
+  back up to its own threshold, minimum 1. No demand history, lead time,
+  or par-level logic; a judgment call to keep this predictable and
+  easy for a person to sanity-check against, rather than building
+  forecasting nobody asked for.
+- **Quantity floor at zero, no negative stock**: `handleAdjust`'s "-"
+  button clamps with `Math.max(0, ...)` and is disabled once `quantity`
+  reaches 0 - there's no backorder/negative-stock concept in this schema,
+  matching how nothing else in this app models a deficit.
+- **PowerSync sync scope**: `inventory_locations` and `inventory_levels`
+  joined `tenant_reference_data` (same bucket as clients/service
+  categories/lifecycle stages/price book, now) rather than getting their
+  own bucket - both need to be visible tenant-wide regardless of role
+  (a technician needs to see stock at a location they didn't create), so
+  there was no role-based reason to split them into their own bucket the
+  way `admin_job_data`/`technician_assigned_jobs` are split.
+- **Verified from this sandbox**: the migration was applied cleanly
+  against a real local Postgres 16 instance alongside all 13 prior
+  migrations. RLS was exercised directly (not just read by inspection):
+  as an admin, inserting an `inventory_locations` row succeeded; as a
+  technician, the identical insert was rejected by RLS. As a technician,
+  inserting and updating an `inventory_levels` row both succeeded; a
+  technician's `DELETE` against that row affected 0 rows (RLS-filtered,
+  not an error, since `DELETE ... USING` policies fail silently rather
+  than raising) while an admin's delete would succeed. The
+  `(location_id, item_id)` unique constraint was confirmed to reject a
+  second row for the same pairing. `pnpm typecheck` passes clean across
+  the whole workspace. There is still no `build` script anywhere in this
+  repo, consistent with every prior phase's note on this.
+- **NOT verified from this sandbox**: PowerSync's own YAML parsing of the
+  new bucket lines and an on-device sync/offline test of the Inventory
+  screen (same known limitation noted for every sync-rules change in this
+  project), and no real PDF was rendered/shared on a device (`exportPdf`
+  itself was already exercised for quotes/invoices in the Phase 5 PDF
+  work - this only adds a new HTML-building function ahead of that same,
+  already-verified call).

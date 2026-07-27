@@ -6,6 +6,7 @@ import {
   type Client,
   type Invoice,
   type LineItemFormInput,
+  type LowStockItem,
   type Quote,
   type Tenant,
 } from "@jmssaas/shared";
@@ -304,6 +305,80 @@ export function buildInvoicePdfHtml(params: {
     ${renderTotals(lineItems, balanceDueCents)}
     ${renderNotes(invoice.notes)}
     ${renderBankDetails(tenant)}
+  </body>
+</html>`;
+}
+
+// Reorder quantity isn't a stored column - just enough to bring the location
+// back up to its own reorder_threshold, minimum 1. A simple, easy-to-explain
+// default rather than any kind of demand forecasting.
+function suggestedReorderQuantity(item: LowStockItem): number {
+  return Math.max(item.reorder_threshold - item.quantity, 1);
+}
+
+function renderShoppingListTable(items: LowStockItem[]): string {
+  const rows = items
+    .map(
+      (item) => `
+      <tr>
+        <td class="desc">${escapeHtml(item.item_description)}</td>
+        <td class="num">${item.quantity}</td>
+        <td class="num">${item.reorder_threshold}</td>
+        <td class="num">${suggestedReorderQuantity(item)}</td>
+      </tr>`
+    )
+    .join("");
+  return `
+    <table>
+      <thead>
+        <tr style="background: ${ACCENT.quote};">
+          <th>Item</th>
+          <th class="num" style="width: 70px;">On hand</th>
+          <th class="num" style="width: 70px;">Reorder at</th>
+          <th class="num" style="width: 80px;">Order qty</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+// Groups by location - one heading + table per inventory_locations row, so
+// whoever's ordering knows exactly where each item is short, not just that
+// the tenant overall is short somewhere.
+export function buildShoppingListPdfHtml(params: { tenant: Tenant; items: LowStockItem[] }): string {
+  const { tenant, items } = params;
+  const locationNames = [...new Set(items.map((item) => item.location_name))];
+  const generatedAt = new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>${BASE_STYLES}</style>
+  </head>
+  <body>
+    <div class="header">
+      <div>${tenant.logo_url ? `<img class="logo" src="${escapeHtml(tenant.logo_url)}" />` : ""}</div>
+      <div class="doc-block">
+        <p class="doc-title" style="color: ${ACCENT.quote}; font-weight: 700; text-transform: uppercase;">Shopping List</p>
+        <p class="doc-number">Generated ${escapeHtml(generatedAt)}</p>
+      </div>
+    </div>
+    ${renderCompanyBlock(tenant)}
+
+    ${
+      items.length === 0
+        ? `<p class="section-body">Nothing is below its reorder threshold right now.</p>`
+        : locationNames
+            .map(
+              (locationName) => `
+        <div class="section-title">${escapeHtml(locationName)}</div>
+        ${renderShoppingListTable(items.filter((item) => item.location_name === locationName))}
+      `
+            )
+            .join("")
+    }
   </body>
 </html>`;
 }

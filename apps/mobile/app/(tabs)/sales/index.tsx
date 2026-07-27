@@ -8,6 +8,10 @@ const TILES = [
   { href: "/sales/quotes", label: "Quotes", emoji: "📄" },
   { href: "/sales/invoices", label: "Invoices", emoji: "🧾" },
   { href: "/sales/clients", label: "Clients", emoji: "👥" },
+  // Unlike Price Book below, Inventory is everyone's tile - the whole point
+  // is a technician adjusting truck stock from the field, not an
+  // admin-only catalogue (see the inventory_stock_control migration's RLS).
+  { href: "/sales/inventory", label: "Inventory", emoji: "📦" },
 ] as const;
 
 // Price Book is admin-only (only admins can create quotes/invoices, the

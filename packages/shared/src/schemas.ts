@@ -182,3 +182,22 @@ export const createJobLifecycleStageSchema = z.object({
   color: z.string().optional(),
 });
 export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;
+
+export const createInventoryLocationSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  type: z.string().optional(),
+});
+export type CreateInventoryLocationInput = z.infer<typeof createInventoryLocationSchema>;
+
+// Sets up (or edits) an item's stock line at a location - initial quantity
+// and the reorder threshold that drives the Low-Stock queue. Day-to-day +/-
+// taps don't go through this (they just increment/decrement the existing
+// row directly), this is for the deliberate "stock this item here, alert me
+// under N" setup action.
+export const upsertInventoryLevelSchema = z.object({
+  location_id: z.string().uuid(),
+  item_id: z.string().uuid(),
+  quantity: z.number().int().nonnegative().default(0),
+  reorder_threshold: z.number().int().nonnegative().default(5),
+});
+export type UpsertInventoryLevelInput = z.infer<typeof upsertInventoryLevelSchema>;
