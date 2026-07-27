@@ -22,28 +22,29 @@
 #   admin-only, enforced by Postgres RLS - PowerSync bucket membership only
 #   controls read/download scope, not write permission.
 #
-#   price_book_categories/price_book_items joined next (inventory_stock_
-#   control migration) - this reverses the earlier "price book stays
-#   Supabase-direct/online-only" call, but only because inventory now
-#   depends on it: inventory_levels.item_id points at a price_book_items
-#   row, and a technician adjusting stock from their ute with no signal
-#   still needs to see that item's name, not a bare UUID. Existing Price
-#   Book admin screens are untouched and keep fetching straight from
-#   Supabase - this is an additive local read path for the new inventory
-#   screens, not a migration of the old ones. Nothing new is exposed by
-#   this: price_book_items/price_book_categories RLS was already
-#   tenant-wide read (see the price_book migration's own comment on why
-#   margin-revealing fields aren't RLS-gated), so this only changes when
-#   that data reaches the device, not who can see it.
+#   inventory_locations/inventory_levels joined next (inventory_stock_
+#   control migration) - inventory_locations (naming/managing "Ute 1"/
+#   "Main Warehouse") is admin-managed setup data like service_categories
+#   above; inventory_levels (the day-to-day quantity a technician taps +/-
+#   on) is genuinely tenant-wide *writable*, not just readable - see its
+#   own RLS policies - but PowerSync bucket membership only ever governs
+#   what syncs to a device, not who can write, so both fit in this one
+#   read-side bucket the same as everything else here.
 #
-#   inventory_locations/inventory_levels also joined here (same migration) -
-#   inventory_locations (naming/managing "Ute 1"/"Main Warehouse") is
-#   admin-managed setup data like service_categories above; inventory_levels
-#   (the day-to-day quantity a technician taps +/- on) is genuinely
-#   tenant-wide *writable*, not just readable - see its own RLS policies -
-#   but PowerSync bucket membership only ever governs what syncs to a
-#   device, not who can write, so both fit in this one read-side bucket
-#   the same as everything else here.
+#   That same migration originally also added price_book_categories/
+#   price_book_items here, reasoning that inventory_levels.item_id pointed
+#   at a price_book_items row and so needed that catalogue synced too. The
+#   inventory_material_categories migration reversed that: inventory turned
+#   out to need its own standalone catalogue (materials/tools aren't
+#   quote/invoice pricing items), so item_id now points at a new
+#   inventory_items row instead, and price_book_categories/price_book_items
+#   are back to Supabase-direct/online-only, same as before that earlier
+#   design (see docs/SETUP.md). inventory_categories/inventory_subcategories/
+#   inventory_items joined this bucket in their place, tenant-wide read for
+#   the same reason job categories/stages did - every inventory screen,
+#   technician-facing included, needs to render this hierarchy offline.
+#   Writes to all three stay admin-only via RLS, same pattern as
+#   inventory_locations.
 #
 # - admin_job_data: admins still get the full tenant's job_cards, job_notes,
 #   job_files and tasks, same as before - they need to see and assign
@@ -103,9 +104,10 @@ bucket_definitions:
       - select * from profiles where tenant_id = bucket.tenant_id
       - select * from service_categories where tenant_id = bucket.tenant_id
       - select * from job_lifecycle_stages where tenant_id = bucket.tenant_id
-      - select * from price_book_categories where tenant_id = bucket.tenant_id
-      - select * from price_book_items where tenant_id = bucket.tenant_id
       - select * from inventory_locations where tenant_id = bucket.tenant_id
+      - select * from inventory_categories where tenant_id = bucket.tenant_id
+      - select * from inventory_subcategories where tenant_id = bucket.tenant_id
+      - select * from inventory_items where tenant_id = bucket.tenant_id
       - select * from inventory_levels where tenant_id = bucket.tenant_id
 
   admin_job_data:

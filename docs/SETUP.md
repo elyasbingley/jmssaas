@@ -1278,3 +1278,78 @@ needs real company name/ABN/bank details, not blank placeholders).
   itself was already exercised for quotes/invoices in the Phase 5 PDF
   work - this only adds a new HTML-building function ahead of that same,
   already-verified call).
+
+## Inventory: standalone material/tool categories (replaces the price book tie-in)
+
+- **What changed and why**: the inventory feature above originally reused
+  the price book catalogue (`inventory_levels.item_id` pointed at
+  `price_book_items`), reasoning that a quote/invoice pricing item and a
+  physical stock item were "the same underlying thing." They aren't:
+  inventory needed to track materials and tools (a tube of silicone, a
+  cordless drill) that are never priced or put on a quote, with their own
+  fully custom two-level category system - which the price book's flat,
+  single-level, pricing-focused catalogue can't represent. The
+  `inventory_material_categories` migration reverses the tie-in: a new
+  standalone catalogue (`inventory_categories` -> `inventory_subcategories`
+  -> `inventory_items`) replaces it, and `price_book_categories`/
+  `price_book_items` go back to being Supabase-direct/online-only, exactly
+  as they were before the original inventory work touched them.
+- **The hierarchy**: `inventory_categories` is the top level - e.g.
+  "Material", "Tools", "First Aid Kit". `inventory_subcategories` is an
+  optional second level under a specific category - e.g. "Roofing"/
+  "Plumbing"/"Tapware" under "Material", or "Power Tools"/"Hand Tools"
+  under "Tools". `inventory_items.subcategory_id` is nullable because not
+  every category needs a second level - a "First Aid Kit" category can
+  hold items directly with no subcategories at all. Both levels are fully
+  admin-customisable (create/edit/delete) from the new `inventory-setup.tsx`
+  screen; actual items are created inline from the main Inventory screen
+  itself (a "+ New item" action), mirroring how Jobs creates a job inline
+  while `job-setup.tsx` only manages the category/stage hierarchy, not job
+  cards themselves.
+- **A destructive cascade, called out deliberately**: deleting an
+  `inventory_categories` row cascades to delete every `inventory_items` row
+  under it (and, in turn, every `inventory_levels` stock record for those
+  items) - confirmed live against local Postgres. This mirrors the existing
+  `price_book_categories` -> `price_book_items` precedent (also cascade),
+  but is more consequential here since it deletes real stock counts, not
+  just catalogue/pricing rows. The alternative (`ON DELETE RESTRICT`,
+  blocking the delete while items exist) was considered and rejected in
+  favour of matching precedent, but the category delete confirmation in
+  `inventory-setup.tsx` explicitly counts and names what will be destroyed
+  ("this will also delete N items (and their stock records)") rather than
+  a generic confirm, specifically because of how consequential this is. If
+  this ever proves too easy to trigger by accident, switching that one FK
+  to `RESTRICT` is a small, isolated migration - flagging it here as the
+  option to revisit rather than silently deciding it's fine forever.
+  Deleting a *subcategory*, by contrast, is non-destructive:
+  `inventory_items.subcategory_id` is `ON DELETE SET NULL`, so items just
+  lose that tag - closer to the softer job-category precedent.
+- **RLS**: all three new tables (`inventory_categories`,
+  `inventory_subcategories`, `inventory_items`) are tenant-wide read,
+  admin-only write, matching `price_book_categories`/`price_book_items`/
+  `service_categories` exactly. `inventory_locations`/`inventory_levels`
+  are untouched by this migration - locations stay admin-managed, and
+  day-to-day quantity adjustments stay tenant-wide writable so a
+  technician can still tap +/- from their truck.
+- **PowerSync sync scope**: `inventory_categories`/`inventory_subcategories`/
+  `inventory_items` joined the `tenant_reference_data` bucket in place of
+  the now-removed `price_book_categories`/`price_book_items` lines - same
+  reasoning as before (every inventory screen, technician-facing included,
+  needs this hierarchy offline), just pointed at the new tables instead.
+- **Verified from this sandbox**: the new migration was applied cleanly
+  against a real local Postgres 16 instance alongside all 14 prior
+  migrations (including the original `inventory_stock_control` one).
+  Exercised live: an admin creating a category/subcategory/item succeeded;
+  a technician attempting to create a category was rejected by RLS while
+  still being able to read the full hierarchy; a technician creating an
+  `inventory_levels` row against the new `inventory_items` id succeeded
+  (confirming the FK repoint works end-to-end); deleting a category was
+  confirmed to cascade-delete its item and that item's stock record.
+  `pnpm typecheck` passes clean across the whole workspace.
+- **NOT verified from this sandbox**: same PowerSync YAML-parsing and
+  on-device sync/offline caveats as every other sync-rules change in this
+  project - no PowerSync instance is provisioned here to confirm the
+  updated bucket definition against the actual sync service, only against
+  Postgres directly. The updated Inventory screen, the new
+  `inventory-setup.tsx` screen, and the "+ New item" flow have not been
+  exercised in a running app.

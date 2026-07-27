@@ -367,8 +367,54 @@ export interface InventoryLocation {
   updated_at: string;
 }
 
-// The quantity of a PriceBookItem held at a given InventoryLocation.
-// Unlike InventoryLocation, this is tenant-wide *writable* - see the
+// Inventory's own top-level category - "Material", "Tools", "First Aid
+// Kit". Admin-managed setup data, same shape/RLS as InventoryLocation.
+// Deliberately separate from ServiceCategory (job tagging) and
+// PriceBookCategory (quote/invoice catalogue) - this hierarchy exists only
+// to organise physical stock, see the inventory_material_categories
+// migration.
+export interface InventoryCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// An optional second level under an InventoryCategory - "Roofing"/
+// "Plumbing"/"Tapware" under "Material", say. Not every category needs
+// one - an InventoryItem's subcategory_id is nullable for exactly that
+// reason.
+export interface InventorySubcategory {
+  id: string;
+  tenant_id: string;
+  category_id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// The actual thing being stocked - "Silicone tube - clear", "Cordless
+// drill". Its own standalone catalogue, unrelated to PriceBookItem (see
+// the inventory_material_categories migration for why those two turned
+// out not to be the same thing).
+export interface InventoryItem {
+  id: string;
+  tenant_id: string;
+  category_id: string;
+  subcategory_id: string | null;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// The quantity of an InventoryItem held at a given InventoryLocation.
+// Unlike InventoryLocation/InventoryCategory/InventorySubcategory/
+// InventoryItem, this is tenant-wide *writable* - see the
 // inventory_stock_control migration's RLS comment.
 export interface InventoryLevel {
   id: string;
@@ -382,17 +428,19 @@ export interface InventoryLevel {
 }
 
 // Not its own table - an InventoryLevel joined with its item/location/
-// category names for display in the Low-Stock queue and the shopping list
-// PDF. Built client-side (see the inventory screen's join over the three
-// PowerSync-local tables), not a server view.
+// category/subcategory names for display in the Low-Stock queue and the
+// shopping list PDF. Built client-side (see the inventory screen's join
+// over the PowerSync-local tables), not a server view.
 export interface LowStockItem {
   inventory_level_id: string;
   location_id: string;
   location_name: string;
   item_id: string;
-  item_description: string;
+  item_name: string;
   category_id: string | null;
   category_name: string | null;
+  subcategory_id: string | null;
+  subcategory_name: string | null;
   quantity: number;
   reorder_threshold: number;
 }

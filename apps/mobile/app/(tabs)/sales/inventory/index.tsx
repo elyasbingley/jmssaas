@@ -3,12 +3,14 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
+  createInventoryItemSchema,
   createInventoryLocationSchema,
+  type InventoryCategory,
+  type InventoryItem,
   type InventoryLevel,
   type InventoryLocation,
+  type InventorySubcategory,
   type LowStockItem,
-  type PriceBookCategory,
-  type PriceBookItem,
   type Tenant,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
@@ -19,13 +21,19 @@ import { exportPdf } from "../../../../lib/print";
 import { getErrorMessage } from "../../../../lib/errors";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
+import { PickerModal } from "../../../../components/PickerModal";
 
-// Multi-location stock tracking, layered on the existing price book
-// catalogue (inventory_levels.item_id points at a price_book_items row -
-// see the inventory_stock_control migration) rather than a separate
-// inventory item list. Everyone reads/writes quantities (small crew,
-// same shape as clients/job_cards), only creating a *location* is
-// admin-gated - see this screen's "+ New location" flow below.
+// Multi-location stock tracking over inventory's own standalone catalogue
+// (inventory_items, organised by inventory_categories/inventory_
+// subcategories - see the inventory_material_categories migration; this
+// used to be layered on the price book catalogue, which turned out to be
+// the wrong fit - quote/invoice pricing items and physical materials/tools
+// aren't the same thing). Browsing drills down Location > Category >
+// Subcategory as filter chips on this one screen (matching the Jobs list's
+// category/stage filter chip pattern) rather than separate routes per
+// level. Everyone reads/writes quantities (small crew, same shape as
+// clients/job_cards); creating a *location* or a new *item* is admin-gated
+// - category/subcategory management itself lives in inventory-setup.tsx.
 export default function InventoryScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
@@ -33,9 +41,12 @@ export default function InventoryScreen() {
 
   const { data: locations } = useQuery<InventoryLocation>("SELECT * FROM inventory_locations ORDER BY name");
   const { data: levels } = useQuery<InventoryLevel>("SELECT * FROM inventory_levels");
-  const { data: items } = useQuery<PriceBookItem>("SELECT * FROM price_book_items ORDER BY description");
-  const { data: categories } = useQuery<PriceBookCategory>(
-    "SELECT * FROM price_book_categories ORDER BY sort_order, name"
+  const { data: items } = useQuery<InventoryItem>("SELECT * FROM inventory_items ORDER BY name");
+  const { data: categories } = useQuery<InventoryCategory>(
+    "SELECT * FROM inventory_categories ORDER BY sort_order, name"
+  );
+  const { data: subcategories } = useQuery<InventorySubcategory>(
+    "SELECT * FROM inventory_subcategories ORDER BY sort_order, name"
   );
 
   const { data: tenant } = useSupabaseFetch<Tenant>(async () => {
@@ -47,6 +58,7 @@ export default function InventoryScreen() {
   const [activeTab, setActiveTab] = useState<"stock" | "low-stock">("stock");
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
 
   // Default to the first location once locations have loaded - can't pick
   // one up front since this is a live PowerSync query, empty on first render.
@@ -56,12 +68,28 @@ export default function InventoryScreen() {
     }
   }, [locations, selectedLocationId]);
 
+  // Dropping the subcategory filter whenever the category filter changes -
+  // a subcategory selected under a previous category would otherwise stay
+  // selected while showing a different category's items.
+  useEffect(() => {
+    setSelectedSubcategoryId(null);
+  }, [selectedCategoryId]);
+
   const levelByKey = new Map(levels.map((level) => [`${level.location_id}:${level.item_id}`, level]));
   const itemById = new Map(items.map((item) => [item.id, item]));
   const locationById = new Map(locations.map((loc) => [loc.id, loc]));
   const categoryById = new Map(categories.map((cat) => [cat.id, cat]));
+  const subcategoryById = new Map(subcategories.map((sub) => [sub.id, sub]));
 
-  const visibleItems = selectedCategoryId ? items.filter((item) => item.category_id === selectedCategoryId) : items;
+  const subcategoriesForSelectedCategory = selectedCategoryId
+    ? subcategories.filter((s) => s.category_id === selectedCategoryId)
+    : [];
+
+  const visibleItems = items.filter((item) => {
+    if (selectedCategoryId && item.category_id !== selectedCategoryId) return false;
+    if (selectedSubcategoryId && item.subcategory_id !== selectedSubcategoryId) return false;
+    return true;
+  });
 
   const lowStockItems: LowStockItem[] = levels
     .filter((level) => level.quantity <= level.reorder_threshold)
@@ -69,21 +97,24 @@ export default function InventoryScreen() {
       const item = itemById.get(level.item_id);
       const location = locationById.get(level.location_id);
       const category = item ? categoryById.get(item.category_id) : undefined;
+      const subcategory = item?.subcategory_id ? subcategoryById.get(item.subcategory_id) : undefined;
       return {
         inventory_level_id: level.id,
         location_id: level.location_id,
         location_name: location?.name ?? "Unknown location",
         item_id: level.item_id,
-        item_description: item?.description ?? "Unknown item",
+        item_name: item?.name ?? "Unknown item",
         category_id: category?.id ?? null,
         category_name: category?.name ?? null,
+        subcategory_id: subcategory?.id ?? null,
+        subcategory_name: subcategory?.name ?? null,
         quantity: level.quantity,
         reorder_threshold: level.reorder_threshold,
       };
     })
     .sort((a, b) => a.quantity - b.quantity);
 
-  const handleAdjust = async (item: PriceBookItem, delta: number) => {
+  const handleAdjust = async (item: InventoryItem, delta: number) => {
     if (!selectedLocationId || !profile) return;
     const existing = levelByKey.get(`${selectedLocationId}:${item.id}`);
     const now = new Date().toISOString();
@@ -126,6 +157,47 @@ export default function InventoryScreen() {
     setNewLocationType("");
     setLocationError(null);
     setLocationModalVisible(false);
+  };
+
+  // --- New item (admin-only, catalogue entry - category/subcategory
+  // themselves are managed in inventory-setup.tsx, not here) ---
+  const [itemModalVisible, setItemModalVisible] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState<InventoryCategory | null>(null);
+  const [newItemSubcategory, setNewItemSubcategory] = useState<InventorySubcategory | null>(null);
+  const [itemCategoryPickerVisible, setItemCategoryPickerVisible] = useState(false);
+  const [itemSubcategoryPickerVisible, setItemSubcategoryPickerVisible] = useState(false);
+  const [itemError, setItemError] = useState<string | null>(null);
+
+  const openNewItemModal = () => {
+    setNewItemName("");
+    setNewItemCategory(selectedCategoryId ? (categoryById.get(selectedCategoryId) ?? null) : null);
+    setNewItemSubcategory(selectedSubcategoryId ? (subcategoryById.get(selectedSubcategoryId) ?? null) : null);
+    setItemError(null);
+    setItemModalVisible(true);
+  };
+
+  const newItemSubcategoryOptions = newItemCategory
+    ? subcategories.filter((s) => s.category_id === newItemCategory.id)
+    : [];
+
+  const handleCreateItem = async () => {
+    const result = createInventoryItemSchema.safeParse({
+      name: newItemName,
+      category_id: newItemCategory?.id,
+      subcategory_id: newItemSubcategory?.id,
+    });
+    if (!result.success) {
+      setItemError(newItemCategory ? (result.error.issues[0]?.message ?? "Invalid item") : "Pick a category first");
+      return;
+    }
+    if (!profile) return;
+    const now = new Date().toISOString();
+    await powersync.execute(
+      "INSERT INTO inventory_items (id, tenant_id, category_id, subcategory_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [uuidv4(), profile.tenant_id, result.data.category_id, result.data.subcategory_id ?? null, result.data.name, now, now]
+    );
+    setItemModalVisible(false);
   };
 
   const [generatingList, setGeneratingList] = useState(false);
@@ -220,6 +292,30 @@ export default function InventoryScreen() {
                 ))}
               </ScrollView>
 
+              {subcategoriesForSelectedCategory.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                  <Pressable
+                    style={[styles.subChip, selectedSubcategoryId === null && styles.chipActive]}
+                    onPress={() => setSelectedSubcategoryId(null)}
+                  >
+                    <Text style={[styles.chipText, selectedSubcategoryId === null && styles.chipTextActive]}>All</Text>
+                  </Pressable>
+                  {subcategoriesForSelectedCategory.map((subcategory) => (
+                    <Pressable
+                      key={subcategory.id}
+                      style={[styles.subChip, selectedSubcategoryId === subcategory.id && styles.chipActive]}
+                      onPress={() => setSelectedSubcategoryId(subcategory.id)}
+                    >
+                      <Text
+                        style={[styles.chipText, selectedSubcategoryId === subcategory.id && styles.chipTextActive]}
+                      >
+                        {subcategory.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+
               <FlatList
                 data={visibleItems}
                 keyExtractor={(item) => item.id}
@@ -231,7 +327,7 @@ export default function InventoryScreen() {
                   return (
                     <View style={styles.itemCard}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.itemName}>{item.description}</Text>
+                        <Text style={styles.itemName}>{item.name}</Text>
                         {isLow ? (
                           <View style={[styles.stockBadge, quantity === 0 && styles.stockBadgeOut]}>
                             <Text style={[styles.stockBadgeText, quantity === 0 && styles.stockBadgeTextOut]}>
@@ -256,7 +352,14 @@ export default function InventoryScreen() {
                     </View>
                   );
                 }}
-                ListEmptyComponent={<Text style={styles.empty}>No price book items yet.</Text>}
+                ListEmptyComponent={<Text style={styles.empty}>No items here yet.</Text>}
+                ListFooterComponent={
+                  isAdmin ? (
+                    <Pressable style={styles.newItemButton} onPress={openNewItemModal}>
+                      <Text style={styles.newItemButtonText}>+ New item</Text>
+                    </Pressable>
+                  ) : null
+                }
               />
             </>
           )}
@@ -281,10 +384,11 @@ export default function InventoryScreen() {
           renderItem={({ item }) => (
             <View style={styles.lowStockRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.itemName}>{item.item_description}</Text>
+                <Text style={styles.itemName}>{item.item_name}</Text>
                 <Text style={styles.lowStockMeta}>
                   {item.location_name}
                   {item.category_name ? ` · ${item.category_name}` : ""}
+                  {item.subcategory_name ? ` · ${item.subcategory_name}` : ""}
                 </Text>
               </View>
               <View style={[styles.stockBadge, item.quantity === 0 && styles.stockBadgeOut]}>
@@ -330,6 +434,64 @@ export default function InventoryScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <CenteredModal visible={itemModalVisible} onClose={() => setItemModalVisible(false)}>
+        <Text style={styles.modalTitle}>New item</Text>
+        <FormField label="Name" placeholder='e.g. "Silicone tube - clear"' value={newItemName} onChangeText={setNewItemName} />
+
+        <View style={styles.fieldSpacing}>
+          <Pressable style={styles.pickerField} onPress={() => setItemCategoryPickerVisible(true)}>
+            <Text style={styles.pickerFieldLabel}>Category</Text>
+            <Text style={newItemCategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {newItemCategory?.name ?? "Select a category"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {newItemSubcategoryOptions.length > 0 ? (
+          <View style={styles.fieldSpacing}>
+            <Pressable style={styles.pickerField} onPress={() => setItemSubcategoryPickerVisible(true)}>
+              <Text style={styles.pickerFieldLabel}>Subcategory (optional)</Text>
+              <Text style={newItemSubcategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {newItemSubcategory?.name ?? "None"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {itemError ? <Text style={styles.error}>{itemError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setItemModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={handleCreateItem}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+        </View>
+      </CenteredModal>
+
+      <PickerModal
+        visible={itemCategoryPickerVisible}
+        title="Select category"
+        items={categories}
+        getKey={(c) => c.id}
+        getLabel={(c) => c.name}
+        onSelect={(category) => {
+          setNewItemCategory(category);
+          setNewItemSubcategory(null);
+        }}
+        onClose={() => setItemCategoryPickerVisible(false)}
+      />
+
+      <PickerModal
+        visible={itemSubcategoryPickerVisible}
+        title="Select subcategory"
+        items={newItemSubcategoryOptions}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.name}
+        onSelect={setNewItemSubcategory}
+        onClose={() => setItemSubcategoryPickerVisible(false)}
+      />
     </View>
   );
 }
@@ -347,6 +509,7 @@ const styles = StyleSheet.create({
   tabBadgeText: { color: "#fff", fontWeight: "700", fontSize: 11 },
   chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
   chip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  subChip: { backgroundColor: "#eef2ff", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
   chipActive: { backgroundColor: "#1d4ed8" },
   chipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
   chipTextActive: { color: "#fff" },
@@ -375,6 +538,8 @@ const styles = StyleSheet.create({
   },
   qtyButtonText: { color: "#fff", fontWeight: "800", fontSize: 18, lineHeight: 20 },
   qtyValue: { fontSize: 16, fontWeight: "700", color: "#111827", minWidth: 24, textAlign: "center" },
+  newItemButton: { backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, alignItems: "center", marginTop: 4 },
+  newItemButtonText: { color: "#1d4ed8", fontWeight: "700" },
   lowStockRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -391,6 +556,10 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   fieldSpacing: { marginTop: 16 },
   error: { color: "#dc2626", marginTop: 8 },
+  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, gap: 4 },
+  pickerFieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151" },
+  pickerFieldText: { fontSize: 16, color: "#111827" },
+  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   buttonText: { color: "#fff", fontWeight: "600" },

@@ -3,17 +3,20 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../../lib/auth-context";
 
-// All three of these used to be small text links in Home's header
+// The first three of these used to be small text links in Home's header
 // (Company Settings/Team/Job Setup) - moved here into their own tab so
 // Home goes back to being just the tile grid. Labels are renamed for this
 // screen (Company Details/Team-Staff/Job Card Setup) but the routes
 // they point at are unchanged (company-settings, team, job-setup - see
 // app/_layout.tsx), so nothing about how those screens work changed,
-// only how you get to them.
+// only how you get to them. Inventory Setup is new - manages the
+// Material/Tools/... category hierarchy used by the Inventory tile in
+// Sales (see app/inventory-setup.tsx).
 const SETTINGS_ITEMS = [
   { href: "/company-settings", label: "Company Details", emoji: "🏢" },
   { href: "/team", label: "Team/Staff", emoji: "👥" },
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️" },
+  { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦" },
 ] as const;
 
 export default function SettingsScreen() {

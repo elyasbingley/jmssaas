@@ -321,7 +321,7 @@ function renderShoppingListTable(items: LowStockItem[]): string {
     .map(
       (item) => `
       <tr>
-        <td class="desc">${escapeHtml(item.item_description)}</td>
+        <td class="desc">${escapeHtml(item.item_name)}</td>
         <td class="num">${item.quantity}</td>
         <td class="num">${item.reorder_threshold}</td>
         <td class="num">${suggestedReorderQuantity(item)}</td>

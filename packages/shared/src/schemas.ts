@@ -189,6 +189,28 @@ export const createInventoryLocationSchema = z.object({
 });
 export type CreateInventoryLocationInput = z.infer<typeof createInventoryLocationSchema>;
 
+export const createInventoryCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  color: z.string().optional(),
+  sort_order: z.number().int().default(0),
+});
+export type CreateInventoryCategoryInput = z.infer<typeof createInventoryCategorySchema>;
+
+export const createInventorySubcategorySchema = z.object({
+  category_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  color: z.string().optional(),
+  sort_order: z.number().int().default(0),
+});
+export type CreateInventorySubcategoryInput = z.infer<typeof createInventorySubcategorySchema>;
+
+export const createInventoryItemSchema = z.object({
+  category_id: z.string().uuid(),
+  subcategory_id: z.string().uuid().optional(),
+  name: z.string().min(1, "Name is required"),
+});
+export type CreateInventoryItemInput = z.infer<typeof createInventoryItemSchema>;
+
 // Sets up (or edits) an item's stock line at a location - initial quantity
 // and the reorder threshold that drives the Low-Stock queue. Day-to-day +/-
 // taps don't go through this (they just increment/decrement the existing
