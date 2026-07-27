@@ -1,22 +1,36 @@
-// Cron-driven dispatcher for the communication engine (see
+// Dispatcher for the communication engine (see
 // supabase/migrations/20260804000100_communication_engine.sql). Deployed as
-// a Supabase Edge Function (Deno runtime, npm: specifiers supported),
-// invoked periodically by pg_cron -> net.http_post - there's no PowerSync/
-// Supabase instance provisioned in this environment to actually schedule
-// that call, so the one-time `select cron.schedule(...)` SQL is documented
-// by hand in docs/SETUP.md rather than shipped as a migration (it needs the
-// project's own deployed URL + a service-role bearer token, neither of
-// which exists at migration-authoring time). Not triggered by the mobile
-// app directly - the whole point of a queue table is that scheduling
-// (Postgres trigger, or a mobile "On The Way" tap) and sending are
-// decoupled, since the phone that scheduled a message may be offline by
-// the time it's actually due.
+// a Supabase Edge Function (Deno runtime, npm: specifiers supported). Two
+// ways in:
 //
-// GET or POST both trigger a sweep (pg_cron's net.http_post always POSTs;
-// GET is only for convenience when testing by hand from a browser/curl).
-// Always requires the service-role bearer token in Authorization - this
-// function reads/writes across every tenant's scheduled_communications, so
-// it must never be reachable with just the anon key.
+//   1. The cron sweep - pg_cron -> net.http_post, invoked periodically
+//      (there's no PowerSync/Supabase instance provisioned in this
+//      environment to actually schedule that call, so the one-time `select
+//      cron.schedule(...)` SQL is documented by hand in docs/SETUP.md
+//      rather than shipped as a migration - it needs the project's own
+//      deployed URL + a service-role bearer token, neither of which exists
+//      at migration-authoring time). GET or POST both trigger a sweep
+//      (net.http_post always POSTs; GET is only for convenience when
+//      testing by hand). Requires the service-role bearer token - this
+//      path reads/writes across every tenant's scheduled_communications,
+//      so it must never be reachable with just the anon key.
+//
+//   2. Immediate single-row dispatch - POST { id } with a normal signed-in
+//      user's bearer token (any role, not just admin), scoped to that
+//      row's own tenant. This is what apps/mobile/app/(tabs)/sales/jobs/
+//      [id].tsx calls right after inserting an "On The Way"/review-request
+//      row, so a technician's ETA text goes out immediately instead of
+//      waiting for the next cron tick - the whole point of "on the way, 15
+//      minutes" is that it's time-sensitive. The queue table still does
+//      its job if this call fails for any reason (no signal, cold start,
+//      function down): the row is already safely `pending` and the next
+//      cron sweep picks it up regardless, so this is purely a latency
+//      optimisation, never a requirement for correctness.
+//
+// Neither path is required for quote/invoice follow-ups, which only ever
+// get scheduled by the Postgres triggers on the server side and have no
+// "I want this to go out right now" moment to optimise for - the cron
+// sweep alone is what sends those.
 //
 // Rendering: rendered_subject/rendered_body on a scheduled_communications
 // row hold whatever the inserter (a Postgres trigger, or the mobile app)
@@ -53,6 +67,7 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const APPROVAL_PAGE_URL = Deno.env.get("APPROVAL_PAGE_URL") ?? "";
 
@@ -377,12 +392,85 @@ async function sendEmail(to: string, subject: string | null, body: string): Prom
   }
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method !== "GET" && req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+type DispatchOutcome = { outcome: "sent" | "deferred" | "failed" };
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (authHeader !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) return json({ error: "unauthorized" }, 401);
+// Sends (or defers, or fails) exactly one row and writes the result back to
+// scheduled_communications. Shared by the cron sweep and the immediate
+// single-row path - `skipQuietHours` is true only for the latter, since a
+// human deliberately tapping "On The Way" right now is a real-time action,
+// not a background nudge that should wait for business hours the way an
+// automated quote follow-up should.
+async function dispatchOne(
+  admin: SupabaseClient,
+  row: ScheduledCommunicationRow,
+  tenant: Record<string, unknown>,
+  now: Date,
+  skipQuietHours: boolean
+): Promise<DispatchOutcome> {
+  if (!skipQuietHours) {
+    const { data: rule } = await admin
+      .from("communication_rules")
+      .select("quiet_hours_start, quiet_hours_end")
+      .eq("tenant_id", row.tenant_id)
+      .eq("trigger_key", row.trigger_key)
+      .maybeSingle();
 
+    if (rule) {
+      const currentTime = currentSydneyTimeOfDay(now);
+      if (!isWithinWindow(currentTime, rule.quiet_hours_start, rule.quiet_hours_end)) {
+        const nextSend = nextSydneyOccurrence(now, rule.quiet_hours_start);
+        await admin.from("scheduled_communications").update({ scheduled_for: nextSend.toISOString() }).eq("id", row.id);
+        return { outcome: "deferred" };
+      }
+    }
+  }
+
+  const recipient = row.recipient_phone_or_email.trim();
+  if (!recipient) {
+    await admin
+      .from("scheduled_communications")
+      .update({ status: "failed", failure_reason: "No recipient phone/email on file" })
+      .eq("id", row.id);
+    return { outcome: "failed" };
+  }
+
+  let finalSubject = row.rendered_subject;
+  let finalBody = row.rendered_body;
+  if (row.entity_type !== "calendar_event") {
+    const context = await buildEntityContext(admin, row, tenant);
+    finalSubject = finalSubject ? renderTemplate(finalSubject, context) : finalSubject;
+    finalBody = renderTemplate(finalBody, context);
+  }
+
+  try {
+    if (row.channel === "sms") {
+      await sendSms(recipient, finalBody);
+    } else {
+      await sendEmail(recipient, finalSubject, finalBody);
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`[process-scheduled-comms] Failed to dispatch ${row.id}`, message);
+    await admin
+      .from("scheduled_communications")
+      .update({ status: "failed", failure_reason: message.slice(0, 500) })
+      .eq("id", row.id);
+    return { outcome: "failed" };
+  }
+
+  await admin
+    .from("scheduled_communications")
+    .update({
+      status: "sent",
+      sent_at: new Date().toISOString(),
+      rendered_subject: finalSubject,
+      rendered_body: finalBody,
+    })
+    .eq("id", row.id);
+  return { outcome: "sent" };
+}
+
+async function runSweep(): Promise<Response> {
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const now = new Date();
 
@@ -404,87 +492,74 @@ Deno.serve(async (req: Request) => {
   let deferred = 0;
   let failed = 0;
 
-  // Cache tenant + rule lookups within this sweep - many due rows typically
-  // belong to the same handful of tenants/trigger_keys.
+  // Cache tenant lookups within this sweep - many due rows typically belong
+  // to the same handful of tenants.
   const tenantCache = new Map<string, Record<string, unknown>>();
-  const ruleCache = new Map<string, { quiet_hours_start: string; quiet_hours_end: string } | null>();
 
   for (const row of rows) {
-    try {
-      let tenant = tenantCache.get(row.tenant_id);
-      if (!tenant) {
-        const { data } = await admin.from("tenants").select("*").eq("id", row.tenant_id).single();
-        tenant = data ?? {};
-        tenantCache.set(row.tenant_id, tenant);
-      }
-
-      const ruleKey = `${row.tenant_id}:${row.trigger_key}`;
-      let rule = ruleCache.get(ruleKey);
-      if (rule === undefined) {
-        const { data } = await admin
-          .from("communication_rules")
-          .select("quiet_hours_start, quiet_hours_end")
-          .eq("tenant_id", row.tenant_id)
-          .eq("trigger_key", row.trigger_key)
-          .maybeSingle();
-        rule = data ?? null;
-        ruleCache.set(ruleKey, rule);
-      }
-
-      if (rule) {
-        const currentTime = currentSydneyTimeOfDay(now);
-        if (!isWithinWindow(currentTime, rule.quiet_hours_start, rule.quiet_hours_end)) {
-          const nextSend = nextSydneyOccurrence(now, rule.quiet_hours_start);
-          await admin.from("scheduled_communications").update({ scheduled_for: nextSend.toISOString() }).eq("id", row.id);
-          deferred++;
-          continue;
-        }
-      }
-
-      const recipient = row.recipient_phone_or_email.trim();
-      if (!recipient) {
-        await admin
-          .from("scheduled_communications")
-          .update({ status: "failed", failure_reason: "No recipient phone/email on file" })
-          .eq("id", row.id);
-        failed++;
-        continue;
-      }
-
-      let finalSubject = row.rendered_subject;
-      let finalBody = row.rendered_body;
-      if (row.entity_type !== "calendar_event") {
-        const context = await buildEntityContext(admin, row, tenant);
-        finalSubject = finalSubject ? renderTemplate(finalSubject, context) : finalSubject;
-        finalBody = renderTemplate(finalBody, context);
-      }
-
-      if (row.channel === "sms") {
-        await sendSms(recipient, finalBody);
-      } else {
-        await sendEmail(recipient, finalSubject, finalBody);
-      }
-
-      await admin
-        .from("scheduled_communications")
-        .update({
-          status: "sent",
-          sent_at: new Date().toISOString(),
-          rendered_subject: finalSubject,
-          rendered_body: finalBody,
-        })
-        .eq("id", row.id);
-      sent++;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error(`[process-scheduled-comms] Failed to dispatch ${row.id}`, message);
-      await admin
-        .from("scheduled_communications")
-        .update({ status: "failed", failure_reason: message.slice(0, 500) })
-        .eq("id", row.id);
-      failed++;
+    let tenant = tenantCache.get(row.tenant_id);
+    if (!tenant) {
+      const { data } = await admin.from("tenants").select("*").eq("id", row.tenant_id).single();
+      tenant = data ?? {};
+      tenantCache.set(row.tenant_id, tenant);
     }
+
+    const { outcome } = await dispatchOne(admin, row, tenant, now, false);
+    if (outcome === "sent") sent++;
+    else if (outcome === "deferred") deferred++;
+    else failed++;
   }
 
   return json({ ok: true, processed: rows.length, sent, deferred, failed });
+}
+
+// Immediate single-row dispatch - see the file header comment. Any
+// signed-in user can call this (not just admins), since a technician is
+// exactly who taps "On The Way" - the row is scoped to their own
+// tenant_id, looked up from their own profile, so there's no way to
+// dispatch another tenant's queued message this way.
+async function dispatchNow(req: Request, authHeader: string): Promise<Response> {
+  let body: { id?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+  if (!body.id) return json({ error: "bad_request" }, 400);
+
+  const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: authData, error: authError } = await callerClient.auth.getUser();
+  if (authError || !authData.user) return json({ error: "unauthorized" }, 401);
+
+  const { data: callerProfile } = await callerClient
+    .from("profiles")
+    .select("tenant_id")
+    .eq("id", authData.user.id)
+    .single();
+  if (!callerProfile) return json({ error: "unauthorized" }, 401);
+
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: row } = await admin
+    .from("scheduled_communications")
+    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for")
+    .eq("id", body.id)
+    .eq("tenant_id", callerProfile.tenant_id)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (!row) return json({ error: "not_found" }, 404);
+
+  const { data: tenant } = await admin.from("tenants").select("*").eq("id", row.tenant_id).single();
+  const { outcome } = await dispatchOne(admin, row as ScheduledCommunicationRow, tenant ?? {}, new Date(), true);
+  return json({ ok: true, outcome });
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method !== "GET" && req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (authHeader === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) return runSweep();
+  if (authHeader.startsWith("Bearer ") && req.method === "POST") return dispatchNow(req, authHeader);
+  return json({ error: "unauthorized" }, 401);
 });

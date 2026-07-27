@@ -1672,6 +1672,24 @@ Communication Log on the Job/Client Details screens.
     never needs company bank details, the review link, etc. - none of
     which are PowerSync-synced to the device at all (`tenants` isn't a
     PowerSync table).
+  - **Immediate single-row dispatch, added after the initial build**: the
+    cron sweep alone meant an "On The Way" text could sit `pending` for up
+    to the sweep interval (5 minutes in the example schedule below) before
+    actually going out - fine for quote/invoice follow-ups, not fine for
+    "I'm 15 minutes away" arriving 4 minutes late. The same function now
+    also accepts `POST { id }` with a normal signed-in user's bearer token
+    (any role, not just admin - a technician needs this) instead of the
+    service-role token; it looks up the caller's own `tenant_id` from
+    their `profiles` row, fetches that one `scheduled_communications` row
+    **scoped to that tenant_id**, and sends it immediately, skipping the
+    quiet-hours check entirely (a human tapping the button right now is a
+    real-time action, not a background nudge that should wait for business
+    hours). `apps/mobile/lib/dispatch-now.ts` calls this right after
+    `queueScheduledCommunication` inserts a row (see the job detail
+    screen), and swallows any failure - offline, cold start, whatever - so
+    the row falls back to the ordinary cron sweep exactly as before. This
+    means **redeploying the function** (same command below) is required to
+    pick up this behavior; nothing about the cron sweep path changed.
   - **New Edge Function secrets** (`supabase secrets set ...`, or via the
     dashboard): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
     `TWILIO_FROM_NUMBER` for SMS; `RESEND_API_KEY`, `RESEND_FROM_EMAIL` for

@@ -30,6 +30,7 @@ import { useIsOnline } from "../../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
 import { addJobPhoto } from "../../../../lib/powersync";
+import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
@@ -223,7 +224,19 @@ export default function JobDetailScreen() {
     if (status === "completed") {
       Alert.alert("Job completed", "Send an automated review request to the client?", [
         { text: "Not now", style: "cancel" },
-        { text: "Send", onPress: () => queueScheduledCommunication("job_review_request") },
+        {
+          text: "Send",
+          onPress: async () => {
+            const result = await queueScheduledCommunication("job_review_request");
+            if (!result.queued) return;
+            Alert.alert(
+              result.sentImmediately ? "Sent" : "Queued",
+              result.sentImmediately
+                ? "The review request has been sent."
+                : "The review request is queued and will send shortly (next sync/cron sweep)."
+            );
+          },
+        },
       ]);
     }
   };
@@ -245,18 +258,19 @@ export default function JobDetailScreen() {
   const queueScheduledCommunication = async (
     triggerKey: string,
     scheduleContext?: { eta_minutes: number }
-  ): Promise<boolean> => {
-    if (!profile || !job) return false;
+  ): Promise<{ queued: boolean; sentImmediately: boolean }> => {
+    if (!profile || !job) return { queued: false, sentImmediately: false };
     const rule = communicationRules.find((r) => r.trigger_key === triggerKey);
-    if (!rule || !rule.is_enabled) return false;
+    if (!rule || !rule.is_enabled) return { queued: false, sentImmediately: false };
 
     const matchingTemplates = communicationTemplates.filter(
       (t) => t.trigger_key === triggerKey && t.is_active && (rule.channel === "both" || rule.channel === t.type)
     );
-    if (matchingTemplates.length === 0) return false;
+    if (matchingTemplates.length === 0) return { queued: false, sentImmediately: false };
 
     const techFirstName = profile.full_name.trim().split(/\s+/)[0] ?? profile.full_name;
     const now = new Date().toISOString();
+    const insertedIds: string[] = [];
 
     for (const template of matchingTemplates) {
       const recipient = template.type === "sms" ? (client?.phone ?? "") : (client?.email ?? "");
@@ -277,12 +291,13 @@ export default function JobDetailScreen() {
           : template.subject
         : null;
 
+      const rowId = uuidv4();
       await powersync.execute(
         `INSERT INTO scheduled_communications
            (id, tenant_id, entity_type, entity_id, trigger_key, template_id, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for, status, created_at)
          VALUES (?, ?, 'job', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
         [
-          uuidv4(),
+          rowId,
           profile.tenant_id,
           job.id,
           triggerKey,
@@ -295,8 +310,20 @@ export default function JobDetailScreen() {
           now,
         ]
       );
+      insertedIds.push(rowId);
     }
-    return true;
+
+    // Best-effort "send it right now" instead of waiting for the next cron
+    // sweep - see lib/dispatch-now.ts. Only attempted while online; offline
+    // it just falls back to the queue exactly as before, no different than
+    // if this call didn't exist.
+    let sentImmediately = false;
+    if (isOnline) {
+      const results = await Promise.all(insertedIds.map((rowId) => triggerImmediateDispatch(rowId)));
+      sentImmediately = results.length > 0 && results.every(Boolean);
+    }
+
+    return { queued: true, sentImmediately };
   };
 
   const [onTheWayModalVisible, setOnTheWayModalVisible] = useState(false);
@@ -309,15 +336,20 @@ export default function JobDetailScreen() {
       setOnTheWayError("Enter a valid number of minutes");
       return;
     }
-    const queued = await queueScheduledCommunication("job_on_the_way", { eta_minutes: eta });
-    if (!queued) {
+    const result = await queueScheduledCommunication("job_on_the_way", { eta_minutes: eta });
+    if (!result.queued) {
       setOnTheWayError("This message is turned off in Settings > Automation & Messaging, or has no active template.");
       return;
     }
     setOnTheWayModalVisible(false);
     setEtaMinutes("");
     setOnTheWayError(null);
-    Alert.alert("Queued", "The message will send next time this device or the server syncs.");
+    Alert.alert(
+      result.sentImmediately ? "Sent" : "Queued",
+      result.sentImmediately
+        ? "The On The Way message has been sent."
+        : "The message is queued and will send shortly (next sync/cron sweep)."
+    );
   };
 
   // Category/stage are a separate, independently admin-customizable pipeline
