@@ -1353,3 +1353,58 @@ needs real company name/ABN/bank details, not blank placeholders).
   Postgres directly. The updated Inventory screen, the new
   `inventory-setup.tsx` screen, and the "+ New item" flow have not been
   exercised in a running app.
+
+## Inventory: suppliers, ideal stock, and per-item reorder threshold
+
+- **What was built**: a flat, admin-managed `inventory_suppliers` list
+  ("Bunnings", "Reece", ...) that an item can optionally be tagged with;
+  `ideal_stock` (a new target quantity) and `reorder_threshold` (moved
+  here, see below) as properties of `inventory_items` itself. The Low-Stock
+  queue gained supplier filter chips ("All suppliers" + each supplier),
+  and "Generate Shopping List" now respects that filter and whatever else
+  is currently visible - the button relabels to name the supplier when
+  one's selected, and the PDF's own header names the supplier too when
+  every item on it shares one, so a printed/shared copy is unambiguous
+  even out of context. Items gained a full edit flow (`inventory-setup.tsx`
+  is unchanged for this - editing an item's supplier/thresholds happens by
+  tapping the item itself on the main Inventory screen, which previously
+  had no edit path at all, only create).
+- **`reorder_threshold` moved from `inventory_levels` to
+  `inventory_items`, a deliberate model change**: it used to be a
+  per-(location, item) value, defaulting to a hardcoded 5 with no UI to
+  ever set it differently. The request described it as a property of the
+  *item* ("our reorder threshold for a tube of clear silicone is 4") with
+  no per-location variation in the example, and nothing in the UI had ever
+  actually exposed per-location overrides - so the migration drops the
+  column from `inventory_levels` and adds it (plus the new `ideal_stock`)
+  to `inventory_items` instead. This is a real, if narrow, behavior change
+  from the original inventory design; safe here because no admin-facing
+  path ever let a location's threshold diverge from the 5 default, so
+  nothing meaningful was actually using the old per-location shape.
+- **`reorder_threshold` vs. `ideal_stock` - two different numbers, doing
+  two different jobs**: `reorder_threshold` is the alert point (when a
+  location's quantity for this item drops to or below it, the item shows
+  up in the Low-Stock queue). `ideal_stock` is the target a reorder should
+  bring that location back up to. `suggestedReorderQuantity` in
+  `lib/pdf.ts` was updated to compute against `ideal_stock`
+  (`max(ideal_stock - quantity, 1)`) rather than `reorder_threshold` -
+  ordering exactly enough to clear the alert threshold would mean the item
+  falls straight back into Low-Stock on the next unit used, which isn't
+  useful. This is still a simple "bring it up to the target" calculation,
+  not demand forecasting.
+- **`inventory_suppliers` RLS/sync**: same shape as `inventory_categories`
+  - tenant-wide read, admin-only write, synced via the `tenant_reference_data`
+  PowerSync bucket (a technician picking a location still needs to see
+  which supplier an item comes from offline).
+- **Verified from this sandbox**: the new migration applied cleanly
+  against a real local Postgres 16 instance alongside all 15 prior
+  migrations. Exercised live: an admin creating a supplier and an item
+  with `reorder_threshold`/`ideal_stock`/`supplier_id` set succeeded, and
+  a join query confirmed the item→supplier link reads back correctly;
+  `\d inventory_levels` confirmed the `reorder_threshold` column is
+  actually gone from that table post-migration. `pnpm typecheck` passes
+  clean across the whole workspace.
+- **NOT verified from this sandbox**: same PowerSync YAML-parsing/
+  on-device sync caveats as every prior sync-rules change in this project.
+  The item edit flow, supplier filter chips, and the supplier-labelled PDF
+  output have not been exercised in a running app.

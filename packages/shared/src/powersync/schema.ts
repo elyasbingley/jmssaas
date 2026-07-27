@@ -150,19 +150,48 @@ const inventory_subcategories = new Table(
   { indexes: { tenant: ["tenant_id"], category: ["category_id"] } }
 );
 
+// A named supplier ("Bunnings", "Reece") an item is sourced from - flat,
+// admin-managed, tenant-wide read like inventory_categories above, no
+// hierarchy needed here. See the inventory_suppliers_and_targets migration.
+const inventory_suppliers = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
 // The actual thing being stocked (e.g. "Silicone tube - clear") -
 // subcategory_id is nullable since not every category needs a second
 // level (e.g. a "First Aid Kit" category might hold items directly).
+// reorder_threshold/ideal_stock/supplier_id are properties of the item
+// itself, not of any one location it's stocked at - the same tube of
+// silicone alerts/reorders the same way everywhere, see the
+// inventory_suppliers_and_targets migration (this is where
+// reorder_threshold used to live on inventory_levels before that
+// migration moved it here).
 const inventory_items = new Table(
   {
     tenant_id: column.text,
     category_id: column.text,
     subcategory_id: column.text,
+    supplier_id: column.text,
     name: column.text,
+    reorder_threshold: column.integer,
+    ideal_stock: column.integer,
     created_at: column.text,
     updated_at: column.text,
   },
-  { indexes: { tenant: ["tenant_id"], category: ["category_id"], subcategory: ["subcategory_id"] } }
+  {
+    indexes: {
+      tenant: ["tenant_id"],
+      category: ["category_id"],
+      subcategory: ["subcategory_id"],
+      supplier: ["supplier_id"],
+    },
+  }
 );
 
 // The quantity of an inventory_items row held at a given inventory_
@@ -176,7 +205,6 @@ const inventory_levels = new Table(
     location_id: column.text,
     item_id: column.text,
     quantity: column.integer,
-    reorder_threshold: column.integer,
     created_at: column.text,
     updated_at: column.text,
   },
@@ -275,6 +303,7 @@ export const AppSchema = new Schema({
   inventory_locations,
   inventory_categories,
   inventory_subcategories,
+  inventory_suppliers,
   inventory_items,
   inventory_levels,
   attachments,

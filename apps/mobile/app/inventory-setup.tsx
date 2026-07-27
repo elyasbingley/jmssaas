@@ -5,9 +5,11 @@ import { v4 as uuidv4 } from "uuid";
 import {
   createInventoryCategorySchema,
   createInventorySubcategorySchema,
+  createInventorySupplierSchema,
   type InventoryCategory,
   type InventoryItem,
   type InventorySubcategory,
+  type InventorySupplier,
 } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { CenteredModal } from "../components/CenteredModal";
@@ -19,12 +21,13 @@ import { FormField } from "../components/FormField";
 // shape as job-setup.tsx: reads via useQuery, writes via
 // powersync.execute(), no RequiresConnectionNotice gate.
 //
-// Manages the two-level category hierarchy only (Material/Tools/First Aid
-// Kit -> Roofing/Plumbing/Tapware, ...) - actual items ("Silicone tube -
-// clear") are created inline from the main Inventory screen instead (a "+
-// New item" modal there, mirroring how Jobs creates a job inline while
-// job-setup.tsx only manages categories/stages), so this screen stays
-// scoped to just the hierarchy.
+// Manages the two-level category hierarchy (Material/Tools/First Aid
+// Kit -> Roofing/Plumbing/Tapware, ...) and the flat supplier list
+// (Bunnings, Reece, ...) - actual items ("Silicone tube - clear") are
+// created inline from the main Inventory screen instead (a "+ New item"
+// modal there, mirroring how Jobs creates a job inline while job-setup.tsx
+// only manages categories/stages), so this screen stays scoped to setup
+// data an item picks from, not items themselves.
 export default function InventorySetupScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
@@ -36,6 +39,7 @@ export default function InventorySetupScreen() {
   const { data: subcategories } = useQuery<InventorySubcategory>(
     "SELECT * FROM inventory_subcategories ORDER BY sort_order, name"
   );
+  const { data: suppliers } = useQuery<InventorySupplier>("SELECT * FROM inventory_suppliers ORDER BY name");
   // Loaded only to show "this will also delete N items" counts in the
   // category delete confirmation below - not edited from this screen.
   const { data: items } = useQuery<InventoryItem>("SELECT * FROM inventory_items");
@@ -192,6 +196,66 @@ export default function InventorySetupScreen() {
     ]);
   };
 
+  // --- Suppliers - flat list, no hierarchy, no color (just who an item
+  // is sourced from) ---
+  const [supplierModalVisible, setSupplierModalVisible] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<InventorySupplier | null>(null);
+  const [supplierName, setSupplierName] = useState("");
+  const [supplierError, setSupplierError] = useState<string | null>(null);
+
+  const openNewSupplier = () => {
+    setEditingSupplier(null);
+    setSupplierName("");
+    setSupplierError(null);
+    setSupplierModalVisible(true);
+  };
+
+  const openEditSupplier = (supplier: InventorySupplier) => {
+    setEditingSupplier(supplier);
+    setSupplierName(supplier.name);
+    setSupplierError(null);
+    setSupplierModalVisible(true);
+  };
+
+  const handleSaveSupplier = async () => {
+    const result = createInventorySupplierSchema.safeParse({ name: supplierName });
+    if (!result.success) {
+      setSupplierError(result.error.issues[0]?.message ?? "Invalid supplier");
+      return;
+    }
+    if (!profile) return;
+
+    const now = new Date().toISOString();
+    if (editingSupplier) {
+      await powersync.execute("UPDATE inventory_suppliers SET name = ?, updated_at = ? WHERE id = ?", [
+        result.data.name,
+        now,
+        editingSupplier.id,
+      ]);
+    } else {
+      await powersync.execute(
+        "INSERT INTO inventory_suppliers (id, tenant_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [uuidv4(), profile.tenant_id, result.data.name, now, now]
+      );
+    }
+    setSupplierModalVisible(false);
+  };
+
+  const handleDeleteSupplier = (supplier: InventorySupplier) => {
+    const itemCount = items.filter((i) => i.supplier_id === supplier.id).length;
+    const note = itemCount > 0 ? ` Items using it will just lose that tag, not be deleted.` : "";
+    Alert.alert("Delete supplier", `Delete "${supplier.name}"?${note}`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await powersync.execute("DELETE FROM inventory_suppliers WHERE id = ?", [supplier.id]);
+        },
+      },
+    ]);
+  };
+
   if (!isAdmin) {
     return (
       <View style={styles.container}>
@@ -203,9 +267,9 @@ export default function InventorySetupScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+        <Text style={styles.sectionTitle}>Categories</Text>
         <Text style={styles.subtitle}>
-          Set up the categories used to organise Inventory - e.g. "Material" and "Tools" as top-level categories, with
-          "Roofing" or "Power Tools" as subcategories underneath.
+          "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
         </Text>
 
         {categories.map((category) => {
@@ -257,6 +321,28 @@ export default function InventorySetupScreen() {
         <Pressable style={styles.addButton} onPress={openNewCategory}>
           <Text style={styles.addButtonText}>+ New category</Text>
         </Pressable>
+
+        <Text style={[styles.sectionTitle, styles.secondSection]}>Suppliers</Text>
+        <Text style={styles.subtitle}>Who you buy each item from - e.g. "Bunnings", "Reece".</Text>
+
+        {suppliers.map((supplier) => (
+          <View key={supplier.id} style={styles.row}>
+            <Text style={styles.rowText}>{supplier.name}</Text>
+            <View style={styles.rowActions}>
+              <Pressable onPress={() => openEditSupplier(supplier)}>
+                <Text style={styles.link}>Edit</Text>
+              </Pressable>
+              <Pressable onPress={() => handleDeleteSupplier(supplier)}>
+                <Text style={styles.deleteLink}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+        {suppliers.length === 0 ? <Text style={styles.empty}>No suppliers yet.</Text> : null}
+
+        <Pressable style={styles.addButton} onPress={openNewSupplier}>
+          <Text style={styles.addButtonText}>+ New supplier</Text>
+        </Pressable>
       </ScrollView>
 
       <CenteredModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)}>
@@ -304,13 +390,29 @@ export default function InventorySetupScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <CenteredModal visible={supplierModalVisible} onClose={() => setSupplierModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingSupplier ? "Edit supplier" : "New supplier"}</Text>
+        <FormField label="Name" placeholder="e.g. Bunnings, Reece" value={supplierName} onChangeText={setSupplierName} />
+        {supplierError ? <Text style={styles.error}>{supplierError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setSupplierModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={handleSaveSupplier}>
+            <Text style={styles.buttonText}>Save</Text>
+          </Pressable>
+        </View>
+      </CenteredModal>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  subtitle: { color: "#6b7280", marginBottom: 16 },
+  sectionTitle: { fontSize: 17, fontWeight: "700", color: "#111827" },
+  secondSection: { marginTop: 28 },
+  subtitle: { color: "#6b7280", marginTop: 2, marginBottom: 16 },
   categoryBlock: { marginBottom: 8 },
   row: {
     flexDirection: "row",

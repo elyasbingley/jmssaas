@@ -46,6 +46,12 @@
 #   Writes to all three stay admin-only via RLS, same pattern as
 #   inventory_locations.
 #
+#   inventory_suppliers joined next (inventory_suppliers_and_targets
+#   migration) - same reasoning again: a technician picking a location
+#   still needs to see which supplier an item comes from offline, and RLS
+#   already makes it tenant-wide read, admin-only write, same shape as
+#   inventory_categories.
+#
 # - admin_job_data: admins still get the full tenant's job_cards, job_notes,
 #   job_files and tasks, same as before - they need to see and assign
 #   everything. Scoped to role = 'admin' so technicians get zero instances
@@ -107,6 +113,7 @@ bucket_definitions:
       - select * from inventory_locations where tenant_id = bucket.tenant_id
       - select * from inventory_categories where tenant_id = bucket.tenant_id
       - select * from inventory_subcategories where tenant_id = bucket.tenant_id
+      - select * from inventory_suppliers where tenant_id = bucket.tenant_id
       - select * from inventory_items where tenant_id = bucket.tenant_id
       - select * from inventory_levels where tenant_id = bucket.tenant_id
 

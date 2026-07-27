@@ -309,11 +309,14 @@ export function buildInvoicePdfHtml(params: {
 </html>`;
 }
 
-// Reorder quantity isn't a stored column - just enough to bring the location
-// back up to its own reorder_threshold, minimum 1. A simple, easy-to-explain
-// default rather than any kind of demand forecasting.
+// Reorder quantity isn't a stored column - just enough to bring the
+// location back up to the item's own ideal_stock target (the "par level"
+// a reorder should restock to), minimum 1. reorder_threshold is the alert
+// point, not the target - using it here would mean every reorder just
+// barely clears the alert instead of actually restocking properly. Simple,
+// easy-to-explain default rather than any kind of demand forecasting.
 function suggestedReorderQuantity(item: LowStockItem): number {
-  return Math.max(item.reorder_threshold - item.quantity, 1);
+  return Math.max(item.ideal_stock - item.quantity, 1);
 }
 
 function renderShoppingListTable(items: LowStockItem[]): string {
@@ -321,9 +324,9 @@ function renderShoppingListTable(items: LowStockItem[]): string {
     .map(
       (item) => `
       <tr>
-        <td class="desc">${escapeHtml(item.item_name)}</td>
+        <td class="desc">${escapeHtml(item.item_name)}${item.supplier_name ? `<br/><span style="color:#6b7280;font-size:10px;">${escapeHtml(item.supplier_name)}</span>` : ""}</td>
         <td class="num">${item.quantity}</td>
-        <td class="num">${item.reorder_threshold}</td>
+        <td class="num">${item.ideal_stock}</td>
         <td class="num">${suggestedReorderQuantity(item)}</td>
       </tr>`
     )
@@ -334,7 +337,7 @@ function renderShoppingListTable(items: LowStockItem[]): string {
         <tr style="background: ${ACCENT.quote};">
           <th>Item</th>
           <th class="num" style="width: 70px;">On hand</th>
-          <th class="num" style="width: 70px;">Reorder at</th>
+          <th class="num" style="width: 70px;">Ideal stock</th>
           <th class="num" style="width: 80px;">Order qty</th>
         </tr>
       </thead>
@@ -345,10 +348,17 @@ function renderShoppingListTable(items: LowStockItem[]): string {
 
 // Groups by location - one heading + table per inventory_locations row, so
 // whoever's ordering knows exactly where each item is short, not just that
-// the tenant overall is short somewhere.
+// the tenant overall is short somewhere. `items` is expected to already be
+// scoped to whatever the caller wants on this particular list (e.g. the
+// Inventory screen's supplier filter) - this function itself doesn't
+// filter, it just renders and, when every item shares one supplier, says
+// so in the header so a printed/shared copy is unambiguous about which
+// supplier run it's for.
 export function buildShoppingListPdfHtml(params: { tenant: Tenant; items: LowStockItem[] }): string {
   const { tenant, items } = params;
   const locationNames = [...new Set(items.map((item) => item.location_name))];
+  const supplierNames = [...new Set(items.map((item) => item.supplier_name).filter((name): name is string => !!name))];
+  const supplierSubtitle = items.length > 0 && supplierNames.length === 1 ? supplierNames[0] : null;
   const generatedAt = new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" });
 
   return `<!DOCTYPE html>
@@ -362,6 +372,7 @@ export function buildShoppingListPdfHtml(params: { tenant: Tenant; items: LowSto
       <div>${tenant.logo_url ? `<img class="logo" src="${escapeHtml(tenant.logo_url)}" />` : ""}</div>
       <div class="doc-block">
         <p class="doc-title" style="color: ${ACCENT.quote}; font-weight: 700; text-transform: uppercase;">Shopping List</p>
+        ${supplierSubtitle ? `<p class="doc-number">${escapeHtml(supplierSubtitle)}</p>` : ""}
         <p class="doc-number">Generated ${escapeHtml(generatedAt)}</p>
       </div>
     </div>

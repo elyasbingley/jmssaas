@@ -398,39 +398,59 @@ export interface InventorySubcategory {
   updated_at: string;
 }
 
+// A named supplier an item is sourced from - "Bunnings", "Reece". Flat,
+// admin-managed, tenant-wide read like InventoryCategory - no hierarchy
+// needed here. See the inventory_suppliers_and_targets migration.
+export interface InventorySupplier {
+  id: string;
+  tenant_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // The actual thing being stocked - "Silicone tube - clear", "Cordless
 // drill". Its own standalone catalogue, unrelated to PriceBookItem (see
 // the inventory_material_categories migration for why those two turned
-// out not to be the same thing).
+// out not to be the same thing). reorder_threshold/ideal_stock/
+// supplier_id are properties of the item itself (not of any one location
+// it's stocked at) - see the inventory_suppliers_and_targets migration,
+// which moved reorder_threshold here from InventoryLevel.
 export interface InventoryItem {
   id: string;
   tenant_id: string;
   category_id: string;
   subcategory_id: string | null;
+  supplier_id: string | null;
   name: string;
+  // The quantity at a location that triggers the Low-Stock queue.
+  reorder_threshold: number;
+  // The target quantity a reorder should bring a location back up to -
+  // distinct from reorder_threshold (the alert point) - see
+  // suggestedReorderQuantity in apps/mobile/lib/pdf.ts.
+  ideal_stock: number;
   created_at: string;
   updated_at: string;
 }
 
 // The quantity of an InventoryItem held at a given InventoryLocation.
 // Unlike InventoryLocation/InventoryCategory/InventorySubcategory/
-// InventoryItem, this is tenant-wide *writable* - see the
-// inventory_stock_control migration's RLS comment.
+// InventoryItem/InventorySupplier, this is tenant-wide *writable* - see
+// the inventory_stock_control migration's RLS comment.
 export interface InventoryLevel {
   id: string;
   tenant_id: string;
   location_id: string;
   item_id: string;
   quantity: number;
-  reorder_threshold: number;
   created_at: string;
   updated_at: string;
 }
 
 // Not its own table - an InventoryLevel joined with its item/location/
-// category/subcategory names for display in the Low-Stock queue and the
-// shopping list PDF. Built client-side (see the inventory screen's join
-// over the PowerSync-local tables), not a server view.
+// category/subcategory/supplier names for display in the Low-Stock queue
+// and the shopping list PDF. Built client-side (see the inventory
+// screen's join over the PowerSync-local tables), not a server view.
 export interface LowStockItem {
   inventory_level_id: string;
   location_id: string;
@@ -441,6 +461,9 @@ export interface LowStockItem {
   category_name: string | null;
   subcategory_id: string | null;
   subcategory_name: string | null;
+  supplier_id: string | null;
+  supplier_name: string | null;
   quantity: number;
   reorder_threshold: number;
+  ideal_stock: number;
 }
