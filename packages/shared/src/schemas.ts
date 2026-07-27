@@ -35,6 +35,8 @@ export const createJobCardSchema = z.object({
   description: z.string().optional(),
   assigned_technician_id: z.string().uuid().optional(),
   scheduled_at: z.string().datetime().optional(),
+  service_category_id: z.string().uuid().optional(),
+  lifecycle_stage_id: z.string().uuid().optional(),
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
 
@@ -167,3 +169,16 @@ export const createTechnicianSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 export type CreateTechnicianInput = z.infer<typeof createTechnicianSchema>;
+
+export const createServiceCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  color: z.string().optional(),
+});
+export type CreateServiceCategoryInput = z.infer<typeof createServiceCategorySchema>;
+
+export const createJobLifecycleStageSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  position: z.number().int().default(0),
+  color: z.string().optional(),
+});
+export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;

@@ -13,7 +13,14 @@
 # - tenant_reference_data: clients, client_sites and profiles stay
 #   tenant-wide for every signed-in user regardless of role - any tech can
 #   look up any client on site, and everyone needs names/roles for the team.
-#   This is unchanged from before.
+#   This is unchanged from before. service_categories and job_lifecycle_stages
+#   joined this bucket too (job_categories_lifecycle_stages migration) - unlike
+#   price_book, which stays Supabase-direct/admin-only quote+invoice tooling,
+#   every job list/detail screen (including technician-facing ones) needs to
+#   render category tags and stage badges offline, so this is tenant-wide read
+#   data like clients, not admin-scoped like admin_job_data. Writes are still
+#   admin-only, enforced by Postgres RLS - PowerSync bucket membership only
+#   controls read/download scope, not write permission.
 #
 # - admin_job_data: admins still get the full tenant's job_cards, job_notes,
 #   job_files and tasks, same as before - they need to see and assign
@@ -71,6 +78,8 @@ bucket_definitions:
       - select * from clients where tenant_id = bucket.tenant_id
       - select * from client_sites where tenant_id = bucket.tenant_id
       - select * from profiles where tenant_id = bucket.tenant_id
+      - select * from service_categories where tenant_id = bucket.tenant_id
+      - select * from job_lifecycle_stages where tenant_id = bucket.tenant_id
 
   admin_job_data:
     parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'

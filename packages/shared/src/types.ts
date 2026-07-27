@@ -106,7 +106,38 @@ export interface JobCard {
   invoice_id: string | null;
   scheduled_at: string | null;
   completed_at: string | null;
+  // Admin-customizable tag/pipeline, independent of `status` above - see
+  // ServiceCategory/JobLifecycleStage and the job_categories_lifecycle_stages
+  // migration for why the two aren't kept in sync with each other.
+  service_category_id: string | null;
+  lifecycle_stage_id: string | null;
   created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// A simple tag on a job (e.g. "Roof Restoration", "Gutter Cleaning") -
+// admin-managed, tenant-wide, purely descriptive (no behavior keys off it).
+export interface ServiceCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// An admin-configurable, ordered pipeline (e.g. "Enquiry" / "Quote Sent" /
+// "Deposit Paid" / "In Progress") - distinct from the fixed JobStatus enum
+// above, which several other features already key off (Schedule board,
+// Job Costing, status chips) and isn't being replaced by this.
+export interface JobLifecycleStage {
+  id: string;
+  tenant_id: string;
+  name: string;
+  position: number;
+  color: string | null;
+  is_system_default: boolean;
   created_at: string;
   updated_at: string;
 }

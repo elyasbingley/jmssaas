@@ -65,11 +65,41 @@ const job_cards = new Table(
     assigned_technician_id: column.text,
     scheduled_at: column.text,
     completed_at: column.text,
+    service_category_id: column.text,
+    lifecycle_stage_id: column.text,
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
   },
   { indexes: { client: ["client_id"], technician: ["assigned_technician_id"] } }
+);
+
+// Admin-configurable job tagging/pipeline, synced tenant-wide (read by
+// everyone so job rows can show category tags/stage badges offline; writes
+// are admin-only, enforced server-side by RLS - see the
+// job_categories_lifecycle_stages migration).
+const service_categories = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    color: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const job_lifecycle_stages = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    position: column.integer,
+    color: column.text,
+    is_system_default: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
 );
 
 const job_notes = new Table(
@@ -159,6 +189,8 @@ export const AppSchema = new Schema({
   tasks,
   task_notes,
   task_files,
+  service_categories,
+  job_lifecycle_stages,
   attachments,
 });
 

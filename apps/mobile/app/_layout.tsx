@@ -63,8 +63,8 @@ function RootNavigator() {
   // navigator, each tab wrapping its own native Stack - see
   // app/(tabs)/_layout.tsx), login, and a couple of standalone admin
   // screens reached via a small link rather than their own tab
-  // (company-settings, schedule) - see docs/SETUP.md for why Schedule/
-  // dispatch was placed this way instead of a new tab.
+  // (company-settings, schedule, team, job-setup) - see docs/SETUP.md for
+  // why Schedule/dispatch was placed this way instead of a new tab.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
@@ -72,6 +72,7 @@ function RootNavigator() {
       <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Settings" }} />
       <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
       <Stack.Screen name="team" options={{ headerShown: true, title: "Team" }} />
+      <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Setup" }} />
     </Stack>
   );
 }

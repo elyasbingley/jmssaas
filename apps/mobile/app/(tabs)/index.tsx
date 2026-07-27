@@ -46,6 +46,11 @@ export default function HomeScreen() {
               <Text style={styles.link}>Team</Text>
             </Pressable>
           ) : null}
+          {profile?.role === "admin" ? (
+            <Pressable onPress={() => router.push("/job-setup")}>
+              <Text style={styles.link}>Job Setup</Text>
+            </Pressable>
+          ) : null}
           <Pressable onPress={signOut}>
             <Text style={styles.link}>Sign out</Text>
           </Pressable>

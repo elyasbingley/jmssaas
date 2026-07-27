@@ -1076,3 +1076,105 @@ needs real company name/ABN/bank details, not blank placeholders).
   Deployment: `supabase functions deploy create-technician` (no
   `--no-verify-jwt` this time - the default JWT verification is
   intentional here, see above).
+
+## Job categories, lifecycle stages, and jobs list filtering/sorting
+
+- **What was built**: two new admin-managed, tenant-wide tables -
+  `service_categories` (a simple named/colored tag, e.g. "Roof
+  Restoration") and `job_lifecycle_stages` (an ordered, admin-customizable
+  pipeline, e.g. "Enquiry" / "Quote Sent" / "Deposit Paid") - plus nullable
+  `service_category_id`/`lifecycle_stage_id` columns on `job_cards`. A new
+  admin-only `app/job-setup.tsx` screen manages both (create/edit/delete,
+  tap up/down reorder for stages). The Jobs list (`sales/jobs/index.tsx`)
+  gained category/stage filter chips, a sort control (created date,
+  scheduled date, category, stage position), and colored category
+  tags/stage badges on each row; the create-job modal and the job detail
+  screen (`sales/jobs/[id].tsx`) both gained optional Category/Stage
+  pickers.
+- **`status` (the existing `job_status` enum) is deliberately NOT replaced
+  or touched**: too much of the app already keys off it directly - the
+  Schedule/dispatch board's "unassigned" filter, Job Costing, the status
+  chip row on the job detail screen. `lifecycle_stage_id` is a second,
+  independently admin-customizable pipeline layered on top of `status`,
+  not a replacement for it. The migration's one-time backfill links each
+  existing job to the default stage matching its status at that moment
+  (`New`→`New`, `in_progress`→`In Progress`, etc.), but the two are never
+  kept in sync with each other afterwards - changing `status` on the job
+  detail screen does not move `lifecycle_stage_id`, and vice versa. This
+  was a judgment call: keeping them mechanically linked would mean either
+  locking down what an admin can rename/reorder/delete in their custom
+  pipeline (defeating the point of it being customizable), or silently
+  guessing a status from an arbitrary custom stage name, which isn't
+  reliable. Keeping them fully independent was simpler and matches what
+  was actually asked for ("distinct from the existing job_cards status
+  enum").
+- **Default stages seed automatically for every tenant**: a
+  `seed_default_lifecycle_stages()` function inserts `New` / `Scheduled` /
+  `In Progress` / `Completed` / `Invoiced` (matching the `job_status` enum
+  values 1:1, so the backfill's name-matching stays unambiguous) for the
+  current tenant, run once for every existing tenant in the migration and
+  again automatically via an `after insert on tenants` trigger for any
+  tenant created later. `is_system_default = true` marks these five, but
+  nothing in the schema actually locks them - an admin can rename,
+  recolor, reorder or delete them like any other stage from
+  `job-setup.tsx`; the flag is only used to show a "Default" tag and a
+  slightly different delete-confirmation message.
+- **RLS**: both new tables follow the exact same shape as
+  `price_book_categories` - tenant-wide read (`tenant_id =
+  current_tenant_id()`), admin-only insert/update/delete
+  (`current_tenant_id() and is_admin()`). `job_cards`' own RLS is
+  unchanged; the two new nullable FK columns are just regular columns on
+  an already-covered table.
+- **PowerSync sync scope - a deliberate divergence from the price_book
+  precedent**: `service_categories` and `job_lifecycle_stages` were added
+  to the `tenant_reference_data` bucket (synced to every signed-in
+  device, technicians included), *not* left as a Supabase-direct,
+  online-only fetch the way `price_book_categories`/`price_book_items`
+  are. Price book stays online-only because it's exclusively
+  quote/invoice creation tooling, which is itself an online-only,
+  admin/office workflow. Category tags and stage badges, by contrast,
+  need to render on the Jobs list and job detail screen for everyone,
+  including a technician viewing their own assigned jobs with no
+  reception - so this needed to be genuinely offline-capable like
+  `clients`/`job_cards` themselves, not fetched-when-online like price
+  book. Writes are still admin-only, enforced by Postgres RLS on
+  upload - PowerSync bucket membership only controls what a device
+  downloads, not what it's allowed to write.
+- **No unique constraint on `position`**: matches the existing
+  `price_book_categories.sort_order` precedent - gaps or duplicate
+  position values are harmless since the UI always sorts by `position`
+  and only ever nudges a stage's value up/down by one via the reorder
+  buttons, it doesn't rely on positions being contiguous or unique.
+- **Reordering is tap up/down buttons, not drag-and-drop**: matches the
+  Schedule board's established "no drag-and-drop" convention for this
+  codebase. `job-setup.tsx`'s reorder swaps the tapped stage's `position`
+  with its immediate neighbor's via two `powersync.execute()` calls.
+- **Filtering/sorting the Jobs list is done client-side in JS**, not via
+  dynamic SQL `WHERE`/`ORDER BY` clauses built from state - same
+  convention already established by the Schedule and Calendar screens:
+  the base PowerSync query stays a fixed string (all jobs, or a
+  technician's own assigned jobs), and category/stage filters plus the
+  sort dropdown are applied afterward over the returned array.
+- **Screen placement**: `job-setup.tsx` is a small admin-only "Job Setup"
+  link on Home, next to "Company Settings" and "Team" - not a tile,
+  following the same "occasional setup screen vs. daily operational tool"
+  reasoning documented above for Team.
+- **Verified from this sandbox**: the migration was applied cleanly
+  against a real local Postgres 16 instance alongside all prior
+  migrations; confirmed the `after insert on tenants` trigger seeds
+  exactly the 5 expected default stages in the correct order for a new
+  tenant, and confirmed the backfill's status→stage-name `CASE` mapping
+  correctly links a `job_cards` row to the right stage (e.g.
+  `status = 'in_progress'` → the `In Progress` stage at `position = 3`).
+  `pnpm typecheck` passes clean across the whole workspace. There is no
+  `build` script anywhere in this repo (root `package.json`'s `build`
+  turbo task has nothing to run against) - `typecheck` is this repo's
+  actual cross-package type-safety gate, consistent with every prior
+  phase of this project.
+- **NOT verified from this sandbox**: PowerSync's own YAML parsing of the
+  two new `tenant_reference_data` bucket lines (no PowerSync instance is
+  provisioned here, same known limitation as every other sync-rules
+  change in this project - see the note in the Schedule board and
+  per-technician sync rule sections above), and no on-device sync/offline
+  test of `job-setup.tsx` or the Jobs list filters against a real running
+  app.

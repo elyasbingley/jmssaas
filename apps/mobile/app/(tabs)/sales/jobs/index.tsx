@@ -3,7 +3,14 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
+import {
+  createJobCardSchema,
+  type Client,
+  type JobCard,
+  type JobLifecycleStage,
+  type JobStatus,
+  type ServiceCategory,
+} from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
@@ -16,6 +23,14 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   completed: "Completed",
   invoiced: "Invoiced",
 };
+
+type SortOption = "created_at" | "scheduled_at" | "category" | "stage";
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "created_at", label: "Created" },
+  { value: "scheduled_at", label: "Scheduled" },
+  { value: "category", label: "Category" },
+  { value: "stage", label: "Stage" },
+];
 
 // Top-level Jobs list - previously job cards were only reachable by drilling
 // into a client first. This is the new home for "Jobs" as its own section
@@ -34,25 +49,75 @@ export default function JobsScreen() {
     isAdmin ? [] : [profile?.id ?? ""]
   );
   const { data: clients } = useQuery<Client>("SELECT * FROM clients ORDER BY name");
+  const { data: categories } = useQuery<ServiceCategory>("SELECT * FROM service_categories ORDER BY name");
+  const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
+
+  const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+  const categoryById = new Map(categories.map((c) => [c.id, c]));
+  const stageById = new Map(stages.map((s) => [s.id, s]));
+
+  // Filtering/sorting is done client-side in JS over the PowerSync-watched
+  // query results above, not by building dynamic SQL - matching the
+  // established convention from the Schedule/Calendar screens.
+  const [filterCategory, setFilterCategory] = useState<ServiceCategory | null>(null);
+  const [filterStage, setFilterStage] = useState<JobLifecycleStage | null>(null);
+  const [filterCategoryPickerVisible, setFilterCategoryPickerVisible] = useState(false);
+  const [filterStagePickerVisible, setFilterStagePickerVisible] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>("created_at");
+
+  const filteredJobs = jobCards.filter(
+    (job) =>
+      (!filterCategory || job.service_category_id === filterCategory.id) &&
+      (!filterStage || job.lifecycle_stage_id === filterStage.id)
+  );
+
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    switch (sortBy) {
+      case "scheduled_at":
+        return (a.scheduled_at ?? "9999").localeCompare(b.scheduled_at ?? "9999");
+      case "category":
+        return (categoryById.get(a.service_category_id ?? "")?.name ?? "￿").localeCompare(
+          categoryById.get(b.service_category_id ?? "")?.name ?? "￿"
+        );
+      case "stage":
+        return (
+          (stageById.get(a.lifecycle_stage_id ?? "")?.position ?? Number.MAX_SAFE_INTEGER) -
+          (stageById.get(b.lifecycle_stage_id ?? "")?.position ?? Number.MAX_SAFE_INTEGER)
+        );
+      case "created_at":
+      default:
+        return b.created_at.localeCompare(a.created_at);
+    }
+  });
 
   const [modalVisible, setModalVisible] = useState(false);
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [stagePickerVisible, setStagePickerVisible] = useState(false);
   const [client, setClient] = useState<Client | null>(null);
+  const [category, setCategory] = useState<ServiceCategory | null>(null);
+  const [stage, setStage] = useState<JobLifecycleStage | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
-  const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
-
   const resetForm = () => {
     setClient(null);
+    setCategory(null);
+    setStage(null);
     setTitle("");
     setDescription("");
     setFormError(null);
   };
 
   const handleCreate = async () => {
-    const result = createJobCardSchema.safeParse({ client_id: client?.id, title, description });
+    const result = createJobCardSchema.safeParse({
+      client_id: client?.id,
+      title,
+      description,
+      service_category_id: category?.id,
+      lifecycle_stage_id: stage?.id,
+    });
     if (!result.success) {
       setFormError(client ? (result.error.issues[0]?.message ?? "Invalid job") : "Pick a client first");
       return;
@@ -62,9 +127,20 @@ export default function JobsScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
-      [jobId, profile.tenant_id, result.data.client_id, result.data.title, result.data.description || null, profile.id, now, now]
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, status, service_category_id, lifecycle_stage_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)`,
+      [
+        jobId,
+        profile.tenant_id,
+        result.data.client_id,
+        result.data.title,
+        result.data.description || null,
+        result.data.service_category_id ?? null,
+        result.data.lifecycle_stage_id ?? null,
+        profile.id,
+        now,
+        now,
+      ]
     );
 
     resetForm();
@@ -74,23 +150,81 @@ export default function JobsScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={jobCards}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/sales/jobs/${item.id}`)}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.rowTitleRow}>
-                <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
-                <Text style={styles.rowTitle}>{item.title}</Text>
-              </View>
-              <Text style={styles.rowSubtitle}>{clientNameById.get(item.client_id) ?? "Unknown client"}</Text>
-            </View>
-            <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
+      <View style={styles.filterBar}>
+        <Pressable style={styles.filterChip} onPress={() => setFilterCategoryPickerVisible(true)}>
+          <Text style={styles.filterChipText}>{filterCategory ? filterCategory.name : "All categories"}</Text>
+        </Pressable>
+        <Pressable style={styles.filterChip} onPress={() => setFilterStagePickerVisible(true)}>
+          <Text style={styles.filterChipText}>{filterStage ? filterStage.name : "All stages"}</Text>
+        </Pressable>
+        {filterCategory || filterStage ? (
+          <Pressable
+            onPress={() => {
+              setFilterCategory(null);
+              setFilterStage(null);
+            }}
+          >
+            <Text style={styles.filterClearText}>Clear</Text>
           </Pressable>
-        )}
+        ) : null}
+      </View>
+
+      <View style={styles.sortBar}>
+        <Text style={styles.sortLabel}>Sort:</Text>
+        {SORT_OPTIONS.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.sortChip, sortBy === option.value && styles.sortChipActive]}
+            onPress={() => setSortBy(option.value)}
+          >
+            <Text style={[styles.sortChipText, sortBy === option.value && styles.sortChipTextActive]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <FlatList
+        data={sortedJobs}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          const itemCategory = categoryById.get(item.service_category_id ?? "");
+          const itemStage = stageById.get(item.lifecycle_stage_id ?? "");
+          return (
+            <Pressable style={styles.row} onPress={() => router.push(`/sales/jobs/${item.id}`)}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.rowTitleRow}>
+                  <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                </View>
+                <Text style={styles.rowSubtitle}>{clientNameById.get(item.client_id) ?? "Unknown client"}</Text>
+                {itemCategory || itemStage ? (
+                  <View style={styles.tagRow}>
+                    {itemCategory ? (
+                      <View style={styles.categoryTag}>
+                        <View
+                          style={[
+                            styles.swatch,
+                            itemCategory.color ? { backgroundColor: itemCategory.color } : styles.swatchEmpty,
+                          ]}
+                        />
+                        <Text style={styles.categoryTagText}>{itemCategory.name}</Text>
+                      </View>
+                    ) : null}
+                    {itemStage ? (
+                      <View style={[styles.stageBadge, itemStage.color ? { backgroundColor: itemStage.color } : null]}>
+                        <Text style={styles.stageBadgeText}>{itemStage.name}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={<Text style={styles.empty}>No jobs yet.</Text>}
-        contentContainerStyle={jobCards.length === 0 ? styles.emptyContainer : undefined}
+        contentContainerStyle={sortedJobs.length === 0 ? styles.emptyContainer : undefined}
       />
 
       {isAdmin ? (
@@ -137,6 +271,19 @@ export default function JobsScreen() {
           style={styles.multiline}
         />
 
+        <View style={styles.pickerRow}>
+          <Pressable style={[styles.pickerField, styles.pickerFieldHalf]} onPress={() => setCategoryPickerVisible(true)}>
+            <Text style={styles.pickerFieldLabel}>Category (optional)</Text>
+            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {category?.name ?? "None"}
+            </Text>
+          </Pressable>
+          <Pressable style={[styles.pickerField, styles.pickerFieldHalf]} onPress={() => setStagePickerVisible(true)}>
+            <Text style={styles.pickerFieldLabel}>Stage (optional)</Text>
+            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>{stage?.name ?? "None"}</Text>
+          </Pressable>
+        </View>
+
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable
@@ -162,12 +309,68 @@ export default function JobsScreen() {
         onSelect={setClient}
         onClose={() => setClientPickerVisible(false)}
       />
+
+      <PickerModal
+        visible={categoryPickerVisible}
+        title="Select category"
+        items={categories}
+        getKey={(c) => c.id}
+        getLabel={(c) => c.name}
+        onSelect={setCategory}
+        onClose={() => setCategoryPickerVisible(false)}
+      />
+
+      <PickerModal
+        visible={stagePickerVisible}
+        title="Select stage"
+        items={stages}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.name}
+        onSelect={setStage}
+        onClose={() => setStagePickerVisible(false)}
+      />
+
+      <PickerModal
+        visible={filterCategoryPickerVisible}
+        title="Filter by category"
+        items={categories}
+        getKey={(c) => c.id}
+        getLabel={(c) => c.name}
+        onSelect={setFilterCategory}
+        onClose={() => setFilterCategoryPickerVisible(false)}
+      />
+
+      <PickerModal
+        visible={filterStagePickerVisible}
+        title="Filter by stage"
+        items={stages}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.name}
+        onSelect={setFilterStage}
+        onClose={() => setFilterStagePickerVisible(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  filterChip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  filterChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
+  filterClearText: { color: "#dc2626", fontWeight: "600", fontSize: 13 },
+  sortBar: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
+  sortLabel: { color: "#6b7280", fontSize: 12, marginRight: 2 },
+  sortChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: "#f3f4f6" },
+  sortChipActive: { backgroundColor: "#1d4ed8" },
+  sortChipText: { color: "#374151", fontWeight: "600", fontSize: 12 },
+  sortChipTextActive: { color: "#fff" },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -180,6 +383,13 @@ const styles = StyleSheet.create({
   rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
   rowTitle: { fontSize: 16, fontWeight: "600" },
   rowSubtitle: { color: "#6b7280", marginTop: 2 },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 },
+  categoryTag: { flexDirection: "row", alignItems: "center", gap: 4 },
+  swatch: { width: 8, height: 8, borderRadius: 4 },
+  swatchEmpty: { backgroundColor: "#d1d5db" },
+  categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
+  stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700" },
   statusBadge: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
@@ -196,6 +406,8 @@ const styles = StyleSheet.create({
   fabText: { color: "#fff", fontWeight: "700" },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, gap: 4 },
+  pickerFieldHalf: { flex: 1 },
+  pickerRow: { flexDirection: "row", gap: 8 },
   pickerFieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151" },
   pickerFieldText: { fontSize: 16, color: "#111827" },
   pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },

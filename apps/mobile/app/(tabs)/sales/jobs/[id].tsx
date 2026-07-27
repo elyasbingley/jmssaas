@@ -13,10 +13,12 @@ import {
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
+  type JobLifecycleStage,
   type JobNote,
   type JobStatus,
   type Quote,
   type QuoteLineItem,
+  type ServiceCategory,
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
@@ -29,6 +31,7 @@ import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
+import { PickerModal } from "../../../../components/PickerModal";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
@@ -94,6 +97,11 @@ export default function JobDetailScreen() {
 
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
   const client = clientRows[0];
+
+  const { data: categories } = useQuery<ServiceCategory>("SELECT * FROM service_categories ORDER BY name");
+  const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
+  const category = categories.find((c) => c.id === job?.service_category_id) ?? null;
+  const stage = stages.find((s) => s.id === job?.lifecycle_stage_id) ?? null;
 
   const { data: notes } = useQuery<JobNote>(
     "SELECT * FROM job_notes WHERE job_card_id = ? ORDER BY created_at DESC",
@@ -202,6 +210,20 @@ export default function JobDetailScreen() {
 
   const handleStatusChange = async (status: JobStatus) => {
     await powersync.execute("UPDATE job_cards SET status = ? WHERE id = ?", [status, id]);
+  };
+
+  // Category/stage are a separate, independently admin-customizable pipeline
+  // layered on top of `status` above - see the job_categories_lifecycle_
+  // stages migration for why the two aren't kept in sync with each other.
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [stagePickerVisible, setStagePickerVisible] = useState(false);
+
+  const handleCategoryChange = async (next: ServiceCategory | null) => {
+    await powersync.execute("UPDATE job_cards SET service_category_id = ? WHERE id = ?", [next?.id ?? null, id]);
+  };
+
+  const handleStageChange = async (next: JobLifecycleStage | null) => {
+    await powersync.execute("UPDATE job_cards SET lifecycle_stage_id = ? WHERE id = ?", [next?.id ?? null, id]);
   };
 
   // --- Edit job title/description ---
@@ -416,6 +438,40 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Category</Text>
+        <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
+            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {category?.name ?? "No category"}
+            </Text>
+          </View>
+        </Pressable>
+        {category ? (
+          <Pressable onPress={() => handleCategoryChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Lifecycle stage</Text>
+        <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
+            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {stage?.name ?? "No stage"}
+            </Text>
+          </View>
+        </Pressable>
+        {stage ? (
+          <Pressable onPress={() => handleStageChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quotes</Text>
         {(linkedQuotes ?? []).map((q) => (
           <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
@@ -530,6 +586,26 @@ export default function JobDetailScreen() {
         </Pressable>
       </View>
     </CenteredModal>
+
+    <PickerModal
+      visible={categoryPickerVisible}
+      title="Select category"
+      items={categories}
+      getKey={(c) => c.id}
+      getLabel={(c) => c.name}
+      onSelect={handleCategoryChange}
+      onClose={() => setCategoryPickerVisible(false)}
+    />
+
+    <PickerModal
+      visible={stagePickerVisible}
+      title="Select stage"
+      items={stages}
+      getKey={(s) => s.id}
+      getLabel={(s) => s.name}
+      onSelect={handleStageChange}
+      onClose={() => setStagePickerVisible(false)}
+    />
     </>
   );
 }
@@ -571,6 +647,12 @@ const styles = StyleSheet.create({
   costingSummaryValue: { color: "#111827", fontSize: 13, fontWeight: "600" },
   costingSummaryLabelBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
   costingSummaryValueBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
+  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
+  pickerFieldRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pickerFieldText: { fontSize: 15, color: "#111827" },
+  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
+  swatch: { width: 12, height: 12, borderRadius: 6 },
+  clearLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6, alignSelf: "flex-start" },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
   statusChipActive: { backgroundColor: "#1d4ed8" },
