@@ -351,6 +351,24 @@ async function buildEntityContext(
   return context;
 }
 
+// Twilio requires the "To" number in E.164 (+61...), but every phone field
+// in this app (Client.phone, the seed data, whatever an admin types into
+// the client form) is free text - realistically always local Australian
+// format ("0491 570 156") since that's what an AU trade business actually
+// types. Found live: Twilio error 21211 "Invalid 'To' Phone Number" on a
+// real send, because recipient_phone_or_email was stored exactly as
+// entered, leading 0 and all. Normalized here, at send time, rather than
+// wherever a phone number is entered/stored - this is the one place that
+// actually needs E.164, and it covers every existing client's already-
+// saved number too, not just newly-entered ones.
+function normalizeAuMobileNumber(raw: string): string {
+  const digits = raw.replace(/[^\d+]/g, "");
+  if (digits.startsWith("+")) return digits;
+  if (digits.startsWith("61")) return `+${digits}`;
+  if (digits.startsWith("0")) return `+61${digits.slice(1)}`;
+  return digits;
+}
+
 async function sendSms(to: string, body: string): Promise<void> {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
     throw new Error("SMS provider not configured (TWILIO_* env vars missing)");
@@ -444,7 +462,7 @@ async function dispatchOne(
 
   try {
     if (row.channel === "sms") {
-      await sendSms(recipient, finalBody);
+      await sendSms(normalizeAuMobileNumber(recipient), finalBody);
     } else {
       await sendEmail(recipient, finalSubject, finalBody);
     }
