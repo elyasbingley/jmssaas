@@ -805,29 +805,24 @@ needs real company name/ABN/bank details, not blank placeholders).
   accept calls; an unknown token returns `not_found`; declining without a
   prior accept sets `declined`/`declined_at`/`decline_reason`; accepting
   with an empty name returns `name_required`.
-- **Verified against a live deployment (by the person, not this sandbox -
-  it still has no Supabase CLI login/project access)**: the `approve`
-  function has been deployed and actually invoked in production - that's
-  how the `Content-Type`/CSP issue below was caught in the first place,
-  and how the earlier `UNAUTHORIZED_NO_AUTH_HEADER` issue was caught
-  before that. The `npm:@supabase/supabase-js@2` specifier resolves fine
-  in the deployed Edge Runtime, and `get_quote_for_approval` returned
-  correct real data end-to-end (logo, line items with a multi-line
-  description, correct totals) the first time the auth issue was fixed -
-  confirms the whole RPC/token layer genuinely works against the live
-  project, independent of the separate HTML-rendering problem. **Still not
-  verified from this sandbox**: the new static-page + JSON-API split
-  (`supabase/static/approval-page.html`'s own JS, and the rebuilt
-  `approve/index.ts`) hasn't been deployed/exercised live yet, since it
-  was written in direct response to what the live test above revealed -
-  the person still needs to redeploy the function, upload the static file,
-  and click a fresh link to confirm this round actually renders. The Edge
-  Function's TypeScript also isn't covered by `pnpm typecheck` (it's Deno,
-  uses `Deno.serve`/`Deno.env`, and lives outside both workspace packages'
-  `tsconfig` roots on purpose) - its correctness, and the static page's own
-  plain JS, was reasoned through by hand and by mirroring the already-
-  verified SQL
-  contract, not compiler-checked.
+- **Confirmed fully working against the live project (by the person, not
+  this sandbox - it still has no Supabase CLI login/project access)**:
+  after the `verify_jwt`, Edge-Function-HTML, and Storage-HTML issues
+  below were each found and fixed in turn, the final static-page + JSON-
+  API + external-static-host setup was deployed and the approval page
+  rendered correctly end-to-end in a real browser - logo, quote number,
+  client name, line items, correct Sub Total/GST/Total, and both the
+  Accept and Decline forms all showing right. Confirmed via the browser's
+  own Network tab that the page's `fetch()` call reaches
+  `qnlxmpxjmmhcnzzpcabd.supabase.co/functions/v1/approve` successfully
+  (not a CORS failure, not a 404) and gets real data back. This is real
+  production verification of the whole chain: external static host ->
+  CORS -> Edge Function -> `SECURITY DEFINER` RPC -> Postgres, not just
+  the SQL layer in isolation. The Edge Function's own TypeScript still
+  isn't covered by `pnpm typecheck` (it's Deno, uses `Deno.serve`/
+  `Deno.env`, and lives outside both workspace packages' `tsconfig` roots
+  on purpose), but its behavior is now compiler-unchecked *and*
+  live-verified, not just reasoned through by hand.
 - **Deploying `approve` needs `verify_jwt = false`**: found once this was
   actually deployed and clicked - by default every Supabase Edge Function
   requires a valid `Authorization` JWT header, so an unauthenticated
