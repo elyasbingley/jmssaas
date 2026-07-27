@@ -101,5 +101,19 @@ module.exports = {
         },
       ],
     ],
+    extra: {
+      router: {},
+      eas: {
+        // Links this project to the existing EAS Build/Submit project -
+        // without this, `eas build` would treat the app as unlinked and
+        // either fail or prompt to create a new project, losing the
+        // connection to this one's build history and credentials. Was
+        // previously auto-written into app.json by `eas build`/`eas init`
+        // before app.json was replaced by this file - carried over by hand
+        // here since EAS CLI can't auto-write into a .js config the way it
+        // could a plain .json one.
+        projectId: "71ee6d2f-cd5f-48b9-b557-5c96fd1d50b0",
+      },
+    },
   },
 };
