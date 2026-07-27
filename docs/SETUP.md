@@ -729,18 +729,20 @@ needs real company name/ABN/bank details, not blank placeholders).
 ## Quote/invoice digital acceptance
 
 - **What was built**: a client-facing, unauthenticated web page - a static
-  file (`supabase/static/approval-page.html`) hosted in a public Storage
-  bucket, calling a Supabase Edge Function (`supabase/functions/approve/`)
-  as a plain JSON data API - at
-  `.../storage/v1/object/public/approval-pages/approval-page.html?type=quote&token=...`
+  file (`supabase/static/approval-page.html`) deployed to a **free external
+  static host** (Cloudflare Pages/Netlify/GitHub Pages - the person's
+  choice; not specified further here since it's config, not code), calling
+  a Supabase Edge Function (`supabase/functions/approve/`) as a plain JSON
+  data API for the actual data - at `<deployed-url>?type=quote&token=...`
   (or `type=invoice`) where a client can view a quote/invoice (same
   description/qty/rate/amount-only view as the PDF/`LineItemSummary` -
   never the labour/material/markup breakdown), then accept (typed full
-  name) or decline (optional reason). **This split (static page in
-  Storage + JSON-only function) wasn't the original design** - see the
-  "Edge Function no longer renders the HTML page itself" bullet further
-  down for why a first version that had the function render the page
-  directly didn't work in production.
+  name) or decline (optional reason). **Neither this, nor the Supabase-
+  Storage version before it, was the original design** - see the "Supabase
+  force-downgrades HTML on its own shared domain" bullet further down for
+  why *two* earlier versions (Edge-Function-rendered, then Storage-hosted)
+  didn't work in production and had to be found out empirically rather
+  than guessed correctly up front.
   New columns on both `quotes` and `invoices`: `approval_status` (a
   dedicated enum, `sent`/`viewed`/`accepted`/`declined` - deliberately kept
   separate from the existing `status` column, which is the admin's own
@@ -839,40 +841,56 @@ needs real company name/ABN/bank details, not blank placeholders).
   honor this via `config.toml` for `supabase functions serve` locally, not
   for a deploy - if the error persists after deploying, redeploy with the
   flag explicit: `supabase functions deploy approve --no-verify-jwt`.
-- **The Edge Function no longer renders the HTML page itself - Supabase
-  force-downgrades it.** Found by actually deploying and clicking the
-  link, then inspecting the real response headers (`curl -D -` /
-  `Invoke-WebRequest`) after two rounds of the person still seeing raw
-  HTML text instead of a rendered page: the response came back with
+- **Supabase force-downgrades HTML on its own shared domain - for Edge
+  Functions *and* Storage, not just one of them.** Found by actually
+  deploying and inspecting the real response headers (`curl -D -` /
+  `Invoke-WebRequest`) after three rounds of the person still seeing raw
+  HTML/JS text instead of a rendered page. First attempt: the `approve`
+  Edge Function rendered the page directly - response came back
   `Content-Type: text/plain` (not the `text/html` the function explicitly
   set) plus `Content-Security-Policy: default-src 'none'; sandbox` and
-  `X-Content-Type-Options: nosniff` - neither of which this code ever set.
-  That's Supabase's platform itself, not a bug in the function: Edge
-  Functions on the shared `*.supabase.co` domain get any HTML-looking
-  response force-downgraded to inert `text/plain`, a deliberate anti-
-  phishing measure (a function serving interactive HTML under a trusted
-  shared domain is exactly what that policy exists to block) with no
-  per-function header able to opt back out of it - the only real opt-out
-  is a custom domain, a paid-plan feature, out of scope here. Restructured
-  instead, staying inside the free tier and the existing stack: `approve`
-  is now a plain JSON API (GET returns the document, POST processes
-  accept/decline - JSON responses aren't subject to the HTML lockdown),
-  and the actual page is a static file,
-  `supabase/static/approval-page.html`, hosted in a new public Storage
-  bucket (`approval-pages`, added in
-  `20260729000100_approval_page_storage.sql`) - Storage-served files don't
-  get the same treatment, and Storage is already part of this app's stack
-  (same place the company logo lives). The page reads `?type=&token=` from
-  its own URL and does the rendering + form submission client-side with
-  plain `fetch()`, calling the same-origin function for data. **New
-  one-time deployment step**: after `supabase db push` and
-  `supabase functions deploy approve`, the static page has to be uploaded
-  to the bucket once (it's not created by any migration, since Storage
-  object *contents* aren't part of the SQL schema):
-  `supabase storage cp supabase/static/approval-page.html ss:///approval-pages/approval-page.html`
-  (or drag-and-drop it into the `approval-pages` bucket in the dashboard).
-  It only needs re-uploading if the page's own file is ever edited - not
-  on every deploy.
+  `X-Content-Type-Options: nosniff`, none of which the function set.
+  Concluded (reasonably, but wrongly) that this was Edge-Function-
+  specific and moved the static page into a public Storage bucket instead
+  - **Storage returned the identical three headers**, disproving that.
+  This is Supabase's platform applying the same anti-phishing policy
+  (blocking interactive HTML from being served under the trusted shared
+  `*.supabase.co` domain) to *everything* public on that domain, not a
+  per-product quirk, with no per-file/per-bucket/per-function header able
+  to opt out of it - the only in-Supabase opt-out is a custom domain, a
+  paid-plan feature. Given the person picked the free option when asked
+  (see below), the actual fix moved the page **off Supabase entirely**:
+  - `supabase/functions/approve/index.ts` is now a plain JSON API (GET
+    `?type=&token=` returns the document, POST processes accept/decline) -
+    JSON responses aren't subject to the HTML lockdown, confirmed by the
+    RPC/token layer working correctly in production once the earlier
+    `verify_jwt` issue was fixed.
+  - `supabase/static/approval-page.html` is deployed to a free external
+    static host (Cloudflare Pages, Netlify, GitHub Pages, etc. - whichever
+    the person sets up; not prescribed here since it's a deployment choice
+    with no code impact) instead of Supabase Storage. It's genuinely
+    cross-origin from the function now, so it calls an absolute URL
+    (`SUPABASE_URL` hardcoded near the top of the file - update it if this
+    project ever moves to a different Supabase project) rather than
+    `location.origin`; the function already sends
+    `Access-Control-Allow-Origin: *` for exactly this.
+  - `apps/mobile/.env` needs a new var, `EXPO_PUBLIC_APPROVAL_PAGE_URL`
+    (see `.env.example`), pointed at wherever the static page ends up
+    living - the "Generate & share approval link" button reads this and
+    shows a clear error instead of building a broken link if it's unset.
+  - The `approval-pages` Storage bucket/migration
+    (`20260729000100_approval_page_storage.sql`) is now vestigial - it was
+    already applied to the live project before this was diagnosed, and is
+    harmless to leave in place (an empty or unused public bucket costs
+    nothing), so no follow-up migration was written to remove it. A future
+    cleanup could drop it.
+  - **New deployment steps**, replacing the old Storage-upload one:
+    `supabase db push`, `supabase functions deploy approve`, then deploy
+    `supabase/static/approval-page.html` to whichever external static host
+    was chosen (each has its own one-time setup - e.g. Cloudflare Pages'
+    dashboard supports dragging the single file in directly, no build
+    step needed since it's already a complete static file) and set
+    `EXPO_PUBLIC_APPROVAL_PAGE_URL` in `.env` to the resulting URL.
 - **Deliberately descoped this pass** (per the brief - reasonable future
   "v2" additions, not needed now): no canvas/Bezier-drawn signature (a
   typed name + explicit accept action is enough for a trade quote/invoice);

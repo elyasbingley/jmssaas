@@ -77,7 +77,14 @@
       var params = new URLSearchParams(location.search);
       var docType = params.get("type");
       var token = params.get("token");
-      var functionUrl = location.origin + "/functions/v1/approve";
+      // Absolute, not location.origin-based - this page is now deployed to
+      // an external static host (Cloudflare Pages/Netlify/etc, see
+      // docs/SETUP.md), not to Supabase itself, so it's genuinely cross-
+      // origin from the function. The approve function already sets
+      // Access-Control-Allow-Origin: * for exactly this. Update this if
+      // the Supabase project ever changes.
+      var SUPABASE_URL = "https://qnlxmpxjmmhcnzzpcabd.supabase.co";
+      var functionUrl = SUPABASE_URL + "/functions/v1/approve";
       var card = document.getElementById("card");
 
       function renderMessage(title, body) {

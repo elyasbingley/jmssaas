@@ -5,7 +5,7 @@ import type { ApprovalStatus, Client, Invoice, InvoiceStatus, LineItemFormInput,
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
-import { supabase, supabaseUrl } from "../../../../lib/supabase";
+import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
 import { buildInvoicePdfHtml } from "../../../../lib/pdf";
 import { exportPdf } from "../../../../lib/print";
@@ -164,6 +164,17 @@ export default function InvoiceDetailScreen() {
   // to send it themselves from whatever the Share sheet offers.
   const handleGenerateAndShareLink = async () => {
     if (!data) return;
+    // The approval page is deployed externally (Cloudflare Pages/Netlify/
+    // etc), not on Supabase itself - see docs/SETUP.md "Quote/invoice
+    // digital acceptance" for why (Supabase force-downgrades HTML
+    // responses to inert text/plain on its own shared domain, confirmed
+    // for both Edge Functions and Storage). EXPO_PUBLIC_APPROVAL_PAGE_URL
+    // points at wherever that ended up living.
+    const approvalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+    if (!approvalPageUrl) {
+      setLinkError("Approval page URL not configured - set EXPO_PUBLIC_APPROVAL_PAGE_URL in .env (see docs/SETUP.md)");
+      return;
+    }
     setGeneratingLink(true);
     setLinkError(null);
     try {
@@ -172,11 +183,7 @@ export default function InvoiceDetailScreen() {
       });
       if (rpcError) throw rpcError;
 
-      // Points at the static approval page in Storage, not the Edge
-      // Function directly - see docs/SETUP.md "Quote/invoice digital
-      // acceptance" for why (Supabase force-downgrades HTML responses from
-      // Edge Functions on the shared domain).
-      const url = `${supabaseUrl}/storage/v1/object/public/approval-pages/approval-page.html?type=invoice&token=${token}`;
+      const url = `${approvalPageUrl}?type=invoice&token=${token}`;
       await Share.share({ message: `Please review and approve this invoice: ${url}` });
       refetch();
     } catch (e) {
