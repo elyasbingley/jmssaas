@@ -14,9 +14,19 @@ const TILES = [
   { href: "/calendar", label: "Calendar", emoji: "📅" },
 ] as const;
 
+// Schedule/dispatch is the one deliberate exception to "Home only mirrors
+// the tab bar" above - it's a standalone admin screen (not a tab, see
+// app/schedule.tsx), previously reached via a small text link on the
+// Calendar tab. Moved here as a proper tile, admin-only since dispatching
+// technicians is an admin action like every other assignment/creation flow
+// in this app - the link on Calendar was removed once this landed so
+// there's exactly one way in, not two.
+const SCHEDULE_TILE = { href: "/schedule", label: "Schedule", emoji: "🚚" } as const;
+
 export default function HomeScreen() {
   const router = useRouter();
   const { profile, signOut } = useAuth();
+  const tiles = profile?.role === "admin" ? [...TILES, SCHEDULE_TILE] : TILES;
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -38,7 +48,7 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.grid}>
-        {TILES.map((tile) => (
+        {tiles.map((tile) => (
           <Pressable key={tile.href} style={styles.tile} onPress={() => router.push(tile.href)}>
             <Text style={styles.tileEmoji}>{tile.emoji}</Text>
             <Text style={styles.tileLabel}>{tile.label}</Text>

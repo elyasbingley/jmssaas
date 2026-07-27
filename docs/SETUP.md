@@ -968,17 +968,20 @@ needs real company name/ABN/bank details, not blank placeholders).
   a `new` job to `scheduled` - later statuses are left alone - since the
   `JobStatus` enum already has a `scheduled` state clearly meant for
   exactly this moment.
-- **Entry point placement**: a small admin-only "Schedule / Dispatch ›"
-  link on the Calendar tab, opening `app/schedule.tsx` as a standalone
-  route (registered in `app/_layout.tsx` next to `company-settings`, same
-  pattern) - not a new tab and not a Home tile. Home's tile grid has its
-  own comment explaining it deliberately only mirrors the real tab bar
-  (Sales/Tasks/Calendar); adding a fourth tile there would break that
-  invariant for a feature that's fundamentally a different view over the
-  same `calendar_events` data Calendar already owns, not a new domain.
-  Reaching it from Calendar keeps it thematically where a dispatcher would
-  already be looking, without spending the tab bar's last reserved slot
-  (left for a future Settings tab, per the Phase 4 nav restructure).
+- **Entry point placement - moved after initial build**: originally a
+  small admin-only "Schedule / Dispatch ›" link on the Calendar tab
+  (reasoning at the time: Home's tile grid deliberately only mirrors the
+  real tab bar, and a fourth tile would break that for a feature that's
+  "just" a different view over Calendar's own data). The person
+  explicitly asked for this to move to a proper Home tile instead, same
+  visual style as Sales/Tasks/Calendar, placed right after Calendar in
+  the grid - done: `app/(tabs)/index.tsx`'s tile list is now built
+  dynamically (`[...TILES, SCHEDULE_TILE]` only when `profile.role ===
+  "admin"`) rather than the static three-tile constant it was before, and
+  the Calendar-tab link (and its now-dead styles) was removed entirely so
+  there's exactly one way in. `app/schedule.tsx` itself, and its
+  registration in `app/_layout.tsx` as a standalone route next to
+  `company-settings`, are unchanged - only how you get to it moved.
 - **Verification status**: `pnpm typecheck` passes clean across the whole
   workspace. This is a pure React Native feature over already-provisioned
   Supabase tables/RLS (no migration, no new schema) and already-verified
