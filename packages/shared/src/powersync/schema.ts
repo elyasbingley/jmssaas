@@ -211,6 +211,68 @@ const inventory_levels = new Table(
   { indexes: { location: ["location_id"], item: ["item_id"] } }
 );
 
+// Per-tenant automation timing settings, one row per seeded trigger_key -
+// admin-managed setup data, tenant-wide read like service_categories/
+// job_lifecycle_stages above. See the communication_engine migration.
+const communication_rules = new Table(
+  {
+    tenant_id: column.text,
+    trigger_key: column.text,
+    is_enabled: column.integer,
+    delay_offset_value: column.integer,
+    delay_offset_unit: column.text,
+    delay_direction: column.text,
+    channel: column.text,
+    quiet_hours_start: column.text,
+    quiet_hours_end: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const communication_templates = new Table(
+  {
+    tenant_id: column.text,
+    trigger_key: column.text,
+    name: column.text,
+    type: column.text,
+    category: column.text,
+    subject: column.text,
+    body: column.text,
+    is_active: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], trigger: ["trigger_key"] } }
+);
+
+// The outbound message log - unlike the two tables above, this is
+// tenant-wide *writable* (not admin-only), same "small crew, everyone logs
+// it" shape as clients/inventory_levels: a technician's "On The Way" tap or
+// a Postgres trigger firing on quote/invoice send both insert rows here for
+// the cron dispatcher to pick up. See the communication_engine migration.
+const scheduled_communications = new Table(
+  {
+    tenant_id: column.text,
+    entity_type: column.text,
+    entity_id: column.text,
+    trigger_key: column.text,
+    template_id: column.text,
+    channel: column.text,
+    recipient_phone_or_email: column.text,
+    rendered_subject: column.text,
+    rendered_body: column.text,
+    scheduled_for: column.text,
+    status: column.text,
+    sent_at: column.text,
+    cancellation_reason: column.text,
+    failure_reason: column.text,
+    created_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], entity: ["entity_type", "entity_id"] } }
+);
+
 const job_notes = new Table(
   {
     tenant_id: column.text,
@@ -330,6 +392,9 @@ export const AppSchema = new Schema({
   inventory_suppliers,
   inventory_items,
   inventory_levels,
+  communication_rules,
+  communication_templates,
+  scheduled_communications,
   attachments,
 });
 

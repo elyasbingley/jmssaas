@@ -1580,3 +1580,172 @@ needs real company name/ABN/bank details, not blank placeholders).
   on-device sync caveat as every prior sync-rules change in this project.
   A fresh EAS/dev-client build and a real Android Google Maps API key are
   both required before this can be tested at all - see above.
+
+## Customisable SMS & Email communication & automation engine
+
+Automated SMS/email follow-ups (quote nudges, invoice reminders, an "On The
+Way" text, a post-completion review request), with per-tenant timing/quiet
+hours, editable message templates with `{token}` placeholders, and a
+Communication Log on the Job/Client Details screens.
+
+- **Three new tables** (`supabase/migrations/20260804000100_communication_engine.sql`):
+  `communication_rules` (per `trigger_key` timing/channel/quiet hours,
+  seeded with 6 defaults per tenant the same way `job_lifecycle_stages` is -
+  see `seed_default_communication_rules`/`handle_new_tenant`),
+  `communication_templates` (the actual copy, `{token}`s intact), and
+  `scheduled_communications` (the send queue). `trigger_key` is duplicated
+  onto `scheduled_communications` itself (not just reachable via
+  `template_id`) so it survives a template being deleted and so the
+  scheduling triggers can cheaply check "already scheduled?" without a
+  join - not in the original spec, added during implementation.
+- **Auto-scheduling was NOT in the original spec but is required for the
+  feature to do anything** - the spec only described auto-*cancellation*.
+  Two new triggers, `schedule_quote_communications`/
+  `schedule_invoice_communications` (`after update on quotes`/`invoices`),
+  fire when `status` transitions to `'sent'`, scheduling a row per
+  enabled rule + matching template. Quote follow-ups offset from the send
+  moment; invoice reminders offset from `due_date` (the meaningful
+  reference for a payment reminder). Both guard against double-scheduling
+  the same `trigger_key` for the same entity (e.g. flipping a quote back to
+  draft and resending doesn't stack duplicate follow-ups) - confirmed live
+  against a local Postgres instance, see below.
+- **Auto-cancellation, as specified**: `cancel_pending_quote_communications`
+  watches `quotes.approval_status` moving to `accepted`/`declined` (not
+  `quotes.status` - confirmed by reading `accept_quote_by_token`/
+  `decline_quote_by_token` in the `quote_invoice_approval` migration, which
+  only ever touch `approval_status`); `cancel_pending_invoice_communications`
+  watches `invoices.status` moving to `paid`. Both cancel that entity's
+  still-`pending` `scheduled_communications` rows with a `cancellation_reason`.
+- **`tenants.phone`/`tenants.google_review_link` added** - needed for the
+  `{company_phone}`/`{google_review_link}` tokens, neither of which had
+  anywhere to persist before this (email/website/logo_url were added
+  separately in `invoice_pdf_rebrand`, phone never was). `phone` is edited
+  from Company Settings (`apps/mobile/app/company-settings.tsx`);
+  `google_review_link` is edited from the new Automation & Messaging
+  Settings screen instead, since it's specifically a messaging concern, not
+  a general company detail.
+- **RLS**: `communication_rules`/`communication_templates` are tenant-read,
+  admin-only write (same shape as `job_lifecycle_stages`). `scheduled_
+  communications` is tenant-read **and tenant-wide insert** (matches
+  `clients` - a technician's "On The Way" tap needs to insert a row from
+  the field), admin-only update/delete. The scheduling/cancellation
+  triggers write as the function owner, bypassing RLS regardless of these
+  policies - they only govern direct client-side writes.
+- **Placeholder engine exists in two copies** -
+  `packages/shared/src/placeholders.ts` (used by the mobile app: the
+  template editor's live preview, and to pre-render the two ephemeral
+  tokens below) and a near-identical Deno-native port inside
+  `supabase/functions/process-scheduled-comms/index.ts` (the dispatcher
+  can't import from outside its own function directory - a Supabase Edge
+  Function constraint, not a choice). Keep both in sync by hand if the
+  token set ever changes.
+- **Dispatcher** (`supabase/functions/process-scheduled-comms`): a
+  service-role-only Edge Function, meant to be invoked periodically by
+  `pg_cron` -> `net.http_post`. Each sweep fetches due `pending` rows
+  (`scheduled_for <= now()`, batched at 50), checks quiet hours, renders
+  final text, sends via Twilio (SMS) or Resend (email), and updates
+  `status`/`sent_at`/`failure_reason`.
+  - **Quiet hours are the ALLOWED sending window**, not a do-not-disturb
+    window, despite the column name - the default `08:00`-`18:00` only
+    makes sense read that way. A row due outside the window is deferred by
+    pushing `scheduled_for` to the next occurrence of `quiet_hours_start`,
+    not sent late or dropped. Hardcoded to `Australia/Sydney` - there's no
+    `tenants.timezone` column, and this app already assumes AU-only
+    everywhere else that cares about locale (GST math, en-AU dates, the
+    roof measurement screen's Sydney fallback region), so adding one here
+    would solve a problem this product doesn't have yet.
+  - **Rendering is split by entity_type**: `quote`/`invoice` rows arrive
+    with `{token}`s fully intact (the scheduling triggers just copy the
+    template), so the dispatcher rebuilds `{quote_*}`/`{invoice_*}`/
+    `{client_*}`/`{company_*}` context from the database and renders the
+    whole thing, including generating the quote/invoice approval link via
+    the existing `generate_quote_approval_link`/`generate_invoice_approval_link`
+    RPCs (same URL shape the mobile app already uses:
+    `${APPROVAL_PAGE_URL}?type=quote&token=...`). `job` rows (the mobile
+    app's manual "On The Way"/review-request triggers) arrive with
+    `{tech_first_name}`/`{eta_minutes}` **already substituted client-side**
+    - those come from the exact tap (who's driving, what ETA they typed)
+    and have nowhere to be reconstructed from later - every other token is
+    left raw for the dispatcher to resolve from `job_cards`/`clients`/
+    `client_sites`/`tenants`, the same way it does for quote/invoice rows.
+    This is what lets "On The Way" queue entirely offline: the mobile app
+    never needs company bank details, the review link, etc. - none of
+    which are PowerSync-synced to the device at all (`tenants` isn't a
+    PowerSync table).
+  - **New Edge Function secrets** (`supabase secrets set ...`, or via the
+    dashboard): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
+    `TWILIO_FROM_NUMBER` for SMS; `RESEND_API_KEY`, `RESEND_FROM_EMAIL` for
+    email; `APPROVAL_PAGE_URL` (same value as the mobile app's
+    `EXPO_PUBLIC_APPROVAL_PAGE_URL`, just without the `EXPO_PUBLIC_` prefix
+    since this runs server-side) to build quote/invoice links. Twilio and
+    Resend were picked as the default providers (SMS/email respectively)
+    purely because neither this app nor its docs specified one - both are
+    called through a plain `fetch`, easy to swap for MessageMedia/SMTP/etc.
+    later without touching anything else in the function.
+  - **Deploy + schedule** (one-time, project-specific, can't be baked into
+    a migration since it needs the project's own deployed URL and a
+    service-role bearer token):
+    ```
+    supabase functions deploy process-scheduled-comms --no-verify-jwt
+    ```
+    then, in the SQL editor (requires the `pg_cron` and `pg_net`
+    extensions, enabled via Database -> Extensions):
+    ```sql
+    select cron.schedule(
+      'process-scheduled-comms',
+      '*/5 * * * *',
+      $$
+      select net.http_post(
+        url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/process-scheduled-comms',
+        headers := jsonb_build_object('Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY')
+      );
+      $$
+    );
+    ```
+- **Mobile**: a new **Automation & Messaging** screen
+  (`apps/mobile/app/automation-settings.tsx`, linked from the Settings
+  tab) - PowerSync-backed like Job Setup/Inventory Setup, so timing/message
+  edits work offline. Deliberately scoped to editing the six `trigger_key`s
+  this migration seeds, not a fully custom "add your own automation"
+  builder. The job detail screen gained a "Notify client" section (On The
+  Way button, prompts for ETA minutes) and a completion prompt ("Send a
+  review request?") on the Status chip moving to Completed - both insert
+  directly into the local PowerSync-synced `scheduled_communications`
+  table, no server round trip. A new `CommunicationLog` component
+  (`apps/mobile/components/CommunicationLog.tsx`) shows sent/pending/
+  cancelled/failed history with status badges; used on the job detail
+  screen (job itself plus its linked quotes/invoices, since those are
+  already fetched there) and, more narrowly, on the client detail screen
+  (that client's jobs only - quote/invoice follow-ups aren't included
+  there, since there's no offline-available way to look up "which quotes/
+  invoices belong to this client" - quotes/invoices are Supabase-direct/
+  online-only by design, not PowerSync-synced).
+- **PowerSync**: `communication_rules`/`communication_templates`/
+  `scheduled_communications` all joined the existing `tenant_reference_data`
+  bucket (`powersync/sync-rules.yaml`) - the first two tenant-wide read
+  like `job_lifecycle_stages`, the third tenant-wide read *and write* like
+  `inventory_levels`, since a technician's "On The Way" tap inserts
+  directly from the field.
+- **Verified from this sandbox**: the migration was applied cleanly against
+  a real local Postgres 16 instance alongside all 17 prior migrations.
+  Live-exercised: a new tenant auto-seeds all 6 rules + templates; sending
+  a quote schedules `quote_stage_1`/`quote_stage_2` with the raw template
+  text and correct `scheduled_for` offsets; re-sending doesn't duplicate
+  rows; accepting the quote cancels both pending rows with the right
+  `cancellation_reason`; RLS was confirmed live under `set role
+  authenticated` - a technician can insert a `scheduled_communications` row
+  but an update from that same role affects 0 rows (admin-only), matching
+  the policy definitions. `pnpm typecheck` passes clean across the whole
+  workspace. As with every prior phase, there's still no `build` script in
+  this repo - `typecheck` remains the actual cross-package gate.
+- **NOT verified from this sandbox**: the dispatcher Edge Function has
+  never actually run against a deployed Supabase project - there's no
+  instance provisioned here to deploy it to, no real Twilio/Resend
+  credentials to send through, and no `pg_cron`/`pg_net` extension to
+  schedule it with. Its logic (quiet-hours math, context-building queries,
+  the Twilio/Resend HTTP calls) is reviewed and typechecked but not
+  execution-tested end-to-end. The mobile screens (Automation & Messaging
+  Settings, the On The Way modal, the Communication Log) are unverified
+  beyond `tsc` - no dev-client build exists with the current dependency set
+  to test against a real device, same caveat as the roof measurement phase
+  before it.

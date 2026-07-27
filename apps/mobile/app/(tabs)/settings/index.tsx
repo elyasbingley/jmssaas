@@ -11,12 +11,14 @@ import { useAuth } from "../../../lib/auth-context";
 // app/_layout.tsx), so nothing about how those screens work changed,
 // only how you get to them. Inventory Setup is new - manages the
 // Material/Tools/... category hierarchy used by the Inventory tile in
-// Sales (see app/inventory-setup.tsx).
+// Sales (see app/inventory-setup.tsx). Automation & Messaging is also new -
+// see app/automation-settings.tsx.
 const SETTINGS_ITEMS = [
   { href: "/company-settings", label: "Company Details", emoji: "🏢" },
   { href: "/team", label: "Team/Staff", emoji: "👥" },
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️" },
   { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦" },
+  { href: "/automation-settings", label: "Automation & Messaging", emoji: "💬" },
 ] as const;
 
 export default function SettingsScreen() {

@@ -7,6 +7,7 @@ import { createClientSchema, createJobCardSchema, type Client, type JobCard, typ
 import { useAuth } from "../../../../lib/auth-context";
 import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
+import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { FormField } from "../../../../components/FormField";
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -168,6 +169,18 @@ export default function ClientDetailScreen() {
         )}
         ListEmptyComponent={<Text style={styles.empty}>No jobs yet for this client.</Text>}
         contentContainerStyle={jobCards.length === 0 ? styles.emptyContainer : undefined}
+        ListFooterComponent={
+          // Scoped to this client's own jobs (On The Way/review-request
+          // messages) - quote/invoice follow-ups aren't included here since
+          // there's no locally-synced way to look up "which quotes/invoices
+          // belong to this client" offline (quotes/invoices are online-only,
+          // see docs/SETUP.md); the job detail screen shows those, since it
+          // already fetches its own linked quotes/invoices from Supabase.
+          <View style={styles.commLogSection}>
+            <Text style={styles.sectionTitle}>Communication Log</Text>
+            <CommunicationLog entities={jobCards.map((j) => ({ entityType: "job" as const, entityId: j.id }))} />
+          </View>
+        }
       />
 
       <Pressable style={styles.fab} onPress={() => setModalVisible(true)}>
@@ -273,6 +286,7 @@ const styles = StyleSheet.create({
   clientMeta: { color: "#6b7280" },
   clientNotes: { marginTop: 8, color: "#374151" },
   sectionTitle: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, fontWeight: "700", color: "#6b7280" },
+  commLogSection: { paddingHorizontal: 16, paddingBottom: 24 },
   row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0", flexDirection: "row", alignItems: "center" },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },

@@ -32,6 +32,7 @@ export default function CompanySettingsScreen() {
   const [name, setName] = useState("");
   const [abn, setAbn] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [website, setWebsite] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -52,6 +53,7 @@ export default function CompanySettingsScreen() {
       setName(tenant.name);
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
+      setPhone(tenant.phone ?? "");
       setWebsite(tenant.website ?? "");
       setAddressLine1(tenant.business_address_line1 ?? "");
       setAddressLine2(tenant.business_address_line2 ?? "");
@@ -133,6 +135,7 @@ export default function CompanySettingsScreen() {
       name,
       abn,
       email,
+      phone,
       website,
       business_address_line1: addressLine1,
       business_address_line2: addressLine2,
@@ -157,6 +160,7 @@ export default function CompanySettingsScreen() {
           name: result.data.name,
           abn: result.data.abn || null,
           email: result.data.email || null,
+          phone: result.data.phone || null,
           website: result.data.website || null,
           business_address_line1: result.data.business_address_line1 || null,
           business_address_line2: result.data.business_address_line2 || null,
@@ -227,6 +231,9 @@ export default function CompanySettingsScreen() {
       </View>
       <View style={styles.fieldSpacing}>
         <FormField label="Email" placeholder="info@yourcompany.com.au" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+      </View>
+      <View style={styles.fieldSpacing}>
+        <FormField label="Phone" placeholder="e.g. 0400 000 000" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
       </View>
       <View style={styles.fieldSpacing}>
         <FormField label="Website" placeholder="yourcompany.com.au" value={website} onChangeText={setWebsite} autoCapitalize="none" />

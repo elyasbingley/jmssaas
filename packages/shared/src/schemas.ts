@@ -133,6 +133,7 @@ export const updateCompanySettingsSchema = z.object({
   name: z.string().min(1, "Company name is required"),
   abn: z.string().optional(),
   email: z.string().email("Enter a valid email").optional().or(z.literal("")),
+  phone: z.string().optional(),
   website: z.string().optional(),
   business_address_line1: z.string().optional(),
   business_address_line2: z.string().optional(),
@@ -249,3 +250,51 @@ export const createJobMeasurementSchema = z.object({
   snapshot_path: z.string().optional(),
 });
 export type CreateJobMeasurementInput = z.infer<typeof createJobMeasurementSchema>;
+
+export const communicationDelayUnitSchema = z.enum(["hours", "days"]);
+export const communicationDelayDirectionSchema = z.enum(["before", "after"]);
+export const communicationChannelSchema = z.enum(["sms", "email", "both"]);
+export const communicationMessageChannelSchema = z.enum(["sms", "email"]);
+export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field"]);
+export const scheduledCommunicationEntityTypeSchema = z.enum(["quote", "invoice", "job", "calendar_event"]);
+
+// HH:MM or HH:MM:SS - matches the <input type="time">-style pickers used by
+// the quiet hours fields on the Automation & Messaging Settings screen.
+const timeOfDaySchema = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, "Enter a time as HH:MM");
+
+export const updateCommunicationRuleSchema = z.object({
+  is_enabled: z.boolean(),
+  delay_offset_value: z.number().int().nonnegative(),
+  delay_offset_unit: communicationDelayUnitSchema,
+  delay_direction: communicationDelayDirectionSchema,
+  channel: communicationChannelSchema,
+  quiet_hours_start: timeOfDaySchema,
+  quiet_hours_end: timeOfDaySchema,
+});
+export type UpdateCommunicationRuleInput = z.infer<typeof updateCommunicationRuleSchema>;
+
+export const updateCommunicationTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  subject: z.string().optional(),
+  body: z.string().min(1, "Message can't be empty"),
+  is_active: z.boolean().default(true),
+});
+export type UpdateCommunicationTemplateInput = z.infer<typeof updateCommunicationTemplateSchema>;
+
+// Used by the mobile app's own manual/field triggers (the "On The Way"
+// button, the post-completion review request prompt) to insert a row the
+// cron dispatcher will pick up on its next sweep - the mobile app never
+// calls the dispatch Edge Function directly, since it may be offline when
+// the trigger happens. See process-scheduled-comms.
+export const createScheduledCommunicationSchema = z.object({
+  entity_type: scheduledCommunicationEntityTypeSchema,
+  entity_id: z.string().uuid(),
+  trigger_key: z.string().min(1),
+  template_id: z.string().uuid().optional(),
+  channel: communicationMessageChannelSchema,
+  recipient_phone_or_email: z.string().min(1, "Recipient is required"),
+  rendered_subject: z.string().optional(),
+  rendered_body: z.string().min(1),
+  scheduled_for: z.string().datetime(),
+});
+export type CreateScheduledCommunicationInput = z.infer<typeof createScheduledCommunicationSchema>;

@@ -52,6 +52,15 @@
 #   already makes it tenant-wide read, admin-only write, same shape as
 #   inventory_categories.
 #
+#   communication_rules/communication_templates joined next (communication_
+#   engine migration) - admin-managed automation timing/message setup data,
+#   tenant-wide read like inventory_categories above (a technician's app
+#   needs the template text offline for the manual "On The Way"/review
+#   request triggers even though only an admin can edit it), admin-only
+#   write via RLS. scheduled_communications joined too - unlike those two,
+#   it's tenant-wide *writable* like inventory_levels, since a technician's
+#   "On The Way" tap inserts a row directly from the field.
+#
 # - admin_job_data: admins still get the full tenant's job_cards, job_notes,
 #   job_files and tasks, same as before - they need to see and assign
 #   everything. Scoped to role = 'admin' so technicians get zero instances
@@ -121,6 +130,9 @@ bucket_definitions:
       - select * from inventory_suppliers where tenant_id = bucket.tenant_id
       - select * from inventory_items where tenant_id = bucket.tenant_id
       - select * from inventory_levels where tenant_id = bucket.tenant_id
+      - select * from communication_rules where tenant_id = bucket.tenant_id
+      - select * from communication_templates where tenant_id = bucket.tenant_id
+      - select * from scheduled_communications where tenant_id = bucket.tenant_id
 
   admin_job_data:
     parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'

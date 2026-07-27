@@ -30,6 +30,7 @@ export interface Tenant {
   name: string;
   abn: string | null;
   email: string | null;
+  phone: string | null;
   website: string | null;
   logo_url: string | null;
   business_address_line1: string | null;
@@ -41,6 +42,11 @@ export interface Tenant {
   bank_account_name: string | null;
   bank_account_number: string | null;
   bank_bsb: string | null;
+  // Used by the {google_review_link} placeholder token - see the
+  // communication_engine migration. Set from the Automation & Messaging
+  // Settings screen, not Company Details, since it's specifically a
+  // messaging concern.
+  google_review_link: string | null;
   created_at: string;
 }
 
@@ -506,4 +512,74 @@ export interface JobMeasurement {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Mirrors supabase/migrations/20260804000100_communication_engine.sql.
+export type CommunicationDelayUnit = "hours" | "days";
+export type CommunicationDelayDirection = "before" | "after";
+// "both" is only valid on a CommunicationRule (send via whichever channel
+// has an active template); a rendered/scheduled message is always exactly
+// one of "sms" | "email" - see CommunicationMessageChannel below.
+export type CommunicationChannel = "sms" | "email" | "both";
+export type CommunicationMessageChannel = "sms" | "email";
+export type CommunicationTemplateCategory = "quote" | "invoice" | "booking" | "field";
+export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event";
+export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
+
+// One row per seeded trigger_key (quote_stage_1, quote_stage_2,
+// invoice_pre_due, invoice_overdue_1, job_review_request, job_on_the_way) -
+// the mobile Automation & Messaging Settings screen edits these in place,
+// it doesn't let a tenant define new trigger_keys of their own.
+export interface CommunicationRule {
+  id: string;
+  tenant_id: string;
+  trigger_key: string;
+  is_enabled: boolean;
+  delay_offset_value: number;
+  delay_offset_unit: CommunicationDelayUnit;
+  delay_direction: CommunicationDelayDirection;
+  channel: CommunicationChannel;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommunicationTemplate {
+  id: string;
+  tenant_id: string;
+  trigger_key: string;
+  name: string;
+  type: CommunicationMessageChannel;
+  category: CommunicationTemplateCategory;
+  subject: string | null;
+  body: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// A single outbound message, auto-scheduled by a Postgres trigger (quote
+// sent, invoice sent) or manually inserted from the mobile app ("On The
+// Way", review request) - dispatched by the process-scheduled-comms Edge
+// Function on its next cron sweep. rendered_subject/rendered_body start as
+// a copy of the matching CommunicationTemplate at schedule time and get
+// overwritten with the final token-substituted text at send time.
+export interface ScheduledCommunication {
+  id: string;
+  tenant_id: string;
+  entity_type: ScheduledCommunicationEntityType;
+  entity_id: string;
+  trigger_key: string;
+  template_id: string | null;
+  channel: CommunicationMessageChannel;
+  recipient_phone_or_email: string;
+  rendered_subject: string | null;
+  rendered_body: string;
+  scheduled_for: string;
+  status: ScheduledCommunicationStatus;
+  sent_at: string | null;
+  cancellation_reason: string | null;
+  failure_reason: string | null;
+  created_at: string;
 }

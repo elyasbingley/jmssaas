@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
@@ -9,7 +9,10 @@ import {
   createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
+  renderTemplate,
   type Client,
+  type CommunicationRule,
+  type CommunicationTemplate,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
@@ -29,6 +32,7 @@ import { supabase } from "../../../../lib/supabase";
 import { addJobPhoto } from "../../../../lib/powersync";
 import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
+import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
@@ -97,6 +101,12 @@ export default function JobDetailScreen() {
 
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
   const client = clientRows[0];
+
+  // Automation & Messaging rules/templates - PowerSync-synced tenant
+  // reference data (see powersync/sync-rules.yaml), so these manual field
+  // triggers work with no reception, same as the rest of this screen.
+  const { data: communicationRules } = useQuery<CommunicationRule>("SELECT * FROM communication_rules");
+  const { data: communicationTemplates } = useQuery<CommunicationTemplate>("SELECT * FROM communication_templates");
 
   const { data: categories } = useQuery<ServiceCategory>("SELECT * FROM service_categories ORDER BY name");
   const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
@@ -210,6 +220,104 @@ export default function JobDetailScreen() {
 
   const handleStatusChange = async (status: JobStatus) => {
     await powersync.execute("UPDATE job_cards SET status = ? WHERE id = ?", [status, id]);
+    if (status === "completed") {
+      Alert.alert("Job completed", "Send an automated review request to the client?", [
+        { text: "Not now", style: "cancel" },
+        { text: "Send", onPress: () => queueScheduledCommunication("job_review_request") },
+      ]);
+    }
+  };
+
+  // --- Automated field messages (On The Way / Review Request) ---
+  // Inserted directly into the local PowerSync-synced scheduled_
+  // communications table (tenant-wide writable - see the communication_
+  // engine migration's RLS), not sent from the device itself - the whole
+  // point of the queue table is that scheduling and sending are decoupled,
+  // so this works with no reception (see process-scheduled-comms's own
+  // comment for the dispatcher side). {tech_first_name}/{eta_minutes} are
+  // rendered right here, since they come from this exact tap (who's
+  // driving, what ETA they typed) and have nowhere else to be
+  // reconstructed from later - every other token in the template
+  // ({client_*}/{job_*}/{site_address}/{company_*}) is left raw for the
+  // dispatcher to resolve server-side once it's back online, which is what
+  // lets this queue entirely offline without needing company details this
+  // device doesn't have synced at all (tenants isn't a PowerSync table).
+  const queueScheduledCommunication = async (
+    triggerKey: string,
+    scheduleContext?: { eta_minutes: number }
+  ): Promise<boolean> => {
+    if (!profile || !job) return false;
+    const rule = communicationRules.find((r) => r.trigger_key === triggerKey);
+    if (!rule || !rule.is_enabled) return false;
+
+    const matchingTemplates = communicationTemplates.filter(
+      (t) => t.trigger_key === triggerKey && t.is_active && (rule.channel === "both" || rule.channel === t.type)
+    );
+    if (matchingTemplates.length === 0) return false;
+
+    const techFirstName = profile.full_name.trim().split(/\s+/)[0] ?? profile.full_name;
+    const now = new Date().toISOString();
+
+    for (const template of matchingTemplates) {
+      const recipient = template.type === "sms" ? (client?.phone ?? "") : (client?.email ?? "");
+      const partialContext = scheduleContext
+        ? {
+            schedule: {
+              tech_first_name: techFirstName,
+              booking_date: null,
+              booking_start_time: null,
+              eta_minutes: scheduleContext.eta_minutes,
+            },
+          }
+        : undefined;
+      const renderedBody = partialContext ? renderTemplate(template.body, partialContext) : template.body;
+      const renderedSubject = template.subject
+        ? partialContext
+          ? renderTemplate(template.subject, partialContext)
+          : template.subject
+        : null;
+
+      await powersync.execute(
+        `INSERT INTO scheduled_communications
+           (id, tenant_id, entity_type, entity_id, trigger_key, template_id, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for, status, created_at)
+         VALUES (?, ?, 'job', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        [
+          uuidv4(),
+          profile.tenant_id,
+          job.id,
+          triggerKey,
+          template.id,
+          template.type,
+          recipient,
+          renderedSubject,
+          renderedBody,
+          now,
+          now,
+        ]
+      );
+    }
+    return true;
+  };
+
+  const [onTheWayModalVisible, setOnTheWayModalVisible] = useState(false);
+  const [etaMinutes, setEtaMinutes] = useState("");
+  const [onTheWayError, setOnTheWayError] = useState<string | null>(null);
+
+  const handleSendOnTheWay = async () => {
+    const eta = Number(etaMinutes);
+    if (!etaMinutes.trim() || Number.isNaN(eta) || eta < 0) {
+      setOnTheWayError("Enter a valid number of minutes");
+      return;
+    }
+    const queued = await queueScheduledCommunication("job_on_the_way", { eta_minutes: eta });
+    if (!queued) {
+      setOnTheWayError("This message is turned off in Settings > Automation & Messaging, or has no active template.");
+      return;
+    }
+    setOnTheWayModalVisible(false);
+    setEtaMinutes("");
+    setOnTheWayError(null);
+    Alert.alert("Queued", "The message will send next time this device or the server syncs.");
   };
 
   // Category/stage are a separate, independently admin-customizable pipeline
@@ -438,6 +546,21 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notify client</Text>
+        <Pressable
+          style={styles.onTheWayButton}
+          onPress={() => {
+            setEtaMinutes("");
+            setOnTheWayError(null);
+            setOnTheWayModalVisible(true);
+          }}
+        >
+          <Text style={styles.onTheWayButtonText}>🚚 On The Way</Text>
+        </Pressable>
+        <Text style={styles.measureHint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Category</Text>
         <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
           <View style={styles.pickerFieldRow}>
@@ -574,9 +697,40 @@ export default function JobDetailScreen() {
           </View>
         ))}
       </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Communication Log</Text>
+        <CommunicationLog
+          entities={[
+            { entityType: "job", entityId: job.id },
+            ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
+            ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
+          ]}
+        />
+      </View>
         </>
       ) : null}
     </ScrollView>
+
+    <CenteredModal visible={onTheWayModalVisible} onClose={() => setOnTheWayModalVisible(false)}>
+      <Text style={styles.modalTitle}>On The Way</Text>
+      <FormField
+        label="ETA (minutes)"
+        placeholder="e.g. 15"
+        value={etaMinutes}
+        onChangeText={setEtaMinutes}
+        keyboardType="number-pad"
+      />
+      {onTheWayError ? <Text style={styles.error}>{onTheWayError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setOnTheWayModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSendOnTheWay}>
+          <Text style={styles.buttonText}>Send</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
 
     <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
       <Text style={styles.modalTitle}>Edit job</Text>
@@ -693,6 +847,8 @@ const styles = StyleSheet.create({
   measureButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
   measureButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   measureHint: { color: "#6b7280", fontSize: 12, marginTop: 8 },
+  onTheWayButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
+  onTheWayButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 6 },
   noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
