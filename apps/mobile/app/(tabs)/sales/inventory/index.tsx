@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -35,6 +36,7 @@ import { PickerModal } from "../../../../components/PickerModal";
 // clients/job_cards); creating a *location* or a new *item* is admin-gated
 // - category/subcategory management itself lives in inventory-setup.tsx.
 export default function InventoryScreen() {
+  const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
@@ -290,7 +292,20 @@ export default function InventoryScreen() {
                     </Text>
                   </Pressable>
                 ))}
+                {isAdmin ? (
+                  <Pressable style={styles.chip} onPress={() => router.push("/inventory-setup")}>
+                    <Text style={styles.chipText}>⚙ Manage categories</Text>
+                  </Pressable>
+                ) : null}
               </ScrollView>
+
+              {categories.length === 0 ? (
+                <Text style={styles.empty}>
+                  {isAdmin
+                    ? 'No categories yet - tap "Manage categories" above to set up Material, Tools, etc. before adding items.'
+                    : "No categories yet - ask an admin to set some up."}
+                </Text>
+              ) : null}
 
               {subcategoriesForSelectedCategory.length > 0 ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
@@ -354,7 +369,7 @@ export default function InventoryScreen() {
                 }}
                 ListEmptyComponent={<Text style={styles.empty}>No items here yet.</Text>}
                 ListFooterComponent={
-                  isAdmin ? (
+                  isAdmin && categories.length > 0 ? (
                     <Pressable style={styles.newItemButton} onPress={openNewItemModal}>
                       <Text style={styles.newItemButtonText}>+ New item</Text>
                     </Pressable>
