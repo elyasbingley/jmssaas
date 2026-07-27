@@ -71,6 +71,7 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Settings" }} />
       <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
+      <Stack.Screen name="team" options={{ headerShown: true, title: "Team" }} />
     </Stack>
   );
 }

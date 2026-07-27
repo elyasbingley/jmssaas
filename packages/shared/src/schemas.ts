@@ -156,3 +156,14 @@ export const createCalendarEventSchema = z.object({
   task_id: z.string().uuid().optional(),
 });
 export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>;
+
+// Client-side validation before calling the create-technician Edge
+// Function (see supabase/functions/create-technician) - the function does
+// its own minimal validation server-side too, this just gives the admin
+// immediate feedback instead of a round trip for an obviously-empty field.
+export const createTechnicianSchema = z.object({
+  full_name: z.string().min(1, "Name is required"),
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+export type CreateTechnicianInput = z.infer<typeof createTechnicianSchema>;

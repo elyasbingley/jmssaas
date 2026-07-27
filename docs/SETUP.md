@@ -995,3 +995,84 @@ needs real company name/ABN/bank details, not blank placeholders).
   `quotes/new.tsx`, not new to this pass), and that the per-technician day
   view reads sensibly with a realistic number of technicians/jobs on a
   small screen.
+
+## Admin-created technician logins
+
+- **What was built**: an admin can create a technician's login from inside
+  the app - full name, email, password - via a new `create-technician`
+  Edge Function, and a new `app/team.tsx` screen listing existing
+  technicians with a "+ New technician" action. No schema changes: it
+  writes to `auth.users` (via the Admin API, service-role only) and lets
+  the existing `handle_new_user()` trigger build the matching `profiles`
+  row exactly the way `scripts/create-admin-user.mjs` already does by
+  hand - the Edge Function sends the identical `user_metadata` shape
+  (`tenant_id`, `role`, `full_name`) that trigger already reads.
+- **Why an Edge Function, not a direct client call**: `auth.admin.createUser`
+  needs the `service_role` key, which must never ship inside the mobile
+  app bundle (anyone could extract it from the app and get unrestricted,
+  RLS-bypassing access to the whole database). The function is the only
+  place that key is used - it's read from `SUPABASE_SERVICE_ROLE_KEY`, an
+  Edge Function secret Supabase injects automatically, never committed to
+  the repo.
+- **The security boundary is server-side, not "the UI hides the button"**:
+  unlike the `approve` function (deliberately public, `verify_jwt = false`),
+  this one keeps Supabase's *default* JWT verification on - no
+  `[functions.create-technician]` entry was added to `config.toml`, so an
+  unauthenticated request is rejected by the platform gateway before ever
+  reaching the function. On top of that, the function does its own check:
+  it builds a second Supabase client scoped to the caller's own JWT
+  (forwarded from the `Authorization` header), calls `auth.getUser()` to
+  confirm who's actually calling, then reads *that user's own* `profiles`
+  row under normal RLS (`profiles: read within tenant`) to get their real
+  `role` and `tenant_id` - never trusted from the request body. A non-
+  admin (or a request with no valid session at all) gets `403`/`401`
+  before any user is created. `tenant_id` for the new technician is always
+  the calling admin's own tenant, read server-side the same way - not
+  something the client could spoof to create a user in someone else's
+  tenant.
+- **Error handling - a closed set of codes, not raw Auth errors**: GoTrue's
+  own error messages/codes for `createUser` aren't perfectly stable across
+  versions, so `classifyCreateError` in the function matches on both a
+  `code` field (`email_exists`, `weak_password`) and a lowercased message
+  fallback, collapsing everything else to a generic `create_failed`. The
+  app (`team.tsx`) reads the structured JSON body off a `FunctionsHttpError`
+  (`await error.context.json()`, the documented pattern in the installed
+  `@supabase/supabase-js` types) and shows "That email is already in use
+  by another account" specifically for the duplicate-email case, rather
+  than a raw Postgres/GoTrue error string. The password is never logged -
+  not in the Edge Function (only `error.message` is logged, never the
+  request body) and not in the app's console.error calls.
+- **Screen placement**: a small admin-only "Team" link on Home, right next
+  to "Company Settings" - not a tile, not its own tab. Reasoning: Home's
+  tile grid (Sales/Tasks/Calendar/Schedule) is for daily operational
+  tools an admin or technician actually taps regularly; "Team" and
+  "Company Settings" are both occasional setup/administration screens
+  (provision a login once, rarely revisit vs. tap a dozen times a day),
+  so they share the same lightweight header-link treatment instead of
+  spending tile-grid space on something used infrequently. This mirrors
+  the distinction that already existed between Schedule (promoted to a
+  tile specifically because it's a daily dispatcher tool) and Company
+  Settings (left as a link).
+- **Verified from this sandbox**: `pnpm typecheck` passes clean across the
+  whole workspace. Since this feature needs no new migration, what was
+  actually verified against a real local Postgres 16 instance was the
+  mechanism the whole feature depends on: seeded a tenant + admin, then
+  inserted an `auth.users` row with the *exact* `user_metadata` shape the
+  Edge Function sends (`tenant_id`/`role: 'technician'`/`full_name`) -
+  confirmed `handle_new_user()` produces a correctly-scoped `profiles` row
+  from it. Also confirmed, as the `authenticated` role with the admin's
+  own `auth.uid()`, that reading their own profile (what the function's
+  authorization check depends on) and reading the tenant's technician list
+  (what `team.tsx` depends on) both return the right rows under RLS.
+- **NOT verified from this sandbox (needs a live Supabase project, same
+  limitation as `approve`)**: the `create-technician` function has never
+  been deployed or invoked - the actual `auth.admin.createUser` call
+  (Admin API access with the real service-role key), the end-to-end
+  `supabase.functions.invoke()` call from the app (including whether
+  `FunctionsHttpError`'s `error.context` is genuinely a `Response` in the
+  installed React Native runtime the way the web-focused type
+  documentation describes it), and a real technician then successfully
+  logging in with the created credentials all need a live test.
+  Deployment: `supabase functions deploy create-technician` (no
+  `--no-verify-jwt` this time - the default JWT verification is
+  intentional here, see above).
