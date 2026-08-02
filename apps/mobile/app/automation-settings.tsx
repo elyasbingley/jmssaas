@@ -56,7 +56,10 @@ const TRIGGER_GROUPS: { title: string; keys: string[] }[] = [
       "invoice_payment_received",
     ],
   },
-  { title: "Field Alerts", keys: ["job_on_the_way", "job_review_request"] },
+  {
+    title: "Field Alerts",
+    keys: ["job_on_the_way", "job_prep_checklist", "job_completion_summary", "job_review_request"],
+  },
 ];
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -72,6 +75,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   invoice_overdue_14: "Seriously overdue",
   invoice_payment_received: "Payment receipt",
   job_on_the_way: "On The Way",
+  job_prep_checklist: "Prep your site",
+  job_completion_summary: "Job complete",
   job_review_request: "Review request",
 };
 
@@ -93,6 +98,8 @@ const TRIGGER_ANCHORS: Record<string, string> = {
   invoice_overdue_14: "the invoice is due",
   invoice_payment_received: "the invoice is paid",
   job_on_the_way: "sent",
+  job_prep_checklist: "the job's scheduled visit",
+  job_completion_summary: "the job is completed",
   job_review_request: "the job is completed",
 };
 

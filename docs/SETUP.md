@@ -1977,7 +1977,81 @@ shared without the ladder ever kicking in (status never flipped).
   manual row and the auto-scheduled ones (different trigger_keys, the
   idempotency check is scoped per trigger_key, confirmed live).
   `pnpm typecheck` passes clean across the whole workspace.
-- **NOT verified from this sandbox**: same caveat as the rest of this
-  engine - no real Resend account here to confirm an actual send from
-  tapping the new button, and the button itself hasn't been tapped on a
-  real device.
+- **Update - verified on a real device**: the "Send Quote via Email"
+  button was tapped for real (after fixing two real setup gaps found along
+  the way, both worth recording rather than editing away silently):
+  1. `APPROVAL_PAGE_URL`/`EXPO_PUBLIC_APPROVAL_PAGE_URL` had both been left
+     as the literal placeholder text from `.env.example`
+     (`your-deployed-approval-page.pages.dev`) - the approval page had
+     never actually been deployed anywhere, so every accept/decline link
+     in a real email 404'd. Fixed by deploying `supabase/static/approval-
+     page.html` (renamed to `index.html`) to Netlify Drop and pointing
+     both env vars at the real URL.
+  2. Using Resend's test sender (`onboarding@resend.dev`, no domain
+     verification) put the email straight in spam - expected for that
+     sender, not a bug; needs a verified domain before this is usable for
+     real clients.
+  With both fixed: the email arrived, the HTML Accept/Decline buttons
+  rendered as actual styled buttons (not raw markup), and tapping Accept
+  correctly showed the pre-filled name + scrolled-into-view form, then
+  after tapping the real "I accept" button, the quote's `approval_status`
+  flipped to `accepted` and synced back into the app. This is the first
+  real, end-to-end confirmation of the whole communication engine
+  actually working outside a sandboxed Postgres instance.
+
+## Job lifecycle emails
+
+Third scoped slice of the email automation feature list, per the "Pre-Job &
+Site Preparation" / "Post-Job & Quality Assurance" sections -
+`supabase/migrations/20260817000100_communication_engine_job_lifecycle.sql`.
+
+- **`job_prep_checklist`** - auto-scheduled, default 24 hours before
+  `job_cards.scheduled_at`. First trigger_key in this whole engine that's
+  offset from a `job_cards` column rather than a quote/invoice send or a
+  status transition, and the first one that has to handle being
+  **rescheduled**: `schedule_job_prep_checklist` fires on every
+  `job_cards` insert/update, and whenever `scheduled_at` actually changes
+  (first set, moved, or cleared), cancels any still-pending
+  `job_prep_checklist` row for that job and schedules a fresh one against
+  the new time - without this, moving a job's time would either leave a
+  reminder firing at the old, wrong time, or never update at all. A job
+  booked close enough that the computed `scheduled_for` would already be
+  in the past just skips scheduling entirely, rather than letting the cron
+  sweep fire a stale-looking "reminder" for a visit that's basically
+  already happening.
+- **`job_completion_summary`** - auto-scheduled, immediate, fired by
+  `job_cards.status` becoming `'completed'` - same shape as
+  `invoice_payment_received` (a new trigger watching a status transition,
+  not tied to a send event).
+- **New `{tech_first_name}`/`{booking_date}`/`{booking_start_time}` support
+  server-side** - these tokens already existed (used by the mobile app's
+  manual On The Way trigger, pre-rendered client-side before insert), but
+  `process-scheduled-comms`'s `buildEntityContext` never populated them for
+  auto-scheduled `job`-entity rows, since nothing needed them until now.
+  Fixed by having the `job` branch look up the assigned technician's
+  `full_name` (via `job_cards.assigned_technician_id` -> `profiles`) and
+  derive `booking_date`/`booking_start_time` from `scheduled_at` in Sydney
+  local time (reusing the existing `sydneyPartsAndOffset` helper). Harmless
+  no-op for `job_on_the_way`/`job_review_request` rows, which already have
+  these substituted by the time they're inserted.
+- **Two items from the same feature-list section deliberately NOT
+  built**: "Meet Your Technician" bio (there's no bio/photo/accreditation
+  field on a technician's profile anywhere in this schema - needs its own
+  data model addition first, not just an email trigger) and the 1-3 vs 4-5
+  star "Smart Feedback & Review Gatekeeper" (needs a public token-
+  authenticated rating page, a new table to store feedback, and a routing
+  decision - meaningfully more new infrastructure than everything else in
+  this migration combined, which only reuses the existing trigger/dispatch
+  machinery). `job_review_request` is unchanged - still links straight to
+  `{google_review_link}` with no gatekeeping in front of it.
+- **Verified from this sandbox**: applies cleanly after all 21 prior
+  migrations. Live-exercised: a job scheduled 5 days out correctly
+  scheduled `job_prep_checklist` ~4 days out (24h before); rescheduling
+  that job to 8 days out correctly cancelled the stale pending row
+  (`cancellation_reason = 'Job rescheduled'`) and scheduled a fresh one
+  ~7 days out; marking the job `completed` immediately queued
+  `job_completion_summary`. A fresh tenant now seeds 15 trigger_keys total.
+  `pnpm typecheck` passes clean across the whole workspace.
+- **NOT verified from this sandbox**: no real send yet for either new
+  trigger_key - same caveat as everything else in this engine until it's
+  tried against a real job on a real device.

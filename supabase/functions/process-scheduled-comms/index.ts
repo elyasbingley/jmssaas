@@ -123,6 +123,12 @@ interface PlaceholderContext {
     payment_link: string | null;
   };
   job?: { number: string | null; title: string; site_address: string | null };
+  schedule?: {
+    tech_first_name: string | null;
+    booking_date: string | null;
+    booking_start_time: string | null;
+    eta_minutes: number | null;
+  };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -152,6 +158,12 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.job_number = context.job.number ?? "";
     tokens.job_title = context.job.title;
     tokens.site_address = context.job.site_address ?? "";
+  }
+  if (context.schedule) {
+    tokens.tech_first_name = context.schedule.tech_first_name ?? "";
+    tokens.booking_date = formatDateAu(context.schedule.booking_date);
+    tokens.booking_start_time = context.schedule.booking_start_time ?? "";
+    tokens.eta_minutes = context.schedule.eta_minutes != null ? String(context.schedule.eta_minutes) : "";
   }
   if (context.quote) {
     tokens.quote_number = context.quote.quote_number;
@@ -348,6 +360,29 @@ async function buildEntityContext(
     }
     if (!siteAddress && client) siteAddress = formatAddress(client);
     context.job = { number: job.number, title: job.title, site_address: siteAddress };
+
+    // {tech_first_name}/{booking_date}/{booking_start_time} for the auto-
+    // scheduled job_prep_checklist/job_completion_summary templates - the
+    // manual triggers (job_on_the_way/job_review_request) already have
+    // their own schedule tokens substituted client-side before the row is
+    // even inserted (see the mobile app's queueScheduledCommunication), so
+    // this is a harmless no-op for those rows, nothing left to replace.
+    let techFirstName: string | null = null;
+    if (job.assigned_technician_id) {
+      const { data: tech } = await admin.from("profiles").select("full_name").eq("id", job.assigned_technician_id).single();
+      if (tech?.full_name) techFirstName = firstName(tech.full_name);
+    }
+    if (job.scheduled_at) {
+      const p = sydneyPartsAndOffset(new Date(job.scheduled_at));
+      context.schedule = {
+        tech_first_name: techFirstName,
+        booking_date: `${p.year}-${p.month}-${p.day}`,
+        booking_start_time: `${p.hour}:${p.minute}`,
+        eta_minutes: null,
+      };
+    } else if (techFirstName) {
+      context.schedule = { tech_first_name: techFirstName, booking_date: null, booking_start_time: null, eta_minutes: null };
+    }
   }
 
   return context;
