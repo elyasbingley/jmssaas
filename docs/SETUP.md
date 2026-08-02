@@ -1812,7 +1812,118 @@ SMS potentially revisited later behind a different provider.
   define the full `sms`/`email`/`both` union - same "leave the flexible
   shape, remove the working path" reasoning as the database schema.
 
-Next up: building out the email side of the engine properly - interactive
-accept/decline buttons in quote emails, a fuller reminder ladder, job
-lifecycle emails, and the rest of the feature list under discussion. See
-the conversation for the current scoping question before that work starts.
+## Email reminder ladder + one-click accept/decline
+
+First scoped slice of the larger email automation feature list (quote
+reminders/conversion + payment escalation, per that list's own grouping) -
+job lifecycle emails, conditional branching/custom merge fields, read
+receipts/custom SMTP, and retention campaigns are all still deferred.
+
+- **5 new trigger_keys** (`supabase/migrations/20260815000100_communication_engine_reminder_ladder.sql`):
+  `quote_expiring_soon` (7 days before `quotes.expiry_date`), `quote_expired`
+  (on `expiry_date` itself), `invoice_due_today` (on `due_date`),
+  `invoice_overdue_14` (14 days after `due_date`), and
+  `invoice_payment_received` (immediately when `invoices.status` becomes
+  `'paid'`). Seeded for every tenant, existing and new, same idempotent
+  "seed function + backfill loop" pattern as every earlier trigger_key
+  addition in this file.
+- **`schedule_quote_communications` learned a second reference date** -
+  previously every quote trigger_key was offset from `now()` (the send
+  moment); `quote_expiring_soon`/`quote_expired` need `expiry_date`
+  instead, so the reference is now chosen per trigger_key inside the loop.
+  A quote with no `expiry_date` set (nullable field) simply skips those two
+  trigger_keys - confirmed live: a quote sent with `expiry_date` = today+10
+  scheduled `quote_expiring_soon` for today+3 and `quote_expired` for
+  today+10, alongside the existing `quote_stage_1`/`quote_stage_2` at
+  today+3/+7, all four correct simultaneously.
+- **`invoice_payment_received` is a genuinely different shape** - not
+  scheduled when the invoice is sent, but when it's marked paid, with a
+  brand new trigger (`schedule_invoice_payment_receipt`, `after update on
+  invoices`) watching the same `status = 'paid'` transition the existing
+  `cancel_pending_invoice_communications` trigger already watches. Both
+  fire on the same event; Postgres runs same-event triggers in alphabetical
+  order by trigger name, and `cancel_pending_invoice_communications_
+  trigger` sorts before `schedule_invoice_payment_receipt_trigger`, so the
+  cancellation (which cancels this invoice's still-pending reminder rows)
+  always completes before the receipt row is inserted - confirmed live: on
+  marking a sent invoice paid, all 4 still-pending reminder rows
+  (`invoice_pre_due`/`invoice_due_today`/`invoice_overdue_1`/
+  `invoice_overdue_14`) flipped to `cancelled` with reason "Invoice paid",
+  and `invoice_payment_received` landed as a fresh `pending` row in the
+  same statement, not accidentally caught by the cancellation.
+- **One-click accept/decline**: two new tokens,
+  `{quote_accept_link}`/`{quote_decline_link}` (`packages/shared/src/
+  placeholders.ts` and the dispatcher's Deno port - both need updating by
+  hand, same as every other token addition), built as `{quote_approval_
+  link}` plus `&action=accept`/`&action=decline`. `supabase/static/
+  approval-page.html` reads `?action=` and, on that page load, pre-fills
+  the accept form's name with the client's own name on file and scrolls it
+  into view (decline gets the reason box focused/scrolled) - **deliberately
+  not an auto-submit on page load**, even though the link already encodes
+  the intended action: corporate email security gateways (Microsoft Safe
+  Links, Proofpoint, Mimecast, ...) prefetch every link in an inbound email
+  to scan for phishing before a human ever opens it, and a plain GET-page-
+  load firing a mutating accept/decline would let those scanners silently
+  resolve every quote the instant it lands in an inbox. A human still only
+  needs one real tap on the button after opening the link; the mutating
+  POST only ever happens from that explicit tap. **This page is redeployed
+  by re-uploading the file to Supabase Storage** (see the original "Quote/
+  invoice digital acceptance" section above) - it is NOT part of `supabase
+  functions deploy` or `supabase db push`, easy to forget.
+- **Template bodies can now contain raw HTML** - `quote_stage_1`/
+  `quote_stage_2`/`quote_expiring_soon`'s seeded bodies embed styled
+  `<a href="{quote_accept_link}">`/`<a href="{quote_decline_link}">`
+  button markup directly. There's no visual/WYSIWYG template builder (that's
+  explicitly deferred, see the "Engine deep-features" option not chosen for
+  this pass) - an admin just types HTML into the same plain multiline body
+  field the Automation & Messaging Settings screen already has. `sendEmail`
+  in the dispatcher now sends both `html` (the body, `\n` converted to
+  `<br>`, everything else passed through untouched) and `text` (an HTML-tags-
+  stripped fallback) to Resend, so both HTML-capable and plain-text email
+  clients get something sensible, and existing non-HTML templates (job/
+  invoice ones) round-trip unchanged in the `text` part.
+- **`quote_expired` deliberately has no accept/decline buttons** - a real
+  gap found while writing it, not fixed here: `accept_quote_by_token`/
+  `decline_quote_by_token` (see the `quote_invoice_approval` migration)
+  only ever check the approval TOKEN's own 30-day `token_expires_at`, never
+  the quote's own business `expiry_date` - so an accept button on an
+  "expired" email would actually still succeed server-side even though the
+  price is meant to no longer be honoured. Worked around here by simply not
+  offering the button on this one email (copy asks the client to get in
+  touch instead); the underlying RPC gap is unfixed and would need its own
+  migration if this becomes a real problem (checking `expiry_date` inside
+  `accept_quote_by_token`, deciding what "an accepted-but-expired quote"
+  should even mean for downstream conversion-to-invoice flows).
+- **"Instant Receipt & Certificate Delivery" is only half built** -
+  `invoice_payment_received` sends a plain confirmation email, but does NOT
+  attach the paid PDF invoice or any compliance certificates, both asked
+  for in the original feature list. PDF generation in this app is
+  currently client-side only (`apps/mobile/lib/pdf.ts`, run on the admin's
+  own device) - there's no server-side PDF pipeline this Edge Function
+  could call into, and "compliance certificates" isn't a concept that
+  exists anywhere in this schema yet. Both are meaningfully separate
+  follow-up projects, deliberately deferred rather than half-built badly.
+- **Payment links are still not real payment processing** - the wishlist
+  asked for "embedded payment link (Stripe/Square/PayPal)"; `{invoice_
+  payment_link}` still points at the same approval page as before (view/
+  accept the invoice), not an actual checkout. Integrating a real payment
+  processor is a substantial, separate piece of work, out of scope here.
+- **Verified from this sandbox**: the new migration applies cleanly after
+  all 19 prior migrations against a real local Postgres 16 instance. Live-
+  exercised end to end as described above (quote expiry-based scheduling,
+  invoice ladder, payment-receipt trigger ordering) - all outcomes matched
+  expectations. `pnpm typecheck` passes clean across the whole workspace.
+  The approval page's inline script was parsed with Node's `Function`
+  constructor to confirm it's syntactically valid JS (not a substitute for
+  loading it in a real browser, see below).
+- **NOT verified from this sandbox**: no Resend account exists here to
+  actually send an email and see how Gmail/Outlook render the HTML button
+  markup, nor to confirm the multipart html/text split behaves as
+  expected. The approval page's new pre-fill/scroll-into-view behavior
+  hasn't been opened in a real browser from a real `?action=accept` link.
+  Both need a real send + a real click-through to fully confirm.
+
+Next up: job lifecycle emails (prep-your-site checklist, meet-the-
+technician bio, completion summary, the 1-3 vs 4-5 star review gatekeeper),
+then the deeper engine features and retention campaigns, per the
+still-open items from the original feature list.

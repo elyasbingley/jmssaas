@@ -77,6 +77,21 @@
       var params = new URLSearchParams(location.search);
       var docType = params.get("type");
       var token = params.get("token");
+      // One-click accept/decline from an email button - see the
+      // reminder_ladder migration's {quote_accept_link}/{quote_decline_link}
+      // tokens. Deliberately does NOT auto-submit the moment this page
+      // loads, even though the link already encodes the intended action:
+      // corporate email security gateways (Microsoft Safe Links, Proofpoint,
+      // Mimecast, ...) prefetch every link in an inbound email to scan for
+      // phishing *before* a human ever opens it, which would silently
+      // accept/decline every quote the instant it lands in an inbox if a
+      // mere page load fired the mutating request. Instead, see
+      // attachActionHandlers below: the matching form is pre-filled (using
+      // the client's own name on file, for accept) and scrolled into view,
+      // so a human still only needs one real tap on the button after
+      // opening the link - the mutating POST only ever happens from that
+      // explicit tap.
+      var action = params.get("action");
       // Absolute, not location.origin-based - this page is now deployed to
       // an external static host (Cloudflare Pages/Netlify/etc, see
       // docs/SETUP.md), not to Supabase itself, so it's genuinely cross-
@@ -132,6 +147,16 @@
             var reason = document.getElementById("decline-reason").value;
             submitAction("decline", { reason: reason });
           });
+        }
+
+        if (action === "accept" && acceptForm) {
+          var nameInput = document.getElementById("accept-name");
+          if (nameInput && !nameInput.value) nameInput.value = doc.client_name || "";
+          acceptForm.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else if (action === "decline" && declineForm) {
+          declineForm.scrollIntoView({ behavior: "smooth", block: "center" });
+          var reasonInput = document.getElementById("decline-reason");
+          if (reasonInput) reasonInput.focus();
         }
       }
 

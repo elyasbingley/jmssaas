@@ -44,6 +44,14 @@ export interface PlaceholderQuoteContext {
   issue_date: string;
   expiry_date: string | null;
   approval_link: string | null;
+  // One-click action links (approval_link + &action=accept/decline) - the
+  // approval page pre-fills/scrolls to the matching form instead of
+  // auto-submitting on load, since a blind auto-submit would let email
+  // security scanners that prefetch links (Microsoft Safe Links, Proofpoint,
+  // ...) silently accept/decline quotes before a human ever opens the
+  // email. Null whenever approval_link itself is null.
+  accept_link: string | null;
+  decline_link: string | null;
 }
 
 export interface PlaceholderInvoiceContext {
@@ -102,6 +110,8 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.quote_issue_date = formatDateAu(context.quote.issue_date);
     tokens.quote_expiry_date = formatDateAu(context.quote.expiry_date);
     tokens.quote_approval_link = context.quote.approval_link ?? "";
+    tokens.quote_accept_link = context.quote.accept_link ?? "";
+    tokens.quote_decline_link = context.quote.decline_link ?? "";
   }
 
   if (context.invoice) {
@@ -148,6 +158,8 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "quote_issue_date",
   "quote_expiry_date",
   "quote_approval_link",
+  "quote_accept_link",
+  "quote_decline_link",
   "invoice_number",
   "invoice_total",
   "invoice_due_date",

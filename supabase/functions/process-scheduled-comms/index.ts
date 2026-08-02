@@ -113,6 +113,8 @@ interface PlaceholderContext {
     issue_date: string;
     expiry_date: string | null;
     approval_link: string | null;
+    accept_link: string | null;
+    decline_link: string | null;
   };
   invoice?: {
     invoice_number: string;
@@ -157,6 +159,8 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.quote_issue_date = formatDateAu(context.quote.issue_date);
     tokens.quote_expiry_date = formatDateAu(context.quote.expiry_date);
     tokens.quote_approval_link = context.quote.approval_link ?? "";
+    tokens.quote_accept_link = context.quote.accept_link ?? "";
+    tokens.quote_decline_link = context.quote.decline_link ?? "";
   }
   if (context.invoice) {
     tokens.invoice_number = context.invoice.invoice_number;
@@ -313,6 +317,8 @@ async function buildEntityContext(
       issue_date: quote.issue_date,
       expiry_date: quote.expiry_date,
       approval_link: approvalLink,
+      accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+      decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
     };
   } else if (row.entity_type === "invoice") {
     const { data: invoice } = await admin.from("invoices").select("*").eq("id", row.entity_id).single();
@@ -347,6 +353,21 @@ async function buildEntityContext(
   return context;
 }
 
+// Template bodies are allowed to contain raw HTML now (the quote reminder
+// templates embed styled <a> button links for one-click accept/decline -
+// see the reminder_ladder migration) - there's no WYSIWYG/dual-engine
+// template builder, an admin just types markup straight into the same
+// plain multiline body field the Automation & Messaging Settings screen
+// already has, same as any other template edit. sendEmail always sends
+// both parts: `html` renders the buttons/markup properly in HTML-capable
+// clients, `text` is a stripped-tags fallback for plain-text clients and
+// spam filters that weight multipart emails favourably. A body with no
+// HTML in it (every non-quote template, still) round-trips through both
+// unchanged except for \n -> <br> in the html part.
+function stripHtmlTags(html: string): string {
+  return html.replace(/<[^>]+>/g, "").trim();
+}
+
 async function sendEmail(to: string, subject: string | null, body: string): Promise<void> {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     throw new Error("Email provider not configured (RESEND_* env vars missing)");
@@ -361,7 +382,8 @@ async function sendEmail(to: string, subject: string | null, body: string): Prom
       from: RESEND_FROM_EMAIL,
       to: [to],
       subject: subject || "(no subject)",
-      text: body,
+      html: body.replace(/\n/g, "<br>"),
+      text: stripHtmlTags(body),
     }),
   });
   if (!res.ok) {
