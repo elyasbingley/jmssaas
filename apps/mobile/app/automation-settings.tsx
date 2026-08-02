@@ -9,7 +9,6 @@ import {
   type CommunicationTemplate,
   type CommunicationDelayUnit,
   type CommunicationDelayDirection,
-  type CommunicationChannel,
 } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
@@ -67,7 +66,6 @@ const TRIGGER_ANCHORS: Record<string, string> = {
   job_review_request: "the job is completed",
 };
 
-const CHANNEL_OPTIONS: CommunicationChannel[] = ["sms", "email", "both"];
 const UNIT_OPTIONS: CommunicationDelayUnit[] = ["hours", "days"];
 const DIRECTION_OPTIONS: CommunicationDelayDirection[] = ["before", "after"];
 
@@ -145,7 +143,6 @@ export default function AutomationSettingsScreen() {
   const [ruleDelayValue, setRuleDelayValue] = useState("0");
   const [ruleDelayUnit, setRuleDelayUnit] = useState<CommunicationDelayUnit>("days");
   const [ruleDirection, setRuleDirection] = useState<CommunicationDelayDirection>("after");
-  const [ruleChannel, setRuleChannel] = useState<CommunicationChannel>("sms");
   const [ruleQuietStart, setRuleQuietStart] = useState<Date>(timeStringToDate("08:00:00"));
   const [ruleQuietEnd, setRuleQuietEnd] = useState<Date>(timeStringToDate("18:00:00"));
   const [ruleError, setRuleError] = useState<string | null>(null);
@@ -155,7 +152,6 @@ export default function AutomationSettingsScreen() {
     setRuleDelayValue(String(rule.delay_offset_value));
     setRuleDelayUnit(rule.delay_offset_unit);
     setRuleDirection(rule.delay_direction);
-    setRuleChannel(rule.channel);
     setRuleQuietStart(timeStringToDate(rule.quiet_hours_start));
     setRuleQuietEnd(timeStringToDate(rule.quiet_hours_end));
     setRuleError(null);
@@ -177,7 +173,9 @@ export default function AutomationSettingsScreen() {
       delay_offset_value: Number(ruleDelayValue) || 0,
       delay_offset_unit: ruleDelayUnit,
       delay_direction: ruleDirection,
-      channel: ruleChannel,
+      // SMS is currently unsupported (see the dispatcher's own comment) -
+      // every rule is email-only for now, so there's nothing to pick here.
+      channel: "email",
       quiet_hours_start: dateToTimeString(ruleQuietStart),
       quiet_hours_end: dateToTimeString(ruleQuietEnd),
     });
@@ -264,7 +262,7 @@ export default function AutomationSettingsScreen() {
     <>
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Text style={styles.subtitle}>
-          Control when automated SMS/email messages go out, and edit their wording.
+          Control when automated emails go out, and edit their wording.
         </Text>
 
         {TRIGGER_GROUPS.map((group) => (
@@ -282,8 +280,7 @@ export default function AutomationSettingsScreen() {
                   </View>
                   <Text style={styles.cardSummary}>{summarizeTiming(rule)}</Text>
                   <Text style={styles.cardMeta}>
-                    Channel: {rule.channel} · Quiet hours {rule.quiet_hours_start.slice(0, 5)}-
-                    {rule.quiet_hours_end.slice(0, 5)}
+                    Quiet hours {rule.quiet_hours_start.slice(0, 5)}-{rule.quiet_hours_end.slice(0, 5)}
                   </Text>
                   <Pressable onPress={() => openEditRule(rule)}>
                     <Text style={styles.link}>Edit timing</Text>
@@ -358,19 +355,6 @@ export default function AutomationSettingsScreen() {
               onPress={() => setRuleDirection(direction)}
             >
               <Text style={[styles.chipText, ruleDirection === direction && styles.chipTextSelected]}>{direction}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.fieldLabel}>Channel</Text>
-        <View style={styles.chipRow}>
-          {CHANNEL_OPTIONS.map((channel) => (
-            <Pressable
-              key={channel}
-              style={[styles.chip, ruleChannel === channel && styles.chipSelected]}
-              onPress={() => setRuleChannel(channel)}
-            >
-              <Text style={[styles.chipText, ruleChannel === channel && styles.chipTextSelected]}>{channel}</Text>
             </Pressable>
           ))}
         </View>

@@ -19,7 +19,7 @@
 //      user's bearer token (any role, not just admin), scoped to that
 //      row's own tenant. This is what apps/mobile/app/(tabs)/sales/jobs/
 //      [id].tsx calls right after inserting an "On The Way"/review-request
-//      row, so a technician's ETA text goes out immediately instead of
+//      row, so a technician's ETA email goes out immediately instead of
 //      waiting for the next cron tick - the whole point of "on the way, 15
 //      minutes" is that it's time-sensitive. The queue table still does
 //      its job if this call fails for any reason (no signal, cold start,
@@ -70,10 +70,6 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const APPROVAL_PAGE_URL = Deno.env.get("APPROVAL_PAGE_URL") ?? "";
-
-const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
-const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
-const TWILIO_FROM_NUMBER = Deno.env.get("TWILIO_FROM_NUMBER") ?? "";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "";
@@ -351,42 +347,6 @@ async function buildEntityContext(
   return context;
 }
 
-// Twilio requires the "To" number in E.164 (+61...), but every phone field
-// in this app (Client.phone, the seed data, whatever an admin types into
-// the client form) is free text - realistically always local Australian
-// format ("0491 570 156") since that's what an AU trade business actually
-// types. Found live: Twilio error 21211 "Invalid 'To' Phone Number" on a
-// real send, because recipient_phone_or_email was stored exactly as
-// entered, leading 0 and all. Normalized here, at send time, rather than
-// wherever a phone number is entered/stored - this is the one place that
-// actually needs E.164, and it covers every existing client's already-
-// saved number too, not just newly-entered ones.
-function normalizeAuMobileNumber(raw: string): string {
-  const digits = raw.replace(/[^\d+]/g, "");
-  if (digits.startsWith("+")) return digits;
-  if (digits.startsWith("61")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+61${digits.slice(1)}`;
-  return digits;
-}
-
-async function sendSms(to: string, body: string): Promise<void> {
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
-    throw new Error("SMS provider not configured (TWILIO_* env vars missing)");
-  }
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: TWILIO_FROM_NUMBER, Body: body }),
-  });
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Twilio ${res.status}: ${detail.slice(0, 300)}`);
-  }
-}
-
 async function sendEmail(to: string, subject: string | null, body: string): Promise<void> {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     throw new Error("Email provider not configured (RESEND_* env vars missing)");
@@ -460,12 +420,25 @@ async function dispatchOne(
     finalBody = renderTemplate(finalBody, context);
   }
 
+  // SMS sending was removed after the Twilio integration proved unreliable
+  // in practice (auth/number-format issues never fully ironed out) - see
+  // git history for the old sendSms/normalizeAuMobileNumber code if SMS is
+  // revisited later with a different provider. The `channel` column and
+  // `communication_rules.channel`'s 'sms'/'both' options are left in the
+  // schema rather than migrated away, since a future SMS provider would
+  // slot back into the exact same shape - but nothing currently sends
+  // through this branch, so a stray 'sms' row (e.g. a rule an admin
+  // manually set back to 'sms') fails clearly instead of silently no-oping.
+  if (row.channel !== "email") {
+    await admin
+      .from("scheduled_communications")
+      .update({ status: "failed", failure_reason: "SMS sending is not currently supported - switch this rule to email" })
+      .eq("id", row.id);
+    return { outcome: "failed" };
+  }
+
   try {
-    if (row.channel === "sms") {
-      await sendSms(normalizeAuMobileNumber(recipient), finalBody);
-    } else {
-      await sendEmail(recipient, finalSubject, finalBody);
-    }
+    await sendEmail(recipient, finalSubject, finalBody);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[process-scheduled-comms] Failed to dispatch ${row.id}`, message);

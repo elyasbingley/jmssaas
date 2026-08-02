@@ -1767,3 +1767,52 @@ Communication Log on the Job/Client Details screens.
   beyond `tsc` - no dev-client build exists with the current dependency set
   to test against a real device, same caveat as the roof measurement phase
   before it.
+
+## SMS removed - email only (for now)
+
+Real-device testing surfaced a chain of Twilio issues (wrong credentials,
+wrong "From" number, recipient numbers stored in local Australian format
+instead of the E.164 Twilio requires) that took several rounds to work
+through, and the decision was made to drop SMS entirely for now and focus
+on building out the email side of the communication engine properly, with
+SMS potentially revisited later behind a different provider.
+
+- **`supabase/functions/process-scheduled-comms`**: `sendSms` and the
+  AU-phone-number E.164 normalizer were deleted outright (see git history
+  if SMS is ever revisited - the old code is a reasonable starting point
+  for whatever provider replaces Twilio). `dispatchOne` now only sends via
+  Resend; a row whose `channel` isn't `'email'` fails immediately with a
+  clear `failure_reason` instead of attempting a provider that no longer
+  exists, rather than silently doing nothing.
+- **Schema left untouched** - `communication_rules.channel` and
+  `communication_templates.type` still allow `'sms'`/`'both'` at the
+  database level (their check constraints weren't touched). Ripping that
+  out would be a real, riskier migration for a decision that might get
+  reversed; leaving the shape in place means a future SMS provider slots
+  back in without a schema change, it just needs `dispatchOne`'s email-only
+  guard removed/extended.
+- **New migration** (`20260810000100_communication_engine_email_only.sql`):
+  flips every existing tenant's seeded `communication_rules.channel` and
+  `communication_templates.type` from `sms`/`both` to `email` (backfilling
+  a sensible `subject` per `trigger_key`, since sms-type templates never
+  had one), and replaces `seed_default_communication_rules`/
+  `seed_default_communication_templates` so every new tenant seeds
+  email-only from now on. Verified against a local Postgres 16 instance:
+  applied cleanly after all 18 prior migrations, a fresh tenant seeds
+  email-only, and a simulated pre-migration tenant (rules/templates forced
+  back to `sms` first) correctly backfills to `email` with the right
+  default subjects.
+- **Mobile** (`apps/mobile/app/automation-settings.tsx`): the per-rule
+  Channel chip picker (sms/email/both) was removed from the edit modal -
+  there's nothing to choose right now, so showing a picker with only one
+  working option would just be confusing. `handleSaveRule` hardcodes
+  `channel: "email"` instead. The per-rule summary line's "Channel: sms ·"
+  prefix was dropped too, for the same reason.
+- **Not touched**: `packages/shared/src/schemas.ts`/`types.ts` still
+  define the full `sms`/`email`/`both` union - same "leave the flexible
+  shape, remove the working path" reasoning as the database schema.
+
+Next up: building out the email side of the engine properly - interactive
+accept/decline buttons in quote emails, a fuller reminder ladder, job
+lifecycle emails, and the rest of the feature list under discussion. See
+the conversation for the current scoping question before that work starts.
