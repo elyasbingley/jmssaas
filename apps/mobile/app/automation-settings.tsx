@@ -41,19 +41,31 @@ interface TenantReviewLink {
 }
 
 const TRIGGER_GROUPS: { title: string; keys: string[] }[] = [
-  { title: "Quote Follow-ups", keys: ["quote_stage_1", "quote_stage_2", "quote_expiring_soon", "quote_expired"] },
+  {
+    title: "Quote Follow-ups",
+    keys: ["quote_sent", "quote_stage_1", "quote_stage_2", "quote_expiring_soon", "quote_expired"],
+  },
   {
     title: "Invoice Reminders",
-    keys: ["invoice_pre_due", "invoice_due_today", "invoice_overdue_1", "invoice_overdue_14", "invoice_payment_received"],
+    keys: [
+      "invoice_sent",
+      "invoice_pre_due",
+      "invoice_due_today",
+      "invoice_overdue_1",
+      "invoice_overdue_14",
+      "invoice_payment_received",
+    ],
   },
   { title: "Field Alerts", keys: ["job_on_the_way", "job_review_request"] },
 ];
 
 const TRIGGER_LABELS: Record<string, string> = {
+  quote_sent: "Quote delivery",
   quote_stage_1: "First follow-up",
   quote_stage_2: "Second follow-up",
   quote_expiring_soon: "Expiring soon",
   quote_expired: "Expired",
+  invoice_sent: "Invoice delivery",
   invoice_pre_due: "Reminder before due",
   invoice_due_today: "Due today",
   invoice_overdue_1: "Overdue reminder",
@@ -64,12 +76,17 @@ const TRIGGER_LABELS: Record<string, string> = {
 };
 
 // What the delay is measured relative to - used to build a plain-English
-// timing summary, e.g. "3 days after the quote is sent".
+// timing summary, e.g. "3 days after the quote is sent". quote_sent/
+// invoice_sent are manual triggers (fired by the "Send via Email" button
+// on the quote/invoice detail screen, not auto-scheduled), same shape as
+// job_on_the_way/job_review_request below.
 const TRIGGER_ANCHORS: Record<string, string> = {
+  quote_sent: "sent",
   quote_stage_1: "the quote is sent",
   quote_stage_2: "the quote is sent",
   quote_expiring_soon: "the quote expires",
   quote_expired: "the quote expires",
+  invoice_sent: "sent",
   invoice_pre_due: "the invoice is due",
   invoice_due_today: "the invoice is due",
   invoice_overdue_1: "the invoice is due",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { ApprovalStatus, Client, Invoice, InvoiceStatus, LineItemFormInput, Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
@@ -7,6 +7,7 @@ import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
+import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../../lib/pdf";
 import { exportPdf } from "../../../../lib/print";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
@@ -76,6 +77,8 @@ export default function InvoiceDetailScreen() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendEmailError, setSendEmailError] = useState<string | null>(null);
 
   // Once the client has actually responded, the line items/totals are
   // locked at the database level too (see the accepted case's trigger in
@@ -159,9 +162,10 @@ export default function InvoiceDetailScreen() {
 
   // Generates the token if one doesn't exist yet (idempotent - see
   // generate_invoice_approval_link), then hands the resulting link
-  // straight to the native Share sheet. There's no automated delivery
-  // (email/SMS) yet - see docs/SETUP.md known-gaps - so the admin picks how
-  // to send it themselves from whatever the Share sheet offers.
+  // straight to the native Share sheet - a manual fallback for when the
+  // client has no email on file, or the admin would rather text/WhatsApp
+  // it themselves. handleSendInvoiceEmail below is the real "send it"
+  // action.
   const handleGenerateAndShareLink = async () => {
     if (!data) return;
     // The approval page is deployed externally (Cloudflare Pages/Netlify/
@@ -191,6 +195,77 @@ export default function InvoiceDetailScreen() {
       setLinkError(getErrorMessage(e, "Failed to generate approval link (see console for details)"));
     } finally {
       setGeneratingLink(false);
+    }
+  };
+
+  // The actual "send it" action - mirrors the quote screen's
+  // handleSendQuoteEmail exactly (see its own comment for the full
+  // reasoning), using the invoice_sent trigger_key instead of quote_sent.
+  const handleSendInvoiceEmail = async () => {
+    if (!data || !profile) return;
+    const email = data.invoice.clients?.email;
+    if (!email) {
+      setSendEmailError("This client has no email address on file - add one on the Client Details screen.");
+      return;
+    }
+    setSendingEmail(true);
+    setSendEmailError(null);
+    try {
+      const { data: rule } = await supabase
+        .from("communication_rules")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "invoice_sent")
+        .maybeSingle();
+      if (!rule || !rule.is_enabled) {
+        throw new Error("The 'Invoice Delivery' email is turned off in Settings > Automation & Messaging");
+      }
+
+      const { data: templates } = await supabase
+        .from("communication_templates")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "invoice_sent")
+        .eq("is_active", true);
+      const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
+      if (!template) throw new Error("No active 'Invoice Delivery' email template found");
+
+      const { data: row, error: insertError } = await supabase
+        .from("scheduled_communications")
+        .insert({
+          tenant_id: profile.tenant_id,
+          entity_type: "invoice",
+          entity_id: id,
+          trigger_key: "invoice_sent",
+          template_id: template.id,
+          channel: template.type,
+          recipient_phone_or_email: email,
+          rendered_subject: template.subject,
+          rendered_body: template.body,
+          scheduled_for: new Date().toISOString(),
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+
+      const wasSent = await triggerImmediateDispatch(row.id);
+
+      const { error: statusError } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+      if (statusError) throw statusError;
+
+      refetch();
+      Alert.alert(
+        wasSent ? "Sent" : "Queued",
+        wasSent
+          ? "The invoice email has been sent."
+          : "The invoice is marked sent and the email is queued - it'll go out shortly."
+      );
+    } catch (e) {
+      console.error("[Invoices] Failed to send invoice email", e);
+      setSendEmailError(getErrorMessage(e, "Failed to send (see console for details)"));
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -253,6 +328,13 @@ export default function InvoiceDetailScreen() {
       {data.invoice.approval_status === "declined" && data.invoice.decline_reason ? (
         <Text style={styles.declineReason}>Reason: {data.invoice.decline_reason}</Text>
       ) : null}
+
+      {isAdmin ? (
+        <Pressable style={styles.sendEmailButton} onPress={handleSendInvoiceEmail} disabled={sendingEmail}>
+          <Text style={styles.sendEmailButtonText}>{sendingEmail ? "Sending..." : "Send Invoice via Email"}</Text>
+        </Pressable>
+      ) : null}
+      {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
 
       {isAdmin ? (
         <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
@@ -330,6 +412,8 @@ const styles = StyleSheet.create({
   approvalBadgeTextAccepted: { color: "#15803d" },
   approvalBadgeTextDeclined: { color: "#b91c1c" },
   declineReason: { color: "#b91c1c", fontSize: 13, marginTop: 6 },
+  sendEmailButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 14 },
+  sendEmailButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   linkButton: { alignSelf: "flex-start", marginTop: 10 },
   linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
   lockedNotice: { color: "#6b7280", fontSize: 13, marginBottom: 8 },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   calculateDocumentTotals,
@@ -16,6 +16,7 @@ import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
+import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { buildQuotePdfHtml } from "../../../../lib/pdf";
 import { exportPdf } from "../../../../lib/print";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
@@ -90,6 +91,8 @@ export default function QuoteDetailScreen() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendEmailError, setSendEmailError] = useState<string | null>(null);
 
   // Once the client has actually responded, the line items/totals are
   // locked at the database level too (see the accepted case's trigger in
@@ -206,9 +209,9 @@ export default function QuoteDetailScreen() {
 
   // Generates the token if one doesn't exist yet (idempotent - see
   // generate_quote_approval_link), then hands the resulting link straight
-  // to the native Share sheet. There's no automated delivery (email/SMS)
-  // yet - see docs/SETUP.md known-gaps - so the admin picks how to send it
-  // themselves from whatever the Share sheet offers on their device.
+  // to the native Share sheet - a manual fallback for when the client has
+  // no email on file, or the admin would rather text/WhatsApp it
+  // themselves. handleSendQuoteEmail below is the real "send it" action.
   const handleGenerateAndShareLink = async () => {
     if (!data) return;
     // The approval page is deployed externally (Cloudflare Pages/Netlify/
@@ -238,6 +241,88 @@ export default function QuoteDetailScreen() {
       setLinkError(getErrorMessage(e, "Failed to generate approval link (see console for details)"));
     } finally {
       setGeneratingLink(false);
+    }
+  };
+
+  // The actual "send it" action - was missing entirely until now (only the
+  // Share-sheet handoff above existed). Looks up the tenant's quote_sent
+  // rule/template (see the manual_send migration - same "manual trigger,
+  // admin-editable in Automation Settings" shape as job_on_the_way),
+  // queues a scheduled_communications row with the raw template copy, and
+  // immediately dispatches it via the same lib/dispatch-now.ts helper the
+  // job screen's On The Way button uses. The dispatcher itself generates
+  // the approval token and renders {quote_accept_link}/{quote_decline_link}
+  // etc. at send time (see process-scheduled-comms's buildEntityContext),
+  // so there's no separate generate_quote_approval_link call needed here.
+  // Setting status to 'sent' in the same action (rather than leaving it to
+  // a separate manual tap of the Status chip) is what actually starts the
+  // quote_stage_1/quote_stage_2/quote_expiring_soon/quote_expired reminder
+  // ladder - those only fire on that transition.
+  const handleSendQuoteEmail = async () => {
+    if (!data || !profile) return;
+    const email = data.quote.clients?.email;
+    if (!email) {
+      setSendEmailError("This client has no email address on file - add one on the Client Details screen.");
+      return;
+    }
+    setSendingEmail(true);
+    setSendEmailError(null);
+    try {
+      const { data: rule } = await supabase
+        .from("communication_rules")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "quote_sent")
+        .maybeSingle();
+      if (!rule || !rule.is_enabled) {
+        throw new Error("The 'Quote Delivery' email is turned off in Settings > Automation & Messaging");
+      }
+
+      const { data: templates } = await supabase
+        .from("communication_templates")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "quote_sent")
+        .eq("is_active", true);
+      const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
+      if (!template) throw new Error("No active 'Quote Delivery' email template found");
+
+      const { data: row, error: insertError } = await supabase
+        .from("scheduled_communications")
+        .insert({
+          tenant_id: profile.tenant_id,
+          entity_type: "quote",
+          entity_id: id,
+          trigger_key: "quote_sent",
+          template_id: template.id,
+          channel: template.type,
+          recipient_phone_or_email: email,
+          rendered_subject: template.subject,
+          rendered_body: template.body,
+          scheduled_for: new Date().toISOString(),
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+
+      const wasSent = await triggerImmediateDispatch(row.id);
+
+      const { error: statusError } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
+      if (statusError) throw statusError;
+
+      refetch();
+      Alert.alert(
+        wasSent ? "Sent" : "Queued",
+        wasSent
+          ? "The quote email has been sent."
+          : "The quote is marked sent and the email is queued - it'll go out shortly."
+      );
+    } catch (e) {
+      console.error("[Quotes] Failed to send quote email", e);
+      setSendEmailError(getErrorMessage(e, "Failed to send (see console for details)"));
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -301,6 +386,13 @@ export default function QuoteDetailScreen() {
         {data.quote.approval_status === "declined" && data.quote.decline_reason ? (
           <Text style={styles.declineReason}>Reason: {data.quote.decline_reason}</Text>
         ) : null}
+
+        {isAdmin ? (
+          <Pressable style={styles.sendEmailButton} onPress={handleSendQuoteEmail} disabled={sendingEmail}>
+            <Text style={styles.sendEmailButtonText}>{sendingEmail ? "Sending..." : "Send Quote via Email"}</Text>
+          </Pressable>
+        ) : null}
+        {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
 
         {isAdmin ? (
           <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
@@ -400,6 +492,8 @@ const styles = StyleSheet.create({
   approvalBadgeTextAccepted: { color: "#15803d" },
   approvalBadgeTextDeclined: { color: "#b91c1c" },
   declineReason: { color: "#b91c1c", fontSize: 13, marginTop: 6 },
+  sendEmailButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 14 },
+  sendEmailButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   linkButton: { alignSelf: "flex-start", marginTop: 10 },
   linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
   lockedNotice: { color: "#6b7280", fontSize: 13, marginBottom: 8 },

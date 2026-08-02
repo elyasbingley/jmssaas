@@ -1927,3 +1927,57 @@ Next up: job lifecycle emails (prep-your-site checklist, meet-the-
 technician bio, completion summary, the 1-3 vs 4-5 star review gatekeeper),
 then the deeper engine features and retention campaigns, per the
 still-open items from the original feature list.
+
+## Fixed a real gap: there was no way to actually send a quote/invoice by email
+
+Found while about to test the reminder ladder: "Generate & share approval
+link" (both the quote and invoice detail screens) only ever handed the
+link to the native OS Share sheet - the admin had to manually pick an app
+themselves, which might not even be email, and none of it went through
+this app's own email infrastructure at all. Worse, that action was
+completely disconnected from the Status chip that actually matters -
+`schedule_quote_communications`/`schedule_invoice_communications` (the
+whole reminder-ladder engine built in the two prior migrations) only fires
+when `status` transitions to `'sent'`, which an admin sets independently
+by tapping a chip - so the ladder could silently never start (status
+flipped without anything ever being sent) or a document could genuinely be
+shared without the ladder ever kicking in (status never flipped).
+
+- **Two new manual trigger_keys** (`supabase/migrations/20260816000100_communication_engine_manual_send.sql`):
+  `quote_sent`/`invoice_sent` - same shape as `job_on_the_way`/
+  `job_review_request` (mobile-inserted, not touched by the auto-scheduling
+  triggers), admin-editable from Automation & Messaging Settings like every
+  other trigger_key. `quote_sent`'s seeded template includes the same
+  Accept/Decline button markup as the follow-up templates.
+- **New "Send Quote/Invoice via Email" button** on both detail screens
+  (`apps/mobile/app/(tabs)/sales/quotes/[id].tsx` and `.../invoices/
+  [id].tsx`, both admin-only) - looks up the tenant's `quote_sent`/
+  `invoice_sent` rule and template, inserts a `scheduled_communications`
+  row (Supabase-direct, since these screens are already online-only),
+  calls the same `lib/dispatch-now.ts` immediate-dispatch helper the job
+  screen's On The Way button uses, and **sets `status = 'sent'` in the same
+  action** - the two things that used to be separate, disconnectable steps
+  now always happen together. The old Share-sheet button is kept as a
+  fallback (no email on file, or the admin prefers texting/WhatsApp-ing it
+  themselves) - it no longer claims to be the primary way to send anything.
+  Requires the client to have an email on file; a clear inline error points
+  at Client Details if not.
+- **No separate `generate_quote_approval_link`/`generate_invoice_approval_link`
+  call needed from the mobile app** for the new button - the dispatcher's
+  `buildEntityContext` already calls that RPC internally whenever it
+  renders `{quote_accept_link}`/`{quote_decline_link}`/etc., so the token
+  (and the `approval_status = 'sent'` side effect that RPC has) gets
+  created as part of sending, not as a separate step.
+- **Verified from this sandbox**: the migration applies cleanly after all
+  20 prior migrations. Live-exercised: a fresh tenant seeds 13 trigger_keys
+  total (11 from the two prior migrations + these 2); inserting a manual
+  `quote_sent` row exactly the way the mobile button does, then flipping
+  `status` to `'sent'` afterward, correctly ALSO scheduled the normal
+  `quote_stage_1`/`quote_stage_2` follow-ups with no collision between the
+  manual row and the auto-scheduled ones (different trigger_keys, the
+  idempotency check is scoped per trigger_key, confirmed live).
+  `pnpm typecheck` passes clean across the whole workspace.
+- **NOT verified from this sandbox**: same caveat as the rest of this
+  engine - no real Resend account here to confirm an actual send from
+  tapping the new button, and the button itself hasn't been tapped on a
+  real device.
