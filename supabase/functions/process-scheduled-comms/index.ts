@@ -85,10 +85,30 @@ const QUIET_HOURS_TZ = "Australia/Sydney";
 // and bounded; a backlog beyond this just gets picked up on the next sweep.
 const BATCH_LIMIT = 50;
 
+// dispatchNow (unlike runSweep, which is only ever called server-side with
+// the service role key) is called directly from a browser - the desktop
+// app's own quote/invoice "Send via Email" buttons hit this function with
+// fetch() and the caller's session token. A browser fetch to a
+// cross-origin URL (any *.supabase.co function, from either
+// http://localhost:5173 or the deployed desktop domain) sends a CORS
+// preflight OPTIONS request first; with no CORS headers at all (as this
+// function had until now), the browser blocks the response before the
+// caller's own code ever sees it - triggerImmediateDispatch's try/catch
+// then swallows what looks like a generic network failure, silently
+// falling back to "queued, the cron sweep will get it". Mobile's
+// React Native fetch never hit this since RN has no same-origin policy to
+// enforce - this was invisible until the desktop app started calling the
+// same function from a real browser.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store" }),
+    headers: new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS_HEADERS }),
   });
 }
 
@@ -610,6 +630,7 @@ async function dispatchNow(req: Request, authHeader: string): Promise<Response> 
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: new Headers(CORS_HEADERS) });
   if (req.method !== "GET" && req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization") ?? "";

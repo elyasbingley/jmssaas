@@ -2680,3 +2680,125 @@ truly be secret):
   sections 9-10) - the snapshot upload path was verified at the SQL level
   only (a `job_files` row with the right shape), not through an actual
   Storage upload.
+
+## 12. Fixes from live desktop testing, and Price Book
+
+Three issues reported from a real desktop session, plus the Price Book
+screen.
+
+### Fix: CORS was silently blocking desktop's immediate email dispatch
+
+**Reported behavior**: "Send Quote via Email" always showed "The quote is
+marked sent and the email is queued" - never "has been sent" - and the
+email never actually arrived even after waiting well past the 5-minute
+cron sweep window.
+
+**Root cause**: `supabase/functions/process-scheduled-comms/index.ts` had
+no CORS headers at all. `dispatchNow` (the immediate-send path, used by
+both mobile's and desktop's "Send via Email" buttons) is called directly
+from the client with `fetch()` - fine from React Native, which has no
+same-origin policy to enforce, but a real problem from a browser: any
+cross-origin `fetch()` from the desktop app's origin
+(`http://localhost:5173` or its deployed domain) to `*.supabase.co`
+triggers a CORS preflight `OPTIONS` request first, and with zero CORS
+headers on the response, the browser blocks the actual request before the
+app's own code ever sees a result. `apps/desktop/src/lib/dispatch-now.ts`'s
+`triggerImmediateDispatch` catches this (it looks like a generic network
+failure) and returns `false`, exactly matching the "queued" message - the
+row genuinely is queued correctly, it's only the "send it right now"
+optimization that was silently failing every time, every single time,
+purely because of the browser's own CORS enforcement, not anything about
+this feature or the user's setup.
+
+This is why it only ever failed on desktop and not mobile, and why the
+cron sweep should still have eventually picked it up - if it also never
+arrived after several sweep intervals, that's worth checking separately:
+confirm `process-scheduled-comms` has its 5-minute `pg_cron` schedule
+actually set up (see section on Edge Functions in step 6 above; easy to
+verify by querying `cron.job_run_details` directly, the same diagnostic
+approach used earlier in this project's SMS/email debugging).
+
+**Fix**: added an `OPTIONS` preflight handler and `Access-Control-Allow-Origin: *`
+(plus the two other standard CORS headers) to every response the function
+returns. This needs to be **redeployed** to take effect:
+
+```bash
+npx supabase functions deploy process-scheduled-comms
+```
+
+### Fix: no confirmation after "Save changes" on Quote/Invoice detail
+
+**Reported behavior**: "I cannot edit quotes on desktop" / expiry date
+changes didn't appear to take.
+
+**Root cause**: not a persistence bug - the expiry date, notes, and line
+items are all genuinely saved together by the one "Save changes" button
+(same batching as mobile), and the update itself worked. The real problem
+was **silence**: the save mutation only ever showed something on
+*failure* (`saveError`), never on success - clicking Save and seeing
+nothing happen at all looks exactly like a broken save, whether or not it
+actually persisted.
+
+**Fix**: `QuoteDetail.tsx` and `InvoiceDetail.tsx` both now show a plain
+"Saved." confirmation for 3 seconds after a successful save, mirroring the
+existing pattern already used for "Link copied!" and the send-email
+result message on the same screens.
+
+### Fix: "Approval page URL not configured"
+
+Not a bug - `VITE_APPROVAL_PAGE_URL` genuinely wasn't set yet in this
+person's `apps/desktop/.env`. Same approval page mobile already uses (the
+one deployed to Netlify earlier in this project) - same value as
+`apps/mobile/.env`'s `EXPO_PUBLIC_APPROVAL_PAGE_URL`, just under the
+`VITE_` name. See `.env.example`.
+
+### Price Book
+
+- **`src/pages/PriceBook.tsx`** - category grid (tile per category,
+  matching mobile's tile-grid layout) + "New category" modal.
+- **`src/pages/PriceBookCategory.tsx`** - items grid for one category
+  (description + computed price per tile, via the same
+  `computeLineItemUnitPriceCents` mobile uses), rename-category modal,
+  "New item" modal (labour/material/markup fields + a live computed-price
+  preview, same as mobile's separate `items/new.tsx` route folded into a
+  modal here for consistency with how Clients/Jobs create-flows work on
+  desktop).
+- **`src/pages/PriceBookItem.tsx`** - full item editor (same fields,
+  "Save changes" with a confirmation, same as the Quote/Invoice fix
+  above), a variations list (click to edit in a modal, same
+  labour/material/markup fields, delete), and "Delete item".
+- No PowerSync involved anywhere, same as every other desktop screen -
+  plain Supabase queries, consistent with mobile's own price book screens
+  (already online-only there too, since price book data was scoped as
+  admin-managed catalogue data no technician needs offline - see mobile's
+  own `price-book/index.tsx` comment).
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **Every Price Book query and mutation was run directly against a fresh
+  local Postgres 16 instance** with all 23 migrations applied (same
+  throwaway-`auth`/`storage` setup as sections 9-11): category
+  create/rename, item create/update/delete, variation create/delete - all
+  confirmed to persist and read back with the exact column shapes
+  `packages/shared/src/types.ts` declares, including confirming a deleted
+  item no longer appears in its category's item list.
+- Loading `/price-book`, `/price-book/categories/<uuid>`, and
+  `/price-book/items/<uuid>` directly while signed out
+  (Playwright/Chromium) all correctly redirect to `/login` with no console
+  errors.
+- The CORS fix was verified by reading the Edge Function's own request
+  handling logic against how browsers actually enforce CORS preflights -
+  not by an actual browser round-trip against a deployed function (no
+  live Supabase project in this sandbox - same caveat as every Edge
+  Function change in this project until it's deployed and exercised for
+  real).
+
+### NOT verified from this sandbox
+
+- The CORS fix has not been deployed or exercised against a real browser
+  yet - needs `supabase functions deploy process-scheduled-comms` and a
+  real "Send via Email" click to confirm it actually resolves the
+  "queued, never sent" symptom.
+- No live Supabase project for Price Book either - same caveat as every
+  other desktop screen in this project.

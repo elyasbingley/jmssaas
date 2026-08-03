@@ -13,6 +13,9 @@ import QuoteDetailPage from "./pages/QuoteDetail";
 import InvoicesPage from "./pages/Invoices";
 import InvoiceNewPage from "./pages/InvoiceNew";
 import InvoiceDetailPage from "./pages/InvoiceDetail";
+import PriceBookPage from "./pages/PriceBook";
+import PriceBookCategoryPage from "./pages/PriceBookCategory";
+import PriceBookItemPage from "./pages/PriceBookItem";
 import { StubPage } from "./pages/Stub";
 
 export default function App() {
@@ -38,7 +41,9 @@ export default function App() {
                 <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
                 <Route path="/clients" element={<ClientsPage />} />
                 <Route path="/clients/:id" element={<ClientDetailPage />} />
-                <Route path="/price-book" element={<StubPage title="Price Book" />} />
+                <Route path="/price-book" element={<PriceBookPage />} />
+                <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
+                <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
                 <Route path="/calendar" element={<StubPage title="Calendar" />} />
                 <Route path="/team" element={<StubPage title="Team" />} />
                 <Route path="/settings" element={<StubPage title="Settings" />} />

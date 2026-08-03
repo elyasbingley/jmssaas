@@ -52,6 +52,7 @@ export default function InvoiceDetailPage() {
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [sendEmailError, setSendEmailError] = useState<string | null>(null);
@@ -94,6 +95,8 @@ export default function InvoiceDetailPage() {
     onSuccess: () => {
       invalidate();
       setSaveError(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     },
     onError: (e) => setSaveError(getErrorMessage(e, "Failed to save")),
   });
@@ -288,6 +291,7 @@ export default function InvoiceDetailPage() {
       </div>
 
       {saveError ? <p className="mt-2 text-sm text-red-600">{saveError}</p> : null}
+      {saved ? <p className="mt-2 text-sm text-green-700">Saved.</p> : null}
 
       {!isLocked ? (
         <button
