@@ -21,10 +21,23 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Same gap as process-scheduled-comms had (see its own comment, and
+// docs/SETUP.md section 12) - `supabase.functions.invoke()` is still a
+// browser fetch with a custom Authorization header, which triggers a CORS
+// preflight. Mobile's React Native call never hit this; the desktop
+// Team screen's browser call would fail outright with no fallback path
+// (unlike the email dispatcher, there's no "queue it for later" for
+// creating an account).
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store" }),
+    headers: new Headers({ "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS_HEADERS }),
   });
 }
 
@@ -50,6 +63,7 @@ function classifyCreateError(error: { code?: string; message?: string }): "email
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: new Headers(CORS_HEADERS) });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization");

@@ -21,7 +21,7 @@ import CalendarEventNewPage from "./pages/CalendarEventNew";
 import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
 import DispatchPage from "./pages/Dispatch";
-import { StubPage } from "./pages/Stub";
+import TeamPage from "./pages/Team";
 
 export default function App() {
   return (
@@ -52,7 +52,7 @@ export default function App() {
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/calendar/new" element={<CalendarEventNewPage />} />
                 <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
-                <Route path="/team" element={<StubPage title="Team" />} />
+                <Route path="/team" element={<TeamPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/dispatch" replace />} />
               </Routes>

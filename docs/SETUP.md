@@ -2984,3 +2984,85 @@ first pass"), now resolved:
   the single largest gap in this pass, flagged plainly rather than
   glossed over: an interactive drag feature is exactly the kind of thing
   that can typecheck perfectly and still feel wrong in the hand.
+
+## 15. Desktop: Team management
+
+Closes out every section of the original Phase 1 desktop scope list.
+
+### Fix: CORS on `create-technician`, found before it could bite
+
+While reading this function to port it, it had the exact same gap
+section 12 found and fixed in `process-scheduled-comms`: no CORS headers
+at all, and `supabase.functions.invoke()` is still a browser `fetch()`
+under the hood - a custom `Authorization` header always triggers a CORS
+preflight. Fixed proactively (same `CORS_HEADERS` + `OPTIONS` handler
+pattern) before building the screen that calls it, rather than shipping
+Team management and discovering it silently failing the way "Send via
+Email" did. One meaningful difference from the email case: there's no
+"queue it for later" fallback for creating an account - if this had
+shipped un-fixed, creating a technician from desktop would have failed
+outright with no graceful degradation at all, every single time. **Needs
+redeploying** along with the other function:
+
+```bash
+npx supabase functions deploy create-technician
+```
+
+### Team screen
+
+- **`src/pages/Team.tsx`** - direct port of `apps/mobile/app/team.tsx`:
+  lists technicians (name/email), "+ New technician" modal calling the
+  same `create-technician` Edge Function with the same
+  `createTechnicianSchema` client-side validation and the same
+  `FunctionsHttpError` error-code classification
+  (`email_taken`/`weak_password`/`forbidden`/`unauthorized`) mapped to
+  clear messages - ported near-verbatim since the logic has nothing
+  React-Native-specific in it.
+- No `isAdmin` gate on the page itself, same reasoning as Calendar/
+  Settings in section 13 - desktop is already admin-only via
+  `RequireAdmin`.
+- **`apps/desktop/src/pages/Stub.tsx` deleted** - with Team built, no
+  route in `App.tsx` references it anymore; removed rather than left as
+  dead code.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **The technician-creation path was verified at the trigger level**
+  against a fresh local Postgres 16 instance with all 23 migrations
+  applied: rather than re-testing `fetchTechnicians`'s plain select
+  (already verified multiple times in prior sections), this confirmed
+  the part specific to this screen - that `create-technician`'s
+  `adminClient.auth.admin.createUser()` call, simulated here as a direct
+  `auth.users` insert with the exact `raw_user_meta_data` shape the
+  function builds (`tenant_id`/`role: technician`/`full_name`), correctly
+  drives `handle_new_user()` to create a matching `profiles` row that
+  then shows up in the technician list query.
+- Loading `/team` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no console errors.
+
+### NOT verified from this sandbox
+
+- The CORS fix hasn't been deployed or exercised against a real browser
+  yet - needs `supabase functions deploy create-technician` and a real
+  "+ New technician" click to confirm it actually works end-to-end (not
+  just that the preflight now succeeds in theory).
+- No live Supabase project to actually create a real technician account
+  and confirm they can sign into the mobile app with it from this
+  sandbox.
+
+### What Phase 1 desktop now covers
+
+All nine items from the original scope list have a real screen: Login,
+Dispatch (drag-and-drop), Clients, Job cards (incl. photo upload and roof
+measurement), Quotes & Invoices, Price book, Job costing - **actually
+still open, see below** - Team, and Company Settings. Calendar was added
+alongside Dispatch since the two share `calendar_events` as their source
+of truth.
+
+**Job costing is the one item from the original desktop feature list
+that was never explicitly built as its own screen** - the quoted-vs-
+actual/margin report mobile has on its job card's Costing tab. Worth
+flagging plainly now that everything else is done: this wasn't skipped
+by accident, it just never came up as its own request during this run of
+passes, unlike every other item which got its own explicit go-ahead.
