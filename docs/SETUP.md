@@ -2294,3 +2294,101 @@ this lives):
   to Vercel yet either - the steps above are written from the existing
   `bingleyroof.com.au` pattern and Vercel's documented monorepo behavior,
   not from having actually clicked through a deploy for this app.
+
+## 9. Desktop app - Clients and Job cards screens
+
+First real feature slice on top of the foundation above, per the user's
+own choice ("Clients + Job cards" over Dispatch/Quotes+Invoices/Price book
+as the starting point - lowest risk, and everything else depends on
+clients/jobs existing).
+
+### What's built
+
+- **`src/pages/Clients.tsx`** - list (client-side name search, matching
+  the "filter in JS over an already-fetched result set" convention used
+  throughout mobile) + a "New client" modal. `src/pages/ClientDetail.tsx`
+  - view, an "Edit" modal (same field set as create), and that client's
+  jobs with a "New job" modal scoped to it. Field set mirrors
+  `apps/mobile/app/(tabs)/sales/clients/{index,[id]}.tsx` exactly (name,
+  phone, email, address lines, notes).
+- **`src/pages/Jobs.tsx`** - list with the same category/stage filter
+  chips + 4-way sort (created/scheduled/category/stage) as
+  `apps/mobile/app/(tabs)/sales/jobs/index.tsx`, plus a "New job" modal
+  with a client picker. `src/pages/JobDetail.tsx` - status/category/
+  stage/technician as inline `<select>`s that save on change (no separate
+  "Edit" modal needed here, unlike the client screen, since these are all
+  single-value pickers rather than a multi-field form), a Notes section
+  (add + list, oldest-last), and a read-only Photos grid.
+- **Photos are view-only by design** - per the brief ("viewing photos
+  already uploaded from mobile is useful, capturing new ones from a
+  desktop webcam is not a priority"). Each thumbnail is a short-lived
+  (1 hour) Supabase Storage signed URL, generated client-side via
+  `supabase.storage.from("job-files").createSignedUrl(...)` - the
+  `job-files` bucket is private (see
+  `supabase/migrations/20260720000300_storage.sql`), so a plain public
+  URL wouldn't work even if hardcoded.
+- **`src/components/Modal.tsx` / `FormField.tsx`** - small shared
+  primitives (centered modal, labelled input/textarea/select) now used
+  across both Clients and Jobs, justified now that a second screen needs
+  them - mirrors mobile's own `CenteredModal`/`FormField` split, just
+  reimplemented in HTML/Tailwind instead of React Native.
+- **No job costing tab, no Communication Log, no Tasks sub-list on this
+  screen** - all present on mobile's much larger `jobs/[id].tsx` (890
+  lines) but out of scope here: job costing is its own separate item in
+  the Phase 1 desktop feature list (#7), and Communication Log/Tasks
+  weren't called out as part of "Job cards — list, create, edit, notes."
+  Worth adding if this screen becomes the primary place admins work from.
+- **No offline/PowerSync anywhere in either screen** - every list and
+  mutation is a direct `@supabase/supabase-js` call through React Query
+  (`useQuery`/`useMutation`), consistent with the whole app's
+  architecture. Unlike mobile's `usePowerSync`/`useQuery` (PowerSync's own
+  reactive local-SQLite hook), nothing here updates live if changed from
+  another tab/device - a mutation success handler explicitly
+  `invalidateQueries`s the relevant list to refetch, and there's no
+  cross-tab realtime subscription. Fine for an admin-only, mostly-single-
+  operator app for now; worth a Supabase Realtime subscription later if
+  multiple admins end up using this concurrently.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` passes clean across the whole workspace, and
+  `pnpm --filter desktop build` (the real `tsc --noEmit && vite build`
+  production build, not just typecheck) succeeds - confirms no dead
+  imports/build-time issues beyond what `tsc` alone catches.
+- **All 23 migrations applied cleanly to a fresh local Postgres 16
+  database** (with minimal `auth.users`/`auth.uid()`/`storage.objects`/
+  `storage.foldername()` stubs, since a plain Postgres instance has
+  neither GoTrue nor Storage - this only stands in for the schema/
+  trigger layer, not real auth or file storage). Every query the two new
+  screens issue was then run directly against that real schema, using
+  the tenant-creation trigger flow from step 3 above (not hand-written
+  profile rows) to catch drift between it and what's assumed here:
+  `SELECT`/`INSERT`/`UPDATE` on `clients`, `SELECT`/`INSERT`/`UPDATE` on
+  `job_cards` (including the category/stage/technician patch fields),
+  `SELECT` on `service_categories`/`job_lifecycle_stages`/`profiles`
+  (technician filter), and `INSERT`/`SELECT` on `job_notes`. All returned
+  the exact column set `packages/shared/src/types.ts` declares - this
+  matters because that file is hand-maintained (see its own top-of-file
+  comment) and could in principle have drifted from the real migrations;
+  it hasn't. The auto-generated job `number` (`J001`, `J002`, ...)
+  confirmed the sequential-numbering trigger from the mobile pass still
+  fires correctly when a row is inserted this way.
+- Loading `/clients` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no console errors - confirms the
+  new routes are properly wrapped by `RequireAdmin` and didn't
+  accidentally leak outside `App.tsx`'s guarded route tree.
+
+### NOT verified from this sandbox
+
+- **No live click-through against a real Supabase project** - same
+  caveat as the foundation pass. The SQL-level verification above proves
+  the queries are shaped correctly against the real schema, but not that
+  RLS grants the right access to an authenticated admin session, that
+  Storage signed URLs actually resolve to a viewable image, or that the
+  UI behaves correctly with real network latency/errors. Worth a manual
+  pass through both screens against a real project before relying on them
+  day-to-day.
+- **Bundle size warning** - `vite build` warns the single JS chunk is
+  ~696 kB (188 kB gzipped), over Rollup's 500 kB default threshold. Not a
+  correctness issue and not fixed here; worth revisiting with route-based
+  code-splitting once there are enough screens for it to matter.
