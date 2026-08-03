@@ -22,6 +22,7 @@ import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
 import DispatchPage from "./pages/Dispatch";
 import TeamPage from "./pages/Team";
+import JobCostingPage from "./pages/JobCosting";
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="/price-book" element={<PriceBookPage />} />
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
                 <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
+                <Route path="/job-costing" element={<JobCostingPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/calendar/new" element={<CalendarEventNewPage />} />
                 <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />

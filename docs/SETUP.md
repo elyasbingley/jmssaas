@@ -3066,3 +3066,73 @@ actual/margin report mobile has on its job card's Costing tab. Worth
 flagging plainly now that everything else is done: this wasn't skipped
 by accident, it just never came up as its own request during this run of
 passes, unlike every other item which got its own explicit go-ahead.
+
+## 16. Desktop: Job Costing report
+
+Closes that last gap. Built as a genuinely different shape from mobile's
+version, not a straight port - per the original brief's own note that "a
+bigger screen suits a denser report layout."
+
+### One screen, not a tab - and cross-job, not per-job
+
+Mobile's Job Costing lives as a tab on a single job's detail screen -
+open one job, see its margin. `src/pages/JobCosting.tsx` is a new
+top-level nav item (added to the Sales section in `Layout.tsx`) that
+shows **every** job with a linked quote or invoice at once, one row per
+job, sortable by margin %/margin $/total charged/job number, with a
+grand-total footer row. That's a genuinely more useful report for an
+admin surveying the whole business than mobile's screen could ever be -
+not just the same information reached differently.
+
+### Same math as mobile, not a redesign of it
+
+The per-job numbers - labour cost, material cost, total charged, margin,
+margin % - use the exact same `lineItemLabourCostCents`/
+`lineItemMaterialCostCents` helpers and the same `chargedCents -
+(labourCents + materialCents)` margin formula as
+`apps/mobile/app/(tabs)/sales/jobs/[id].tsx`'s Costing tab, copied
+verbatim rather than reimplemented from scratch. That includes carrying
+over its two documented caveats unchanged, not fixing them:
+
+- **Margin slightly overstates the true figure** - total charged is each
+  document's GST-inclusive `total_cents`, while labour/material cost are
+  GST-exclusive, so margin here includes the GST slice of revenue.
+- **A quote converted to an invoice is counted under both** - both stay
+  linked to the job (`job_card_id` on each), so a converted quote's line
+  items get summed twice. Mobile's own comment already flags the fix (filter
+  out quotes with a matching invoice) as a deliberate non-fix for now; this
+  page carries the same choice forward rather than diverging from mobile's
+  behavior. A one-line footer note on the page makes both caveats visible
+  to whoever's reading the report, rather than only living in a code
+  comment.
+- Jobs with **no** linked quote or invoice are simply omitted from the
+  table (nothing to report), rather than mobile's "No quotes or invoices
+  linked to this job yet" empty-state message, which only made sense in
+  the context of one job already being open.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **The aggregate math was checked by hand against a fresh local
+  Postgres 16 instance** (all 23 migrations applied, same setup as prior
+  sections): seeded one job with a quote (accepted, $660 total, one line
+  item - $80/hr x 5hrs labour + $200 material) that was converted to an
+  invoice carrying the identical line item (as a real conversion would
+  copy it) - then computed the expected aggregate by hand (labour $800,
+  material $400, charged $1,320, margin $120, margin 9.09%) and confirmed
+  it via direct SQL matches exactly what the page's own reduce logic
+  would produce, including reproducing the documented double-count
+  behavior on purpose (not a bug the SQL happened to reveal - the exact
+  behavior mobile already has and this page intentionally kept).
+- Loading `/job-costing` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no console errors.
+
+### NOT verified from this sandbox
+
+- No live Supabase project - same caveat as every screen in this
+  project: the query shapes and aggregate math are confirmed correct
+  against the real schema, but the actual table rendering, sort buttons,
+  and search filter haven't been clicked through in a real browser
+  against real data.
+
+This closes every item from the original Phase 1 desktop scope list.

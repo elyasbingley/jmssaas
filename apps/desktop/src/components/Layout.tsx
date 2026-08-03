@@ -15,6 +15,7 @@ const navSections = [
       { to: "/invoices", label: "Invoices" },
       { to: "/clients", label: "Clients" },
       { to: "/price-book", label: "Price Book" },
+      { to: "/job-costing", label: "Job Costing" },
     ],
   },
   {
