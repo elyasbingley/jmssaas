@@ -68,6 +68,12 @@ export interface PlaceholderScheduleContext {
   eta_minutes: number | null;
 }
 
+export interface PlaceholderNteContext {
+  limit_cents: number;
+  current_total_cents: number;
+  approval_link: string | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
@@ -75,6 +81,7 @@ export interface PlaceholderContext {
   quote?: PlaceholderQuoteContext;
   invoice?: PlaceholderInvoiceContext;
   schedule?: PlaceholderScheduleContext;
+  nte?: PlaceholderNteContext;
 }
 
 function formatDateAu(dateString: string | null | undefined): string {
@@ -128,6 +135,13 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.eta_minutes = context.schedule.eta_minutes != null ? String(context.schedule.eta_minutes) : "";
   }
 
+  if (context.nte) {
+    tokens.nte_limit = formatCentsAsAud(context.nte.limit_cents);
+    tokens.nte_current_total = formatCentsAsAud(context.nte.current_total_cents);
+    tokens.nte_exceeded_by = formatCentsAsAud(context.nte.current_total_cents - context.nte.limit_cents);
+    tokens.nte_approval_link = context.nte.approval_link ?? "";
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -168,6 +182,10 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "booking_date",
   "booking_start_time",
   "eta_minutes",
+  "nte_limit",
+  "nte_current_total",
+  "nte_exceeded_by",
+  "nte_approval_link",
   "company_name",
   "company_phone",
   "company_email",

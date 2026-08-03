@@ -141,7 +141,12 @@ function renderHeader(docType: "quote" | "invoice", docNumber: string, balanceDu
   `;
 }
 
-function renderBillTo(client: Client): string {
+// agencyBilling overrides just the name line to "Owner/Landlord c/- Agency"
+// for a real-estate job's invoice (see Workflow 4 in the Real Estate &
+// Strata spec) - the rest of the block (address/phone/email) still comes
+// from the invoice's own `clients` row, same as any other invoice, since
+// that's still where this schema's contact details live.
+function renderBillTo(client: Client, agencyBilling?: { ownerLandlordName: string | null; agencyName: string }): string {
   const addressLines = formatAddressLines({
     line1: client.address_line1,
     line2: client.address_line2,
@@ -149,10 +154,11 @@ function renderBillTo(client: Client): string {
     state: client.state,
     postcode: client.postcode,
   });
+  const billToName = agencyBilling ? `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}` : client.name;
   return `
     <div>
       <div class="bill-to-label">Bill To</div>
-      <div class="bill-to-name">${escapeHtml(client.name)}</div>
+      <div class="bill-to-name">${escapeHtml(billToName)}</div>
       ${addressLines.map((line) => `<div class="bill-to-detail">${escapeHtml(line)}</div>`).join("")}
       ${client.phone ? `<div class="bill-to-detail">${escapeHtml(client.phone)}</div>` : ""}
       ${client.email ? `<div class="bill-to-detail">${escapeHtml(client.email)}</div>` : ""}
@@ -253,8 +259,14 @@ export function buildQuotePdfHtml(params: { tenant: Tenant; quote: Quote; client
 </html>`;
 }
 
-export function buildInvoicePdfHtml(params: { tenant: Tenant; invoice: Invoice; client: Client; lineItems: LineItemFormInput[] }): string {
-  const { tenant, invoice, client, lineItems } = params;
+export function buildInvoicePdfHtml(params: {
+  tenant: Tenant;
+  invoice: Invoice;
+  client: Client;
+  lineItems: LineItemFormInput[];
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string };
+}): string {
+  const { tenant, invoice, client, lineItems, agencyBilling } = params;
   // Invoices don't have their own persisted "terms" field distinct from
   // notes (see docs/SETUP.md known-gaps) - the reference template's "terms"
   // line is derived from due_date rather than a fabricated new column.
@@ -273,7 +285,7 @@ export function buildInvoicePdfHtml(params: { tenant: Tenant; invoice: Invoice; 
     ${renderHeader("invoice", invoice.invoice_number, balanceDueCents, tenant)}
 
     <div class="meta-row">
-      ${renderBillTo(client)}
+      ${renderBillTo(client, agencyBilling)}
       <div class="dates-block">
         <div class="date-row"><span class="date-label">Invoice date</span><span class="date-value">${formatDate(invoice.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Terms</span><span class="date-value">${escapeHtml(terms)}</span></div>

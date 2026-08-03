@@ -3859,3 +3859,150 @@ this one forward should use the `app_test` role, not `postgres` directly.
 - The 4:00pm banner's exact visual appearance (it was verified by reading
   the code's time comparison logic, not by advancing a real clock past
   4pm in a live browser session).
+
+## 26. Real Estate & Strata module - Batch 2 (NTE guardrail, key tracking, agency-compliant invoicing)
+
+**NTE (Not-To-Exceed) guardrail and PM approval** (`real_estate_nte_and_invoicing`
+migration): three new `job_cards` columns (`nte_variation_token`,
+`nte_variation_token_expires_at`, `nte_variation_resolved_at`) and three new
+RPCs, reusing the exact token pattern already built for quote/invoice
+digital acceptance rather than a new mechanism - `generate_job_nte_variation_link`
+(SECURITY INVOKER, subject to the existing "job_cards: update own or admin"
+RLS policy, so an admin or the job's own assigned technician can call it),
+`get_nte_variation_for_approval`/`approve_nte_variation_by_token`
+(SECURITY DEFINER, granted to `anon` since the PM clicking an emailed link
+has no session). Unlike quote/invoice approval there's only one resolution
+(approve) - a PM declining doesn't change what the job needs to do
+differently, so there's no decline path.
+
+Both apps now show a job's real-estate metadata (agency/PM/property badge,
+work order #, NTE limit, over-budget status) - desktop's `JobDetail.tsx`
+and `Jobs.tsx`'s creation modal (with cascading Agency -> PM -> Property
+pickers, the closest honest equivalent of "auto-suggests the matching
+Property/PM/Agency" without an OCR engine to parse an uploaded work order),
+and mobile's `jobs/[id].tsx`. Mobile's `handleStageChange` blocks entering
+a closed (job-done) stage when `totalChargedCents` (already computed for
+the existing Job Costing tab) exceeds `nte_limit_cents` and
+`nte_exceeded_approved` is still false - a modal explains the overage and
+offers "Request NTE Variation", which calls `generate_job_nte_variation_link`,
+emails the property manager (not the client - a dedicated send path, not a
+reuse of the existing `queueScheduledCommunication` helper, since the
+recipient audience is different) via the new `job_nte_variation_request`
+trigger_key with the real approval link already rendered into the message
+body, same "render before insert" approach already used for
+`{tech_first_name}`/`{eta_minutes}`.
+
+The approval page itself (`supabase/static/approval-page.html`) gained a
+third `type=nte_variation` branch alongside the existing quote/invoice
+one - simpler rendering (no line items table), a single "Approve this
+variation" button, no name/reason fields. The `approve` Edge Function
+routes `nte_variation` to its own `get_${type}_for_approval`/
+`approve_nte_variation_by_token` calls rather than the generic accept/
+decline branch quote/invoice use, since NTE only has the one action.
+
+**Key Tracking Lifecycle, mobile side** (Workflow 3 - the Batch 1 Key
+Management Dashboard only covered the desktop/admin view): mobile's job
+screen shows the property's key tag number and, depending on the most
+recent `key_logs` row for this job, a "Keys Picked Up" / "Mark In Van" /
+"Mark Returned" action. Entering a closed stage with an outstanding
+(not yet returned) key log prompts "Did you return Key Tag #X to
+[Agency]?" alongside the existing review-request prompt. `key_logs` isn't
+a PowerSync table (same "office reference data, fetched online" treatment
+as `agencies`/`properties`/`property_managers`), so all of this needs
+connectivity - a disclosed limitation, not an oversight.
+
+**Agency-compliant invoicing** (Workflow 4): desktop's `InvoiceDetail.tsx`
+computes `agencyComplianceError` when the linked job `is_real_estate_job`,
+its agency `require_work_order_num`, and no `work_order_number` is set -
+checked before Export PDF, Send via Email, or Generate Approval Link can
+run (at the point the invoice actually goes out, not at creation time,
+since the work order number may still be legitimately pending entry
+until then). `quote-invoice-pdf.ts`'s `renderBillTo` gained an optional
+`agencyBilling` override that swaps the Bill To name line for
+"`{owner_landlord_name}` c/- `{agency.name}`" when set, wired through
+`buildInvoicePdfHtml`'s new optional `agencyBilling` param. Photo/
+certificate email attachments (also mentioned in Workflow 4) are out of
+scope for this batch - not called out in the acceptance criteria, and
+would need real Storage-fetching + base64 + Resend attachment wiring in
+`process-scheduled-comms`; flagged here rather than silently dropped.
+
+**A pre-existing bug found while writing this migration, not fixed here**:
+`communication_templates` has no unique constraint covering
+`(tenant_id, trigger_key[, type])`, and `seed_default_communication_templates`'s
+INSERT has no `ON CONFLICT` guard, unlike `communication_rules`' own
+`on conflict (tenant_id, trigger_key) do nothing`. Every migration that
+redefines this function and re-calls it in its own backfill DO block (six
+so far, this one now the seventh) re-inserts the *full* template list for
+every tenant that already existed at that point - for a tenant that's
+existed since early in this schema's history (e.g. any real production
+tenant that predates several of these migrations), duplicate template
+rows accumulate with each one. This migration follows the same
+established pattern rather than unilaterally changing shared seeding
+behaviour as a side effect of an unrelated feature. A real fix would add
+a unique index (e.g. `(tenant_id, trigger_key, type)`) and an
+`ON CONFLICT DO NOTHING` to the templates insert, then de-duplicate any
+already-accumulated rows for existing tenants - worth doing as its own
+follow-up, not bundled into this batch.
+
+**Also found and fixed while writing this migration**: an earlier draft of
+this migration's `seed_default_communication_templates` redefinition only
+listed the one new template (`job_nte_variation_request`) instead of the
+full cumulative list every prior migration carries forward - since
+`create or replace function` fully replaces the function body, that draft
+would have silently stopped seeding all ~17 other templates for any new
+tenant created after this migration. Caught before verification by
+re-reading the previous migration's full function body and diffing
+against it; fixed by carrying the complete list forward, matching
+established convention.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter desktop build`, and `pnpm --filter mobile
+  typecheck` all pass clean.
+- Fresh local Postgres 16 database, all 26 real migrations applied in
+  order. Seeded a tenant, admin, two technicians (one assigned to a real-
+  estate job, one not), a client, an agency (`require_work_order_num =
+  true`), a property manager, a property, a real-estate job with a
+  `nte_limit_cents` of $300 and a linked quote totalling $440 (i.e.
+  genuinely over budget), all inserted through a throwaway non-superuser
+  `app_test` role so RLS is actually enforced (see Batch 1's write-up for
+  why `postgres`-as-superuser was the wrong way to "verify" this).
+  - Confirmed the tenant's `communication_rules`/`communication_templates`
+    seeded all 18 trigger_keys (not just the new one), confirming the
+    "carry the full list forward" fix actually worked.
+  - As the admin: `generate_job_nte_variation_link` returns a token,
+    `get_nte_variation_for_approval` returns the expected job/agency/
+    property/limit/current-total shape, `approve_nte_variation_by_token`
+    sets `nte_exceeded_approved = true` and `nte_variation_resolved_at`,
+    a second approve attempt correctly returns `already_resolved`, and an
+    unknown token correctly returns `not_found`.
+  - As the assigned technician: confirmed they can also call
+    `generate_job_nte_variation_link` for their own job (the RLS policy
+    it relies on already allows this).
+  - As a different, unassigned technician: confirmed calling
+    `generate_job_nte_variation_link` for a job that isn't theirs raises
+    "not found or not permitted" (the underlying RLS-scoped UPDATE
+    affects 0 rows, which the function's own row-count check turns into
+    an explicit error).
+  - Confirmed the invoice agency-compliance join (`job_cards.is_real_estate_job`/
+    `work_order_number` + `agencies.require_work_order_num`) and the
+    Billed To header join (`properties.owner_landlord_name` +
+    `agencies.name`) both return the exact shape the desktop code reads.
+  - Database and the `app_test` role both dropped after, no state left
+    behind.
+- Playwright/Chromium smoke test with placeholder `.env`: `/invoices/:id`
+  and `/jobs/:id` both still correctly redirect to `/login` when signed
+  out, with no unexpected console errors (the usual one-time favicon
+  404). Dev server killed and `.env` deleted after.
+
+### NOT verified from this sandbox
+
+- Actually triggering the mobile guardrail modal, sending a real NTE
+  variation email, a PM clicking the link on the approval page, and the
+  job unblocking after approval all need a real signed-in session and a
+  deployed Edge Function/static page against a real Supabase project;
+  this sandbox has no such backend.
+- The key pickup/in-van/return buttons' and the "did you return the key"
+  prompt's actual on-device behaviour (verified by reading the code, not
+  by running the Expo app).

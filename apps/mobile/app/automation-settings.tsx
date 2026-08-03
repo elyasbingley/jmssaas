@@ -64,6 +64,10 @@ const TRIGGER_GROUPS: { title: string; keys: string[] }[] = [
     title: "Retention",
     keys: ["maintenance_reminder", "dormant_client_reengagement"],
   },
+  {
+    title: "Real Estate & Strata",
+    keys: ["job_nte_variation_request"],
+  },
 ];
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -84,6 +88,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   job_review_request: "Review request",
   maintenance_reminder: "Maintenance reminder",
   dormant_client_reengagement: "Dormant client re-engagement",
+  job_nte_variation_request: "NTE variation request",
 };
 
 // What the delay is measured relative to - used to build a plain-English
@@ -107,6 +112,7 @@ const TRIGGER_ANCHORS: Record<string, string> = {
   job_prep_checklist: "the job's scheduled visit",
   job_completion_summary: "the job is completed",
   job_review_request: "the job is completed",
+  job_nte_variation_request: "sent",
 };
 
 const UNIT_OPTIONS: CommunicationDelayUnit[] = ["hours", "days"];

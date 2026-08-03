@@ -10,6 +10,7 @@ import {
   createTaskSchema,
   formatCentsAsAud,
   renderTemplate,
+  type Agency,
   type Client,
   type CommunicationRule,
   type CommunicationTemplate,
@@ -18,6 +19,9 @@ import {
   type JobCard,
   type JobLifecycleStage,
   type JobNote,
+  type KeyLog,
+  type Property,
+  type PropertyManager,
   type Quote,
   type QuoteLineItem,
   type ServiceCategory,
@@ -142,6 +146,83 @@ export default function JobDetailScreen() {
   }, [id, isOnline]);
   useRefetchOnFocus(refetchInvoices);
 
+  // Real Estate & Strata module - agencies aren't a PowerSync table (same
+  // "office reference data, fetched online" treatment as quotes/invoices
+  // above), only needed here for the NTE guardrail's "PM approval required"
+  // wording and the Request NTE Variation flow below.
+  const { data: agency } = useSupabaseFetch<Agency | null>(async () => {
+    if (!isOnline || !job?.agency_id) return null;
+    const { data, error } = await supabase.from("agencies").select("*").eq("id", job.agency_id).single();
+    if (error) throw error;
+    return data as Agency;
+  }, [isOnline, job?.agency_id]);
+  const { data: propertyManager } = useSupabaseFetch<PropertyManager | null>(async () => {
+    if (!isOnline || !job?.property_manager_id) return null;
+    const { data, error } = await supabase.from("property_managers").select("*").eq("id", job.property_manager_id).single();
+    if (error) throw error;
+    return data as PropertyManager;
+  }, [isOnline, job?.property_manager_id]);
+  const { data: property } = useSupabaseFetch<Property | null>(async () => {
+    if (!isOnline || !job?.property_id) return null;
+    const { data, error } = await supabase.from("properties").select("*").eq("id", job.property_id).single();
+    if (error) throw error;
+    return data as Property;
+  }, [isOnline, job?.property_id]);
+
+  // Key Tracking Lifecycle - see Workflow 3 of the Real Estate & Strata
+  // spec. key_logs isn't a PowerSync table (same online-only treatment as
+  // agencies/properties above), so pickup/in-van/return all need
+  // connectivity - a real, disclosed limitation (see docs/SETUP.md), not
+  // an oversight.
+  const { data: keyLog, refetch: refetchKeyLog } = useSupabaseFetch<KeyLog | null>(async () => {
+    if (!isOnline || !job) return null;
+    const { data, error } = await supabase
+      .from("key_logs")
+      .select("*")
+      .eq("job_id", job.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data as KeyLog | null;
+  }, [isOnline, job?.id]);
+  useRefetchOnFocus(refetchKeyLog);
+
+  const [keyActionError, setKeyActionError] = useState<string | null>(null);
+
+  const handleKeyPickedUp = async () => {
+    if (!profile || !job?.property_id || !property?.key_tag_number) return;
+    setKeyActionError(null);
+    const { error } = await supabase.from("key_logs").insert({
+      tenant_id: profile.tenant_id,
+      property_id: job.property_id,
+      job_id: job.id,
+      technician_id: profile.id,
+      key_tag_number: property.key_tag_number,
+      status: "picked_up",
+      picked_up_at: new Date().toISOString(),
+    });
+    if (error) {
+      setKeyActionError(error.message);
+      return;
+    }
+    refetchKeyLog();
+  };
+
+  const handleKeyStatusChange = async (nextStatus: "in_van" | "returned") => {
+    if (!keyLog) return;
+    setKeyActionError(null);
+    const { error } = await supabase
+      .from("key_logs")
+      .update(nextStatus === "returned" ? { status: nextStatus, returned_at: new Date().toISOString() } : { status: nextStatus })
+      .eq("id", keyLog.id);
+    if (error) {
+      setKeyActionError(error.message);
+      return;
+    }
+    refetchKeyLog();
+  };
+
   const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
   const isAdmin = profile?.role === "admin";
 
@@ -189,6 +270,12 @@ export default function JobDetailScreen() {
   const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
   const totalChargedCents = costingDocs.reduce((sum, doc) => sum + doc.total_cents, 0);
+  // NTE (Not-To-Exceed) guardrail - see Workflow 2 of the Real Estate &
+  // Strata spec. totalChargedCents above already sums every quote/invoice
+  // linked to this job regardless of which tab is open (only the line-item
+  // breakdown queries are gated on activeTab === "costing"), so this check
+  // is safe to run even from the Details tab where stage changes happen.
+  const isNteExceeded = job?.is_real_estate_job && job.nte_limit_cents != null && totalChargedCents > job.nte_limit_cents;
   // Margin here is "charged minus cost", i.e. it treats the line item
   // markup% as the margin - matching how computeLineItemUnitPriceCents
   // already builds markup into the rate. Total charged is GST-inclusive
@@ -327,8 +414,22 @@ export default function JobDetailScreen() {
     await powersync.execute("UPDATE job_cards SET service_category_id = ? WHERE id = ?", [next?.id ?? null, id]);
   };
 
+  const [nteModalVisible, setNteModalVisible] = useState(false);
+  const [nteRequesting, setNteRequesting] = useState(false);
+  const [nteRequestError, setNteRequestError] = useState<string | null>(null);
+
   const handleStageChange = async (next: JobLifecycleStage | null) => {
     const wasClosed = stage?.is_closed ?? false;
+    // NTE guardrail: block entering a closed (job-done) stage while over
+    // budget and not yet PM-approved - see Workflow 2 of the Real Estate &
+    // Strata spec. Checked before the UPDATE runs, not after, so an
+    // over-budget job never actually reaches the closed stage in the first
+    // place (no undo needed).
+    if (next?.is_closed && !wasClosed && isNteExceeded && !job?.nte_exceeded_approved) {
+      setNteRequestError(null);
+      setNteModalVisible(true);
+      return;
+    }
     await powersync.execute("UPDATE job_cards SET lifecycle_stage_id = ? WHERE id = ?", [next?.id ?? null, id]);
     // Same "just finished" moment the old status picker's completed check
     // used to catch - now keyed off entering any is_closed stage (not just
@@ -351,6 +452,84 @@ export default function JobDetailScreen() {
           },
         },
       ]);
+    }
+    // Key Tracking Lifecycle step 3 (see Workflow 3 of the Real Estate &
+    // Strata spec) - prompt for the key's return the same "just finished"
+    // moment the review-request prompt above fires on, only when there's
+    // an actual outstanding (not yet returned) key log for this job.
+    if (next?.is_closed && !wasClosed && keyLog && keyLog.status !== "returned") {
+      Alert.alert(
+        "Return key?",
+        `Did you return Key Tag #${keyLog.key_tag_number} to ${agency?.name ?? "the agency"}?`,
+        [
+          { text: "Not yet", style: "cancel" },
+          { text: "Yes, returned", onPress: () => handleKeyStatusChange("returned") },
+        ]
+      );
+    }
+  };
+
+  // Requests PM sign-off on the over-budget amount - see Workflow 2 of the
+  // Real Estate & Strata spec. Unlike queueScheduledCommunication above,
+  // the recipient here is the property manager (not the client), so this
+  // doesn't reuse that helper - it builds its own scheduled_communications
+  // row with the {nte_*} tokens already rendered, same "render before
+  // insert" approach queueScheduledCommunication uses for {tech_first_name}/
+  // {eta_minutes}. Requires connectivity (unlike the queue-only helpers
+  // above) since generating the token itself is a real Postgres round trip
+  // (generate_job_nte_variation_link), not something that can be queued
+  // offline the way a plain scheduled_communications insert can.
+  const handleRequestNteVariation = async () => {
+    if (!profile || !job || !isOnline) {
+      setNteRequestError("Requesting a variation needs an internet connection.");
+      return;
+    }
+    setNteRequesting(true);
+    setNteRequestError(null);
+    try {
+      const approvalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+      if (!approvalPageUrl) {
+        throw new Error("Approval page URL not configured - set EXPO_PUBLIC_APPROVAL_PAGE_URL in .env (see docs/SETUP.md)");
+      }
+      const rule = communicationRules.find((r) => r.trigger_key === "job_nte_variation_request");
+      if (!rule || !rule.is_enabled) {
+        throw new Error("The 'NTE Variation Request' message is turned off in Settings > Automation & Messaging");
+      }
+      const matchingTemplates = communicationTemplates.filter(
+        (t) => t.trigger_key === "job_nte_variation_request" && t.is_active && (rule.channel === "both" || rule.channel === t.type)
+      );
+      if (matchingTemplates.length === 0) throw new Error("No active 'NTE Variation Request' message template found");
+
+      const recipientEmail = propertyManager?.email ?? agency?.billing_email ?? "";
+      if (!recipientEmail) {
+        throw new Error("No property manager or agency billing email on file to send this to.");
+      }
+
+      const { data: token, error: tokenError } = await supabase.rpc("generate_job_nte_variation_link", { p_job_id: job.id });
+      if (tokenError) throw tokenError;
+      const approvalLink = `${approvalPageUrl}?type=nte_variation&token=${token}`;
+      const nteContext = { limit_cents: job.nte_limit_cents ?? 0, current_total_cents: totalChargedCents, approval_link: approvalLink };
+
+      const now = new Date().toISOString();
+      for (const template of matchingTemplates) {
+        const renderedBody = renderTemplate(template.body, { nte: nteContext });
+        const renderedSubject = template.subject ? renderTemplate(template.subject, { nte: nteContext }) : null;
+        const rowId = uuidv4();
+        await powersync.execute(
+          `INSERT INTO scheduled_communications
+             (id, tenant_id, entity_type, entity_id, trigger_key, template_id, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for, status, created_at)
+           VALUES (?, ?, 'job', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+          [rowId, profile.tenant_id, job.id, "job_nte_variation_request", template.id, template.type, recipientEmail, renderedSubject, renderedBody, now, now]
+        );
+        await triggerImmediateDispatch(rowId);
+      }
+
+      setNteModalVisible(false);
+      Alert.alert("Sent", "The budget variation request has been emailed to the property manager for approval.");
+    } catch (e) {
+      setNteRequestError(e instanceof Error ? e.message : "Failed to send the variation request");
+    } finally {
+      setNteRequesting(false);
     }
   };
 
@@ -470,6 +649,44 @@ export default function JobDetailScreen() {
               <Text style={styles.clientCardMeta}>{formatClientAddress(client)}</Text>
             ) : null}
           </Pressable>
+        ) : null}
+
+        {job.is_real_estate_job ? (
+          <View style={styles.agencyCard}>
+            <Text style={styles.agencyBadge}>AGENCY JOB</Text>
+            {agency ? <Text style={styles.clientCardName}>{agency.name}</Text> : null}
+            {job.work_order_number ? <Text style={styles.clientCardMeta}>Work order: {job.work_order_number}</Text> : null}
+            {job.nte_limit_cents != null ? (
+              <Text style={styles.clientCardMeta}>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</Text>
+            ) : null}
+            {isNteExceeded ? (
+              <Text style={styles.nteExceededText}>
+                {job.nte_exceeded_approved ? "Over NTE limit - variation approved" : "Over NTE limit - PM approval required to complete"}
+              </Text>
+            ) : null}
+
+            {property?.key_tag_number ? (
+              <View style={styles.keyRow}>
+                <Text style={styles.clientCardMeta}>
+                  Key: {property.key_tag_number} {keyLog ? `(${keyLog.status.replace("_", " ")})` : "(at office)"}
+                </Text>
+                {!keyLog || keyLog.status === "returned" ? (
+                  <Pressable onPress={handleKeyPickedUp}>
+                    <Text style={styles.link}>Keys Picked Up</Text>
+                  </Pressable>
+                ) : keyLog.status === "picked_up" ? (
+                  <Pressable onPress={() => handleKeyStatusChange("in_van")}>
+                    <Text style={styles.link}>Mark In Van</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => handleKeyStatusChange("returned")}>
+                    <Text style={styles.link}>Mark Returned</Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : null}
+            {keyActionError ? <Text style={styles.error}>{keyActionError}</Text> : null}
+          </View>
         ) : null}
       </View>
 
@@ -735,6 +952,24 @@ export default function JobDetailScreen() {
       </View>
     </CenteredModal>
 
+    <CenteredModal visible={nteModalVisible} onClose={() => setNteModalVisible(false)}>
+      <Text style={styles.modalTitle}>Over budget</Text>
+      <Text style={styles.modalBody}>
+        This job exceeds the NTE limit of {job?.nte_limit_cents != null ? formatCentsAsAud(job.nte_limit_cents) : "-"} by{" "}
+        {job?.nte_limit_cents != null ? formatCentsAsAud(totalChargedCents - job.nte_limit_cents) : "-"}. PM approval is required
+        before this job can be marked done.
+      </Text>
+      {nteRequestError ? <Text style={styles.error}>{nteRequestError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setNteModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleRequestNteVariation} disabled={nteRequesting}>
+          <Text style={styles.buttonText}>{nteRequesting ? "Sending..." : "Request NTE Variation"}</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+
     <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
       <Text style={styles.modalTitle}>Edit job</Text>
       <FormField label="Title" placeholder="Job title" value={editTitle} onChangeText={setEditTitle} />
@@ -791,7 +1026,12 @@ const styles = StyleSheet.create({
   clientCard: { marginTop: 12, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, gap: 2 },
   clientCardName: { fontSize: 15, fontWeight: "700", color: "#111827" },
   clientCardMeta: { fontSize: 13, color: "#6b7280" },
+  agencyCard: { marginTop: 12, backgroundColor: "#eff6ff", borderRadius: 8, padding: 12, gap: 2 },
+  agencyBadge: { fontSize: 11, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
+  nteExceededText: { fontSize: 13, fontWeight: "700", color: "#b91c1c", marginTop: 4 },
+  keyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  modalBody: { fontSize: 14, color: "#374151", lineHeight: 20, marginTop: 6 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },

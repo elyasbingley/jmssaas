@@ -69,6 +69,18 @@ const job_cards = new Table(
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
+    // Real Estate & Strata module (see the real_estate_strata and
+    // real_estate_nte_and_invoicing migrations) - all null/0 for an
+    // ordinary (non-agency) job. nte_variation_token itself isn't synced -
+    // it's only ever read/written server-side via the token RPCs, a
+    // technician's own device never needs to see it.
+    is_real_estate_job: column.integer,
+    agency_id: column.text,
+    property_manager_id: column.text,
+    property_id: column.text,
+    work_order_number: column.text,
+    nte_limit_cents: column.integer,
+    nte_exceeded_approved: column.integer,
   },
   { indexes: { client: ["client_id"], technician: ["assigned_technician_id"] } }
 );

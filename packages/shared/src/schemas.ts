@@ -37,6 +37,15 @@ export const createJobCardSchema = z.object({
   scheduled_at: z.string().datetime().optional(),
   service_category_id: z.string().uuid().optional(),
   lifecycle_stage_id: z.string().uuid().optional(),
+  // Real Estate & Strata module (see the real_estate_nte_and_invoicing
+  // migration) - all optional, same as the category/stage fields above;
+  // an ordinary (non-agency) job never sets any of these.
+  is_real_estate_job: z.boolean().optional(),
+  agency_id: z.string().uuid().optional(),
+  property_manager_id: z.string().uuid().optional(),
+  property_id: z.string().uuid().optional(),
+  work_order_number: z.string().optional(),
+  nte_limit_cents: z.number().int().positive().optional(),
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
 

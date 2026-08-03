@@ -30,7 +30,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-type DocType = "quote" | "invoice";
+type DocType = "quote" | "invoice" | "nte_variation";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -60,11 +60,13 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const docType = url.searchParams.get("type");
     const token = url.searchParams.get("token");
-    if ((docType !== "quote" && docType !== "invoice") || !token) {
+    if ((docType !== "quote" && docType !== "invoice" && docType !== "nte_variation") || !token) {
       return json({ error: "bad_request" }, 400);
     }
-    const rpcPrefix: DocType = docType;
-    const { data, error } = await supabase.rpc(`get_${rpcPrefix}_for_approval`, { p_token: token });
+    // get_${type}_for_approval - same generic name shape for all three,
+    // matching the RPC names in the quote_invoice_approval and
+    // real_estate_nte_and_invoicing migrations.
+    const { data, error } = await supabase.rpc(`get_${docType}_for_approval`, { p_token: token });
     if (error) return json({ error: "server_error" }, 500);
     return json(data);
   }
@@ -77,7 +79,21 @@ Deno.serve(async (req: Request) => {
       return json({ error: "bad_request" }, 400);
     }
     const { type: docType, token, action, name, reason } = body;
-    if ((docType !== "quote" && docType !== "invoice") || !token) {
+    if (!token) {
+      return json({ error: "bad_request" }, 400);
+    }
+
+    // NTE variation only has one resolution (approve) - see the
+    // real_estate_nte_and_invoicing migration's own comment for why there's
+    // no decline path, unlike quote/invoice's accept/decline pair below.
+    if (docType === "nte_variation") {
+      if (action !== "approve") return json({ error: "bad_request" }, 400);
+      const { data, error } = await supabase.rpc("approve_nte_variation_by_token", { p_token: token });
+      if (error) return json({ error: "server_error" }, 500);
+      return json(data);
+    }
+
+    if (docType !== "quote" && docType !== "invoice") {
       return json({ error: "bad_request" }, 400);
     }
     const rpcPrefix: DocType = docType;

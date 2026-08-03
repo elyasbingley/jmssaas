@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   createJobNoteSchema,
   formatCentsAsAud,
+  type Agency,
   type Client,
   type Invoice,
   type InvoiceLineItem,
@@ -13,6 +14,8 @@ import {
   type JobMeasurement,
   type JobNote,
   type Profile,
+  type Property,
+  type PropertyManager,
   type Quote,
   type QuoteLineItem,
   type ServiceCategory,
@@ -47,6 +50,22 @@ async function fetchClient(clientId: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", clientId).single();
   if (error) throw error;
   return data as Client;
+}
+
+async function fetchAgency(agencyId: string): Promise<Agency> {
+  const { data, error } = await supabase.from("agencies").select("*").eq("id", agencyId).single();
+  if (error) throw error;
+  return data as Agency;
+}
+async function fetchPropertyManager(id: string): Promise<PropertyManager> {
+  const { data, error } = await supabase.from("property_managers").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as PropertyManager;
+}
+async function fetchProperty(id: string): Promise<Property> {
+  const { data, error } = await supabase.from("properties").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as Property;
 }
 
 async function fetchCategories(): Promise<ServiceCategory[]> {
@@ -147,6 +166,21 @@ export default function JobDetailPage() {
     queryKey: ["client", job?.client_id],
     queryFn: () => fetchClient(job!.client_id),
     enabled: !!job,
+  });
+  const { data: agency } = useQuery({
+    queryKey: ["agency", job?.agency_id],
+    queryFn: () => fetchAgency(job!.agency_id!),
+    enabled: !!job?.agency_id,
+  });
+  const { data: propertyManager } = useQuery({
+    queryKey: ["property-manager", job?.property_manager_id],
+    queryFn: () => fetchPropertyManager(job!.property_manager_id!),
+    enabled: !!job?.property_manager_id,
+  });
+  const { data: property } = useQuery({
+    queryKey: ["property", job?.property_id],
+    queryFn: () => fetchProperty(job!.property_id!),
+    enabled: !!job?.property_id,
   });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
@@ -340,6 +374,12 @@ export default function JobDetailPage() {
   const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
   const hasCostingDocs = (linkedQuotes ?? []).length > 0 || (linkedInvoices ?? []).length > 0;
 
+  // Same "is this job over its NTE budget" check the mobile app's
+  // completion guardrail uses (see the mobile jobs/[id].tsx equivalent) -
+  // shown here read-only so an admin can see the state without needing a
+  // phone in hand.
+  const isNteExceeded = job.is_real_estate_job && job.nte_limit_cents != null && totalChargedCents > job.nte_limit_cents;
+
   return (
     <div className="p-8">
       <Link to="/jobs" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
@@ -362,6 +402,39 @@ export default function JobDetailPage() {
             </p>
             {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
             {address ? <p className="text-gray-600">{address}</p> : null}
+          </div>
+        ) : null}
+
+        {job.is_real_estate_job ? (
+          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
+              {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
+              {propertyManager ? (
+                <span className="text-gray-600">
+                  PM: {propertyManager.first_name} {propertyManager.last_name}
+                </span>
+              ) : null}
+            </div>
+            {property ? (
+              <p className="text-gray-600">
+                <Link to={`/real-estate/properties/${property.id}`} className="text-blue-700 hover:underline">
+                  {property.address_line1}, {property.suburb}
+                </Link>
+                {property.key_tag_number ? ` - 🔑 ${property.key_tag_number}` : ""}
+              </p>
+            ) : null}
+            <div className="mt-1 flex flex-wrap gap-x-4 text-gray-600">
+              {job.work_order_number ? <span>Work order: {job.work_order_number}</span> : null}
+              {job.nte_limit_cents != null ? <span>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</span> : null}
+            </div>
+            {isNteExceeded ? (
+              <p className="mt-1 font-semibold text-red-700">
+                {job.nte_exceeded_approved
+                  ? "Over NTE limit - variation approved"
+                  : "Over NTE limit - awaiting PM approval before this job can be completed"}
+              </p>
+            ) : null}
           </div>
         ) : null}
 

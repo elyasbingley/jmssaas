@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
+  type Agency,
   type ApprovalStatus,
   type Client,
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
+  type Property,
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -32,11 +34,22 @@ const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   declined: "Declined by client",
 };
 
-type InvoiceRow = Invoice & { clients: Client | null; job_cards: { title: string } | null };
+type InvoiceJobCard = {
+  title: string;
+  is_real_estate_job: boolean;
+  agency_id: string | null;
+  property_id: string | null;
+  work_order_number: string | null;
+};
+type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
 async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: LineItemFormInput[] }> {
   const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
-    supabase.from("invoices").select("*, clients(*), job_cards!invoices_job_card_id_fkey(title)").eq("id", id).single(),
+    supabase
+      .from("invoices")
+      .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id, work_order_number)")
+      .eq("id", id)
+      .single(),
     supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
   ]);
   if (invoiceError) throw invoiceError;
@@ -50,6 +63,18 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
   return data as Tenant;
 }
 
+async function fetchAgency(agencyId: string): Promise<Agency> {
+  const { data, error } = await supabase.from("agencies").select("*").eq("id", agencyId).single();
+  if (error) throw error;
+  return data as Agency;
+}
+
+async function fetchProperty(propertyId: string): Promise<Property> {
+  const { data, error } = await supabase.from("properties").select("*").eq("id", propertyId).single();
+  if (error) throw error;
+  return data as Property;
+}
+
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
@@ -61,6 +86,27 @@ export default function InvoiceDetailPage() {
     queryFn: () => fetchTenant(profile!.tenant_id),
     enabled: !!profile,
   });
+  const jobCard = data?.invoice.job_cards;
+  const { data: agency } = useQuery({
+    queryKey: ["agency", jobCard?.agency_id],
+    queryFn: () => fetchAgency(jobCard!.agency_id!),
+    enabled: !!jobCard?.agency_id,
+  });
+  const { data: property } = useQuery({
+    queryKey: ["property", jobCard?.property_id],
+    queryFn: () => fetchProperty(jobCard!.property_id!),
+    enabled: !!jobCard?.property_id,
+  });
+
+  // Workflow 4 of the Real Estate & Strata spec: an agency that requires a
+  // work order number on every invoice should never actually receive one
+  // without it - enforced here, at the point an invoice actually goes out
+  // (email, approval link, or PDF), not at invoice creation time, since the
+  // work order number may legitimately still be pending entry until then.
+  const agencyComplianceError =
+    jobCard?.is_real_estate_job && agency?.require_work_order_num && !jobCard.work_order_number
+      ? `${agency.name} requires a work order number on every invoice - add one on the job before sending this invoice.`
+      : null;
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -117,6 +163,7 @@ export default function InvoiceDetailPage() {
 
   const generateLink = useMutation({
     mutationFn: async () => {
+      if (agencyComplianceError) throw new Error(agencyComplianceError);
       const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
       if (!approvalPageUrl) {
         throw new Error("Approval page URL not configured - set VITE_APPROVAL_PAGE_URL in .env (see docs/SETUP.md)");
@@ -141,6 +188,7 @@ export default function InvoiceDetailPage() {
   const sendEmail = useMutation({
     mutationFn: async () => {
       if (!data || !profile) throw new Error("Not signed in");
+      if (agencyComplianceError) throw new Error(agencyComplianceError);
       const email = data.invoice.clients?.email;
       if (!email) throw new Error("This client has no email address on file - add one on the Clients screen.");
 
@@ -203,10 +251,15 @@ export default function InvoiceDetailPage() {
 
   const handleExportPdf = () => {
     if (!data || !tenant || !data.invoice.clients) return;
+    if (agencyComplianceError) {
+      setExportError(agencyComplianceError);
+      return;
+    }
     setExporting(true);
     setExportError(null);
     try {
-      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items });
+      const agencyBilling = jobCard?.is_real_estate_job && agency ? { ownerLandlordName: property?.owner_landlord_name ?? null, agencyName: agency.name } : undefined;
+      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling });
       exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
@@ -231,6 +284,10 @@ export default function InvoiceDetailPage() {
         <Link to={`/jobs/${data.invoice.job_card_id}`} className="text-sm text-blue-700 hover:underline">
           Job: {data.invoice.job_cards.title}
         </Link>
+      ) : null}
+
+      {agencyComplianceError ? (
+        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{agencyComplianceError}</p>
       ) : null}
 
       {data.invoice.approval_status ? (

@@ -3,9 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   createJobCardSchema,
+  type Agency,
   type Client,
   type JobCard,
   type JobLifecycleStage,
+  type Property,
+  type PropertyManager,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -38,6 +41,22 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   return data as JobLifecycleStage[];
 }
 
+async function fetchAgencies(): Promise<Agency[]> {
+  const { data, error } = await supabase.from("agencies").select("*").order("name");
+  if (error) throw error;
+  return data as Agency[];
+}
+async function fetchPropertyManagers(): Promise<PropertyManager[]> {
+  const { data, error } = await supabase.from("property_managers").select("*").order("first_name");
+  if (error) throw error;
+  return data as PropertyManager[];
+}
+async function fetchProperties(): Promise<Property[]> {
+  const { data, error } = await supabase.from("properties").select("*").order("suburb");
+  if (error) throw error;
+  return data as Property[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -47,6 +66,9 @@ export default function JobsPage() {
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
+  const { data: agencies } = useQuery({ queryKey: ["agencies"], queryFn: fetchAgencies });
+  const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
+  const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
@@ -87,6 +109,12 @@ export default function JobsPage() {
   const [stageId, setStageId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [isRealEstateJob, setIsRealEstateJob] = useState(false);
+  const [agencyId, setAgencyId] = useState("");
+  const [propertyManagerId, setPropertyManagerId] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [workOrderNumber, setWorkOrderNumber] = useState("");
+  const [nteLimit, setNteLimit] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
   const resetForm = () => {
@@ -95,8 +123,22 @@ export default function JobsPage() {
     setStageId("");
     setTitle("");
     setDescription("");
+    setIsRealEstateJob(false);
+    setAgencyId("");
+    setPropertyManagerId("");
+    setPropertyId("");
+    setWorkOrderNumber("");
+    setNteLimit("");
     setFormError(null);
   };
+
+  // Cascading pickers - selecting an agency narrows the PM list to that
+  // agency, selecting a PM narrows the property list to that PM. This is
+  // the closest honest equivalent of the spec's "auto-suggests/links the
+  // matching Property, Property Manager, and Agency" without an OCR/
+  // document-parsing engine to actually read an uploaded work order.
+  const pmsForAgency = (propertyManagers ?? []).filter((pm) => pm.agency_id === agencyId);
+  const propertiesForPm = (properties ?? []).filter((p) => (propertyManagerId ? p.property_manager_id === propertyManagerId : p.agency_id === agencyId));
 
   const createJob = useMutation({
     mutationFn: async () => {
@@ -106,6 +148,12 @@ export default function JobsPage() {
         description,
         service_category_id: categoryId || undefined,
         lifecycle_stage_id: stageId || undefined,
+        is_real_estate_job: isRealEstateJob,
+        agency_id: isRealEstateJob ? agencyId || undefined : undefined,
+        property_manager_id: isRealEstateJob ? propertyManagerId || undefined : undefined,
+        property_id: isRealEstateJob ? propertyId || undefined : undefined,
+        work_order_number: isRealEstateJob ? workOrderNumber || undefined : undefined,
+        nte_limit_cents: isRealEstateJob && nteLimit ? Math.round(Number(nteLimit) * 100) : undefined,
       });
       if (!result.success) {
         throw new Error(clientId ? result.error.issues[0]?.message ?? "Invalid job" : "Pick a client first");
@@ -121,6 +169,12 @@ export default function JobsPage() {
           description: result.data.description || null,
           service_category_id: result.data.service_category_id ?? null,
           lifecycle_stage_id: result.data.lifecycle_stage_id ?? null,
+          is_real_estate_job: result.data.is_real_estate_job ?? false,
+          agency_id: result.data.agency_id ?? null,
+          property_manager_id: result.data.property_manager_id ?? null,
+          property_id: result.data.property_id ?? null,
+          work_order_number: result.data.work_order_number ?? null,
+          nte_limit_cents: result.data.nte_limit_cents ?? null,
           created_by: profile.id,
         })
         .select()
@@ -304,6 +358,56 @@ export default function JobsPage() {
             options={(stages ?? []).map((s) => ({ value: s.id, label: s.name }))}
           />
         </div>
+
+        <label className="mb-3 mt-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+          <input type="checkbox" checked={isRealEstateJob} onChange={(e) => setIsRealEstateJob(e.target.checked)} />
+          This is a real estate / strata agency job
+        </label>
+
+        {isRealEstateJob ? (
+          <div className="mb-2 rounded-md bg-gray-50 p-3">
+            <SelectField
+              label="Agency"
+              value={agencyId}
+              onChange={(v) => {
+                setAgencyId(v);
+                setPropertyManagerId("");
+                setPropertyId("");
+              }}
+              options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
+              placeholder="Select agency"
+            />
+            <SelectField
+              label="Property manager"
+              value={propertyManagerId}
+              onChange={(v) => {
+                setPropertyManagerId(v);
+                setPropertyId("");
+              }}
+              options={pmsForAgency.map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
+              placeholder="Select property manager"
+            />
+            <SelectField
+              label="Property"
+              value={propertyId}
+              onChange={setPropertyId}
+              options={propertiesForPm.map((p) => ({ value: p.id, label: `${p.address_line1}, ${p.suburb}` }))}
+              placeholder="Select property"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Work order number" value={workOrderNumber} onChange={(e) => setWorkOrderNumber(e.target.value)} />
+              <FormField
+                label="NTE limit ($)"
+                type="number"
+                step="0.01"
+                value={nteLimit}
+                onChange={(e) => setNteLimit(e.target.value)}
+                placeholder="e.g. 300.00"
+              />
+            </div>
+          </div>
+        ) : null}
+
         {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
         <div className="flex justify-end gap-3">
           <button

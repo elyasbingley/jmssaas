@@ -52,7 +52,7 @@
       // everything else (which document, its data) comes from the ?type=
       // &token= query params and a fetch() to the function.
 
-      var ACCENT = { quote: "#1f2937", invoice: "#22a366" };
+      var ACCENT = { quote: "#1f2937", invoice: "#22a366", nte_variation: "#b45309" };
 
       function escapeHtml(value) {
         return String(value)
@@ -161,7 +161,7 @@
       }
 
       function submitAction(action, extra) {
-        var title = docType === "invoice" ? "Invoice" : "Quote";
+        var title = docType === "invoice" ? "Invoice" : docType === "nte_variation" ? "budget variation" : "Quote";
         var body = Object.assign({ type: docType, token: token, action: action }, extra);
         fetch(functionUrl, {
           method: "POST",
@@ -171,16 +171,53 @@
           .then(function (res) { return res.json(); })
           .then(function (data) {
             if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
-            if (data.error === "already_resolved") return renderMessage("Already resolved", "This document has already been accepted or declined.");
-            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
+            if (data.error === "already_resolved") return renderMessage("Already resolved", "This has already been resolved.");
+            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match anything.");
             if (data.error === "name_required") return renderMessage("Name required", "Please enter your name to accept.");
             if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            if (action === "approve") return renderMessage("Approved", "Thanks - the " + title + " has been approved. The job can now be completed.");
             if (action === "accept") return renderMessage("Thank you", "You've accepted this " + title.toLowerCase() + ". We'll be in touch shortly.");
             return renderMessage("Received", "You've declined this " + title.toLowerCase() + ". Thanks for letting us know.");
           })
           .catch(function () {
             renderMessage("Something went wrong", "Please check your connection and try again.");
           });
+      }
+
+      function renderNteVariation(doc) {
+        var accent = ACCENT.nte_variation;
+        var exceededByCents = doc.current_total_cents - doc.nte_limit_cents;
+        var actionSection;
+        if (doc.already_resolved) {
+          actionSection = '<p class="message-body" style="margin-top: 20px;">This budget variation has already been approved. No further action is needed.</p>';
+        } else {
+          actionSection =
+            '<form id="approve-form">' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">Approve this variation</button>' +
+            "</form>";
+        }
+        card.innerHTML =
+          '<p class="doc-title" style="color: ' + accent + ';">Budget Approval Needed</p>' +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.company_name || "") + "</strong></div>" +
+          "<div>Job: " + escapeHtml(doc.job_title || "") + (doc.job_number ? " (" + escapeHtml(doc.job_number) + ")" : "") + "</div>" +
+          (doc.work_order_number ? "<div>Work order: " + escapeHtml(doc.work_order_number) + "</div>" : "") +
+          (doc.property_address ? "<div>Property: " + escapeHtml(doc.property_address) + "</div>" : "") +
+          "</div>" +
+          '<div class="totals" style="width: 260px;">' +
+          '<div class="totals-row"><span>NTE limit</span><span>' + formatCentsAsAud(doc.nte_limit_cents) + "</span></div>" +
+          '<div class="totals-row"><span>Current total</span><span>' + formatCentsAsAud(doc.current_total_cents) + "</span></div>" +
+          '<div class="totals-row total"><span>Exceeds by</span><span>' + formatCentsAsAud(exceededByCents) + "</span></div>" +
+          "</div>" +
+          actionSection;
+
+        var approveForm = document.getElementById("approve-form");
+        if (approveForm) {
+          approveForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            submitAction("approve", {});
+          });
+        }
       }
 
       function renderDoc(doc) {
@@ -240,7 +277,7 @@
         attachActionHandlers(doc);
       }
 
-      if (docType !== "quote" && docType !== "invoice") {
+      if (docType !== "quote" && docType !== "invoice" && docType !== "nte_variation") {
         renderMessage("Not found", "This link is missing a document type or token.");
       } else if (!token) {
         renderMessage("Not found", "This link is missing a token.");
@@ -251,6 +288,7 @@
             if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
             if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
             if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            if (docType === "nte_variation") return renderNteVariation(data);
             renderDoc(data);
           })
           .catch(function () {
