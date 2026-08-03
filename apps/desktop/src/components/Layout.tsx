@@ -20,6 +20,7 @@ const navSections = [
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },
       { to: "/inventory", label: "Inventory" },
+      { to: "/real-estate", label: "Real Estate & Strata" },
     ],
   },
   {

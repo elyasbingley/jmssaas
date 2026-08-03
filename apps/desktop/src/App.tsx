@@ -29,6 +29,8 @@ import TeamPage from "./pages/Team";
 import JobCostingPage from "./pages/JobCosting";
 import TasksPage from "./pages/Tasks";
 import TaskDetailPage from "./pages/TaskDetail";
+import RealEstatePage from "./pages/RealEstate";
+import PropertyDetailPage from "./pages/PropertyDetail";
 
 export default function App() {
   return (
@@ -64,6 +66,8 @@ export default function App() {
                 <Route path="/calendar/new" element={<CalendarEventNewPage />} />
                 <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
                 <Route path="/team" element={<TeamPage />} />
+                <Route path="/real-estate" element={<RealEstatePage />} />
+                <Route path="/real-estate/properties/:id" element={<PropertyDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />

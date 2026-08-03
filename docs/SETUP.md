@@ -3740,3 +3740,122 @@ stays linked to the job as both and is summed twice.
   Communication Log/Job Costing sections populated from real data all
   need a real signed-in session against a real Supabase project; this
   sandbox has no such backend.
+
+## 25. Real Estate & Strata module - Batch 1 (schema, Directory, Property Profile, Key Management)
+
+New module for high-volume property-management agency work (residential
+rent-roll agencies and strata/body corporate managers), added under
+`Sales > Real Estate & Strata` in the desktop sidebar. A real-estate job
+is still an ordinary `job_cards` row, just tagged with agency/property
+metadata - not a parallel job system.
+
+**Schema** (`real_estate_strata` migration): five new tenant-scoped
+tables - `agencies` -> `property_managers` -> `properties` ->
+`property_assets`, plus `key_logs` - and six new columns on `job_cards`
+(`is_real_estate_job`, `agency_id`, `property_manager_id`, `property_id`,
+`work_order_number`, `nte_limit_cents`, `nte_exceeded_approved`).
+`property_id` wasn't in the original field list but the workflow spec
+itself needs it (the Property Profile's Job & Compliance History tab and
+the Key Dashboard's "Property Address" column both have to find a job's
+property somehow). Money is `nte_limit_cents` (bigint) rather than the
+spec's plain decimal, matching every other money column in this schema.
+`property_assets.attributes` is a schemaless `jsonb` column - plumbing and
+roofing metadata don't overlap at all, and a fixed column set would leave
+most rows mostly null (see the migration's own comment).
+
+RLS follows two shapes depending on who edits the data: agencies/
+property_managers/properties/property_assets are back-office reference
+data (tenant-wide read, admin-only write, same shape as `price_book_*`) -
+a technician reads a property's access notes and asset history in the
+field but doesn't create agencies or properties from there. `key_logs` is
+the opposite - a technician actively updates key status from the field -
+so it follows the `job_notes`/`job_files` shape instead: visibility and
+write access follow the parent job's `assigned_technician_id` (or admin).
+
+**Desktop UI**: `/real-estate` (Directory + Key Management sub-tabs,
+switched with an in-page tab strip - not four separate sidebar links,
+since desktop's sidebar has no nested-item concept and a single "Real
+Estate & Strata" entry matches the spec's own framing of these as tabs
+under one destination) and `/real-estate/properties/:id` (Property
+Profile & Asset Register - a drill-down route from Directory, same
+relationship Jobs/JobDetail already has, since the spec's own wording is
+"when a property is selected" rather than a listing tab). The Recurring
+Maintenance Engine (the spec's fourth sub-tab) is deliberately not built
+yet - it needs the daily due-date sweep from Batch 3 to have anything
+real to show, see task tracking for the follow-up batches.
+
+Known scope decisions:
+- Editing a property's own fields (address, tenant contact, access notes)
+  after creation isn't built yet - Directory's "Add Managed Property"
+  modal creates it, but there's no corresponding edit form on the Property
+  Profile page in this batch.
+- The Key Dashboard's "past 4:00pm and still not returned" banner is
+  computed client-side (comparing the browser's local clock against 4pm
+  today) whenever an admin has the tab open - there's no server-side sweep
+  or push notification, since that would need its own delivery channel the
+  spec doesn't otherwise ask for. It only actually surfaces while someone
+  is looking at the screen.
+- Property manager email uniqueness is enforced per-tenant (a partial
+  unique index on `(tenant_id, email) where email is not null`), not the
+  spec's bare `unique` - a schema-wide unique constraint would block two
+  different tenants from ever having a PM with the same email, which has
+  nothing to do with this app's own data integrity.
+
+**A verification-methodology gap found and fixed while testing this
+batch**: every previous batch's SQL verification in this sandbox ran as
+the `postgres` role, which has `BYPASSRLS` - meaning RLS policies were
+never actually being exercised by any of those "verified" queries, only
+their result shape was. This batch is the first to catch it (confirmed via
+`select rolname, rolbypassrls from pg_roles`). Fixed for this batch by
+creating a throwaway non-superuser `app_test` role
+(`nosuperuser nobypassrls login`, granted table/sequence/function
+privileges but no RLS bypass) and using `set role app_test;` before
+setting `app.current_user_id`, so the policies this migration adds are
+genuinely exercised, not just read as SQL text. This doesn't mean prior
+batches' RLS policies are wrong (their logic still reads correctly against
+the schema), only that "verified RLS enforcement" wasn't a true claim for
+them - re-testing all of them wasn't in scope here, but every batch from
+this one forward should use the `app_test` role, not `postgres` directly.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, and `pnpm --filter desktop build` all pass clean.
+- Fresh local Postgres 16 database, all 25 real migrations (including this
+  batch's) applied in order against the same hand-written
+  `auth`/`storage` stubs used in every prior batch.
+- Seeded a tenant, an admin, two technicians (one assigned to a real-
+  estate job, one not), a client, an agency, a property manager, a
+  property, two property assets (one plumbing, one roofing), a real-
+  estate-tagged job linked to all of the above, a quote linked to that
+  job, and a key log. Then, using the throwaway `app_test` role (RLS
+  genuinely enforced, not bypassed):
+  - As admin: confirmed read/insert/update across every new table,
+    including marking a key returned.
+  - As the assigned technician: confirmed tenant-wide read on agencies/
+    properties/property_assets, and confirmed they can update the
+    key_log tied to their own assigned job (picked_up -> in_van).
+  - As the assigned technician: confirmed an INSERT into `agencies` is
+    rejected outright by the RLS policy (`new row violates row-level
+    security policy`), and an UPDATE to `properties` silently affects 0
+    rows (the existing "affects 0 rows for a non-admin" pattern already
+    used elsewhere in this schema).
+  - As a second, unassigned technician: confirmed both SELECT and UPDATE
+    on the same key_log return/affect 0 rows.
+  - Database and the `app_test` role both dropped after, no state left
+    behind.
+- Playwright/Chromium smoke test with placeholder `.env`: `/real-estate`
+  and `/real-estate/properties/:id` both correctly redirect to `/login`
+  when signed out, with no unexpected console errors (the same benign
+  one-time `favicon.ico` 404 seen in every prior batch). Dev server killed
+  and `.env` deleted after.
+
+### NOT verified from this sandbox
+
+- Actually clicking through the Directory's accordion/modals, the Asset
+  Register's category-conditional attribute form, and the Key
+  Dashboard's Mark Returned action against a real signed-in session needs
+  a real Supabase project; this sandbox has no such backend.
+- The 4:00pm banner's exact visual appearance (it was verified by reading
+  the code's time comparison logic, not by advancing a real clock past
+  4pm in a live browser session).

@@ -300,3 +300,67 @@ export const createScheduledCommunicationSchema = z.object({
   scheduled_for: z.string().datetime(),
 });
 export type CreateScheduledCommunicationInput = z.infer<typeof createScheduledCommunicationSchema>;
+
+// ---------------------------------------------------------------------------
+// Real Estate & Strata module
+// ---------------------------------------------------------------------------
+
+export const createAgencySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  type: z.enum(["real_estate", "strata"]).default("real_estate"),
+  billing_email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+  payment_terms_days: z.number().int().positive().default(30),
+  require_work_order_num: z.boolean().default(true),
+});
+export type CreateAgencyInput = z.infer<typeof createAgencySchema>;
+
+export const createPropertyManagerSchema = z.object({
+  agency_id: z.string().uuid(),
+  first_name: z.string().min(1, "First name is required"),
+  last_name: z.string().min(1, "Last name is required"),
+  email: z.string().email().optional().or(z.literal("")),
+  mobile: z.string().optional(),
+  work_phone: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type CreatePropertyManagerInput = z.infer<typeof createPropertyManagerSchema>;
+
+export const createPropertySchema = z.object({
+  agency_id: z.string().uuid(),
+  property_manager_id: z.string().uuid().optional().or(z.literal("")),
+  address_line1: z.string().min(1, "Address is required"),
+  suburb: z.string().min(1, "Suburb is required"),
+  state: z.string().min(1, "State is required"),
+  postcode: z.string().min(1, "Postcode is required"),
+  property_type: z.enum(["residential", "commercial", "strata_common_property", "strata_lot"]).default("residential"),
+  strata_plan_number: z.string().optional(),
+  owner_landlord_name: z.string().optional(),
+  tenant_name: z.string().optional(),
+  tenant_phone: z.string().optional(),
+  tenant_email: z.string().email().optional().or(z.literal("")),
+  access_notes: z.string().optional(),
+  key_tag_number: z.string().optional(),
+});
+export type CreatePropertyInput = z.infer<typeof createPropertySchema>;
+
+// attributes is intentionally z.record rather than a fixed shape - see
+// PropertyAssetAttributes in types.ts for the documented plumbing/roofing
+// fields this actually carries, none of which are required on any one
+// asset (a category's fields are all optional, shown/hidden by the UI).
+export const createPropertyAssetSchema = z.object({
+  property_id: z.string().uuid(),
+  category: z.enum(["plumbing", "roofing", "hvac", "general"]).default("general"),
+  asset_name: z.string().min(1, "Asset name is required"),
+  attributes: z.record(z.string(), z.unknown()).default({}),
+});
+export type CreatePropertyAssetInput = z.infer<typeof createPropertyAssetSchema>;
+
+export const createKeyLogSchema = z.object({
+  property_id: z.string().uuid(),
+  job_id: z.string().uuid().optional(),
+  technician_id: z.string().uuid().optional(),
+  key_tag_number: z.string().min(1, "Key tag number is required"),
+  status: z.enum(["at_office", "picked_up", "in_van", "returned"]).default("at_office"),
+});
+export type CreateKeyLogInput = z.infer<typeof createKeyLogSchema>;

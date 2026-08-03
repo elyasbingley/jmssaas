@@ -122,6 +122,121 @@ export interface JobCard {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Real Estate & Strata module fields (see the real_estate_strata
+  // migration) - a real estate job is still a normal JobCard, just tagged
+  // with this extra agency/property metadata. All null/false for an
+  // ordinary (non-agency) job.
+  is_real_estate_job: boolean;
+  agency_id: string | null;
+  property_manager_id: string | null;
+  property_id: string | null;
+  work_order_number: string | null;
+  nte_limit_cents: number | null;
+  nte_exceeded_approved: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Real Estate & Strata module - mirrors the real_estate_strata migration.
+// ---------------------------------------------------------------------------
+
+export type AgencyType = "real_estate" | "strata";
+
+export interface Agency {
+  id: string;
+  tenant_id: string;
+  name: string;
+  type: AgencyType;
+  billing_email: string | null;
+  phone: string | null;
+  payment_terms_days: number;
+  require_work_order_num: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyManager {
+  id: string;
+  tenant_id: string;
+  agency_id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  mobile: string | null;
+  work_phone: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PropertyType = "residential" | "commercial" | "strata_common_property" | "strata_lot";
+
+export interface Property {
+  id: string;
+  tenant_id: string;
+  agency_id: string;
+  property_manager_id: string | null;
+  address_line1: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  property_type: PropertyType;
+  strata_plan_number: string | null;
+  owner_landlord_name: string | null;
+  tenant_name: string | null;
+  tenant_phone: string | null;
+  tenant_email: string | null;
+  access_notes: string | null;
+  key_tag_number: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PropertyAssetCategory = "plumbing" | "roofing" | "hvac" | "general";
+
+// Deliberately schemaless per-category fields - see the migration's own
+// comment for why a fixed column set doesn't fit here. Every field
+// optional; the UI only shows the subset relevant to the asset's category.
+export interface PropertyAssetAttributes {
+  brand?: string;
+  model?: string;
+  serial_number?: string;
+  fuel_type?: "gas" | "electric" | "solar";
+  capacity_litres?: number;
+  installation_date?: string;
+  warranty_expiry_date?: string;
+  roof_type?: "colorbond" | "tile" | "slate";
+  roof_age_years?: number;
+  last_gutter_clean_date?: string;
+  gutter_clean_interval_months?: number;
+  screw_condition?: string;
+  ridge_condition?: string;
+}
+
+export interface PropertyAsset {
+  id: string;
+  tenant_id: string;
+  property_id: string;
+  category: PropertyAssetCategory;
+  asset_name: string;
+  attributes: PropertyAssetAttributes;
+  created_at: string;
+  updated_at: string;
+}
+
+export type KeyLogStatus = "at_office" | "picked_up" | "in_van" | "returned";
+
+export interface KeyLog {
+  id: string;
+  tenant_id: string;
+  property_id: string;
+  job_id: string | null;
+  technician_id: string | null;
+  key_tag_number: string;
+  status: KeyLogStatus;
+  picked_up_at: string | null;
+  returned_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // A simple tag on a job (e.g. "Roof Restoration", "Gutter Cleaning") -
