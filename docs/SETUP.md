@@ -3127,6 +3127,42 @@ over its two documented caveats unchanged, not fixing them:
 - Loading `/job-costing` directly while signed out (Playwright/Chromium)
   correctly redirects to `/login` with no console errors.
 
+## 17. Desktop: Calendar month view no longer needs scrolling
+
+A follow-up fix, not a new screen. The month grid in
+`src/pages/Calendar.tsx` used `aspect-square` on each day cell, which
+sizes cell *height* off cell *width* - on a normal desktop window width,
+a 6-row grid of square cells came out taller than the viewport, so
+reaching the later weeks of the month meant scrolling.
+
+Fix: the day-cell grid now uses `grid-rows-6` (Tailwind's `repeat(6,
+minmax(0, 1fr))`) inside a `flex-1` parent, so row height comes from
+whatever vertical space is actually available, not from column width.
+For that `flex-1`/`h-full` chain to resolve to a real height instead of
+`auto`, the same `flex h-full flex-col p-8` root-container pattern
+already used in `Dispatch.tsx` was applied to the page's root div, and
+the calendar box wrapper gets `min-h-0 flex-1 overflow-hidden` - but only
+while `viewMode === "month"`. Day/Week/Year views keep their own natural
+scrolling (`overflow-y-auto` on the root div) since only the month grid
+has a fixed number of rows that all need to be visible at once; those
+other views can have an unbounded number of events per day/week and are
+meant to scroll.
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build`
+  both pass clean.
+- Loading `/calendar` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no console errors beyond the
+  expected failed network calls to the placeholder Supabase URL.
+
+### NOT verified from this sandbox
+
+- The actual "does the grid fit without scrolling" visual check needs a
+  real signed-in session against a real Supabase project (this sandbox
+  has no such backend), so it wasn't screenshotted here - please confirm
+  it looks right on your end after pulling this change.
+
 ### NOT verified from this sandbox
 
 - No live Supabase project - same caveat as every screen in this
