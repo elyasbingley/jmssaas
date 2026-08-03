@@ -5,7 +5,10 @@ import { useAuth } from "../lib/auth-context";
 const navSections = [
   {
     heading: null,
-    items: [{ to: "/dispatch", label: "Dispatch" }],
+    items: [
+      { to: "/dispatch", label: "Dispatch" },
+      { to: "/tasks", label: "Tasks" },
+    ],
   },
   {
     heading: "Sales",

@@ -43,3 +43,38 @@ export async function uploadJobPhoto(params: {
 
   return storagePath;
 }
+
+// Same pattern as uploadJobPhoto, for task photo attachments - same
+// job-files bucket, same "<tenant_id>/task-<task_id>/<uuid>.<ext>" storage
+// path shape as apps/mobile/lib/powersync.ts's addTaskPhoto, just a direct
+// upload instead of PowerSync's offline attachment queue.
+export async function uploadTaskPhoto(params: {
+  tenantId: string;
+  taskId: string;
+  uploadedBy: string;
+  file: File;
+}): Promise<string> {
+  const id = crypto.randomUUID();
+  const extension = params.file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const fileName = `${id}.${extension}`;
+  const storagePath = `${params.tenantId}/task-${params.taskId}/${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("job-files")
+    .upload(storagePath, params.file, { contentType: params.file.type || undefined });
+  if (uploadError) throw uploadError;
+
+  const { error: insertError } = await supabase.from("task_files").insert({
+    id,
+    tenant_id: params.tenantId,
+    task_id: params.taskId,
+    storage_path: storagePath,
+    file_name: fileName,
+    mime_type: params.file.type || null,
+    size_bytes: params.file.size,
+    uploaded_by: params.uploadedBy,
+  });
+  if (insertError) throw insertError;
+
+  return storagePath;
+}

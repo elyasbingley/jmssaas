@@ -3510,3 +3510,55 @@ screen, matching where mobile's Home screen puts it).
   browser window with pop-ups allowed, which this sandbox's headless
   Playwright check didn't exercise) - all need a real signed-in session
   and a manual click-through to confirm.
+
+## 21. Desktop: Tasks screen
+
+The last screen from the original desktop scope list - `src/pages/
+Tasks.tsx` (list + status filter chips + create modal, direct port of
+`(tabs)/tasks/index.tsx`) and `src/pages/TaskDetail.tsx` (status chips,
+edit modal, linked-job link, photos, notes, delete, direct port of
+`(tabs)/tasks/[id].tsx`).
+
+One difference from mobile worth calling out: mobile's list splits
+"admin sees everything" vs. "technician sees only tasks assigned to
+them," since the same screen serves both roles. Desktop has no
+technician role at all (`RequireAdmin` wraps every route - see
+`docs/SETUP.md`'s desktop foundation section) - there's no equivalent
+split to port, so `fetchTasks` always reads the whole tenant's tasks.
+
+Photos reuse the exact signed-URL pattern `JobDetail.tsx` already
+established (the `job-files` bucket is private) rather than mobile's
+offline attachment queue - `src/lib/uploads.ts` gained `uploadTaskPhoto`,
+a direct-upload sibling to the existing `uploadJobPhoto`, using the same
+`<tenant_id>/task-<task_id>/<uuid>.<ext>` storage path convention as
+mobile's `addTaskPhoto` (see `apps/mobile/lib/powersync.ts`) so both
+apps' task photos land in the same place with the same RLS.
+
+Reached via a new "Tasks" nav item alongside Dispatch (a daily-use tool,
+not a Settings-adjacent one).
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build` both
+  pass clean.
+- **Every query/mutation these two screens issue was run by hand against
+  a fresh local Postgres 16 instance** (all 24 migrations applied):
+  confirmed task creation (including the auto-assigned `TSK001`-style
+  `number`), status transitions, editing title/description/due date, the
+  list's sort order (`due_date` ascending with nulls last, then
+  `created_at` descending), adding a task note, inserting a task_files row
+  with the exact storage_path `uploadTaskPhoto` builds, and deleting a
+  task.
+- Loading `/tasks` and `/tasks/:id` directly while signed out
+  (Playwright/Chromium) both correctly redirect to `/login` with no
+  unexpected console errors.
+
+### NOT verified from this sandbox
+
+- The actual rendered screens - status chip clicks, the edit modal, photo
+  upload/signed-URL display, notes - need a real signed-in session against
+  a real Supabase project to click through; this sandbox has no such
+  backend.
+
+This closes every item in the desktop parity scope this session started
+with - every screen mobile has now has a desktop equivalent.
