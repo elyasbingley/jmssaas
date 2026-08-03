@@ -6,12 +6,19 @@ import { supabase } from "./supabase";
 // off that exact path shape) and the same job_files row shape, just a
 // direct upload instead of going through PowerSync's offline attachment
 // queue - there's nothing to queue when the app is always online.
+// Returns the storage_path of the uploaded job_files row - the roof
+// measurement screen uses this to record which photo is its own snapshot
+// (mobile's own addJobPhoto-based snapshot capture doesn't do this: it
+// sets job_measurements.snapshot_path to just "<tenant_id>/<job_id>", a
+// folder prefix rather than the actual file, since addJobPhoto never
+// returns the id/path it generates - not fixed there, but worth doing
+// properly here since the return value is available for free).
 export async function uploadJobPhoto(params: {
   tenantId: string;
   jobCardId: string;
   uploadedBy: string;
   file: File;
-}): Promise<void> {
+}): Promise<string> {
   const id = crypto.randomUUID();
   const extension = params.file.name.split(".").pop()?.toLowerCase() || "jpg";
   const fileName = `${id}.${extension}`;
@@ -33,4 +40,6 @@ export async function uploadJobPhoto(params: {
     uploaded_by: params.uploadedBy,
   });
   if (insertError) throw insertError;
+
+  return storagePath;
 }

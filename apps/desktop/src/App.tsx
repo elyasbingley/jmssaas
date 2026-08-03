@@ -6,6 +6,7 @@ import ClientsPage from "./pages/Clients";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
 import JobDetailPage from "./pages/JobDetail";
+import JobMeasurePage from "./pages/JobMeasure";
 import QuotesPage from "./pages/Quotes";
 import QuoteNewPage from "./pages/QuoteNew";
 import QuoteDetailPage from "./pages/QuoteDetail";
@@ -28,6 +29,7 @@ export default function App() {
                 <Route path="/dispatch" element={<StubPage title="Dispatch" />} />
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/jobs/:id" element={<JobDetailPage />} />
+                <Route path="/jobs/:id/measure" element={<JobMeasurePage />} />
                 <Route path="/quotes" element={<QuotesPage />} />
                 <Route path="/quotes/new" element={<QuoteNewPage />} />
                 <Route path="/quotes/:id" element={<QuoteDetailPage />} />

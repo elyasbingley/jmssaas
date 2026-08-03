@@ -2541,3 +2541,142 @@ layout allows:
 - The photo upload fix was verified by `tsc`/`vite build` only - no
   real Supabase Storage bucket was available in this sandbox to actually
   exercise an upload against.
+
+## 11. Desktop app - Roof measurement tool
+
+Closes the gap flagged in section 10: desktop had no equivalent of
+mobile's satellite-map roof measurement tool at all. Built using **Google
+Maps JavaScript API** - the recommendation from section 10's own writeup,
+now confirmed and built rather than left as an open question.
+
+### Why Google Maps JS API (not Mapbox/Leaflet)
+
+- **Imagery parity with mobile** - mobile's Android build already uses
+  Google's Maps SDK for satellite tiles (`GOOGLE_MAPS_API_KEY_ANDROID`);
+  using the same provider's imagery on desktop means a roof measured on
+  one platform looks the same on the other, rather than two different
+  satellite imagery sources with potentially different capture dates/
+  resolution.
+- **No drawing library needed** - rather than reaching for
+  `google.maps.drawing.DrawingManager` (a toolbar-driven rectangle/circle/
+  polygon tool with its own UX, not well suited to "manage several named
+  facets with individual pitch/rename/delete controls in a side panel"),
+  the tool talks to the base Maps JS API directly: a single map click
+  listener adds a vertex to whichever facet is "active", and
+  `google.maps.Marker`/`Polygon`/`Polyline` overlays are rebuilt from
+  React state on every change. This is a closer port of mobile's own
+  click-to-add-vertex interaction (`onPress`->push coordinate) than any
+  drawing-library toolbar would give.
+- **Maps Static API reuses the same key for the snapshot** - see below.
+
+### What's built
+
+- **`src/lib/google-maps.ts`** - loads the Maps JS API via
+  `@googlemaps/js-api-loader`'s newer functional API (`setOptions()` +
+  top-level `importLibrary()` - the older `Loader` class this package
+  used to export is now deprecated and untyped for this purpose, confirmed
+  from its own shipped `.d.ts`). Pulls in the `maps` library (Map/Marker/
+  Polygon/Polyline) and `geocoding` (Geocoder), cached behind a single
+  module-level promise so concurrent callers share one load.
+- **`src/pages/JobMeasure.tsx`** (route: `/jobs/:id/measure`) - port of
+  `apps/mobile`'s `measure.tsx`:
+  - **Region resolution**: geocodes the job's site (if picked) or client
+    address via `google.maps.Geocoder`, falling back to the browser's own
+    `navigator.geolocation.getCurrentPosition`, then a fixed Sydney
+    default - the same three-step fallback chain as mobile's
+    `expo-location`-based version, using browser APIs instead of native
+    ones.
+  - **Facet drawing**: "+ New Facet" activates a facet; a single map
+    click listener (attached once, reading the active facet id from a
+    ref so it never goes stale) appends a vertex to whichever facet is
+    active; "Undo last point"/"Finish facet" match mobile exactly.
+    Facets render as colored `Marker`s per vertex plus a `Polygon` once
+    3+ points exist (a `Polyline` at exactly 2), rebuilt from scratch on
+    every state change - simple and cheap at this scale (rebuilding a
+    Polygon on every marker addition is a non-issue for the couple-dozen-
+    vertex-per-facet scale this data actually has, in return for skipping
+    a complexity budget that would be needed to diff two overlay sets).
+  - **Facet panel**: same fields as mobile (color swatch, click-to-rename
+    via a modal, pitch stepper clamped 0-60°, live flat/true area via the
+    same `polygonFlatAreaSqm`/`trueAreaSqm` from `packages/shared`,
+    delete). Laid out as a side panel next to the map (not stacked below
+    it, unlike mobile) - a reasonable use of a desktop screen's extra
+    width, and closer to the drawer-beside-canvas layout a desktop
+    measuring tool would naturally have.
+  - **Save**: validates with the same `createJobMeasurementSchema`,
+    attempts a snapshot via the Maps **Static** API (a plain, CORS-enabled
+    image URL with one `path=` parameter per facet - color, fill, and
+    point list - and no `center`/`zoom` given, since Static Maps auto-fits
+    bounds to the supplied paths), uploads it as a job photo via the same
+    `uploadJobPhoto` helper section 10 built, inserts the
+    `job_measurements` row, and appends the same plain-text summary to
+    `job_notes` mobile writes. A failed snapshot doesn't block saving the
+    measurement itself - same graceful-degradation reasoning as mobile's
+    own `takeSnapshot` try/catch.
+  - **Snapshot linkage is more precise than mobile's own version**: mobile
+    sets `job_measurements.snapshot_path` to `"<tenant_id>/<job_id>"` (a
+    folder prefix, not a specific file) because `addJobPhoto` never
+    returns the id/path it generates internally. `uploadJobPhoto` (this
+    app's equivalent, see section 10) does return the generated
+    `storage_path`, so desktop's `snapshot_path` actually identifies which
+    `job_files` row is the snapshot. This is a small, contained
+    improvement scoped to desktop's own column value only - mobile's own
+    behavior wasn't touched.
+- **`JobDetail.tsx`** gained a "Roof Measurement" card: a "📐 Measure Roof"
+  button (linking to the new route) plus a list of past measurements
+  (title, date, total flat/true area) - mobile has no equivalent history
+  list (it only offers the button), added here since desktop has the
+  screen space and it's a natural read of data that already exists.
+
+### Google Maps API key setup
+
+Unlike mobile's Android SDK key (baked into a manifest at native-build
+time, never shipped in JS), this is a **browser JS API key**, deliberately
+`VITE_`-prefixed and bundled into the client - that's how Google's own JS
+API is designed to be used. Protect it with **HTTP referrer restrictions**
+in the Google Cloud Console, not by hiding it (a bundled JS key can never
+truly be secret):
+
+1. [console.cloud.google.com/google/maps-apis](https://console.cloud.google.com/google/maps-apis)
+   -> create/select a project -> create a credential (API key).
+2. Enable, on that project: **Maps JavaScript API**, **Geocoding API**,
+   **Maps Static API** (all three are used - the interactive map, address
+   lookup, and the save-time snapshot respectively).
+3. Edit the key -> **Application restrictions** -> **HTTP referrers** ->
+   add the deployed desktop app's domain(s) plus `http://localhost:5173/*`
+   for local dev.
+4. `VITE_GOOGLE_MAPS_API_KEY=` in `apps/desktop/.env` (see
+   `.env.example`).
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **`job_measurements` insert and the `job_notes` summary append were run
+  directly against a fresh local Postgres 16 instance** with all 23
+  migrations applied (same throwaway-`auth`/`storage` stub setup as
+  sections 9-10): a two-facet measurement inserted with the exact `facets`
+  jsonb shape the save mutation builds (id/name/pitch_degrees/flat+true
+  area/coordinates per facet), confirmed to round-trip correctly
+  (`jsonb_array_length` = 2, first facet's name and coordinates read back
+  exactly as written); a `job_files` row simulating the snapshot upload
+  confirmed the `snapshot_path` linkage; the `job_notes` insert used the
+  exact plain-text summary format the save mutation builds.
+- Loading `/jobs/<uuid>/measure` directly while signed out
+  (Playwright/Chromium) correctly redirects to `/login` with no console
+  errors, confirming the new route is properly wrapped by `RequireAdmin`.
+
+### NOT verified from this sandbox
+
+- **No real Google Maps API key was available here** - the interactive
+  map, geocoding, click-to-add-vertex drawing, and the Static Maps
+  snapshot fetch have only been read through carefully against Google's
+  documented API shapes and this repo's own mobile equivalent, not
+  exercised in a real browser against a real key. This is the single
+  biggest gap in this pass's verification - a manual click-through with a
+  real key (draw a facet, confirm the area numbers look sane, confirm the
+  snapshot photo appears in the job's Photos section afterward) is needed
+  before relying on this in the field.
+- No live Supabase Storage/project was available either (same caveat as
+  sections 9-10) - the snapshot upload path was verified at the SQL level
+  only (a `job_files` row with the right shape), not through an actual
+  Storage upload.
