@@ -6,7 +6,6 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
-  type JobStatus,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -14,14 +13,6 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField, SelectField, TextAreaField } from "../components/FormField";
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 async function fetchJobs(): Promise<JobCard[]> {
   const { data, error } = await supabase.from("job_cards").select("*").order("created_at", { ascending: false });
@@ -128,7 +119,6 @@ export default function JobsPage() {
           client_id: result.data.client_id,
           title: result.data.title,
           description: result.data.description || null,
-          status: "new",
           service_category_id: result.data.service_category_id ?? null,
           lifecycle_stage_id: result.data.lifecycle_stage_id ?? null,
           created_by: profile.id,
@@ -235,7 +225,6 @@ export default function JobsPage() {
                 <th className="px-4 py-2 font-semibold">Title</th>
                 <th className="px-4 py-2 font-semibold">Client</th>
                 <th className="px-4 py-2 font-semibold">Category / Stage</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -276,7 +265,6 @@ export default function JobsPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-gray-700">{STATUS_LABELS[job.status]}</td>
                   </tr>
                 );
               })}

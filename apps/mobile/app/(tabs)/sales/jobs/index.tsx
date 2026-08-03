@@ -8,21 +8,12 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
-  type JobStatus,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
 import { PickerModal } from "../../../../components/PickerModal";
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 type SortOption = "created_at" | "scheduled_at" | "category" | "stage";
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -127,8 +118,8 @@ export default function JobsScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, status, service_category_id, lifecycle_stage_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)`,
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         profile.tenant_id,
@@ -219,7 +210,6 @@ export default function JobsScreen() {
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
             </Pressable>
           );
         }}
@@ -390,7 +380,6 @@ const styles = StyleSheet.create({
   categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
   stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700" },
-  statusBadge: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
   link: { color: "#1d4ed8", fontWeight: "600" },

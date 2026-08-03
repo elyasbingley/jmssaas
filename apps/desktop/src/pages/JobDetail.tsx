@@ -11,7 +11,6 @@ import {
   type JobLifecycleStage,
   type JobMeasurement,
   type JobNote,
-  type JobStatus,
   type Profile,
   type Quote,
   type ServiceCategory,
@@ -22,15 +21,6 @@ import { getErrorMessage } from "../lib/errors";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
 import { TextAreaField } from "../components/FormField";
-
-const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 async function fetchJob(id: string): Promise<JobCard> {
   const { data, error } = await supabase.from("job_cards").select("*").eq("id", id).single();
@@ -241,21 +231,7 @@ export default function JobDetailPage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Status</label>
-            <select
-              value={job.status}
-              onChange={(e) => updateJob.mutate({ status: e.target.value as JobStatus })}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
-            >
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Category</label>
             <select

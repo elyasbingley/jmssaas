@@ -3,20 +3,12 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
+import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobLifecycleStage } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { FormField } from "../../../../components/FormField";
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,6 +22,8 @@ export default function ClientDetailScreen() {
     "SELECT * FROM job_cards WHERE client_id = ? ORDER BY created_at DESC",
     [id]
   );
+  const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
+  const stageById = new Map(stages.map((s) => [s.id, s]));
 
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState("");
@@ -47,8 +41,8 @@ export default function ClientDetailScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [jobId, profile.tenant_id, id, result.data.title, result.data.description || null, profile.id, now, now]
     );
 
@@ -164,7 +158,9 @@ export default function ClientDetailScreen() {
                 <Text style={styles.rowTitle}>{item.title}</Text>
               </View>
             </View>
-            <Text style={styles.rowSubtitle}>{STATUS_LABELS[item.status]}</Text>
+            {stageById.get(item.lifecycle_stage_id ?? "") ? (
+              <Text style={styles.rowSubtitle}>{stageById.get(item.lifecycle_stage_id ?? "")!.name}</Text>
+            ) : null}
           </Pressable>
         )}
         ListEmptyComponent={<Text style={styles.empty}>No jobs yet for this client.</Text>}

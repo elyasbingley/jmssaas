@@ -4,8 +4,6 @@
 
 export type UserRole = "admin" | "technician";
 
-export type JobStatus = "new" | "scheduled" | "in_progress" | "completed" | "invoiced";
-
 export type TaskStatus = "todo" | "in_progress" | "done";
 
 export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired";
@@ -106,16 +104,20 @@ export interface JobCard {
   number: string | null;
   title: string;
   description: string | null;
-  status: JobStatus;
   assigned_technician_id: string | null;
   quote_id: string | null;
   invoice_id: string | null;
   scheduled_at: string | null;
   completed_at: string | null;
-  // Admin-customizable tag/pipeline, independent of `status` above - see
-  // ServiceCategory/JobLifecycleStage and the job_categories_lifecycle_stages
-  // migration for why the two aren't kept in sync with each other.
   service_category_id: string | null;
+  // The job's place in its tenant's customizable pipeline - this replaced a
+  // separate fixed `status` enum (new/scheduled/in_progress/completed/
+  // invoiced) that job_lifecycle_stages originally existed alongside; see
+  // the job_status_lifecycle_consolidation migration for why they were
+  // folded into this one field instead of kept in sync with each other.
+  // Never null in practice - a BEFORE INSERT trigger defaults it to the
+  // tenant's lowest-position stage - but nullable here since the FK is
+  // ON DELETE SET NULL (deleting a stage shouldn't cascade-delete jobs).
   lifecycle_stage_id: string | null;
   created_by: string | null;
   created_at: string;
@@ -139,9 +141,9 @@ export interface ServiceCategory {
 }
 
 // An admin-configurable, ordered pipeline (e.g. "Enquiry" / "Quote Sent" /
-// "Deposit Paid" / "In Progress") - distinct from the fixed JobStatus enum
-// above, which several other features already key off (Schedule board,
-// Job Costing, status chips) and isn't being replaced by this.
+// "Deposit Paid" / "In Progress") - the sole tag/pipeline on a job now that
+// the old fixed status enum was folded into this (see the
+// job_status_lifecycle_consolidation migration).
 export interface JobLifecycleStage {
   id: string;
   tenant_id: string;
@@ -149,6 +151,12 @@ export interface JobLifecycleStage {
   position: number;
   color: string | null;
   is_system_default: boolean;
+  // Marks a stage as "the job is done" for the two triggers that used to
+  // key off status = 'completed' (schedule_job_completion_summary,
+  // schedule_maintenance_reminder) - true for the default Completed/
+  // Invoiced stages, false for everything else including any custom stage
+  // an admin adds, unless they flip this on for it too.
+  is_closed: boolean;
   created_at: string;
   updated_at: string;
 }

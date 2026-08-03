@@ -182,6 +182,7 @@ export const createJobLifecycleStageSchema = z.object({
   name: z.string().min(1, "Name is required"),
   position: z.number().int().default(0),
   color: z.string().optional(),
+  is_closed: z.boolean().optional().default(false),
 });
 export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;
 

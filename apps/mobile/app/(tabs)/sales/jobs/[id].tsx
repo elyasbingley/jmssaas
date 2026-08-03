@@ -18,7 +18,6 @@ import {
   type JobCard,
   type JobLifecycleStage,
   type JobNote,
-  type JobStatus,
   type Quote,
   type QuoteLineItem,
   type ServiceCategory,
@@ -38,15 +37,6 @@ import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
-
-const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -219,28 +209,6 @@ export default function JobDetailScreen() {
   const [taskTitle, setTaskTitle] = useState("");
   const [taskError, setTaskError] = useState<string | null>(null);
 
-  const handleStatusChange = async (status: JobStatus) => {
-    await powersync.execute("UPDATE job_cards SET status = ? WHERE id = ?", [status, id]);
-    if (status === "completed") {
-      Alert.alert("Job completed", "Send an automated review request to the client?", [
-        { text: "Not now", style: "cancel" },
-        {
-          text: "Send",
-          onPress: async () => {
-            const result = await queueScheduledCommunication("job_review_request");
-            if (!result.queued) return;
-            Alert.alert(
-              result.sentImmediately ? "Sent" : "Queued",
-              result.sentImmediately
-                ? "The review request has been sent."
-                : "The review request is queued and will send shortly (next sync/cron sweep)."
-            );
-          },
-        },
-      ]);
-    }
-  };
-
   // --- Automated field messages (On The Way / Review Request) ---
   // Inserted directly into the local PowerSync-synced scheduled_
   // communications table (tenant-wide writable - see the communication_
@@ -352,9 +320,6 @@ export default function JobDetailScreen() {
     );
   };
 
-  // Category/stage are a separate, independently admin-customizable pipeline
-  // layered on top of `status` above - see the job_categories_lifecycle_
-  // stages migration for why the two aren't kept in sync with each other.
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [stagePickerVisible, setStagePickerVisible] = useState(false);
 
@@ -363,7 +328,30 @@ export default function JobDetailScreen() {
   };
 
   const handleStageChange = async (next: JobLifecycleStage | null) => {
+    const wasClosed = stage?.is_closed ?? false;
     await powersync.execute("UPDATE job_cards SET lifecycle_stage_id = ? WHERE id = ?", [next?.id ?? null, id]);
+    // Same "just finished" moment the old status picker's completed check
+    // used to catch - now keyed off entering any is_closed stage (not just
+    // one literally named "Completed"), matching the DB triggers' own
+    // schedule_job_completion_summary/schedule_maintenance_reminder logic.
+    if (next?.is_closed && !wasClosed) {
+      Alert.alert("Job completed", "Send an automated review request to the client?", [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Send",
+          onPress: async () => {
+            const result = await queueScheduledCommunication("job_review_request");
+            if (!result.queued) return;
+            Alert.alert(
+              result.sentImmediately ? "Sent" : "Queued",
+              result.sentImmediately
+                ? "The review request has been sent."
+                : "The review request is queued and will send shortly (next sync/cron sweep)."
+            );
+          },
+        },
+      ]);
+    }
   };
 
   // --- Edit job title/description ---
@@ -560,23 +548,6 @@ export default function JobDetailScreen() {
 
       {activeTab === "details" || !isAdmin ? (
         <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Status</Text>
-        <View style={styles.statusRow}>
-          {STATUSES.map((status) => (
-            <Pressable
-              key={status}
-              style={[styles.statusChip, job.status === status && styles.statusChipActive]}
-              onPress={() => handleStatusChange(status)}
-            >
-              <Text style={[styles.statusChipText, job.status === status && styles.statusChipTextActive]}>
-                {STATUS_LABELS[status]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notify client</Text>
         <Pressable
@@ -852,11 +823,6 @@ const styles = StyleSheet.create({
   pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
   swatch: { width: 12, height: 12, borderRadius: 6 },
   clearLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6, alignSelf: "flex-start" },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
-  statusChipActive: { backgroundColor: "#1d4ed8" },
-  statusChipText: { color: "#374151", fontWeight: "600" },
-  statusChipTextActive: { color: "#fff" },
   linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
   linkedRowText: { color: "#1d4ed8", fontWeight: "600" },
   linkButton: { marginTop: 10, alignSelf: "flex-start" },

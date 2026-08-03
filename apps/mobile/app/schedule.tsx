@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import type { CalendarEvent, Client, JobCard, JobStatus, Profile } from "@jmssaas/shared";
+import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
@@ -9,14 +9,6 @@ import { supabase } from "../lib/supabase";
 import { addDays, formatEventTimeRange, isSameDay } from "../lib/datetime";
 import { formatClientAddress } from "../lib/format";
 import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 type JobCardRow = JobCard & { clients: Client | null };
 type CalendarEventRow = CalendarEvent & { job_cards: JobCardRow | null };
@@ -46,6 +38,7 @@ export default function ScheduleScreen() {
       { data: jobCards, error: jobsError },
       { data: technicians, error: techError },
       { data: events, error: eventsError },
+      { data: stages, error: stagesError },
     ] = await Promise.all([
       supabase.from("job_cards").select("*, clients(*)").order("created_at", { ascending: false }),
       supabase.from("profiles").select("*").eq("role", "technician").order("full_name"),
@@ -54,14 +47,17 @@ export default function ScheduleScreen() {
         .select("*, job_cards(*, clients(*))")
         .not("job_card_id", "is", null)
         .order("start_at", { ascending: true }),
+      supabase.from("job_lifecycle_stages").select("*"),
     ]);
     if (jobsError) throw jobsError;
     if (techError) throw techError;
     if (eventsError) throw eventsError;
+    if (stagesError) throw stagesError;
     return {
       jobCards: (jobCards ?? []) as JobCardRow[],
       technicians: (technicians ?? []) as Profile[],
       events: (events ?? []) as CalendarEventRow[],
+      stages: (stages ?? []) as JobLifecycleStage[],
     };
   }, [isOnline]);
   useRefetchOnFocus(refetch);
@@ -70,18 +66,23 @@ export default function ScheduleScreen() {
 
   // "Unassigned" = no calendar event linking this job that's still in the
   // future - a job whose only scheduled visit already happened is back in
-  // the queue, same as one that was never scheduled at all. Completed/
-  // invoiced jobs are excluded since there's nothing left to dispatch.
+  // the queue, same as one that was never scheduled at all. Jobs already in
+  // a closed stage (is_closed on job_lifecycle_stages - the default
+  // Completed/Invoiced stages, or any custom stage an admin marks the same
+  // way) are excluded since there's nothing left to dispatch.
   const unassignedJobs = useMemo(() => {
     if (!data) return [];
     const now = new Date();
     const scheduledJobIds = new Set(
       data.events.filter((e) => new Date(e.start_at) >= now).map((e) => e.job_card_id)
     );
+    const closedStageIds = new Set(data.stages.filter((s) => s.is_closed).map((s) => s.id));
     return data.jobCards.filter(
-      (job) => !scheduledJobIds.has(job.id) && job.status !== "completed" && job.status !== "invoiced"
+      (job) => !scheduledJobIds.has(job.id) && !closedStageIds.has(job.lifecycle_stage_id ?? "")
     );
   }, [data]);
+
+  const stageById = useMemo(() => new Map((data?.stages ?? []).map((s) => [s.id, s])), [data]);
 
   const eventsByTechnician = useMemo(() => {
     const map = new Map<string, CalendarEventRow[]>();
@@ -146,18 +147,21 @@ export default function ScheduleScreen() {
           {unassignedJobs.length === 0 ? (
             <Text style={styles.empty}>Nothing waiting to be scheduled.</Text>
           ) : (
-            unassignedJobs.map((job) => (
-              <Pressable key={job.id} style={styles.jobRow} onPress={() => goToUnassignedJob(job)}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.jobTitle}>{job.title}</Text>
-                  <Text style={styles.jobSubtitle}>{job.clients?.name ?? "Unknown client"}</Text>
-                  {job.clients && formatClientAddress(job.clients) ? (
-                    <Text style={styles.jobSubtitle}>{formatClientAddress(job.clients)}</Text>
-                  ) : null}
-                </View>
-                <Text style={styles.jobStatusBadge}>{STATUS_LABELS[job.status]}</Text>
-              </Pressable>
-            ))
+            unassignedJobs.map((job) => {
+              const stage = stageById.get(job.lifecycle_stage_id ?? "");
+              return (
+                <Pressable key={job.id} style={styles.jobRow} onPress={() => goToUnassignedJob(job)}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.jobTitle}>{job.title}</Text>
+                    <Text style={styles.jobSubtitle}>{job.clients?.name ?? "Unknown client"}</Text>
+                    {job.clients && formatClientAddress(job.clients) ? (
+                      <Text style={styles.jobSubtitle}>{formatClientAddress(job.clients)}</Text>
+                    ) : null}
+                  </View>
+                  {stage ? <Text style={styles.jobStatusBadge}>{stage.name}</Text> : null}
+                </Pressable>
+              );
+            })
           )}
 
           <Text style={styles.sectionTitle}>Technicians</Text>

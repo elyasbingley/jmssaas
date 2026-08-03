@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -39,6 +39,7 @@ export default function JobSetupScreen() {
   const [editingStage, setEditingStage] = useState<JobLifecycleStage | null>(null);
   const [stageName, setStageName] = useState("");
   const [stageColor, setStageColor] = useState("");
+  const [stageIsClosed, setStageIsClosed] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
 
   const openNewCategory = () => {
@@ -113,6 +114,7 @@ export default function JobSetupScreen() {
     setEditingStage(null);
     setStageName("");
     setStageColor("");
+    setStageIsClosed(false);
     setStageError(null);
     setStageModalVisible(true);
   };
@@ -121,6 +123,7 @@ export default function JobSetupScreen() {
     setEditingStage(stage);
     setStageName(stage.name);
     setStageColor(stage.color ?? "");
+    setStageIsClosed(stage.is_closed);
     setStageError(null);
     setStageModalVisible(true);
   };
@@ -131,6 +134,7 @@ export default function JobSetupScreen() {
       name: stageName,
       color: stageColor || undefined,
       position: editingStage?.position ?? nextPosition,
+      is_closed: stageIsClosed,
     });
     if (!result.success) {
       setStageError(result.error.issues[0]?.message ?? "Invalid stage");
@@ -140,17 +144,24 @@ export default function JobSetupScreen() {
 
     const now = new Date().toISOString();
     if (editingStage) {
-      await powersync.execute("UPDATE job_lifecycle_stages SET name = ?, color = ?, updated_at = ? WHERE id = ?", [
-        result.data.name,
-        result.data.color || null,
-        now,
-        editingStage.id,
-      ]);
+      await powersync.execute(
+        "UPDATE job_lifecycle_stages SET name = ?, color = ?, is_closed = ?, updated_at = ? WHERE id = ?",
+        [result.data.name, result.data.color || null, result.data.is_closed ? 1 : 0, now, editingStage.id]
+      );
     } else {
       await powersync.execute(
-        `INSERT INTO job_lifecycle_stages (id, tenant_id, name, position, color, is_system_default, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-        [uuidv4(), profile.tenant_id, result.data.name, result.data.position, result.data.color || null, now, now]
+        `INSERT INTO job_lifecycle_stages (id, tenant_id, name, position, color, is_system_default, is_closed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+        [
+          uuidv4(),
+          profile.tenant_id,
+          result.data.name,
+          result.data.position,
+          result.data.color || null,
+          result.data.is_closed ? 1 : 0,
+          now,
+          now,
+        ]
       );
     }
     setStageModalVisible(false);
@@ -232,9 +243,7 @@ export default function JobSetupScreen() {
         </Pressable>
 
         <Text style={[styles.sectionTitle, styles.secondSection]}>Job lifecycle stages</Text>
-        <Text style={styles.subtitle}>
-          A custom pipeline for jobs (separate from the Status shown on the job screen).
-        </Text>
+        <Text style={styles.subtitle}>A custom pipeline for jobs - this is the only status a job has.</Text>
 
         {stages.map((stage, index) => (
           <View key={stage.id} style={styles.row}>
@@ -242,6 +251,7 @@ export default function JobSetupScreen() {
               <View style={[styles.swatch, stage.color ? { backgroundColor: stage.color } : styles.swatchEmpty]} />
               <Text style={styles.rowText}>{stage.name}</Text>
               {stage.is_system_default ? <Text style={styles.defaultTag}>Default</Text> : null}
+              {stage.is_closed ? <Text style={styles.defaultTag}>Closed</Text> : null}
             </View>
             <View style={styles.rowActions}>
               <Pressable onPress={() => handleMoveStage(stage, "up")} disabled={index === 0}>
@@ -312,6 +322,13 @@ export default function JobSetupScreen() {
             autoCapitalize="none"
           />
         </View>
+        <View style={[styles.fieldSpacing, styles.switchRow]}>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.switchLabel}>Job is done in this stage</Text>
+            <Text style={styles.switchHint}>Triggers the completion summary email and maintenance reminders.</Text>
+          </View>
+          <Switch value={stageIsClosed} onValueChange={setStageIsClosed} />
+        </View>
         {stageError ? <Text style={styles.error}>{stageError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setStageModalVisible(false)}>
@@ -362,6 +379,9 @@ const styles = StyleSheet.create({
   addButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 16 },
   addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   fieldSpacing: { marginTop: 16 },
+  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  switchLabel: { fontSize: 15, fontWeight: "600", color: "#111827" },
+  switchHint: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   error: { color: "#dc2626", marginTop: 12 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },

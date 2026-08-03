@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import type { CalendarEvent, Client, JobCard, Profile } from "@jmssaas/shared";
+import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { addDays, isSameDay } from "../lib/datetime";
 import { formatClientAddress } from "../lib/format";
@@ -64,6 +64,11 @@ async function fetchEvents(): Promise<CalendarEventRow[]> {
     .order("start_at", { ascending: true });
   if (error) throw error;
   return data as CalendarEventRow[];
+}
+async function fetchStages(): Promise<JobLifecycleStage[]> {
+  const { data, error } = await supabase.from("job_lifecycle_stages").select("*").order("position");
+  if (error) throw error;
+  return data as JobLifecycleStage[];
 }
 
 function dayStartFor(date: Date): Date {
@@ -186,15 +191,25 @@ export default function DispatchPage() {
   const { data: jobCards } = useQuery({ queryKey: ["dispatch-job-cards"], queryFn: fetchJobCards });
   const { data: technicians } = useQuery({ queryKey: ["technicians"], queryFn: fetchTechnicians });
   const { data: events } = useQuery({ queryKey: ["dispatch-events"], queryFn: fetchEvents });
+  const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
 
   const [dragError, setDragError] = useState<string | null>(null);
 
+  // Jobs already in a closed stage (is_closed on job_lifecycle_stages - the
+  // default Completed/Invoiced stages, or any custom stage an admin marks
+  // the same way) are excluded since there's nothing left to dispatch -
+  // this replaced a status !== 'completed' && status !== 'invoiced' check
+  // when the status column was dropped (see the
+  // job_status_lifecycle_consolidation migration).
   const unassignedJobs = useMemo(() => {
-    if (!jobCards || !events) return [];
+    if (!jobCards || !events || !stages) return [];
     const now = new Date();
     const scheduledJobIds = new Set(events.filter((e) => new Date(e.start_at) >= now).map((e) => e.job_card_id));
-    return jobCards.filter((job) => !scheduledJobIds.has(job.id) && job.status !== "completed" && job.status !== "invoiced");
-  }, [jobCards, events]);
+    const closedStageIds = new Set(stages.filter((s) => s.is_closed).map((s) => s.id));
+    return jobCards.filter(
+      (job) => !scheduledJobIds.has(job.id) && !closedStageIds.has(job.lifecycle_stage_id ?? "")
+    );
+  }, [jobCards, events, stages]);
 
   const eventsByTechnician = useMemo(() => {
     const map = new Map<string, CalendarEventRow[]>();
@@ -217,8 +232,12 @@ export default function DispatchPage() {
 
   // Creates a calendar_event for a previously-unassigned job dropped onto a
   // technician's row, and dispatches that technician - same job-dispatch
-  // semantics as apps/mobile/app/schedule.tsx's own "+ New event" flow
-  // (bumps a `new` job to `scheduled`, later statuses left alone).
+  // semantics as apps/mobile/app/schedule.tsx's own "+ New event" flow.
+  // This used to also bump a "new" job to "scheduled" - removed along with
+  // the status column itself (see the job_status_lifecycle_consolidation
+  // migration); there's no generic equivalent stage to bump to once a
+  // tenant's pipeline is fully custom, so an admin now moves the stage
+  // themselves if they want to.
   const scheduleJob = useMutation({
     mutationFn: async (params: { jobId: string; technicianId: string; startMinutes: number }) => {
       const job = (jobCards ?? []).find((j) => j.id === params.jobId);
@@ -240,7 +259,7 @@ export default function DispatchPage() {
 
       const { error: jobError } = await supabase
         .from("job_cards")
-        .update({ assigned_technician_id: params.technicianId, ...(job.status === "new" ? { status: "scheduled" } : {}) })
+        .update({ assigned_technician_id: params.technicianId })
         .eq("id", job.id);
       if (jobError) throw jobError;
     },

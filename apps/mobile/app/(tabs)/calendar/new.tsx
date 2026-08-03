@@ -109,17 +109,16 @@ export default function NewCalendarEventScreen() {
       // same as every other job_cards write in the app. Only touches the
       // row when a technician was actually picked, so linking a job to an
       // event without picking anyone doesn't clobber an existing
-      // assignment. Bumping a "new" job to "scheduled" reflects that it now
-      // has a dispatched visit - later statuses (in_progress/completed/
-      // invoiced) are left alone.
+      // assignment. This used to also bump a "new" job to "scheduled" -
+      // removed along with the status column itself (see the
+      // job_status_lifecycle_consolidation migration); there's no generic
+      // equivalent stage to bump to once a tenant's pipeline is fully
+      // custom, so an admin now moves the stage themselves if they want to.
       if (jobCard && technician) {
-        await powersync.execute(
-          `UPDATE job_cards
-             SET assigned_technician_id = ?,
-                 status = CASE WHEN status = 'new' THEN 'scheduled' ELSE status END
-           WHERE id = ?`,
-          [technician.id, jobCard.id]
-        );
+        await powersync.execute("UPDATE job_cards SET assigned_technician_id = ? WHERE id = ?", [
+          technician.id,
+          jobCard.id,
+        ]);
       }
 
       router.replace(`/calendar/${data.id}`);

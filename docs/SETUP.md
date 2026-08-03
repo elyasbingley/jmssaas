@@ -3172,3 +3172,172 @@ meant to scroll.
   against real data.
 
 This closes every item from the original Phase 1 desktop scope list.
+
+## 18. Removed job_cards.status - lifecycle_stage_id is now the only status a job has
+
+Every job card used to carry two parallel status fields: the fixed
+`status` enum (new/scheduled/in_progress/completed/invoiced) from the
+Phase 1 schema, and `lifecycle_stage_id`, an admin-customizable pipeline
+added later specifically *alongside* status (see the
+job_categories_lifecycle_stages migration's own comment: "status is NOT
+replaced or removed here - too much of the app already keys off it").
+Both desktop and mobile job screens ended up showing a Status dropdown
+and a Stage dropdown right next to each other, doing the same job - which
+is the "these are the exact same thing" observation this migration acts
+on.
+
+### Why this wasn't a trivial rename
+
+`status = 'completed'` was load-bearing, not just a UI label - two
+Postgres triggers keyed off it directly:
+
+- `schedule_job_completion_summary` (job completion summary email)
+- `schedule_maintenance_reminder` (the retention campaign's recurring
+  maintenance email, gated additionally on `service_category_id`)
+
+Both only fired on `new.status = 'completed' and new.status is distinct
+from old.status` - i.e. the exact moment a job first became completed.
+Dropping the column meant these needed a replacement signal for "the job
+just became done," and a hardcoded stage *name* would have been exactly
+as fragile as the enum it replaced (a tenant can rename/reorder/delete any
+stage freely).
+
+### The fix: `is_closed` on `job_lifecycle_stages`
+
+`supabase/migrations/20260819000100_job_status_lifecycle_consolidation.sql`:
+
+- Adds `job_lifecycle_stages.is_closed boolean not null default false`,
+  seeded `true` for the two default stages that used to mean "done"
+  (Completed, Invoiced) and `false` for everything else - including any
+  custom stage a tenant adds; an admin can flip it on a custom "Job
+  Finished" stage the same way.
+- Rewrites both triggers to fire on "the job's stage just became a closed
+  one, having not been closed before" (`v_new_closed and not
+  v_old_closed`, comparing the old and new `lifecycle_stage_id`'s
+  `is_closed` flag) instead of the literal string 'completed'. This is a
+  real behavior improvement, not just a rename: the old check would
+  silently never fire for a job whose custom pipeline skips straight from
+  an in-progress-equivalent stage to an Invoiced-equivalent one - the new
+  check fires correctly the first time the job lands in *either* closed
+  default stage, or any custom is_closed stage.
+- Adds a `BEFORE INSERT` trigger (`default_job_lifecycle_stage_trigger`)
+  that defaults a new job's `lifecycle_stage_id` to its tenant's
+  lowest-position stage when one isn't given - `lifecycle_stage_id` was
+  previously just an optional tag; now that it's the only status a job
+  has, it can't be left null the way `status` (which had `NOT NULL
+  DEFAULT 'new'`) never was.
+- Backfills any job still missing a stage (a no-op in practice - the
+  original migration's own backfill already matched every job's status to
+  a same-named stage), then drops `job_cards.status` and the `job_status`
+  enum type entirely (verified: `job_status` wasn't used by any other
+  table).
+
+### Removed, not replaced: auto-bump to "Scheduled" on dispatch
+
+Both `apps/desktop/src/pages/Dispatch.tsx`'s `scheduleJob` mutation and
+`apps/mobile/app/schedule.tsx`'s `+ New event` flow (and desktop's
+`CalendarEventNew.tsx`/mobile's `calendar/new.tsx` equivalents) used to
+bump a `new` job to `scheduled` the moment a technician was dispatched.
+There's no generic equivalent once a tenant's stage pipeline is fully
+custom - guessing "the next stage after New" would be wrong for a
+tenant who reordered or renamed their pipeline. This convenience is
+removed outright rather than approximated; an admin now moves the stage
+themselves from the job detail screen if they want to reflect that a
+visit's been booked.
+
+### Everywhere else status/stage showed up, updated to stage-only
+
+- **Mobile** `sales/jobs/[id].tsx`: the Status chip row is gone; the
+  existing "Lifecycle stage" picker is now the only control, and its
+  `handleStageChange` gained the same "send an automated review request?"
+  prompt the old Status picker's "completed" tap used to trigger - now
+  firing on `next.is_closed && !wasClosed` (entering any closed stage,
+  matching the DB triggers' own logic) instead of one specific status
+  value.
+- **Mobile** `sales/jobs/index.tsx`, `sales/clients/[id].tsx`: status
+  badges/columns removed (clients/[id].tsx now shows the job's stage name
+  instead, matching what jobs/index.tsx already showed).
+- **Mobile** `schedule.tsx`: the "unassigned jobs" filter (`status !==
+  'completed' && status !== 'invoiced'`) is now `!closedStageIds.has(...)`,
+  fetching `job_lifecycle_stages` fresh for this; the status badge on each
+  unassigned job row is now its stage name.
+- **Mobile** `job-setup.tsx`: the stage editor gained an "Is closed" toggle
+  (a `Switch`, same pattern as Automation Settings' rule toggles) so an
+  admin can mark a custom stage as meaning "done."
+- **Desktop** `JobDetail.tsx`: the Status dropdown is gone; Category/Stage/
+  Technician now share the grid that used to also hold Status.
+- **Desktop** `Jobs.tsx`, `ClientDetail.tsx`: same status column/badge
+  removal as their mobile counterparts; ClientDetail's job table now shows
+  Stage instead of Status (it never showed category/stage tags before,
+  unlike Jobs.tsx, so this is a net addition there, not just a swap).
+- **Desktop** `Dispatch.tsx`: same `is_closed`-based unassigned-jobs filter
+  as mobile's schedule.tsx, fetching `job_lifecycle_stages` alongside jobs/
+  technicians/events.
+- **packages/shared**: `JobStatus` type removed entirely; `JobCard.status`
+  removed; `JobLifecycleStage.is_closed: boolean` added;
+  `createJobLifecycleStageSchema` gained `is_closed`; the PowerSync
+  `job_cards` table schema dropped its `status` column and
+  `job_lifecycle_stages` gained `is_closed` (as `column.integer`, same
+  0/1 convention as `is_system_default` - SQLite has no boolean type).
+
+### A new job created offline has no stage until its next sync
+
+Mobile's job-creation `INSERT`s (jobs/index.tsx, clients/[id].tsx) no
+longer set `status` at all, and don't set `lifecycle_stage_id` unless the
+admin picked one - the new `BEFORE INSERT` trigger that defaults it lives
+in Postgres, so a job created offline sits with `lifecycle_stage_id =
+NULL` locally until it next syncs and round-trips the server's default
+back down. This is the exact same caveat `job_cards.number` (also
+server-assigned on insert) already has, documented in the very first
+desktop/mobile parity pass - nothing new here, just another field with
+the same shape of gap.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` passes clean across `packages/shared`, `apps/mobile`,
+  and `apps/desktop`; `pnpm --filter desktop build` also passes.
+- **The full migration was run against a fresh local Postgres 16
+  instance** with all 24 migrations applied in order (including this
+  one) with zero errors - the standard stub setup for this sandbox
+  (hand-written `auth.users`/`auth.uid()`/`storage.buckets`/
+  `storage.objects`/`storage.foldername()`, since plain Postgres has no
+  GoTrue/Storage).
+  - Confirmed `job_cards.status` and the `job_status` enum type are both
+    gone, and `job_lifecycle_stages.is_closed` seeds `true` for exactly
+    the default Completed/Invoiced stages and `false` for the other three.
+  - Confirmed the `BEFORE INSERT` default-stage trigger assigns a new
+    job with no stage to the tenant's lowest-position stage, and leaves
+    an explicitly-set stage alone.
+  - Confirmed `schedule_job_completion_summary` fires exactly once when a
+    job moves New -> Completed; does **not** refire on a same-stage edit
+    or a Completed -> Invoiced move (both already closed); and **does**
+    fire on a direct In Progress -> Invoiced move that skips Completed
+    entirely - the documented improvement over the old literal-'completed'
+    check, verified by hand rather than assumed.
+  - Confirmed `schedule_maintenance_reminder` fires the same way and only
+    when `service_category_id` is set with a `maintenance_interval_months`
+    on that category, with `scheduled_for` landing the right number of
+    months out.
+- Loading `/jobs`, `/clients/:id`, `/dispatch`, and `/calendar/new`
+  directly while signed out (Playwright/Chromium) all correctly redirect
+  to `/login` with no unexpected console errors (a single failed-fetch
+  404 against the placeholder Supabase URL is expected and appears on
+  every route in this sandbox).
+
+### NOT verified from this sandbox
+
+- The actual UI - job detail's Category/Stage/Technician grid, the
+  mobile stage picker's review-request prompt, the job-setup stage
+  editor's new toggle, Dispatch's unassigned-jobs list - needs a real
+  signed-in session against a real Supabase project to click through;
+  this sandbox has no such backend, so only the route-guard redirect and
+  the underlying SQL were checked here, not the rendered screens
+  themselves.
+- Existing production data: this was verified against freshly-seeded rows
+  in a throwaway database, not against whatever real job_cards/
+  job_lifecycle_stages rows already exist in your actual Supabase project.
+  Before running this migration there, it's worth spot-checking that every
+  existing job already has a `lifecycle_stage_id` set (the original
+  job_categories_lifecycle_stages migration's backfill should have handled
+  this already) - if any don't, this migration's own backfill pass covers
+  them too, but confirming first costs nothing.

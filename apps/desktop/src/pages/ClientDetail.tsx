@@ -1,21 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobStatus } from "@jmssaas/shared";
+import { createClientSchema, createJobCardSchema, type Client, type JobCard, type JobLifecycleStage } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { formatClientAddress } from "../lib/format";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "New",
-  scheduled: "Scheduled",
-  in_progress: "In progress",
-  completed: "Completed",
-  invoiced: "Invoiced",
-};
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -31,6 +23,12 @@ async function fetchClientJobs(clientId: string): Promise<JobCard[]> {
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data as JobCard[];
+}
+
+async function fetchStages(): Promise<JobLifecycleStage[]> {
+  const { data, error } = await supabase.from("job_lifecycle_stages").select("*").order("position");
+  if (error) throw error;
+  return data as JobLifecycleStage[];
 }
 
 export default function ClientDetailPage() {
@@ -49,6 +47,8 @@ export default function ClientDetailPage() {
     queryFn: () => fetchClientJobs(id!),
     enabled: !!id,
   });
+  const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
+  const stageById = new Map((stages ?? []).map((s) => [s.id, s]));
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -128,7 +128,6 @@ export default function ClientDetailPage() {
           client_id: id,
           title: result.data.title,
           description: result.data.description || null,
-          status: "new",
           created_by: profile.id,
         })
         .select()
@@ -187,25 +186,28 @@ export default function ClientDetailPage() {
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Title</th>
-                <th className="px-4 py-2 font-semibold">Status</th>
+                <th className="px-4 py-2 font-semibold">Stage</th>
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
-                <tr key={job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 text-blue-700">
-                    <Link to={`/jobs/${job.id}`} className="hover:underline">
-                      {job.number ?? "Pending"}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link to={`/jobs/${job.id}`} className="font-medium hover:underline">
-                      {job.title}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{STATUS_LABELS[job.status]}</td>
-                </tr>
-              ))}
+              {jobs.map((job) => {
+                const stage = stageById.get(job.lifecycle_stage_id ?? "");
+                return (
+                  <tr key={job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3 text-blue-700">
+                      <Link to={`/jobs/${job.id}`} className="hover:underline">
+                        {job.number ?? "Pending"}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link to={`/jobs/${job.id}`} className="font-medium hover:underline">
+                        {job.title}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{stage?.name ?? ""}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

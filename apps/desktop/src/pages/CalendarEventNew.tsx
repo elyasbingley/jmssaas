@@ -100,19 +100,18 @@ export default function CalendarEventNewPage() {
         .single();
       if (error) throw error;
 
-      // Dispatching a technician to a job here - bumps a "new" job to
-      // "scheduled" the same way apps/mobile's calendar/new.tsx does,
-      // leaving later statuses alone.
+      // Dispatching a technician to a job here. This used to also bump a
+      // "new" job to "scheduled" (matching apps/mobile's calendar/new.tsx) -
+      // removed along with the status column itself (see the
+      // job_status_lifecycle_consolidation migration); there's no generic
+      // equivalent stage to bump to once a tenant's pipeline is fully
+      // custom, so an admin now moves the stage themselves if they want to.
       if (jobCardId && technicianId) {
         const { error: jobError } = await supabase
           .from("job_cards")
           .update({ assigned_technician_id: technicianId })
           .eq("id", jobCardId);
         if (jobError) throw jobError;
-        const job = (jobCards ?? []).find((j) => j.id === jobCardId);
-        if (job?.status === "new") {
-          await supabase.from("job_cards").update({ status: "scheduled" }).eq("id", jobCardId);
-        }
       }
 
       return data.id as string;
