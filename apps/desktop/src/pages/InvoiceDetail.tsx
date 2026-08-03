@@ -7,11 +7,14 @@ import {
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
+  type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { buildInvoicePdfHtml } from "../lib/quote-invoice-pdf";
+import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
@@ -41,12 +44,23 @@ async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: L
   return { invoice: invoice as InvoiceRow, items: (items ?? []) as LineItemFormInput[] };
 }
 
+async function fetchTenant(tenantId: string): Promise<Tenant> {
+  const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
+  if (error) throw error;
+  return data as Tenant;
+}
+
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({ queryKey: ["invoice", id], queryFn: () => fetchInvoice(id!), enabled: !!id });
+  const { data: tenant } = useQuery({
+    queryKey: ["tenant", profile?.tenant_id],
+    queryFn: () => fetchTenant(profile!.tenant_id),
+    enabled: !!profile,
+  });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -184,6 +198,23 @@ export default function InvoiceDetailPage() {
     onError: (e) => setSendEmailError(getErrorMessage(e, "Failed to send")),
   });
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportPdf = () => {
+    if (!data || !tenant || !data.invoice.clients) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items });
+      exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
+    } catch (e) {
+      setExportError(getErrorMessage(e, "Failed to export PDF"));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (isLoading || !data) {
     return <div className="p-8 text-sm text-gray-500">Loading...</div>;
   }
@@ -240,7 +271,15 @@ export default function InvoiceDetailPage() {
                 ? "Copy approval link"
                 : "Generate approval link"}
         </button>
+        <button
+          onClick={handleExportPdf}
+          disabled={exporting || !tenant}
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+        >
+          {exporting ? "Preparing PDF..." : "Export PDF"}
+        </button>
       </div>
+      {exportError ? <p className="mt-2 text-sm text-red-600">{exportError}</p> : null}
       {sendEmailError ? <p className="mt-2 text-sm text-red-600">{sendEmailError}</p> : null}
       {sendResult ? <p className="mt-2 text-sm text-green-700">{sendResult}</p> : null}
       {linkError ? <p className="mt-2 text-sm text-red-600">{linkError}</p> : null}

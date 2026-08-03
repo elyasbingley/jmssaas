@@ -8,6 +8,7 @@ import { getErrorMessage } from "../lib/errors";
 import { formatClientAddress } from "../lib/format";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
+import { CommunicationLog } from "../components/CommunicationLog";
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -211,6 +212,11 @@ export default function ClientDetailPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
+        <CommunicationLog entities={(jobs ?? []).map((job) => ({ entityType: "job" as const, entityId: job.id }))} />
       </div>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit client">

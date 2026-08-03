@@ -6,6 +6,7 @@ import {
   formatCentsAsAud,
   type Client,
   type Invoice,
+  type InvoiceLineItem,
   type JobCard,
   type JobFile,
   type JobLifecycleStage,
@@ -13,14 +14,28 @@ import {
   type JobNote,
   type Profile,
   type Quote,
+  type QuoteLineItem,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
+import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
 import { TextAreaField } from "../components/FormField";
+import { CommunicationLog } from "../components/CommunicationLog";
+
+// Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
+// jobs/[id].tsx) - copied verbatim rather than shared, matching how
+// mobile itself keeps its own local copy instead of factoring this into
+// packages/shared.
+function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
+  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
+}
+function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
+  return Math.round(item.quantity * item.material_cost_cents);
+}
 
 async function fetchJob(id: string): Promise<JobCard> {
   const { data, error } = await supabase.from("job_cards").select("*").eq("id", id).single();
@@ -72,6 +87,20 @@ async function fetchLinkedInvoices(jobId: string): Promise<Invoice[]> {
   const { data, error } = await supabase.from("invoices").select("*").eq("job_card_id", jobId);
   if (error) throw error;
   return data as Invoice[];
+}
+
+async function fetchQuoteLineItems(quoteIds: string[]): Promise<QuoteLineItem[]> {
+  if (quoteIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", quoteIds);
+  if (error) throw error;
+  return data as QuoteLineItem[];
+}
+
+async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineItem[]> {
+  if (invoiceIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_items").select("*").in("invoice_id", invoiceIds);
+  if (error) throw error;
+  return data as InvoiceLineItem[];
 }
 
 async function fetchMeasurements(jobId: string): Promise<JobMeasurement[]> {
@@ -133,6 +162,18 @@ export default function JobDetailPage() {
     queryFn: () => fetchLinkedInvoices(id!),
     enabled: !!id,
   });
+  const quoteIds = (linkedQuotes ?? []).map((q) => q.id);
+  const invoiceIds = (linkedInvoices ?? []).map((inv) => inv.id);
+  const { data: quoteLineItems } = useQuery({
+    queryKey: ["job-quote-line-items", quoteIds.join(",")],
+    queryFn: () => fetchQuoteLineItems(quoteIds),
+    enabled: !!linkedQuotes,
+  });
+  const { data: invoiceLineItems } = useQuery({
+    queryKey: ["job-invoice-line-items", invoiceIds.join(",")],
+    queryFn: () => fetchInvoiceLineItems(invoiceIds),
+    enabled: !!linkedInvoices,
+  });
   const { data: measurements } = useQuery({
     queryKey: ["job-measurements", id],
     queryFn: () => fetchMeasurements(id!),
@@ -155,6 +196,85 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
+
+  const [reviewRequestResult, setReviewRequestResult] = useState<string | null>(null);
+  const [reviewRequestError, setReviewRequestError] = useState<string | null>(null);
+
+  // Same "just finished" moment mobile's own stage picker prompts on (see
+  // apps/mobile jobs/[id].tsx's handleStageChange) - keyed off entering any
+  // is_closed stage, not one literally named "Completed", matching the DB
+  // triggers' own schedule_job_completion_summary/schedule_maintenance_
+  // reminder logic (see the job_status_lifecycle_consolidation migration).
+  // No {tech_first_name}/{eta_minutes} placeholder rendering needed here
+  // (unlike an On The Way message) - job_review_request has no schedule
+  // context, so the template body/subject go through as-is for the
+  // dispatcher to resolve the rest of its tokens server-side.
+  const queueReviewRequest = useMutation({
+    mutationFn: async () => {
+      if (!profile || !client) throw new Error("Not signed in");
+      const { data: rule } = await supabase
+        .from("communication_rules")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "job_review_request")
+        .maybeSingle();
+      if (!rule || !rule.is_enabled) {
+        throw new Error("The 'Review request' message is turned off in Settings > Automation & Messaging");
+      }
+
+      const { data: templates } = await supabase
+        .from("communication_templates")
+        .select("*")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("trigger_key", "job_review_request")
+        .eq("is_active", true);
+      const matching = (templates ?? []).filter((t) => rule.channel === "both" || rule.channel === t.type);
+      if (matching.length === 0) throw new Error("No active 'Review request' message template found");
+
+      let anySent = false;
+      for (const template of matching) {
+        const recipient = template.type === "sms" ? (client.phone ?? "") : (client.email ?? "");
+        const { data: row, error } = await supabase
+          .from("scheduled_communications")
+          .insert({
+            tenant_id: profile.tenant_id,
+            entity_type: "job",
+            entity_id: id,
+            trigger_key: "job_review_request",
+            template_id: template.id,
+            channel: template.type,
+            recipient_phone_or_email: recipient,
+            rendered_subject: template.subject,
+            rendered_body: template.body,
+            scheduled_for: new Date().toISOString(),
+            status: "pending",
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        if (await triggerImmediateDispatch(row.id)) anySent = true;
+      }
+      return anySent;
+    },
+    onSuccess: (anySent) => {
+      queryClient.invalidateQueries({ queryKey: ["communication-log"] });
+      setReviewRequestError(null);
+      setReviewRequestResult(anySent ? "The review request has been sent." : "The review request is queued and will send shortly.");
+      setTimeout(() => setReviewRequestResult(null), 5000);
+    },
+    onError: (e) => setReviewRequestError(getErrorMessage(e, "Failed to queue review request")),
+  });
+
+  const handleStageChange = (nextStageId: string) => {
+    const wasClosed = (stages ?? []).find((s) => s.id === job?.lifecycle_stage_id)?.is_closed ?? false;
+    const willBeClosed = (stages ?? []).find((s) => s.id === nextStageId)?.is_closed ?? false;
+    updateJob.mutate({ lifecycle_stage_id: nextStageId || null });
+    if (willBeClosed && !wasClosed) {
+      if (window.confirm("Job marked as done. Send an automated review request to the client?")) {
+        queueReviewRequest.mutate();
+      }
+    }
+  };
 
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -206,6 +326,20 @@ export default function JobDetailPage() {
 
   const address = client ? formatClientAddress(client) : null;
 
+  // Per-job costing breakdown - same math/caveats as JobCosting.tsx's
+  // cross-job report (GST-inclusive charged vs. GST-exclusive cost, and a
+  // converted quote+invoice pair double-counting since both stay linked to
+  // the job), just scoped to this one job instead of every job at once.
+  const allCostingLineItems = [...(quoteLineItems ?? []), ...(invoiceLineItems ?? [])];
+  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+  const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+  const totalChargedCents =
+    (linkedQuotes ?? []).reduce((sum, q) => sum + q.total_cents, 0) +
+    (linkedInvoices ?? []).reduce((sum, inv) => sum + inv.total_cents, 0);
+  const marginCents = totalChargedCents - (totalLabourCents + totalMaterialCents);
+  const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
+  const hasCostingDocs = (linkedQuotes ?? []).length > 0 || (linkedInvoices ?? []).length > 0;
+
   return (
     <div className="p-8">
       <Link to="/jobs" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
@@ -251,7 +385,7 @@ export default function JobDetailPage() {
             <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Stage</label>
             <select
               value={job.lifecycle_stage_id ?? ""}
-              onChange={(e) => updateJob.mutate({ lifecycle_stage_id: e.target.value || null })}
+              onChange={(e) => handleStageChange(e.target.value)}
               className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
             >
               <option value="">None</option>
@@ -278,6 +412,8 @@ export default function JobDetailPage() {
             </select>
           </div>
         </div>
+        {reviewRequestError ? <p className="mt-3 text-sm text-red-600">{reviewRequestError}</p> : null}
+        {reviewRequestResult ? <p className="mt-3 text-sm text-green-700">{reviewRequestResult}</p> : null}
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
@@ -321,6 +457,45 @@ export default function JobDetailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Job Costing</h2>
+        {!hasCostingDocs ? (
+          <p className="text-sm text-gray-500">No quotes or invoices linked to this job yet.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-gray-500">Labour cost</p>
+                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalLabourCents)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Material cost</p>
+                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalMaterialCents)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Total charged</p>
+                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalChargedCents)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Margin</p>
+                <p className="text-sm font-bold text-gray-900">
+                  {formatCentsAsAud(marginCents)} <span className="font-normal text-gray-500">({marginPercent.toFixed(1)}%)</span>
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-gray-400">
+              Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
+              overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
+              summed twice here, same as the cross-job{" "}
+              <Link to="/job-costing" className="underline">
+                Job Costing
+              </Link>{" "}
+              report.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
@@ -417,6 +592,17 @@ export default function JobDetailPage() {
           ))}
           {notes && notes.length === 0 ? <p className="text-sm text-gray-500">No notes yet.</p> : null}
         </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
+        <CommunicationLog
+          entities={[
+            { entityType: "job", entityId: job.id },
+            ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
+            ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
+          ]}
+        />
       </div>
     </div>
   );

@@ -9,11 +9,14 @@ import {
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
+  type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
+import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
 
@@ -44,6 +47,12 @@ async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineIte
   return { quote: quote as QuoteRow, items: (items ?? []) as LineItemFormInput[] };
 }
 
+async function fetchTenant(tenantId: string): Promise<Tenant> {
+  const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
+  if (error) throw error;
+  return data as Tenant;
+}
+
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -51,6 +60,11 @@ export default function QuoteDetailPage() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({ queryKey: ["quote", id], queryFn: () => fetchQuote(id!), enabled: !!id });
+  const { data: tenant } = useQuery({
+    queryKey: ["tenant", profile?.tenant_id],
+    queryFn: () => fetchTenant(profile!.tenant_id),
+    enabled: !!profile,
+  });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -224,6 +238,30 @@ export default function QuoteDetailPage() {
     onError: (e) => setSendEmailError(getErrorMessage(e, "Failed to send")),
   });
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // Same on-device-generation approach as apps/mobile's own Export PDF
+  // button (see docs/SETUP.md's Phase 5 known-gaps note for why this isn't
+  // a server-side/Edge Function render) - just the browser's print dialog
+  // instead of expo-print's native share sheet, since there's no
+  // equivalent here. Uses the persisted line items, not the in-progress
+  // edits in `lineItems` state, so exporting always reflects what's
+  // actually saved.
+  const handleExportPdf = () => {
+    if (!data || !tenant || !data.quote.clients) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items });
+      exportPdf(html, `Quote ${data.quote.quote_number}`);
+    } catch (e) {
+      setExportError(getErrorMessage(e, "Failed to export PDF"));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (isLoading || !data) {
     return <div className="p-8 text-sm text-gray-500">Loading...</div>;
   }
@@ -280,7 +318,15 @@ export default function QuoteDetailPage() {
                 ? "Copy approval link"
                 : "Generate approval link"}
         </button>
+        <button
+          onClick={handleExportPdf}
+          disabled={exporting || !tenant}
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+        >
+          {exporting ? "Preparing PDF..." : "Export PDF"}
+        </button>
       </div>
+      {exportError ? <p className="mt-2 text-sm text-red-600">{exportError}</p> : null}
       {sendEmailError ? <p className="mt-2 text-sm text-red-600">{sendEmailError}</p> : null}
       {sendResult ? <p className="mt-2 text-sm text-green-700">{sendResult}</p> : null}
       {linkError ? <p className="mt-2 text-sm text-red-600">{linkError}</p> : null}

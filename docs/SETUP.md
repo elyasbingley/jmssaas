@@ -3645,3 +3645,98 @@ replacement.
   calendar event disappears and the job's technician clears needs a real
   signed-in session against a real Supabase project with an existing
   booking to test against; this sandbox has no such backend.
+
+## 24. Desktop: close remaining mobile-vs-desktop feature gaps
+
+A file-by-file audit of every mobile screen against desktop's equivalent
+turned up four features mobile had that desktop didn't. Built here in one
+batch (a fifth gap, an "On The Way" quick-SMS button, and a sixth, live
+camera capture, were deliberately left out - they don't fit desktop's
+always-online admin workflow the same way, or are an inherent
+browser-vs-native-device difference).
+
+**PDF export for Quotes/Invoices** - `src/lib/quote-invoice-pdf.ts` is a
+direct port of mobile's `lib/pdf.ts` quote/invoice HTML builders
+(`buildQuotePdfHtml`/`buildInvoicePdfHtml`), reusing desktop's existing
+`lib/print.ts` `exportPdf()` (`window.open` + `win.print()`, the same
+browser-native "Save as PDF" path already used for the Inventory shopping
+list) instead of mobile's `expo-print`/`expo-sharing`. `QuoteDetail.tsx`
+and `InvoiceDetail.tsx` each gained a `tenant` query and an "Export PDF"
+button next to "Generate approval link".
+
+**Post-completion review-request prompt** - `JobDetail.tsx`'s Stage
+`<select>` now calls `handleStageChange` instead of updating directly;
+it compares the old and new stage's `is_closed` flag (not a hardcoded
+stage name, matching the DB triggers' own
+`schedule_job_completion_summary`/`schedule_maintenance_reminder` logic
+from the job-status-lifecycle-consolidation migration) and, on first
+entry into any closed stage, `window.confirm`s whether to send an
+automated review request. `queueReviewRequest` looks up the tenant's
+`job_review_request` communication rule/templates, inserts a
+`scheduled_communications` row per matching template, and calls
+`triggerImmediateDispatch` (`lib/dispatch-now.ts`, already used for the
+Send-via-Email buttons) as a best-effort immediate send, falling back to
+the cron sweep - same shape as mobile's `queueScheduledCommunication`.
+
+**Communication Log** - `src/components/CommunicationLog.tsx` is a port
+of mobile's component of the same name. `scheduled_communications` has no
+`client_id` column (a message is always scoped to the job/quote/invoice
+it was scheduled against), so both mobile's SQL `WHERE` and this port's
+Supabase `.or()` filter require the caller to supply every relevant
+`{entityType, entityId}` pair explicitly. Added to `JobDetail.tsx`
+(job + its linked quotes + its linked invoices) and `ClientDetail.tsx`
+(the client's jobs only, same as mobile's own client screen - quote/
+invoice follow-ups aren't included at the client level there either).
+
+**Per-job Job Costing tab** - `JobDetail.tsx` gained a "Job Costing"
+section computed from its linked quotes'/invoices' line items, using the
+same `lineItemLabourCostCents`/`lineItemMaterialCostCents` helpers
+copied verbatim into every consumer (mobile's `jobs/[id].tsx`, desktop's
+existing cross-job `JobCosting.tsx` report, and now this file) rather
+than factored into `packages/shared` - matching the established
+convention. Same caveats as the cross-job report, called out in-page:
+margin compares GST-inclusive charged total against GST-exclusive cost
+(slightly overstates true margin), and a quote converted to an invoice
+stays linked to the job as both and is summed twice.
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build`
+  both pass clean with all four features' combined changes.
+- Fresh local Postgres 16 database, all 24 real migrations from
+  `supabase/migrations/` applied in order against hand-written stubs for
+  `auth.users`/`auth.uid()`/`storage.buckets`/`storage.objects`/
+  `storage.foldername()` (including a `raw_user_meta_data` column so
+  `handle_new_user()`'s auto-provisioning trigger fires the same way it
+  would against real Supabase). Seeded a tenant (which auto-seeds default
+  lifecycle stages, communication rules, and communication templates via
+  `handle_new_tenant()`), a client, a job, a quote and invoice with line
+  items, then ran the exact queries this batch's code issues:
+  - The PDF export's quote/client/line-items and invoice/client/line-items
+    joins, plus the tenant row, all return the expected shape.
+  - The `job_review_request` rule + active-template lookup, and the
+    resulting `scheduled_communications` insert, both work as
+    `queueReviewRequest` expects.
+  - The `CommunicationLog` `.or()` filter, given a job's own entity plus
+    its linked quote/invoice entities, correctly returns only messages
+    scoped to those three, in `scheduled_for desc` order.
+  - The per-job costing queries (`quotes`/`invoices` filtered by
+    `job_card_id`, then their line items filtered by the resulting id
+    lists) return the expected rows.
+  - `job_lifecycle_stages.is_closed` reads correctly off the auto-seeded
+    stages for the `handleStageChange` comparison.
+  - Database dropped after, no state left behind.
+- Playwright/Chromium smoke test with placeholder `.env`: `/quotes/:id`,
+  `/invoices/:id`, `/jobs/:id`, and `/clients/:id` all correctly redirect
+  to `/login` when signed out, with no unexpected console errors (one
+  404 for `favicon.ico` on first load only, unrelated to this batch).
+  Dev server killed and `.env` deleted after.
+
+### NOT verified from this sandbox
+
+- Actually exporting a PDF and checking its rendered layout, triggering a
+  real review-request send (including the immediate-dispatch path
+  hitting a live `process-scheduled-comms` deployment), and seeing the
+  Communication Log/Job Costing sections populated from real data all
+  need a real signed-in session against a real Supabase project; this
+  sandbox has no such backend.
