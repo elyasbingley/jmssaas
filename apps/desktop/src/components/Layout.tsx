@@ -16,6 +16,7 @@ const navSections = [
       { to: "/clients", label: "Clients" },
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },
+      { to: "/inventory", label: "Inventory" },
     ],
   },
   {
@@ -31,6 +32,7 @@ const navSections = [
       { to: "/settings", label: "Company Details" },
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
+      { to: "/settings/inventory-setup", label: "Inventory Setup" },
     ],
   },
 ];

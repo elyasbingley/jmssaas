@@ -3431,3 +3431,82 @@ screen already does with its own setup-screen links.
   edit modals, the token-insertion textarea, the category/stage editors -
   need a real signed-in session against a real Supabase project to click
   through; this sandbox has no such backend.
+
+## 20. Desktop: Inventory screens
+
+Closes the last screen mobile had that desktop didn't: multi-location
+stock tracking over inventory's own standalone catalogue
+(`inventory_items`, organised by `inventory_categories`/
+`inventory_subcategories` - unrelated to the price book, see the
+inventory_material_categories migration for why those turned out not to
+be the same thing).
+
+### `src/pages/Inventory.tsx` - direct port of `(tabs)/sales/inventory/index.tsx`
+
+Same Location > Category > Subcategory drill-down as chip filters on one
+screen, same Stock / Out of Stock tabs, same quantity +/- controls, same
+low-stock math (`quantity <= reorder_threshold`) and shopping-list
+generation. As with every other desktop screen, PowerSync's `execute()`
+becomes plain Supabase calls through `@tanstack/react-query` - there's no
+offline mode here, so quantity adjustments write straight through instead
+of queuing locally.
+
+One real gap this exposed: **desktop had no PDF export capability at
+all** - not even for quotes/invoices. Mobile's shopping list generator
+uses `expo-print`'s `printToFileAsync` + the native share sheet, neither
+of which exist in a browser. Rather than reach for a PDF library, this
+uses the platform's own equivalent:
+
+- `src/lib/shopping-list-pdf.ts` - the same `buildShoppingListPdfHtml`/
+  `renderShoppingListTable` HTML-building logic from
+  `apps/mobile/lib/pdf.ts`, ported over (duplicated, not shared - same
+  reasoning as `lib/errors.ts`: this app has no other dependency on
+  mobile's `lib/` directory, and the rest of that file's quote/invoice
+  rendering isn't needed here since desktop doesn't export those yet
+  either).
+- `src/lib/print.ts` - opens the built HTML in a new browser tab and
+  calls `window.print()`, which every major browser can "Save as PDF"
+  from directly. No PDF library, no backend call - the same
+  generate-locally philosophy as mobile's on-device rendering, just the
+  web platform's version of "hand off this document."
+
+### `src/pages/InventorySetup.tsx` - direct port of `inventory-setup.tsx`
+
+Same two-level category hierarchy (Material/Tools -> Roofing/Power
+Tools) and flat supplier list, same delete-confirmation copy (including
+the "this will also delete N items" consequence count) - `window.confirm`
+instead of `Alert.alert` again, same as Job Setup's stage deletes.
+
+### Navigation
+
+"Inventory" joins the Sales nav section (a daily tool, same as
+Jobs/Quotes/Price Book); "Inventory Setup" joins the "Settings" heading
+group alongside Job Setup and Automation & Messaging (an occasional setup
+screen, matching where mobile's Home screen puts it).
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build` both
+  pass clean.
+- **Every table/query this pair of screens touches was run by hand
+  against a fresh local Postgres 16 instance** (all 24 migrations
+  applied): confirmed category/subcategory/supplier CRUD, confirmed
+  creating a location and an item with a reorder threshold/ideal
+  stock/supplier, confirmed the insert-then-update path a quantity
+  adjustment takes (`handleAdjust`'s "create the level row if it doesn't
+  exist yet, else update it"), confirmed the low-stock join
+  (`quantity <= reorder_threshold`) returns the right rows with
+  location/supplier names attached, and confirmed the category-delete
+  consequence counts (subcategories/items) compute correctly.
+- Loading `/inventory` and `/settings/inventory-setup` directly while
+  signed out (Playwright/Chromium) both correctly redirect to `/login`
+  with no unexpected console errors.
+
+### NOT verified from this sandbox
+
+- The actual rendered screens - the drill-down chip filters, the item
+  create/edit modal, the low-stock queue, and critically **the shopping
+  list PDF export itself** (`window.open` + `window.print()` needs a real
+  browser window with pop-ups allowed, which this sandbox's headless
+  Playwright check didn't exercise) - all need a real signed-in session
+  and a manual click-through to confirm.

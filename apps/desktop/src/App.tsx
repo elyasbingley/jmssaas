@@ -22,6 +22,8 @@ import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
+import InventoryPage from "./pages/Inventory";
+import InventorySetupPage from "./pages/InventorySetup";
 import DispatchPage from "./pages/Dispatch";
 import TeamPage from "./pages/Team";
 import JobCostingPage from "./pages/JobCosting";
@@ -53,6 +55,7 @@ export default function App() {
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
                 <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
                 <Route path="/job-costing" element={<JobCostingPage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/calendar/new" element={<CalendarEventNewPage />} />
                 <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
@@ -60,6 +63,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
+                <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />
                 <Route path="*" element={<Navigate to="/dispatch" replace />} />
               </Routes>
             </Layout>
