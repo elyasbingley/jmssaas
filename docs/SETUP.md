@@ -2888,3 +2888,99 @@ a stub, pending the drag-and-drop decision flagged early on) and Team
   detail screens, but nothing actually populates them (no OAuth flow, no
   sync job) - this was already an open item before this pass, not
   something newly deferred here.
+
+## 14. Desktop: Dispatch board (drag-and-drop timeline)
+
+The one screen mobile deliberately scoped down from day one - see
+`apps/mobile/app/schedule.tsx`'s own comment: a tap-to-assign list, "no
+desktop app exists yet to make [a drag-and-drop timeline] viable." This
+is that timeline, now that one does.
+
+### Drag-and-drop library: `@dnd-kit/core`
+
+The other real decision flagged back when the desktop app was scoped
+("how much of the dispatch board's full drag-and-drop to build in this
+first pass"), now resolved:
+
+- **`react-big-calendar`/FullCalendar's resource-timeline view** - the
+  closest off-the-shelf match to a per-technician-lane Gantt board, but
+  FullCalendar's resource-timeline is a paid Premium plugin, and
+  react-big-calendar has no equivalent resource-lane view at all (it's a
+  month/week/day event grid, not a per-resource timeline).
+- **`google.maps.drawing.DrawingManager`-style toolbar libraries** don't
+  apply here at all - wrong problem shape (that's for freeform polygon
+  drawing, not positioning existing blocks on a time axis).
+- **`@dnd-kit/core`** - chosen. It's unopinionated about layout: the
+  timeline grid, hour gridlines, and block positioning here are all plain
+  CSS/Tailwind; dnd-kit only supplies pointer tracking (`useDraggable`),
+  drop-target detection (`useDroppable`), and the `onDragEnd` event this
+  screen turns into a time/technician calculation. That's the right
+  amount of library for a genuinely custom board like this, versus
+  fighting a calendar library's own opinions about layout to make it look
+  like a dispatch board instead of a calendar.
+
+### Scope of this first pass
+
+- **Single day view** (prev/today/next nav, same as mobile's Schedule
+  screen), not a week/multi-day timeline.
+- **07:00-19:00 fixed window**, 15-minute snap on drop.
+- **One row per technician**; an "Unassigned jobs" shelf above the grid
+  holds every job with no future `calendar_events` row (same derivation
+  mobile's `schedule.tsx` already uses) as draggable pills.
+- **Three drag interactions, each landing on the exact same
+  `calendar_events`/`job_cards` writes the rest of the app already makes**
+  - no parallel scheduling model, per the original instruction:
+  - Drag an unassigned job onto a technician's row -> creates a
+    `calendar_events` row (default 1-hour duration from the drop
+    position) and sets `job_cards.assigned_technician_id`, bumping a
+    `new` job to `scheduled` (identical semantics to mobile's own "+ New
+    event" flow from the Schedule screen).
+  - Drag an existing block within/across rows -> updates that event's
+    `start_at`/`end_at` (duration preserved, only the start time moves)
+    and, if dropped on a different technician's row,
+    `job_cards.assigned_technician_id` too.
+  - Drag a block back onto the "Unassigned jobs" shelf -> deletes the
+    `calendar_events` row, undoing the dispatch.
+  - A plain click (no drag) on a block or an unassigned pill navigates to
+    that job's detail page - distinguished from a drag via
+    `PointerSensor`'s `activationConstraint: { distance: 8 }`, so a click
+    that never moves the pointer 8px never engages the drag sensor at all
+    and the browser's own click event fires normally.
+- **Not built in this pass** (reasonable follow-ups once this base
+  interaction is proven out in the field): a week/multi-day timeline,
+  resizing a block's duration by dragging its edge (only whole-block
+  reposition), recurring events, and drag-to-create a new blank event
+  directly on the grid (today, blank slots have no interaction - only
+  existing blocks and unassigned pills are draggable).
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **Every mutation the three drag interactions issue was run directly
+  against a fresh local Postgres 16 instance** with all 23 migrations
+  applied (same setup as sections 9-13): scheduling a previously-
+  unassigned job (calendar_event insert + job dispatch + `new`->
+  `scheduled` bump), rescheduling that event to a new time *and*
+  reassigning it to a second technician in the same operation (confirmed
+  both the event's new `start_at`/`end_at` and the job's new
+  `assigned_technician_id` persist together), and unassigning it again
+  (delete). All exactly the SQL the mutations in `Dispatch.tsx` issue,
+  not a paraphrase of it.
+- Loading `/dispatch` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no console errors.
+
+### NOT verified from this sandbox
+
+- **The drag-and-drop interaction itself has never been exercised in a
+  real browser** - no live Supabase project here to sign into and see
+  real technicians/jobs/events to actually drag. The pixel-math (drop
+  position -> time-of-day, `active.rect.current.translated` /
+  `over.rect` from dnd-kit's own `DragEndEvent` shape) was written and
+  typechecked against dnd-kit's actual type definitions read directly
+  from its installed package, not guessed, but a real click-and-drag
+  round-trip - does a block really land where the cursor was released,
+  does the click-vs-drag distance threshold feel right - needs a manual
+  pass against a real project before relying on it day-to-day. This is
+  the single largest gap in this pass, flagged plainly rather than
+  glossed over: an interactive drag feature is exactly the kind of thing
+  that can typecheck perfectly and still feel wrong in the hand.
