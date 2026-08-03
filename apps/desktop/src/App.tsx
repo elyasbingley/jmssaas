@@ -20,6 +20,8 @@ import CalendarPage from "./pages/Calendar";
 import CalendarEventNewPage from "./pages/CalendarEventNew";
 import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
+import AutomationSettingsPage from "./pages/AutomationSettings";
+import JobSetupPage from "./pages/JobSetup";
 import DispatchPage from "./pages/Dispatch";
 import TeamPage from "./pages/Team";
 import JobCostingPage from "./pages/JobCosting";
@@ -56,6 +58,8 @@ export default function App() {
                 <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
                 <Route path="/team" element={<TeamPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/automation" element={<AutomationSettingsPage />} />
+                <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="*" element={<Navigate to="/dispatch" replace />} />
               </Routes>
             </Layout>

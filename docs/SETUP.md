@@ -3341,3 +3341,93 @@ the same shape of gap.
   job_categories_lifecycle_stages migration's backfill should have handled
   this already) - if any don't, this migration's own backfill pass covers
   them too, but confirming first costs nothing.
+
+## 19. Desktop: Automation & Messaging and Job Setup screens
+
+Closes a real gap: every other admin-only setup screen mobile has
+(Company Settings, Team, Price Book, Job Setup, Automation & Messaging)
+had already been ported to desktop except these last two - an admin
+signed into desktop had no way to touch communication timing/wording or
+manage service categories/lifecycle stages at all.
+
+### `src/pages/AutomationSettings.tsx` - direct port of `automation-settings.tsx`
+
+Same scope as mobile: editing the six trigger_keys the communication
+engine migrations seed and know how to fire (not a custom "add your own
+automation" builder), grouped into the same four sections (Quote
+Follow-ups, Invoice Reminders, Field Alerts, Retention), with the same
+`summarizeTiming()` plain-English timing summary and the same
+maintenance_reminder/dormant_client_reengagement special cases copied
+verbatim.
+
+Two things had to change for a browser, not just relabeled:
+
+- **PowerSync's `execute()` becomes a plain Supabase `.update()`.**
+  `communication_rules`/`communication_templates` are PowerSync-synced on
+  mobile so edits work offline; desktop has no offline mode at all, so
+  every read/write here is a direct `supabase.from(...)` call through
+  `@tanstack/react-query`, same pattern as every other desktop screen.
+- **`Switch`/`DateField` (React Native) become an `<input type="checkbox">`
+  and `<input type="time">`.** Quiet hours round-trip through
+  `timeToInputValue`/`inputValueToTime` to convert between Postgres's
+  `HH:MM:SS` and the HTML time input's `HH:MM`, mirroring mobile's own
+  `timeStringToDate`/`dateToTimeString` helpers for the same column.
+- **Token insertion at the cursor** uses a plain `<textarea>` ref's
+  `selectionStart`/`selectionEnd` instead of RN `TextInput`'s
+  `selection`/`onSelectionChange` props - same end result (click a
+  `{token}` chip, it lands wherever the cursor was), different API for the
+  same job. This is also why the textarea is a raw `<textarea>` rather
+  than the shared `TextAreaField` component - forwarding a ref through
+  `TextAreaField` would need it rebuilt to accept one, which nothing else
+  in this app needs yet.
+
+### `src/pages/JobSetup.tsx` - direct port of `job-setup.tsx`
+
+Same two admin-managed lists (service categories, job lifecycle stages),
+same tap-based reordering for stages (Up/Down buttons swapping two rows'
+`position` values, no drag-and-drop), same delete-confirmation copy. The
+lifecycle stage editor now also has an **"Is closed" checkbox** - not in
+mobile's screen when it was first built, added on both apps together as
+part of the job_cards.status consolidation (section 18 above), since
+`is_closed` didn't exist as a column until that migration.
+
+Desktop doesn't have React Native's `Alert.alert` - delete confirmations
+use the browser's own `window.confirm()`, the same one-line native
+confirmation dialog, just the web platform's version of it (this is also
+the first delete-confirmation UI on desktop at all; nothing before this
+needed one).
+
+### Navigation
+
+Both screens are reached from a new "Settings" heading in the left nav
+(`Layout.tsx`), replacing the single standalone "Settings" entry:
+Company Details (`/settings`, the existing Company Settings screen),
+Automation & Messaging (`/settings/automation`), and Job Setup
+(`/settings/job-setup`) - grouping the three admin setup screens that
+were already conceptually "Settings" together, the way mobile's Home
+screen already does with its own setup-screen links.
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build` both
+  pass clean.
+- **Every Supabase query/update these two screens issue was run by hand
+  against a fresh local Postgres 16 instance** (all 24 migrations applied,
+  same stub setup as every other section): confirmed the seeded
+  `communication_rules`/`communication_templates` rows for all six
+  trigger_key groups read back correctly, confirmed editing a rule's
+  timing fields and a template's subject/body/active flag round-trip
+  correctly, confirmed `tenants.google_review_link` reads/writes, and
+  confirmed `service_categories`/`job_lifecycle_stages` (including the new
+  `is_closed` column) CRUD and the position-swap reorder all behave
+  exactly as the screens expect.
+- Loading `/settings/automation` and `/settings/job-setup` directly while
+  signed out (Playwright/Chromium) both correctly redirect to `/login`
+  with no unexpected console errors.
+
+### NOT verified from this sandbox
+
+- The actual rendered screens - trigger group cards, the rule/template
+  edit modals, the token-insertion textarea, the category/stage editors -
+  need a real signed-in session against a real Supabase project to click
+  through; this sandbox has no such backend.

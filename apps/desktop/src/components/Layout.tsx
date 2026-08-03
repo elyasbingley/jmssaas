@@ -23,7 +23,14 @@ const navSections = [
     items: [
       { to: "/calendar", label: "Calendar" },
       { to: "/team", label: "Team" },
-      { to: "/settings", label: "Settings" },
+    ],
+  },
+  {
+    heading: "Settings",
+    items: [
+      { to: "/settings", label: "Company Details" },
+      { to: "/settings/automation", label: "Automation & Messaging" },
+      { to: "/settings/job-setup", label: "Job Setup" },
     ],
   },
 ];
