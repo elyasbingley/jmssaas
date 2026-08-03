@@ -98,7 +98,15 @@ interface DragData {
   durationMinutes?: number;
 }
 
-function EventBlock({ event, dayStart }: { event: CalendarEventRow; dayStart: Date }) {
+function EventBlock({
+  event,
+  dayStart,
+  onRemove,
+}: {
+  event: CalendarEventRow;
+  dayStart: Date;
+  onRemove: (params: { eventId: string; jobId: string }) => void;
+}) {
   const navigate = useNavigate();
   const data: DragData = {
     kind: "event",
@@ -114,10 +122,12 @@ function EventBlock({ event, dayStart }: { event: CalendarEventRow; dayStart: Da
   const widthPct = clamp(((endMin - startMin) / TOTAL_MINUTES) * 100, 2, 100 - leftPct);
 
   return (
-    <button
+    <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      role="button"
+      tabIndex={0}
       onClick={() => !isDragging && navigate(`/jobs/${event.job_card_id}`)}
       style={{
         left: `${leftPct}%`,
@@ -125,18 +135,41 @@ function EventBlock({ event, dayStart }: { event: CalendarEventRow; dayStart: Da
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         zIndex: isDragging ? 20 : 1,
       }}
-      className={`absolute top-1 bottom-1 overflow-hidden rounded-md border border-blue-300 bg-blue-100 px-2 py-1 text-left shadow-sm hover:bg-blue-200 ${
+      className={`group absolute top-1 bottom-1 overflow-hidden rounded-md border border-blue-300 bg-blue-100 px-2 py-1 text-left shadow-sm hover:bg-blue-200 ${
         isDragging ? "opacity-70" : ""
       }`}
     >
+      <button
+        type="button"
+        title="Remove this booking"
+        aria-label="Remove this booking"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove({ eventId: event.id, jobId: event.job_card_id! });
+        }}
+        className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-xs font-bold leading-none text-gray-500 hover:bg-red-100 hover:text-red-600 group-hover:flex"
+      >
+        &times;
+      </button>
       <p className="truncate text-xs font-bold text-blue-900">{formatTime(event.start_at)}</p>
       <p className="truncate text-xs font-semibold text-gray-900">{event.job_cards?.title ?? event.title}</p>
       <p className="truncate text-xs text-gray-600">{event.job_cards?.clients?.name}</p>
-    </button>
+    </div>
   );
 }
 
-function TechnicianRow({ technician, events, dayStart }: { technician: Profile; events: CalendarEventRow[]; dayStart: Date }) {
+function TechnicianRow({
+  technician,
+  events,
+  dayStart,
+  onRemove,
+}: {
+  technician: Profile;
+  events: CalendarEventRow[];
+  dayStart: Date;
+  onRemove: (params: { eventId: string; jobId: string }) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `tech:${technician.id}`, data: { technicianId: technician.id } });
 
   return (
@@ -154,7 +187,7 @@ function TechnicianRow({ technician, events, dayStart }: { technician: Profile; 
           />
         ))}
         {events.map((event) => (
-          <EventBlock key={event.id} event={event} dayStart={dayStart} />
+          <EventBlock key={event.id} event={event} dayStart={dayStart} onRemove={onRemove} />
         ))}
       </div>
     </div>
@@ -291,16 +324,25 @@ export default function DispatchPage() {
     onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to reschedule"),
   });
 
-  // Dropping a scheduled event back onto the Unassigned shelf undoes the
-  // dispatch - deletes the calendar_event and clears the job's technician,
-  // the inverse of scheduleJob above.
+  // Removes a booking entirely - undoes the dispatch by deleting the
+  // calendar_event and clearing the job's assigned_technician_id, the
+  // inverse of scheduleJob above. Reachable two ways: dragging the block
+  // back onto the Unassigned shelf, or the block's own "x" remove button
+  // (added since the drag target alone wasn't discoverable enough - a
+  // booking with no time left to reschedule to, or just wanting it gone,
+  // shouldn't require finding the right drop zone).
   const unassignEvent = useMutation({
-    mutationFn: async (eventId: string) => {
-      const { error } = await supabase.from("calendar_events").delete().eq("id", eventId);
-      if (error) throw error;
+    mutationFn: async (params: { eventId: string; jobId: string }) => {
+      const { error: eventError } = await supabase.from("calendar_events").delete().eq("id", params.eventId);
+      if (eventError) throw eventError;
+      const { error: jobError } = await supabase
+        .from("job_cards")
+        .update({ assigned_technician_id: null })
+        .eq("id", params.jobId);
+      if (jobError) throw jobError;
     },
     onSuccess: invalidate,
-    onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to unassign"),
+    onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to remove booking"),
   });
 
   const { setNodeRef: setUnassignedRef, isOver: isOverUnassigned } = useDroppable({ id: "unassigned-shelf" });
@@ -315,7 +357,7 @@ export default function DispatchPage() {
     if (!data) return;
 
     if (over.id === "unassigned-shelf") {
-      if (data.kind === "event" && data.eventId) unassignEvent.mutate(data.eventId);
+      if (data.kind === "event" && data.eventId) unassignEvent.mutate({ eventId: data.eventId, jobId: data.jobId });
       return;
     }
 
@@ -367,7 +409,8 @@ export default function DispatchPage() {
           className={`mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 ${isOverUnassigned ? "bg-blue-50" : ""}`}
         >
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
-            Unassigned jobs - drag onto a technician to dispatch
+            Unassigned jobs - drag onto a technician to dispatch (drag a booking back here, or hover it for &times;, to
+            remove it)
           </p>
           {unassignedJobs.length === 0 ? (
             <p className="text-sm text-gray-500">Nothing waiting to be scheduled.</p>
@@ -400,7 +443,13 @@ export default function DispatchPage() {
             <p className="p-6 text-sm text-gray-500">No technicians yet - add one from Team.</p>
           ) : (
             technicians.map((tech) => (
-              <TechnicianRow key={tech.id} technician={tech} events={eventsByTechnician.get(tech.id) ?? []} dayStart={dayStart} />
+              <TechnicianRow
+                key={tech.id}
+                technician={tech}
+                events={eventsByTechnician.get(tech.id) ?? []}
+                dayStart={dayStart}
+                onRemove={unassignEvent.mutate}
+              />
             ))
           )}
         </div>

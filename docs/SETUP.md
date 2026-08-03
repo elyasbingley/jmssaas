@@ -3602,3 +3602,46 @@ reachable) would still hit this exact preflight rejection.
 - Not independently reproducible in this sandbox (no real Supabase
   project/browser here) - this fix was made directly from the user's own
   browser console output, which named the exact rejected header.
+
+## 23. Fix: Dispatch board had no explicit way to remove a booking
+
+The only way to un-dispatch a job was dragging its block all the way back
+up to the "Unassigned jobs" shelf at the top of the screen - reachable,
+but not discoverable, and easy to miss given the shelf sits above a
+scrollable technician grid. On top of that, doing it didn't fully work:
+`unassignEvent` deleted the `calendar_events` row but never cleared
+`job_cards.assigned_technician_id`, so the job kept showing an assigned
+technician with no actual booking - a real data-consistency bug, not
+just a UX gap.
+
+Fix, both in `src/pages/Dispatch.tsx`:
+
+- `unassignEvent`'s mutation now clears `assigned_technician_id` back to
+  `null` alongside deleting the calendar event, matching what its own
+  comment already claimed it did.
+- Added a small `&times;` button directly on each booking block (visible
+  on hover via a `group`/`group-hover` pair), calling the same
+  `unassignEvent` mutation without needing to drag anywhere.
+  `onPointerDown` on the button stops propagation so it doesn't trigger
+  the block's own drag-start handler, and the block's outer element
+  changed from a `<button>` to a `<div role="button">` since a `<button>`
+  can't contain another interactive `<button>` per HTML semantics.
+- The shelf's own hint text now mentions both ways to remove a booking.
+
+Drag-to-shelf still works (and is now correct) - the `&times;` button is
+an additional, more discoverable path to the same result, not a
+replacement.
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build` both
+  pass clean.
+- Loading `/dispatch` directly while signed out (Playwright/Chromium)
+  correctly redirects to `/login` with no unexpected console errors.
+
+### NOT verified from this sandbox
+
+- Actually clicking the new &times; button and confirming both the
+  calendar event disappears and the job's technician clears needs a real
+  signed-in session against a real Supabase project with an existing
+  booking to test against; this sandbox has no such backend.
