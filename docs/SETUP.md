@@ -2802,3 +2802,89 @@ one deployed to Netlify earlier in this project) - same value as
   "queued, never sent" symptom.
 - No live Supabase project for Price Book either - same caveat as every
   other desktop screen in this project.
+
+## 13. Desktop: Calendar and Company Settings
+
+Rounds out every Phase 1 desktop section except Dispatch/Scheduling (still
+a stub, pending the drag-and-drop decision flagged early on) and Team
+(still a stub).
+
+### Calendar
+
+- **`src/lib/datetime.ts`** - verbatim port of `apps/mobile/lib/datetime.ts`'s
+  pure date-math helpers (no React Native dependency in the original, so
+  nothing needed to change), plus one addition:
+  `toDateTimeLocalInput` for populating a plain
+  `<input type="datetime-local">`, the web equivalent of mobile's
+  `DateField` component.
+- **`src/pages/Calendar.tsx`** - the same four view modes as mobile (Day/
+  Week/Month/Year), same Monday-start week grid, same "tap a day to drill
+  into Day view, tap a month tile in Year view to jump to Month view"
+  navigation. Rebuilt in a CSS grid instead of RN's flex-wrap tiles - a
+  month grid is what CSS grid is for, and it renders identically without
+  the percentage-width-per-cell arithmetic the RN version needs.
+- **`src/pages/CalendarEventNew.tsx`** / **`CalendarEventDetail.tsx`** -
+  same fields as mobile (title, all-day toggle, start/end, guests,
+  location, description/link, linked job + technician dispatch, linked
+  task), same job-dispatch side effect (assigning a technician bumps a
+  `new` job to `scheduled`, later statuses left alone). Two intentional
+  differences from mobile:
+  - **No `canEdit` permission split** - mobile computes whether the
+    current user may edit a given event (admin, or the technician it's
+    assigned to). Desktop is admin-only end to end (see section 4's own
+    access-control decision), so every event reachable here is always
+    fully editable - the permission check would always evaluate true and
+    was dropped rather than carried over as dead code.
+  - **"Open in Maps" becomes a Google Maps web search link** - mobile's
+    `openInMaps` opens the device's native maps app; there's no
+    equivalent concept on desktop, so this is a plain
+    `google.com/maps/search/?query=<location>` link in a new tab instead.
+- Technician linking pulls from `profiles` where `role = 'technician'`,
+  and task linking queries the `tasks` table directly - there's no desktop
+  Tasks screen yet (out of the Phase 1 desktop scope list), but the table
+  and RLS already exist from mobile, so listing/linking existing tasks
+  here needed nothing new.
+
+### Company Settings
+
+- **`src/pages/Settings.tsx`** - direct port of
+  `apps/mobile/app/company-settings.tsx`: logo upload/remove (same
+  `company-logos` public bucket, same fresh-filename-per-upload pattern so
+  a CDN never serves a stale image under a reused name), company
+  name/ABN/email/phone/website, business address, license number, bank
+  details, all under one "Save changes" (with the same "Saved."
+  confirmation added to Quotes/Invoices in section 12 above - this screen
+  never had that gap to begin with since it's newly built here).
+- No `isAdmin` gate on the page itself - same reasoning as Calendar above,
+  desktop is already admin-only via `RequireAdmin`.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean.
+- **Every Calendar and Settings query/mutation was run directly against a
+  fresh local Postgres 16 instance** with all 23 migrations applied (same
+  setup as sections 9-12): a job-linked calendar event created with a
+  dispatched technician (confirmed the job's `assigned_technician_id` was
+  set and its status correctly bumped `new` -> `scheduled`), the joined
+  event+job select `CalendarEventDetail` uses, an event update + technician
+  reassignment, and a delete; a full company-settings update (all fields)
+  plus the logo-upload path (a `storage.objects` row + `tenants.logo_url`
+  pointing at its public URL, then cleared again) - all round-tripped with
+  the exact shapes `packages/shared/src/types.ts` declares.
+- Loading `/calendar`, `/calendar/new`, `/calendar/<uuid>`, and `/settings`
+  directly while signed out (Playwright/Chromium) all correctly redirect
+  to `/login` with no console errors.
+
+### NOT verified from this sandbox
+
+- No live Supabase project - same caveat as every other desktop screen:
+  the queries are confirmed correct against the real schema, but the UI
+  itself (the month grid rendering, the logo file picker, a real
+  end-to-end technician dispatch from the Calendar screen) hasn't been
+  clicked through against a live project.
+- **Google Calendar sync is not built anywhere yet** - mobile's own
+  `google_event_id`/`last_synced_at` columns exist and are surfaced as a
+  read-only "Synced with Google Calendar" notice on both apps' event
+  detail screens, but nothing actually populates them (no OAuth flow, no
+  sync job) - this was already an open item before this pass, not
+  something newly deferred here.

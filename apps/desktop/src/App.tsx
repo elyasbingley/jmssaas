@@ -16,6 +16,10 @@ import InvoiceDetailPage from "./pages/InvoiceDetail";
 import PriceBookPage from "./pages/PriceBook";
 import PriceBookCategoryPage from "./pages/PriceBookCategory";
 import PriceBookItemPage from "./pages/PriceBookItem";
+import CalendarPage from "./pages/Calendar";
+import CalendarEventNewPage from "./pages/CalendarEventNew";
+import CalendarEventDetailPage from "./pages/CalendarEventDetail";
+import SettingsPage from "./pages/Settings";
 import { StubPage } from "./pages/Stub";
 
 export default function App() {
@@ -44,9 +48,11 @@ export default function App() {
                 <Route path="/price-book" element={<PriceBookPage />} />
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
                 <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
-                <Route path="/calendar" element={<StubPage title="Calendar" />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/calendar/new" element={<CalendarEventNewPage />} />
+                <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
                 <Route path="/team" element={<StubPage title="Team" />} />
-                <Route path="/settings" element={<StubPage title="Settings" />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/dispatch" replace />} />
               </Routes>
             </Layout>
