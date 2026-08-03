@@ -17,14 +17,15 @@ import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField, SelectField } from "../components/FormField";
 import { KeyManagementDashboard } from "../components/KeyManagementDashboard";
+import { RecurringMaintenanceEngine } from "../components/RecurringMaintenanceEngine";
 
 // The four sub-tabs from the spec live under a single sidebar destination
-// (/real-estate) rather than as four separate sidebar links - Directory and
-// Key Management are in-page tabs here (Recurring Maintenance Engine is a
-// third, added in a later batch); Property Profile & Asset Register isn't a
-// list-type tab at all (the spec's own wording is "when a property is
-// selected") so it's a drill-down route instead, same relationship Jobs/
-// JobDetail or Quotes/QuoteDetail already have.
+// (/real-estate) rather than as four separate sidebar links - Directory,
+// Key Management, and Recurring Maintenance are in-page tabs here; Property
+// Profile & Asset Register isn't a list-type tab at all (the spec's own
+// wording is "when a property is selected") so it's a drill-down route
+// instead, same relationship Jobs/JobDetail or Quotes/QuoteDetail already
+// have.
 
 async function fetchAgencies(): Promise<Agency[]> {
   const { data, error } = await supabase.from("agencies").select("*").order("name");
@@ -54,7 +55,7 @@ const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
   { value: "strata_lot", label: "Strata Lot" },
 ];
 
-type SubTab = "directory" | "keys";
+type SubTab = "directory" | "keys" | "maintenance";
 
 export default function RealEstatePage() {
   const [tab, setTab] = useState<SubTab>("directory");
@@ -69,6 +70,7 @@ export default function RealEstatePage() {
           [
             { key: "directory", label: "Directory" },
             { key: "keys", label: "Key Management" },
+            { key: "maintenance", label: "Recurring Maintenance" },
           ] as { key: SubTab; label: string }[]
         ).map((t) => (
           <button
@@ -83,7 +85,7 @@ export default function RealEstatePage() {
         ))}
       </div>
 
-      {tab === "directory" ? <DirectoryTab /> : <KeyManagementDashboard />}
+      {tab === "directory" ? <DirectoryTab /> : tab === "keys" ? <KeyManagementDashboard /> : <RecurringMaintenanceEngine />}
     </div>
   );
 }

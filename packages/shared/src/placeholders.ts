@@ -74,6 +74,14 @@ export interface PlaceholderNteContext {
   approval_link: string | null;
 }
 
+// property_maintenance_due only - the recipient is the property manager,
+// not a client, hence pm_first_name rather than reusing PlaceholderClientContext.
+export interface PlaceholderPropertyContext {
+  address: string;
+  pm_first_name: string | null;
+  maintenance_due_date: string | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
@@ -82,6 +90,7 @@ export interface PlaceholderContext {
   invoice?: PlaceholderInvoiceContext;
   schedule?: PlaceholderScheduleContext;
   nte?: PlaceholderNteContext;
+  property?: PlaceholderPropertyContext;
 }
 
 function formatDateAu(dateString: string | null | undefined): string {
@@ -142,6 +151,12 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.nte_approval_link = context.nte.approval_link ?? "";
   }
 
+  if (context.property) {
+    tokens.property_address = context.property.address;
+    tokens.pm_first_name = context.property.pm_first_name ?? "";
+    tokens.property_maintenance_due_date = formatDateAu(context.property.maintenance_due_date);
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -186,6 +201,9 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "nte_current_total",
   "nte_exceeded_by",
   "nte_approval_link",
+  "property_address",
+  "pm_first_name",
+  "property_maintenance_due_date",
   "company_name",
   "company_phone",
   "company_email",

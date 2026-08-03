@@ -149,6 +149,10 @@ interface PlaceholderContext {
     booking_start_time: string | null;
     eta_minutes: number | null;
   };
+  // property_maintenance_due only (see the real_estate_maintenance_engine
+  // migration) - the recipient there is the property manager, not a
+  // client, hence pm_first_name rather than reusing `client`.
+  property?: { address: string; pm_first_name: string | null; maintenance_due_date: string | null };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -199,6 +203,11 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.invoice_total = formatCentsAsAud(context.invoice.total_cents);
     tokens.invoice_due_date = formatDateAu(context.invoice.due_date);
     tokens.invoice_payment_link = context.invoice.payment_link ?? "";
+  }
+  if (context.property) {
+    tokens.property_address = context.property.address;
+    tokens.pm_first_name = context.property.pm_first_name ?? "";
+    tokens.property_maintenance_due_date = formatDateAu(context.property.maintenance_due_date);
   }
   if (context.company) {
     tokens.company_name = context.company.name;
@@ -289,7 +298,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -409,6 +418,32 @@ async function buildEntityContext(
     // themselves.
     const { data: client } = await admin.from("clients").select("*").eq("id", row.entity_id).single();
     if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+  } else if (row.entity_type === "property_asset") {
+    // property_maintenance_due rows (see process-real-estate-maintenance)
+    // - entity_id is the property_assets row itself, not the property,
+    // since a property can have multiple assets each on their own
+    // schedule. Recipient is the property's assigned property manager.
+    const { data: asset } = await admin.from("property_assets").select("*").eq("id", row.entity_id).single();
+    if (!asset) return context;
+    const { data: property } = await admin.from("properties").select("*").eq("id", asset.property_id).single();
+    if (!property) return context;
+    let pmFirstName: string | null = null;
+    if (property.property_manager_id) {
+      const { data: pm } = await admin.from("property_managers").select("first_name").eq("id", property.property_manager_id).single();
+      if (pm?.first_name) pmFirstName = pm.first_name;
+    }
+    const attrs = (asset.attributes ?? {}) as { last_gutter_clean_date?: string; gutter_clean_interval_months?: number };
+    let dueDate: string | null = null;
+    if (attrs.last_gutter_clean_date && attrs.gutter_clean_interval_months) {
+      const d = new Date(`${attrs.last_gutter_clean_date}T00:00:00Z`);
+      d.setUTCMonth(d.getUTCMonth() + attrs.gutter_clean_interval_months);
+      dueDate = d.toISOString().slice(0, 10);
+    }
+    context.property = {
+      address: formatAddress(property) ?? property.address_line1,
+      pm_first_name: pmFirstName,
+      maintenance_due_date: dueDate,
+    };
   }
 
   return context;

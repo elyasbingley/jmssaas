@@ -651,7 +651,7 @@ export type CommunicationDelayDirection = "before" | "after";
 export type CommunicationChannel = "sms" | "email" | "both";
 export type CommunicationMessageChannel = "sms" | "email";
 export type CommunicationTemplateCategory = "quote" | "invoice" | "booking" | "field";
-export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event" | "client";
+export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,

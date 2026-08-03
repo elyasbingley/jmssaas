@@ -4006,3 +4006,128 @@ established convention.
 - The key pickup/in-van/return buttons' and the "did you return the key"
   prompt's actual on-device behaviour (verified by reading the code, not
   by running the Expo app).
+
+## 27. Real Estate & Strata module - Batch 3 (Recurring Maintenance Engine) - final batch
+
+This closes out the Real Estate & Strata module (all four sub-tabs from
+the original spec now built, both required approval flows working, and
+the module's third and last new Edge Function in place).
+
+**Scope decision, made explicit here**: the Recurring Maintenance Engine
+is scoped specifically to the gutter-clean schedule already captured on a
+roofing `property_assets` row (`last_gutter_clean_date` +
+`gutter_clean_interval_months`) - the spec's other example ("Annual...
+Backflow Inspections") has no matching field anywhere in this schema, so
+it isn't modelled. Adding a real backflow-inspection schedule would need
+its own `property_assets.attributes` fields and is a reasonable follow-up,
+not bundled into this batch. The desktop tab's "Asset type" filter still
+offers Plumbing/HVAC/General alongside Roofing for forward compatibility,
+even though only Roofing assets currently have qualifying due-date data.
+
+**Schema** (`real_estate_maintenance_engine` migration): `scheduled_communications.entity_type`
+widened to include `'property_asset'` (same drop/re-add-constraint
+pattern the retention migration already used to add `'client'`), and a
+new automated trigger_key `property_maintenance_due` (`delay_offset_value`
+here IS used - "how many days before the due date to first queue the
+reminder", same role `invoice_pre_due`'s offset plays for invoices,
+default 30 days).
+
+**Edge Function** (`supabase/functions/process-real-estate-maintenance`):
+same shape as `process-retention-campaigns` - a daily `pg_cron`-invoked
+sweep (not a Postgres trigger, since "is it nearly due" only becomes true
+because the calendar advances), service-role-only, detects due roofing
+assets and queues a `pending` `scheduled_communications` row per one -
+rendering and sending still happen through the normal
+`process-scheduled-comms` 5-minute sweep, same quiet-hours handling as
+everything else. Unlike the manually-triggered rows elsewhere in this
+module (job_on_the_way, job_review_request, job_nte_variation_request),
+this one does NOT pre-render `{property_address}`/`{pm_first_name}`/
+`{property_maintenance_due_date}` before insert - it leaves
+`rendered_subject`/`rendered_body` as the raw template text, exactly like
+`process-retention-campaigns` does for `dormant_client_reengagement`, and
+relies on `process-scheduled-comms`'s own `buildEntityContext` (which
+gained a new `property_asset` branch) to resolve those tokens at actual
+send time. Idempotency mirrors `process-retention-campaigns` too: "has a
+`property_maintenance_due` row been queued for this asset SINCE its
+`last_gutter_clean_date`" - once the asset's `last_gutter_clean_date` is
+updated after the clean happens, the next due cycle gets a fresh
+reminder without double-sending for the same cycle.
+
+Deploy separately from the existing functions:
+```
+supabase functions deploy process-real-estate-maintenance --no-verify-jwt
+```
+then its own `pg_cron` schedule:
+```sql
+select cron.schedule(
+  'process-real-estate-maintenance',
+  '0 6 * * *',
+  $$
+  select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/process-real-estate-maintenance',
+    headers := jsonb_build_object('Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY')
+  );
+  $$
+);
+```
+
+**Desktop**: `/real-estate`'s third sub-tab, `RecurringMaintenanceEngine.tsx`
+- lists every roofing asset with a computable due date (client-side date
+math from `attributes`, same formula the Edge Function uses), filterable
+by month/suburb/agency/asset type. "Send Reminder Email to PM" per row
+mirrors the "Send via Email" pattern used elsewhere (manual rule/template
+lookup + insert + `triggerImmediateDispatch`) rather than waiting for the
+next cron sweep. "Batch Generate Draft Jobs" surfaced a real schema gap:
+`properties` has no `client_id` of its own (tenant/landlord are plain text
+fields, not a `clients` row), but `job_cards.client_id` is required - so
+generating a draft job first creates a lightweight `clients` row from the
+property's tenant details (falling back to the landlord's name), then the
+job itself, tagged with the same `agency_id`/`property_manager_id`/`property_id`
+as everywhere else in this module. An admin can merge or edit that
+synthetic client afterward same as any other client record.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter desktop build`, and `pnpm --filter mobile
+  typecheck` all pass clean.
+- Fresh local Postgres 16 database, all 27 real migrations applied in
+  order. Seeded a tenant, admin, agency, property manager, property, and
+  three property assets (one roofing asset due within 30 days, one
+  roofing asset due almost 5 months later, and one plumbing asset with no
+  schedule data at all), through the throwaway non-superuser `app_test`
+  role.
+  - Confirmed the tenant seeded all 19 trigger_keys (18 + the new one),
+    confirming the "carry the full list forward" convention held again.
+  - Confirmed `scheduled_communications.entity_type` accepts
+    `'property_asset'` with a real insert.
+  - Replicated the Edge Function's own due-date/window SQL directly: the
+    near-term roofing asset correctly flagged due-within-30-days, the
+    far-term one correctly flagged not due, and the plumbing asset was
+    correctly excluded by the `category = 'roofing'` filter.
+  - Confirmed the idempotency check ("has a reminder already been queued
+    for this asset since its last_gutter_clean_date") correctly finds a
+    just-inserted row.
+  - Confirmed the property-manager-lookup join (asset -> property ->
+    property_manager) returns the right recipient email.
+  - Confirmed the "Batch Generate Draft Jobs" flow's two-step insert
+    (synthetic `clients` row from the property's tenant details, then a
+    `job_cards` row carrying `is_real_estate_job`/`agency_id`/
+    `property_manager_id`/`property_id`) both succeed and return the
+    expected shape.
+  - Database and the `app_test` role both dropped after, no state left
+    behind.
+- Playwright/Chromium smoke test with placeholder `.env`: `/real-estate`
+  still correctly redirects to `/login` when signed out, with no
+  unexpected console errors (the usual one-time favicon 404). Dev server
+  killed and `.env` deleted after.
+
+### NOT verified from this sandbox
+
+- The Edge Function itself has never actually run (no deployed instance
+  here to invoke it against, and no `pg_cron`/`pg_net` extension in this
+  sandbox) - its SQL-equivalent logic was verified directly instead (see
+  above), same caveat `process-retention-campaigns` already carries.
+- Clicking through the Recurring Maintenance tab's filters, checkboxes,
+  and both action buttons against a real signed-in session; this sandbox
+  has no such backend.
