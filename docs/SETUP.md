@@ -2158,3 +2158,139 @@ four items is really its own project. Also still open from earlier
 passes: the technician bio email (needs a new profile field) and the
 star-rating review gatekeeper (needs a new public page + table + token
 system).
+
+## 8. Desktop app (`apps/desktop`) - foundation pass
+
+A brand new package for the office/admin side of the business - dispatch,
+quotes/invoices, price book, job costing, team management. Explicitly
+scoped to build the foundation (auth, data layer, nav shell, deployment)
+first and get it reviewed before every one of the 9 screens is built out,
+same as the original mobile kickoff.
+
+### Architecture decisions
+
+- **Vite + React 19 + TypeScript**, not Next.js or CRA. This app has no
+  SSR/SEO requirement (admin-only, behind auth) and no offline requirement
+  - Vite's dev server and build are simpler and faster for that shape than
+  Next's, and CRA is unmaintained. Adopted per the brief's own suggested
+  default.
+- **Tailwind CSS**, per the brief's own suggestion ("reasonable given the
+  timeline") - same utility-first approach, just without React Native's
+  `StyleSheet` indirection mobile uses.
+- **`@tanstack/react-query`** for data fetching/caching - not explicitly
+  requested, but a natural fit: every screen in this app is Supabase-direct
+  and always-online (unlike mobile, which mixes PowerSync-offline and
+  online-only screens behind bespoke `useSupabaseFetch`/`useRefetchOnFocus`
+  hooks). React Query's cache invalidation replaces what PowerSync's local
+  SQLite reactivity gives mobile for free.
+- **`react-router-dom` v6** for SPA routing - the standard default for a
+  Vite React app, not separately discussed with the client.
+- **No PowerSync anywhere** - per explicit instruction. `lib/supabase.ts`
+  is a plain `@supabase/supabase-js` client hitting the same tables/RLS
+  policies mobile's PowerSync bucket definitions read from, just without
+  the local-SQLite sync layer. This means clients/job cards/tasks (synced
+  on mobile) get their own direct Supabase queries here instead - same
+  data, same RLS, simpler access pattern appropriate for an app that's
+  never expected to work offline.
+- **Admin-only access** (flagged as a real product decision, not guessed):
+  resolved as admin-only for now. A technician account can still
+  authenticate against Supabase (`signIn` succeeds) but `RequireAdmin`
+  (`src/components/RequireAdmin.tsx`) rejects them post-login with a clear
+  message, mirroring `apps/mobile/app/company-settings.tsx`'s existing
+  pattern for non-admins viewing an admin-only mobile screen. Revisit if a
+  technician ever wants to check their own schedule from a home computer -
+  nothing in the schema/RLS blocks it, only this one route guard does.
+
+### What's built in this pass
+
+- `src/lib/supabase.ts` - the plain Supabase client, `VITE_SUPABASE_URL` /
+  `VITE_SUPABASE_ANON_KEY` (Vite's equivalent of Expo's `EXPO_PUBLIC_`
+  prefix convention - see `apps/desktop/.env.example`, same two values as
+  `apps/mobile/.env.example` under different var names).
+- `src/lib/auth-context.tsx` - `AuthProvider`/`useAuth`, session +
+  `profiles` row + `isAdmin`. Profile refetch is deliberately keyed on
+  `session?.user.id`, not the `session` object itself, for the same reason
+  documented in `apps/mobile/lib/auth-context.tsx` (Supabase hands out a
+  new session object on token refresh, not just sign-in/out) - no
+  PowerSync reconnect loop to break here, but re-fetching the profile on
+  every token refresh would still be wasted work.
+- `src/pages/Login.tsx` + `src/components/RequireAdmin.tsx` - admin-only
+  auth guard described above. Unauthenticated users are redirected to
+  `/login` with `state={{ from: location.pathname }}`, so a direct link to
+  a specific screen still lands there after signing in.
+- `src/components/Layout.tsx` - sidebar nav (Dispatch, Sales group
+  [Jobs/Quotes/Invoices/Clients/Price Book], Calendar, Team, Settings),
+  matching the sections listed in the brief. Every route except `/login`
+  renders inside this shell.
+- `src/pages/Stub.tsx` + `src/App.tsx` - all 9 feature routes exist and are
+  reachable (proving the nav shell + route guard work end to end) but
+  render a plain "not built yet" placeholder. This is intentional: nothing
+  beyond the foundation was built in this pass, per the brief's explicit
+  instruction to get it reviewed first.
+- `apps/desktop/vercel.json` - SPA rewrite (`/* -> /index.html`) so
+  client-side routes don't 404 on a hard refresh/direct link.
+- Wired into the root `turbo.json`/`pnpm typecheck` pipeline the same way
+  `apps/mobile` and `packages/shared` are - `pnpm typecheck` at the repo
+  root runs all three.
+
+### Deploying to Vercel
+
+Matching the existing `bingleyroof.com.au` Vercel project (this repo is a
+pnpm/turbo monorepo, so a couple of settings need to point at the right
+subdirectory - Vercel's dashboard, not a config file, is where most of
+this lives):
+
+1. Import this GitHub repo as a new Vercel project (separate from
+   whatever project serves `bingleyroof.com.au` - same account, different
+   project, since it's a different app on presumably a different
+   subdomain, e.g. `app.bingleytrades.com.au`).
+2. **Root Directory**: `apps/desktop` (Vercel dashboard -> Project
+   Settings -> General). Vercel auto-detects the Vite framework preset
+   from that directory and pre-fills Build Command
+   (`vite build`)/Output Directory (`dist`) - leave those as detected.
+3. Because this is a pnpm workspace, the install step needs to happen from
+   the repo root, not `apps/desktop`. Vercel's monorepo support handles
+   this automatically once it detects `pnpm-lock.yaml` at the repo root -
+   no override needed under **Install Command**. If a deploy ever fails
+   with "workspace:* not found" or similar, that's this step not running
+   from the root - check the build log's install step.
+4. **Environment Variables**: `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY`, same values as `apps/mobile/.env` - safe to
+   expose in the client bundle (anon key, meaningless without a valid
+   RLS-scoped session).
+5. Every push to `main` deploys to production; every PR gets its own
+   preview URL - same flow `bingleyroof.com.au` already uses.
+
+### Known gaps / judgment calls
+
+- **All 9 feature screens are stubs.** Dispatch/Schedule, Jobs, Quotes,
+  Invoices, Clients, Price Book, Calendar, Team, and Settings all render
+  "not built yet" - by design, this pass is foundation-only.
+- **The dispatch board's drag-and-drop is entirely unbuilt** - the brief
+  flagged this as a decision to make ("how much of the full drag-and-drop
+  to build in this first pass"), but with every screen still a stub, there
+  was nothing to make that call against yet. Worth resolving explicitly
+  before that screen is built: whether to hand-roll drag-and-drop on top
+  of `calendar_events` or reach for a library (e.g. `dnd-kit` or
+  `react-big-calendar`'s drag support) is a real architectural choice, not
+  a detail to guess through mid-build.
+- **No favicon** - the browser tab shows the Vite default; cosmetic, not
+  fixed here.
+- **No error boundary / 404 page beyond the catch-all redirect to
+  `/dispatch`** - fine for a foundation pass, worth revisiting once real
+  screens exist to lose data on.
+- **Verified from this sandbox**: `pnpm install` at the repo root picked
+  up the new workspace member cleanly; `pnpm typecheck` passes clean
+  across `@jmssaas/shared`, `mobile`, and `desktop`; `pnpm --filter desktop
+  dev` starts a working Vite dev server; loading it in a real browser
+  (Playwright/Chromium) with a placeholder Supabase URL confirms the
+  unauthenticated redirect to `/login` fires correctly and the Tailwind-
+  styled login form renders as expected (screenshot reviewed by hand).
+- **NOT verified from this sandbox**: no real Supabase project was used
+  (placeholder `.env` values only, this sandbox has no deployed Supabase
+  instance to sign in against) - the actual sign-in call, the `profiles`
+  role check post-login, and the admin-only rejection message have not
+  been exercised end-to-end with a real account. Nothing has been deployed
+  to Vercel yet either - the steps above are written from the existing
+  `bingleyroof.com.au` pattern and Vercel's documented monorepo behavior,
+  not from having actually clicked through a deploy for this app.
