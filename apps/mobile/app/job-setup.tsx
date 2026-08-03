@@ -32,6 +32,7 @@ export default function JobSetupScreen() {
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [categoryColor, setCategoryColor] = useState("");
+  const [categoryMaintenanceInterval, setCategoryMaintenanceInterval] = useState("");
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
   const [stageModalVisible, setStageModalVisible] = useState(false);
@@ -44,6 +45,7 @@ export default function JobSetupScreen() {
     setEditingCategory(null);
     setCategoryName("");
     setCategoryColor("");
+    setCategoryMaintenanceInterval("");
     setCategoryError(null);
     setCategoryModalVisible(true);
   };
@@ -52,12 +54,19 @@ export default function JobSetupScreen() {
     setEditingCategory(category);
     setCategoryName(category.name);
     setCategoryColor(category.color ?? "");
+    setCategoryMaintenanceInterval(
+      category.maintenance_interval_months != null ? String(category.maintenance_interval_months) : ""
+    );
     setCategoryError(null);
     setCategoryModalVisible(true);
   };
 
   const handleSaveCategory = async () => {
-    const result = createServiceCategorySchema.safeParse({ name: categoryName, color: categoryColor || undefined });
+    const result = createServiceCategorySchema.safeParse({
+      name: categoryName,
+      color: categoryColor || undefined,
+      maintenance_interval_months: categoryMaintenanceInterval ? Number(categoryMaintenanceInterval) : undefined,
+    });
     if (!result.success) {
       setCategoryError(result.error.issues[0]?.message ?? "Invalid category");
       return;
@@ -66,16 +75,22 @@ export default function JobSetupScreen() {
 
     const now = new Date().toISOString();
     if (editingCategory) {
-      await powersync.execute("UPDATE service_categories SET name = ?, color = ?, updated_at = ? WHERE id = ?", [
-        result.data.name,
-        result.data.color || null,
-        now,
-        editingCategory.id,
-      ]);
+      await powersync.execute(
+        "UPDATE service_categories SET name = ?, color = ?, maintenance_interval_months = ?, updated_at = ? WHERE id = ?",
+        [result.data.name, result.data.color || null, result.data.maintenance_interval_months ?? null, now, editingCategory.id]
+      );
     } else {
       await powersync.execute(
-        "INSERT INTO service_categories (id, tenant_id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        [uuidv4(), profile.tenant_id, result.data.name, result.data.color || null, now, now]
+        "INSERT INTO service_categories (id, tenant_id, name, color, maintenance_interval_months, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          uuidv4(),
+          profile.tenant_id,
+          result.data.name,
+          result.data.color || null,
+          result.data.maintenance_interval_months ?? null,
+          now,
+          now,
+        ]
       );
     }
     setCategoryModalVisible(false);
@@ -196,6 +211,9 @@ export default function JobSetupScreen() {
             <View style={styles.rowLabel}>
               <View style={[styles.swatch, category.color ? { backgroundColor: category.color } : styles.swatchEmpty]} />
               <Text style={styles.rowText}>{category.name}</Text>
+              {category.maintenance_interval_months ? (
+                <Text style={styles.defaultTag}>Every {category.maintenance_interval_months}mo</Text>
+              ) : null}
             </View>
             <View style={styles.rowActions}>
               <Pressable onPress={() => openEditCategory(category)}>
@@ -260,6 +278,15 @@ export default function JobSetupScreen() {
             value={categoryColor}
             onChangeText={setCategoryColor}
             autoCapitalize="none"
+          />
+        </View>
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Maintenance reminder every (months, optional)"
+            placeholder="e.g. 6 for aircon winterisation, 12 for annual pest control"
+            value={categoryMaintenanceInterval}
+            onChangeText={setCategoryMaintenanceInterval}
+            keyboardType="number-pad"
           />
         </View>
         {categoryError ? <Text style={styles.error}>{categoryError}</Text> : null}

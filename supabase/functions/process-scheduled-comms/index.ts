@@ -269,7 +269,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -383,6 +383,12 @@ async function buildEntityContext(
     } else if (techFirstName) {
       context.schedule = { tech_first_name: techFirstName, booking_date: null, booking_start_time: null, eta_minutes: null };
     }
+  } else if (row.entity_type === "client") {
+    // dormant_client_reengagement rows (see process-retention-campaigns) -
+    // there's no quote/invoice/job to hang context off, just the client
+    // themselves.
+    const { data: client } = await admin.from("clients").select("*").eq("id", row.entity_id).single();
+    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
   }
 
   return context;

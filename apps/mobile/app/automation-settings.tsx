@@ -60,6 +60,10 @@ const TRIGGER_GROUPS: { title: string; keys: string[] }[] = [
     title: "Field Alerts",
     keys: ["job_on_the_way", "job_prep_checklist", "job_completion_summary", "job_review_request"],
   },
+  {
+    title: "Retention",
+    keys: ["maintenance_reminder", "dormant_client_reengagement"],
+  },
 ];
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -78,6 +82,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   job_prep_checklist: "Prep your site",
   job_completion_summary: "Job complete",
   job_review_request: "Review request",
+  maintenance_reminder: "Maintenance reminder",
+  dormant_client_reengagement: "Dormant client re-engagement",
 };
 
 // What the delay is measured relative to - used to build a plain-English
@@ -107,6 +113,19 @@ const UNIT_OPTIONS: CommunicationDelayUnit[] = ["hours", "days"];
 const DIRECTION_OPTIONS: CommunicationDelayDirection[] = ["before", "after"];
 
 function summarizeTiming(rule: CommunicationRule): string {
+  // maintenance_reminder's actual interval lives per service category (Job
+  // Setup), not on this rule - delay_offset_value/unit/direction here are
+  // unused filler (see the communication_engine_retention migration).
+  if (rule.trigger_key === "maintenance_reminder") {
+    return "Interval set per service category in Job Setup";
+  }
+  // dormant_client_reengagement's delay_offset_value/unit IS used, but
+  // means something different from every other trigger_key - "days of
+  // inactivity", not an offset before/after a single event.
+  if (rule.trigger_key === "dormant_client_reengagement") {
+    const unitLabel = rule.delay_offset_value === 1 ? rule.delay_offset_unit.replace(/s$/, "") : rule.delay_offset_unit;
+    return `Sent after ${rule.delay_offset_value} ${unitLabel} with no new job`;
+  }
   const anchor = TRIGGER_ANCHORS[rule.trigger_key] ?? "the trigger event";
   if (rule.delay_offset_value === 0) return `Sent immediately when ${anchor}`;
   const unitLabel = rule.delay_offset_value === 1 ? rule.delay_offset_unit.replace(/s$/, "") : rule.delay_offset_unit;
@@ -368,33 +387,54 @@ export default function AutomationSettingsScreen() {
       <CenteredModal visible={ruleModalVisible} onClose={() => setRuleModalVisible(false)}>
         <Text style={styles.modalTitle}>Edit timing{editingRule ? ` - ${TRIGGER_LABELS[editingRule.trigger_key]}` : ""}</Text>
 
-        <FormField label="Delay value" value={ruleDelayValue} onChangeText={setRuleDelayValue} keyboardType="number-pad" />
+        {editingRule?.trigger_key === "maintenance_reminder" ? (
+          <Text style={styles.subtitle}>
+            The interval for this reminder is set per service category, not here - edit it from Settings &gt; Job Card
+            Setup on the category that should get a recurring reminder (e.g. 6 months for aircon servicing, 12 for an
+            annual inspection).
+          </Text>
+        ) : (
+          <>
+            <FormField
+              label={editingRule?.trigger_key === "dormant_client_reengagement" ? "Days of inactivity" : "Delay value"}
+              value={ruleDelayValue}
+              onChangeText={setRuleDelayValue}
+              keyboardType="number-pad"
+            />
 
-        <Text style={styles.fieldLabel}>Delay unit</Text>
-        <View style={styles.chipRow}>
-          {UNIT_OPTIONS.map((unit) => (
-            <Pressable
-              key={unit}
-              style={[styles.chip, ruleDelayUnit === unit && styles.chipSelected]}
-              onPress={() => setRuleDelayUnit(unit)}
-            >
-              <Text style={[styles.chipText, ruleDelayUnit === unit && styles.chipTextSelected]}>{unit}</Text>
-            </Pressable>
-          ))}
-        </View>
+            {editingRule?.trigger_key !== "dormant_client_reengagement" ? (
+              <>
+                <Text style={styles.fieldLabel}>Delay unit</Text>
+                <View style={styles.chipRow}>
+                  {UNIT_OPTIONS.map((unit) => (
+                    <Pressable
+                      key={unit}
+                      style={[styles.chip, ruleDelayUnit === unit && styles.chipSelected]}
+                      onPress={() => setRuleDelayUnit(unit)}
+                    >
+                      <Text style={[styles.chipText, ruleDelayUnit === unit && styles.chipTextSelected]}>{unit}</Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-        <Text style={styles.fieldLabel}>Direction</Text>
-        <View style={styles.chipRow}>
-          {DIRECTION_OPTIONS.map((direction) => (
-            <Pressable
-              key={direction}
-              style={[styles.chip, ruleDirection === direction && styles.chipSelected]}
-              onPress={() => setRuleDirection(direction)}
-            >
-              <Text style={[styles.chipText, ruleDirection === direction && styles.chipTextSelected]}>{direction}</Text>
-            </Pressable>
-          ))}
-        </View>
+                <Text style={styles.fieldLabel}>Direction</Text>
+                <View style={styles.chipRow}>
+                  {DIRECTION_OPTIONS.map((direction) => (
+                    <Pressable
+                      key={direction}
+                      style={[styles.chip, ruleDirection === direction && styles.chipSelected]}
+                      onPress={() => setRuleDirection(direction)}
+                    >
+                      <Text style={[styles.chipText, ruleDirection === direction && styles.chipTextSelected]}>
+                        {direction}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </>
+        )}
 
         <View style={styles.quietHoursRow}>
           <View style={styles.quietHoursItem}>

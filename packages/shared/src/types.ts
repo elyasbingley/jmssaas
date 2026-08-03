@@ -123,12 +123,17 @@ export interface JobCard {
 }
 
 // A simple tag on a job (e.g. "Roof Restoration", "Gutter Cleaning") -
-// admin-managed, tenant-wide, purely descriptive (no behavior keys off it).
+// admin-managed, tenant-wide, purely descriptive (no behavior keys off it),
+// with one exception: maintenance_interval_months (see the
+// communication_engine_retention migration) - when set, a job in this
+// category completing schedules a maintenance_reminder email that many
+// months later. Null means no recurring reminder for this category.
 export interface ServiceCategory {
   id: string;
   tenant_id: string;
   name: string;
   color: string | null;
+  maintenance_interval_months: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -523,7 +528,7 @@ export type CommunicationDelayDirection = "before" | "after";
 export type CommunicationChannel = "sms" | "email" | "both";
 export type CommunicationMessageChannel = "sms" | "email";
 export type CommunicationTemplateCategory = "quote" | "invoice" | "booking" | "field";
-export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event";
+export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event" | "client";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,

@@ -83,6 +83,7 @@ const service_categories = new Table(
     tenant_id: column.text,
     name: column.text,
     color: column.text,
+    maintenance_interval_months: column.integer,
     created_at: column.text,
     updated_at: column.text,
   },

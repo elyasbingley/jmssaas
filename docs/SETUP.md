@@ -2055,3 +2055,106 @@ Site Preparation" / "Post-Job & Quality Assurance" sections -
 - **NOT verified from this sandbox**: no real send yet for either new
   trigger_key - same caveat as everything else in this engine until it's
   tried against a real job on a real device.
+
+## Retention campaigns
+
+Fourth and final scoped slice of the email automation feature list, per the
+"Customer Retention & Recurring Revenue" section -
+`supabase/migrations/20260818000100_communication_engine_retention.sql`.
+This is the first part of the engine that's genuinely a different shape
+from everything before it - not tied to a single row's insert/update event.
+
+- **`maintenance_reminder`** - still fits the existing "fires off an event"
+  shape (scheduled the moment a job is marked completed), but the delay
+  has to vary PER SERVICE CATEGORY (aircon winterisation every 6 months,
+  an annual pest spray every 12), which a single tenant-wide
+  `communication_rules` row can't express. Solved with a new
+  `service_categories.maintenance_interval_months` column instead (nullable
+  - no value means no recurring reminder for that category), editable from
+  Job Setup alongside the category's name/color. `communication_rules`
+  still has a `maintenance_reminder` row (for `is_enabled`/`channel`/quiet
+  hours), but its `delay_offset_value`/`unit`/`direction` are unused filler
+  for this one trigger_key - the mobile UI hides the delay editor for it
+  entirely and points the admin at Job Setup instead.
+- **`dormant_client_reengagement`** - genuinely has no single-row event to
+  hook a Postgres trigger off at all: "12 months of silence" only becomes
+  true because the calendar advances, not because anything changed in the
+  database. Handled by a brand new Edge Function,
+  **`supabase/functions/process-retention-campaigns`**, on its own daily
+  `pg_cron` schedule (separate from `process-scheduled-comms`'s 5-minute
+  sweep - no need to re-check "has it been a year" that often). It only
+  detects and queues a `pending` `scheduled_communications` row per newly-
+  dormant client; the actual send still goes through the normal
+  `process-scheduled-comms` sweep, same quiet-hours handling as everything
+  else. `communication_rules.delay_offset_value`/`unit` on this trigger_key
+  ARE used, just for something different from everywhere else - "days of
+  inactivity" rather than an offset before/after a single event (default
+  365 days) - the mobile UI relabels the field accordingly.
+- **`scheduled_communications.entity_type` widened to include `'client'`**
+  - a dormant client isn't a quote/invoice/job, so this is the first row
+  ever scheduled against a client directly. The check constraint was
+  dropped and recreated with the 5th value (the column itself untouched).
+  `process-scheduled-comms`'s `buildEntityContext` gained a `client` branch
+  (just resolves the client's own name/phone/email, no job/quote/invoice
+  context to attach).
+- **Idempotency is different for this trigger_key** - every other
+  trigger_key checks "has this exact (entity_type, entity_id, trigger_key)
+  ever been scheduled", which is right for a quote or invoice (only ever
+  sent once). A client can legitimately go dormant, come back, and go
+  dormant again years later - each dormancy deserves its own email. So
+  `process-retention-campaigns` checks "has a
+  `dormant_client_reengagement` row been scheduled for this client SINCE
+  their most recent job" instead - once they book again, that reference
+  date moves forward and a future dormancy period gets a fresh email, with
+  no double-sending within the same one. Clients with zero job history are
+  skipped entirely - never having booked isn't the same as going quiet.
+- **Deploy this one separately** - it's a new Edge Function, not an
+  addition to the existing one:
+  ```
+  supabase functions deploy process-retention-campaigns --no-verify-jwt
+  ```
+  then its own one-time `pg_cron` schedule (daily is enough; exact time
+  doesn't matter much since the real quiet-hours-respecting send still
+  happens through the normal dispatcher afterward):
+  ```sql
+  select cron.schedule(
+    'process-retention-campaigns',
+    '0 6 * * *',
+    $$
+    select net.http_post(
+      url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/process-retention-campaigns',
+      headers := jsonb_build_object('Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY')
+    );
+    $$
+  );
+  ```
+- **Verified from this sandbox**: applies cleanly after all 22 prior
+  migrations. Live-exercised: a job in a category with a 6-month
+  maintenance interval, marked completed, correctly scheduled both
+  `job_completion_summary` (immediate) and `maintenance_reminder` (~183
+  days out); a job with no service category completing correctly scheduled
+  neither. The dormant-client detection SQL (last-job aggregation, rule
+  lookup, dormancy comparison, idempotency check) was run directly and
+  confirmed correct for a backdated 400-day-old job against the 365-day
+  default threshold. The widened `entity_type` check constraint was
+  confirmed to accept `'client'` with a real insert. A fresh tenant now
+  seeds 17 trigger_keys total. `pnpm typecheck` passes clean across the
+  whole workspace.
+- **NOT verified from this sandbox**: the new Edge Function itself has
+  never actually run (no deployed instance here to invoke it against, and
+  its SQL queries were verified by hand rather than through the function's
+  own Deno code path) - same caveat as every other Edge Function in this
+  engine until it's deployed and either its own cron fires or it's called
+  by hand. No real send for either new trigger_key yet either.
+
+This closes out all four slices of the original email automation feature
+list that were explicitly scoped for building (reminder ladder, manual
+send, job lifecycle, retention). Still open, by choice, from the very
+first scoping conversation: the "Engine deep-features" bucket (conditional
+branching by job type/value/tag, custom merge fields beyond the fixed
+token set, open/click tracking, custom SMTP/white-labeling) - genuinely
+more architectural, lower immediate day-to-day payoff, and each of its
+four items is really its own project. Also still open from earlier
+passes: the technician bio email (needs a new profile field) and the
+star-rating review gatekeeper (needs a new public page + table + token
+system).

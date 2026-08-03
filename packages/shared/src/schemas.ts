@@ -174,6 +174,7 @@ export type CreateTechnicianInput = z.infer<typeof createTechnicianSchema>;
 export const createServiceCategorySchema = z.object({
   name: z.string().min(1, "Name is required"),
   color: z.string().optional(),
+  maintenance_interval_months: z.number().int().positive().optional(),
 });
 export type CreateServiceCategoryInput = z.infer<typeof createServiceCategorySchema>;
 
@@ -256,7 +257,7 @@ export const communicationDelayDirectionSchema = z.enum(["before", "after"]);
 export const communicationChannelSchema = z.enum(["sms", "email", "both"]);
 export const communicationMessageChannelSchema = z.enum(["sms", "email"]);
 export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field"]);
-export const scheduledCommunicationEntityTypeSchema = z.enum(["quote", "invoice", "job", "calendar_event"]);
+export const scheduledCommunicationEntityTypeSchema = z.enum(["quote", "invoice", "job", "calendar_event", "client"]);
 
 // HH:MM or HH:MM:SS - matches the <input type="time">-style pickers used by
 // the quiet hours fields on the Automation & Messaging Settings screen.
