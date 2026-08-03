@@ -28,9 +28,17 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Team screen's browser call would fail outright with no fallback path
 // (unlike the email dispatcher, there's no "queue it for later" for
 // creating an account).
+//
+// Unlike process-scheduled-comms (called via a hand-written fetch() with
+// only Authorization/Content-Type), Team.tsx calls this one through
+// `supabase.functions.invoke()`, and the supabase-js client always adds
+// its own `apikey` header (plus `x-client-info`) to every request - those
+// have to be explicitly allowed here too, or the preflight itself fails
+// with "header 'apikey' is not allowed" before the actual POST is ever
+// sent. Listed alongside Supabase's own documented CORS example headers.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 

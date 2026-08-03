@@ -3562,3 +3562,43 @@ not a Settings-adjacent one).
 
 This closes every item in the desktop parity scope this session started
 with - every screen mobile has now has a desktop equivalent.
+
+## 22. Fix: create-technician's CORS fix (section 15) was incomplete
+
+Section 15's CORS fix added an `Access-Control-Allow-Headers` list, but it
+only listed `authorization, content-type` - missing `apikey`. That
+mattered because `Team.tsx` calls this function through
+`supabase.functions.invoke()`, not a hand-written `fetch()`, and the
+supabase-js client always attaches its own `apikey` header (and
+`x-client-info`) to every request it makes. The browser's CORS preflight
+saw a header the server hadn't explicitly allowed and blocked the whole
+request before it ever reached the function - console showed "Cross-
+Origin Request Blocked... header 'apikey' is not allowed according to
+header 'Access-Control-Allow-Headers'". This is a different failure mode
+than the original CORS gap (which had zero CORS headers at all) - the
+preflight itself now succeeds/fails based on which headers are listed,
+not just whether any are.
+
+`process-scheduled-comms` doesn't have this problem: its only caller
+(`dispatch-now.ts` on both apps) uses a plain `fetch()` with just
+`Authorization`/`Content-Type`, never `.invoke()`, so its existing header
+list was already sufficient. Confirmed by grepping every
+`supabase.functions.invoke()` call site across both apps -
+`create-technician` (mobile's `team.tsx` and desktop's `Team.tsx`) is the
+only one.
+
+Fix: added `apikey` and `x-client-info` to `create-technician`'s
+`Access-Control-Allow-Headers`, matching Supabase's own documented CORS
+example. **Requires `npx supabase functions deploy create-technician`
+again** for this to take effect - a deploy without this fix (as the user
+had already done once, confirming the function itself was live and
+reachable) would still hit this exact preflight rejection.
+
+### Verified from this sandbox
+
+- Read every `supabase.functions.invoke()` call site in the repo to
+  confirm `create-technician` is the only Edge Function ever called that
+  way (the only one that needs `apikey` in its allow-list).
+- Not independently reproducible in this sandbox (no real Supabase
+  project/browser here) - this fix was made directly from the user's own
+  browser console output, which named the exact rejected header.
