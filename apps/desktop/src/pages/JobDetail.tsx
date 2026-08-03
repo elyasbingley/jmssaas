@@ -3,19 +3,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
   createJobNoteSchema,
+  formatCentsAsAud,
   type Client,
+  type Invoice,
   type JobCard,
   type JobFile,
   type JobLifecycleStage,
   type JobNote,
   type JobStatus,
   type Profile,
+  type Quote,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { formatClientAddress } from "../lib/format";
+import { uploadJobPhoto } from "../lib/uploads";
 import { TextAreaField } from "../components/FormField";
 
 const STATUSES: JobStatus[] = ["new", "scheduled", "in_progress", "completed", "invoiced"];
@@ -67,6 +71,18 @@ async function fetchNotes(jobId: string): Promise<JobNote[]> {
   return data as JobNote[];
 }
 
+async function fetchLinkedQuotes(jobId: string): Promise<Quote[]> {
+  const { data, error } = await supabase.from("quotes").select("*").eq("job_card_id", jobId);
+  if (error) throw error;
+  return data as Quote[];
+}
+
+async function fetchLinkedInvoices(jobId: string): Promise<Invoice[]> {
+  const { data, error } = await supabase.from("invoices").select("*").eq("job_card_id", jobId);
+  if (error) throw error;
+  return data as Invoice[];
+}
+
 async function fetchFiles(jobId: string): Promise<JobFile[]> {
   const { data, error } = await supabase
     .from("job_files")
@@ -106,6 +122,16 @@ export default function JobDetailPage() {
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
   const { data: technicians } = useQuery({ queryKey: ["technicians"], queryFn: fetchTechnicians });
   const { data: notes } = useQuery({ queryKey: ["job-notes", id], queryFn: () => fetchNotes(id!), enabled: !!id });
+  const { data: linkedQuotes } = useQuery({
+    queryKey: ["job-quotes", id],
+    queryFn: () => fetchLinkedQuotes(id!),
+    enabled: !!id,
+  });
+  const { data: linkedInvoices } = useQuery({
+    queryKey: ["job-invoices", id],
+    queryFn: () => fetchLinkedInvoices(id!),
+    enabled: !!id,
+  });
   const { data: files } = useQuery({ queryKey: ["job-files", id], queryFn: () => fetchFiles(id!), enabled: !!id });
   const { data: fileUrls } = useQuery({
     queryKey: ["job-file-urls", id, files?.map((f) => f.id).join(",")],
@@ -122,6 +148,25 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["job", id] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
+  });
+
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const uploadPhotos = useMutation({
+    mutationFn: async (fileList: FileList) => {
+      if (!profile) throw new Error("Not signed in");
+      // Sequential, not Promise.all - keeps upload order predictable and
+      // avoids hammering Storage with a burst of concurrent PUTs for a
+      // multi-select of, say, 20 photos.
+      for (const file of Array.from(fileList)) {
+        await uploadJobPhoto({ tenantId: profile.tenant_id, jobCardId: id!, uploadedBy: profile.id, file });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+      setPhotoError(null);
+    },
+    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload photo")),
   });
 
   const [noteBody, setNoteBody] = useState("");
@@ -243,10 +288,70 @@ export default function JobDetailPage() {
         </div>
       </div>
 
+      <div className="mb-6 grid grid-cols-2 gap-4">
+        <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quotes</h2>
+            <Link to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
+              + New quote
+            </Link>
+          </div>
+          {!linkedQuotes || linkedQuotes.length === 0 ? (
+            <p className="text-sm text-gray-500">No quotes linked to this job.</p>
+          ) : (
+            <div className="space-y-1">
+              {linkedQuotes.map((q) => (
+                <Link key={q.id} to={`/quotes/${q.id}`} className="flex justify-between text-sm hover:underline">
+                  <span className="text-blue-700">{q.quote_number}</span>
+                  <span className="text-gray-600">{formatCentsAsAud(q.total_cents)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Invoices</h2>
+            <Link to={`/invoices/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
+              + New invoice
+            </Link>
+          </div>
+          {!linkedInvoices || linkedInvoices.length === 0 ? (
+            <p className="text-sm text-gray-500">No invoices linked to this job.</p>
+          ) : (
+            <div className="space-y-1">
+              {linkedInvoices.map((inv) => (
+                <Link key={inv.id} to={`/invoices/${inv.id}`} className="flex justify-between text-sm hover:underline">
+                  <span className="text-blue-700">{inv.invoice_number}</span>
+                  <span className="text-gray-600">{formatCentsAsAud(inv.total_cents)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Photos</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Photos</h2>
+          <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+            {uploadPhotos.isPending ? "Uploading..." : "+ Upload photos"}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              disabled={uploadPhotos.isPending}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) uploadPhotos.mutate(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+        {photoError ? <p className="mb-3 text-sm text-red-600">{photoError}</p> : null}
         {!files || files.length === 0 ? (
-          <p className="text-sm text-gray-500">No photos uploaded from mobile yet.</p>
+          <p className="text-sm text-gray-500">No photos yet.</p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
             {files.map((f) => (

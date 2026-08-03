@@ -2392,3 +2392,152 @@ clients/jobs existing).
   ~696 kB (188 kB gzipped), over Rollup's 500 kB default threshold. Not a
   correctness issue and not fixed here; worth revisiting with route-based
   code-splitting once there are enough screens for it to matter.
+
+## 10. Desktop app - job card photo upload, Quotes, Invoices
+
+### Job card photo upload was missing entirely
+
+Section 9 above scoped job card photos as view-only by design ("capturing
+new ones from a desktop webcam is not a priority"). The person then
+reported there was no way to upload an image to a job card from desktop at
+all - reading that scoping note back, "capture" was read as meaning
+specifically *webcam* capture, but the note as shipped also blocked plain
+file-picker upload of existing photos (a spec sheet, a supplier invoice
+photo, a screenshot), which was never the intent. Fixed:
+
+- **`src/lib/uploads.ts`** (NEW) - `uploadJobPhoto()`, a direct port of
+  `apps/mobile/lib/powersync.ts`'s `addJobPhoto` for a plain-Supabase
+  context: same `<tenant_id>/<job_card_id>/<uuid>.<ext>` storage path
+  convention (required - the storage RLS policies in
+  `supabase/migrations/20260720000300_storage.sql` key off that exact
+  shape), same `job_files` row shape, just a direct
+  `supabase.storage.from("job-files").upload()` + insert instead of
+  PowerSync's offline attachment queue (nothing to queue - always online).
+- **`JobDetail.tsx`**'s Photos section gained an "+ Upload photos" button
+  (`<input type="file" accept="image/*" multiple>`, hidden and triggered
+  via a styled `<label>`) - uploads sequentially (not `Promise.all`, to
+  avoid bursting Storage with a large multi-select) and invalidates the
+  `job-files` query on success, which the existing `job-file-urls` query's
+  key (joined file ids) naturally picks up as a refetch.
+- **Going forward**: per instruction, the same "wherever mobile has image
+  upload, desktop should too" standard now applies to future desktop
+  screens - noted here so it isn't missed again. The only other mobile
+  upload surface not yet built on desktop at all is task photos
+  (`task_files`, via `addTaskPhoto`) - moot until a Tasks screen exists on
+  desktop, which it doesn't yet (out of the Phase 1 desktop scope list).
+
+### Roof measurement tool is not present on desktop
+
+Flagged, not built in this pass. Mobile's measurement tool
+(`apps/mobile/app/(tabs)/sales/jobs/measure.tsx`) is a satellite map with
+polygon drawing and a facet manager, built on `react-native-maps` (Apple
+Maps on iOS, Google Maps SDK on Android) - a native module with no direct
+web equivalent. Bringing this to desktop is a real architectural decision
+of the same shape as the dispatch board's drag-and-drop choice, not a
+small addition:
+
+- **Mapping library choice** - the natural web options are Google Maps
+  JavaScript API (closest visual/behavioral match to mobile, but needs its
+  own billing-enabled API key separate from `GOOGLE_MAPS_API_KEY_ANDROID`,
+  and Google's JS SDK has its own polygon-drawing library
+  - `google.maps.drawing`), Mapbox GL JS (better-known free tier, different
+  polygon-editing ecosystem - `mapbox-gl-draw`), or Leaflet with a
+  satellite tile provider (fully free/open-source, but satellite imagery
+  quality varies by provider and it lacks the other two's native polygon-
+  editing UX out of the box).
+- **Data model needs no changes either way** - `job_measurements` (see
+  `supabase/migrations/20260803000100_roof_measurements.sql`) stores
+  facets as plain GeoJSON-shaped polygon coordinates and the shared
+  `packages/shared`'s geo math (area/perimeter calculations) is already
+  framework-agnostic - whichever library desktop picks, it only has to
+  produce/consume the same polygon coordinate shape mobile already writes.
+- **Recommendation when this gets picked up**: Google Maps JS API, for
+  parity with mobile's satellite imagery source and because
+  `google.maps.drawing.DrawingManager` is the closest match to the
+  facet-by-facet polygon workflow already built and proven on mobile -
+  but this is exactly the kind of call that should be confirmed before
+  building, not guessed silently.
+
+### Quotes and Invoices
+
+Full line-item editor screens, mirroring `apps/mobile`'s quotes/invoices
+stack (`new.tsx`/`[id].tsx`/`index.tsx` for each) as closely as a web
+layout allows:
+
+- **`src/lib/line-items.ts`**, **`src/lib/dispatch-now.ts`** - direct
+  ports of the same-named mobile `lib/` files (`emptyLineItem`/
+  `normalizeLineItem`, and the best-effort immediate-dispatch POST to
+  `process-scheduled-comms`), logic unchanged, `VITE_` instead of
+  `EXPO_PUBLIC_` for the one env var `dispatch-now.ts` reads.
+- **`src/components/LineItemEditor.tsx`** (`LineItemEditor` + client-facing
+  `LineItemSummary`) and **`AddLineItemBar.tsx`** (debounced price-book
+  search + variation picker + custom-item fallback) - Tailwind
+  reimplementations of the same-named mobile components, same
+  `calculateDocumentTotals`-driven totals box, same admin-only breakdown
+  fields vs. client-facing summary split.
+- **`Quotes.tsx`/`QuoteNew.tsx`/`QuoteDetail.tsx`** and
+  **`Invoices.tsx`/`InvoiceNew.tsx`/`InvoiceDetail.tsx`** - list, create
+  (with client/job picker, optional template load, cross-linking via
+  `?clientId=&jobCardId=` query params from a job card's own "+ New
+  quote"/"+ New invoice" buttons), and detail (status chips, line-item
+  editor, save via the same atomic `replace_quote_line_items`/
+  `replace_invoice_line_items` RPCs mobile uses, "Send via Email" using
+  the existing `quote_sent`/`invoice_sent` trigger_keys and
+  `triggerImmediateDispatch`, and an approval-link button). Quotes gain a
+  "Convert to invoice" modal (`convert_quote_to_invoice` RPC, same as
+  mobile). Once a document's `approval_status` is `accepted`/`declined`
+  the editor swaps for the read-only `LineItemSummary` and fields disable
+  - mirrors mobile's `isLocked` handling of the same DB-level lock (see
+  section 4's own note on `enforce_accepted_document_money_lock`).
+- **`JobDetail.tsx`** gained a Quotes/Invoices two-column card showing
+  linked documents with total + a "+ New quote"/"+ New invoice" link,
+  mirroring mobile's cross-linking section.
+- **Approval link handoff differs from mobile on purpose**: mobile hands
+  the link to the native Share sheet; desktop has no share sheet, so
+  `generateLink` copies the URL to the clipboard instead
+  (`navigator.clipboard.writeText`) with a "Link copied!" button-label
+  confirmation. Needs `VITE_APPROVAL_PAGE_URL` in `.env` (added to
+  `.env.example`, same value as mobile's `EXPO_PUBLIC_APPROVAL_PAGE_URL`).
+- **PDF export was NOT built** - mobile's `buildQuotePdfHtml`/
+  `buildInvoicePdfHtml` + `exportPdf` rely on `expo-print`, a native
+  module with no direct web equivalent, and PDF wasn't named in the
+  Phase 1 desktop scope list's line-item editor item. A web equivalent
+  (`window.print()` against a print-styled route, or a client-side PDF
+  library) is a reasonable follow-up but is a separate scoping decision,
+  not bundled into this pass.
+
+### Verified from this sandbox
+
+- `pnpm typecheck` and `pnpm --filter desktop build` both pass clean
+  across all three packages.
+- **All 23 migrations reapplied to a fresh local Postgres 16 instance**
+  (same throwaway-`auth`/`storage` stub setup as section 9), and every
+  RPC/query the new screens call was run directly against the real
+  schema: a quote created with line items, `replace_quote_line_items`
+  (confirmed subtotal/gst/total recompute correctly - $1,100→$1,056 after
+  editing the line items), `generate_quote_approval_link` (confirmed a
+  real token + 30-day expiry get written), `convert_quote_to_invoice`
+  called with the exact named-argument shape the desktop code uses
+  (`p_quote_id`/`p_due_date`, relying on the RPC's `p_invoice_number
+  default null` - confirmed this works, not just typechecks), which
+  produced a correctly auto-numbered `INV001` with the quote's line items
+  and totals copied over; then `replace_invoice_line_items` and
+  `generate_invoice_approval_link` on that resulting invoice, and a second
+  invoice created standalone (auto-numbered `INV002`, confirming the
+  sequence continues correctly outside a conversion). Every result's
+  column set matched `packages/shared/src/types.ts` exactly.
+- Loading `/quotes`, `/quotes/new`, `/invoices`, `/invoices/new` directly
+  while signed out (Playwright/Chromium) all correctly redirect to
+  `/login` with no console errors.
+
+### NOT verified from this sandbox
+
+- No live click-through against a real Supabase project (same caveat as
+  every prior desktop pass) - the SQL/RPC-level verification above proves
+  correctness against the real schema, not that the UI behaves correctly
+  end-to-end (price book search results rendering, the approval-link
+  clipboard copy actually working in a real browser context, the "Send
+  via Email" flow's queued-vs-sent messaging matching a real dispatch).
+- The photo upload fix was verified by `tsc`/`vite build` only - no
+  real Supabase Storage bucket was available in this sandbox to actually
+  exercise an upload against.
