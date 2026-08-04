@@ -4262,3 +4262,79 @@ pointer afterward changes nothing about what was actually sent.
   needs a real Supabase project with `process-scheduled-comms` actually
   running against real quote/invoice/job activity; this sandbox has no
   such backend.
+
+## 30. Fix: no way to record a landlord's phone/email, or a tenant's contact details
+
+Reported directly after Batch 1-3: the user had created an agency, a
+property manager, and a managed property, but "I can not set the landlord
+mobile and email nor can I set a tenant and their contact details."
+
+Two distinct gaps, found by reading the schema and the "New managed
+property" form side by side rather than assuming either was already
+covered:
+
+- `properties.owner_landlord_phone` / `owner_landlord_email` didn't exist
+  as columns at all - a real schema gap, not a UI oversight. Added via
+  `20260824000100_property_landlord_contact_and_edit.sql`
+  (`alter table public.properties add column owner_landlord_phone text,
+  add column owner_landlord_email text;`).
+- `properties.tenant_name` / `tenant_phone` / `tenant_email` already
+  existed (added in the real_estate_strata migration) but the "New
+  managed property" form in `RealEstate.tsx` never collected them, and
+  there was no edit-property capability anywhere to add them after the
+  fact either.
+
+Fix, in `packages/shared` + both fields' worth of desktop UI:
+
+- `Property` type and `createPropertySchema` (shared) gained the two new
+  landlord fields, following the existing pattern (`.email().optional().or(z.literal(""))`
+  for emails, `.optional()` for phone/name).
+- New `updatePropertyContactSchema` (shared) covers all 8 editable fields
+  (landlord name/phone/email, tenant name/phone/email, access notes, key
+  tag number) for the edit flow.
+- `RealEstate.tsx`'s "New managed property" modal now collects landlord
+  mobile/email and tenant name/mobile/email alongside the fields it
+  already had.
+- `PropertyDetail.tsx`'s Access & Contacts tab gained an "Edit" button
+  opening a new modal (`updatePropertyContactSchema` -> `properties`
+  update by id) and now displays the landlord's phone/email with
+  `tel:`/`sms:`/`mailto:` quick-action links, mirroring the tenant
+  contact card that already existed.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter mobile typecheck`, and `pnpm --filter
+  desktop build` all pass clean.
+- Fresh local Postgres 16 database, all 26 real migrations (including
+  this one) applied in order against the same hand-written `auth`/
+  `storage` stubs used in every prior batch. Confirmed
+  `owner_landlord_phone`/`owner_landlord_email` exist as nullable `text`
+  columns on `properties`.
+- Using the throwaway non-superuser `app_test` role (RLS genuinely
+  enforced): seeded a tenant, an admin, a technician, an agency, and a
+  property manager. As admin: ran the exact insert the "New managed
+  property" modal issues (all 6 landlord/tenant contact fields
+  populated) and confirmed the row round-trips correctly; ran the exact
+  update the new "Edit access & contacts" modal issues, confirming
+  every field updates including `access_notes` and `key_tag_number`;
+  confirmed clearing landlord phone/email back to empty (the UI's
+  `|| null` behavior) stores `null`, not `""`. As the (non-admin)
+  technician: confirmed an `update` on `properties` affects 0 rows, the
+  existing "affects 0 rows for a non-admin" pattern used everywhere else
+  in this schema - the admin's values were untouched afterward.
+  Database and the `app_test` role both dropped after, no state left
+  behind.
+- Playwright/Chromium smoke test with a placeholder `.env`: `/real-estate`
+  and `/real-estate/properties/:id` both correctly redirect to `/login`
+  when signed out, with no unexpected console errors (the same benign
+  one-time `favicon.ico` 404 seen in every prior batch). Dev server
+  killed and `.env` removed after.
+
+### NOT verified from this sandbox
+
+- Manually clicking through the new "Edit access & contacts" modal in a
+  real browser session signed in against a live Supabase project - this
+  sandbox has no real backend to sign in against, so the modal's wiring
+  was verified by tracing the code and exercising the exact SQL it
+  issues, not by clicking it.

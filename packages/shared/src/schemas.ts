@@ -345,6 +345,8 @@ export const createPropertySchema = z.object({
   property_type: z.enum(["residential", "commercial", "strata_common_property", "strata_lot"]).default("residential"),
   strata_plan_number: z.string().optional(),
   owner_landlord_name: z.string().optional(),
+  owner_landlord_phone: z.string().optional(),
+  owner_landlord_email: z.string().email().optional().or(z.literal("")),
   tenant_name: z.string().optional(),
   tenant_phone: z.string().optional(),
   tenant_email: z.string().email().optional().or(z.literal("")),
@@ -352,6 +354,22 @@ export const createPropertySchema = z.object({
   key_tag_number: z.string().optional(),
 });
 export type CreatePropertyInput = z.infer<typeof createPropertySchema>;
+
+// Property Profile's Access & Contacts tab edit form - a subset of
+// createPropertySchema's fields (landlord/tenant contact, access notes,
+// key tag), deliberately excluding agency_id/property_manager_id/address/
+// property_type since those aren't shown or editable from that tab.
+export const updatePropertyContactSchema = z.object({
+  owner_landlord_name: z.string().optional(),
+  owner_landlord_phone: z.string().optional(),
+  owner_landlord_email: z.string().email().optional().or(z.literal("")),
+  tenant_name: z.string().optional(),
+  tenant_phone: z.string().optional(),
+  tenant_email: z.string().email().optional().or(z.literal("")),
+  access_notes: z.string().optional(),
+  key_tag_number: z.string().optional(),
+});
+export type UpdatePropertyContactInput = z.infer<typeof updatePropertyContactSchema>;
 
 // attributes is intentionally z.record rather than a fixed shape - see
 // PropertyAssetAttributes in types.ts for the documented plumbing/roofing

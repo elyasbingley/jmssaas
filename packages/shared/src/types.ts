@@ -182,6 +182,8 @@ export interface Property {
   property_type: PropertyType;
   strata_plan_number: string | null;
   owner_landlord_name: string | null;
+  owner_landlord_phone: string | null;
+  owner_landlord_email: string | null;
   tenant_name: string | null;
   tenant_phone: string | null;
   tenant_email: string | null;

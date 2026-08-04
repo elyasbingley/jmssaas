@@ -214,6 +214,11 @@ function DirectoryTab() {
   const [propPostcode, setPropPostcode] = useState("");
   const [propType, setPropType] = useState<PropertyType | "">("residential");
   const [propOwnerName, setPropOwnerName] = useState("");
+  const [propOwnerPhone, setPropOwnerPhone] = useState("");
+  const [propOwnerEmail, setPropOwnerEmail] = useState("");
+  const [propTenantName, setPropTenantName] = useState("");
+  const [propTenantPhone, setPropTenantPhone] = useState("");
+  const [propTenantEmail, setPropTenantEmail] = useState("");
   const [propKeyTag, setPropKeyTag] = useState("");
   const [propError, setPropError] = useState<string | null>(null);
 
@@ -226,6 +231,11 @@ function DirectoryTab() {
     setPropPostcode("");
     setPropType("residential");
     setPropOwnerName("");
+    setPropOwnerPhone("");
+    setPropOwnerEmail("");
+    setPropTenantName("");
+    setPropTenantPhone("");
+    setPropTenantEmail("");
     setPropKeyTag("");
     setPropError(null);
     setPropertyModalOpen(true);
@@ -242,6 +252,11 @@ function DirectoryTab() {
         postcode: propPostcode,
         property_type: propType || "residential",
         owner_landlord_name: propOwnerName,
+        owner_landlord_phone: propOwnerPhone,
+        owner_landlord_email: propOwnerEmail,
+        tenant_name: propTenantName,
+        tenant_phone: propTenantPhone,
+        tenant_email: propTenantEmail,
         key_tag_number: propKeyTag,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid property");
@@ -257,6 +272,11 @@ function DirectoryTab() {
         postcode: result.data.postcode,
         property_type: result.data.property_type,
         owner_landlord_name: result.data.owner_landlord_name || null,
+        owner_landlord_phone: result.data.owner_landlord_phone || null,
+        owner_landlord_email: result.data.owner_landlord_email || null,
+        tenant_name: result.data.tenant_name || null,
+        tenant_phone: result.data.tenant_phone || null,
+        tenant_email: result.data.tenant_email || null,
         key_tag_number: result.data.key_tag_number || null,
       });
       if (error) throw error;
@@ -458,7 +478,19 @@ function DirectoryTab() {
           <FormField label="Postcode" value={propPostcode} onChange={(e) => setPropPostcode(e.target.value)} />
         </div>
         <SelectField label="Property type" value={propType} onChange={setPropType} options={PROPERTY_TYPE_OPTIONS} placeholder="Select type" />
+
         <FormField label="Owner / landlord name" value={propOwnerName} onChange={(e) => setPropOwnerName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Landlord mobile" value={propOwnerPhone} onChange={(e) => setPropOwnerPhone(e.target.value)} />
+          <FormField label="Landlord email" type="email" value={propOwnerEmail} onChange={(e) => setPropOwnerEmail(e.target.value)} />
+        </div>
+
+        <FormField label="Tenant name" value={propTenantName} onChange={(e) => setPropTenantName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Tenant mobile" value={propTenantPhone} onChange={(e) => setPropTenantPhone(e.target.value)} />
+          <FormField label="Tenant email" type="email" value={propTenantEmail} onChange={(e) => setPropTenantEmail(e.target.value)} />
+        </div>
+
         <FormField label="Key tag number" value={propKeyTag} onChange={(e) => setPropKeyTag(e.target.value)} placeholder="e.g. Key #42" />
         {propError ? <p className="mb-4 text-sm text-red-600">{propError}</p> : null}
         <div className="flex justify-end gap-3">

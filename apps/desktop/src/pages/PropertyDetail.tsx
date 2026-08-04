@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   createPropertyAssetSchema,
   formatCentsAsAud,
+  updatePropertyContactSchema,
   type Agency,
   type Invoice,
   type JobCard,
@@ -18,7 +19,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
-import { FormField, SelectField } from "../components/FormField";
+import { FormField, SelectField, TextAreaField } from "../components/FormField";
 
 async function fetchProperty(id: string): Promise<Property> {
   const { data, error } = await supabase.from("properties").select("*").eq("id", id).single();
@@ -114,6 +115,68 @@ export default function PropertyDetailPage() {
   });
 
   const [tab, setTab] = useState<ProfileTab>("access");
+
+  // --- Edit Access & Contacts (landlord/tenant contact, access notes, key tag) ---
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [ownerName, setOwnerName] = useState("");
+  const [ownerPhone, setOwnerPhone] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [tenantName, setTenantName] = useState("");
+  const [tenantPhone, setTenantPhone] = useState("");
+  const [tenantEmail, setTenantEmail] = useState("");
+  const [accessNotes, setAccessNotes] = useState("");
+  const [keyTagNumber, setKeyTagNumber] = useState("");
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  const openEditContact = () => {
+    if (!property) return;
+    setOwnerName(property.owner_landlord_name ?? "");
+    setOwnerPhone(property.owner_landlord_phone ?? "");
+    setOwnerEmail(property.owner_landlord_email ?? "");
+    setTenantName(property.tenant_name ?? "");
+    setTenantPhone(property.tenant_phone ?? "");
+    setTenantEmail(property.tenant_email ?? "");
+    setAccessNotes(property.access_notes ?? "");
+    setKeyTagNumber(property.key_tag_number ?? "");
+    setContactError(null);
+    setContactModalOpen(true);
+  };
+
+  const saveContact = useMutation({
+    mutationFn: async () => {
+      const result = updatePropertyContactSchema.safeParse({
+        owner_landlord_name: ownerName,
+        owner_landlord_phone: ownerPhone,
+        owner_landlord_email: ownerEmail,
+        tenant_name: tenantName,
+        tenant_phone: tenantPhone,
+        tenant_email: tenantEmail,
+        access_notes: accessNotes,
+        key_tag_number: keyTagNumber,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid details");
+
+      const { error } = await supabase
+        .from("properties")
+        .update({
+          owner_landlord_name: result.data.owner_landlord_name || null,
+          owner_landlord_phone: result.data.owner_landlord_phone || null,
+          owner_landlord_email: result.data.owner_landlord_email || null,
+          tenant_name: result.data.tenant_name || null,
+          tenant_phone: result.data.tenant_phone || null,
+          tenant_email: result.data.tenant_email || null,
+          access_notes: result.data.access_notes || null,
+          key_tag_number: result.data.key_tag_number || null,
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      setContactModalOpen(false);
+    },
+    onError: (e) => setContactError(getErrorMessage(e, "Failed to save details")),
+  });
 
   // --- Asset create/edit ---
   const [assetModalOpen, setAssetModalOpen] = useState(false);
@@ -249,40 +312,74 @@ export default function PropertyDetailPage() {
       </div>
 
       {tab === "access" ? (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Landlord / Owner</h2>
-            <p className="text-sm text-gray-900">{property.owner_landlord_name || "Not on file"}</p>
+        <div>
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={openEditContact}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Edit
+            </button>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Tenant Contact</h2>
-            {property.tenant_name ? <p className="text-sm font-semibold text-gray-900">{property.tenant_name}</p> : null}
-            <div className="mt-1 flex flex-col gap-1 text-sm">
-              {property.tenant_phone ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-700">{property.tenant_phone}</span>
-                  <a href={`tel:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
-                    Call
-                  </a>
-                  <a href={`sms:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
-                    SMS
-                  </a>
-                </div>
-              ) : null}
-              {property.tenant_email ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-700">{property.tenant_email}</span>
-                  <a href={`mailto:${property.tenant_email}`} className="text-xs font-semibold text-blue-700 hover:underline">
-                    Email
-                  </a>
-                </div>
-              ) : null}
-              {!property.tenant_phone && !property.tenant_email ? <p className="text-gray-500">Not on file</p> : null}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Landlord / Owner</h2>
+              {property.owner_landlord_name ? <p className="text-sm font-semibold text-gray-900">{property.owner_landlord_name}</p> : null}
+              <div className="mt-1 flex flex-col gap-1 text-sm">
+                {property.owner_landlord_phone ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">{property.owner_landlord_phone}</span>
+                    <a href={`tel:${property.owner_landlord_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Call
+                    </a>
+                    <a href={`sms:${property.owner_landlord_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      SMS
+                    </a>
+                  </div>
+                ) : null}
+                {property.owner_landlord_email ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">{property.owner_landlord_email}</span>
+                    <a href={`mailto:${property.owner_landlord_email}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Email
+                    </a>
+                  </div>
+                ) : null}
+                {!property.owner_landlord_name && !property.owner_landlord_phone && !property.owner_landlord_email ? (
+                  <p className="text-gray-500">Not on file</p>
+                ) : null}
+              </div>
             </div>
-          </div>
-          <div className="col-span-2 rounded-lg border border-gray-200 bg-white p-6">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Access Notes</h2>
-            <p className="whitespace-pre-wrap text-sm text-gray-700">{property.access_notes || "No access notes on file."}</p>
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Tenant Contact</h2>
+              {property.tenant_name ? <p className="text-sm font-semibold text-gray-900">{property.tenant_name}</p> : null}
+              <div className="mt-1 flex flex-col gap-1 text-sm">
+                {property.tenant_phone ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">{property.tenant_phone}</span>
+                    <a href={`tel:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Call
+                    </a>
+                    <a href={`sms:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      SMS
+                    </a>
+                  </div>
+                ) : null}
+                {property.tenant_email ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">{property.tenant_email}</span>
+                    <a href={`mailto:${property.tenant_email}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Email
+                    </a>
+                  </div>
+                ) : null}
+                {!property.tenant_phone && !property.tenant_email ? <p className="text-gray-500">Not on file</p> : null}
+              </div>
+            </div>
+            <div className="col-span-2 rounded-lg border border-gray-200 bg-white p-6">
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Access Notes</h2>
+              <p className="whitespace-pre-wrap text-sm text-gray-700">{property.access_notes || "No access notes on file."}</p>
+            </div>
           </div>
         </div>
       ) : null}
@@ -536,6 +633,35 @@ export default function PropertyDetailPage() {
               {saveAsset.isPending ? "Saving..." : "Save"}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={contactModalOpen} onClose={() => setContactModalOpen(false)} title="Edit access & contacts">
+        <FormField label="Owner / landlord name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Landlord mobile" value={ownerPhone} onChange={(e) => setOwnerPhone(e.target.value)} />
+          <FormField label="Landlord email" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
+        </div>
+        <FormField label="Tenant name" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Tenant mobile" value={tenantPhone} onChange={(e) => setTenantPhone(e.target.value)} />
+          <FormField label="Tenant email" type="email" value={tenantEmail} onChange={(e) => setTenantEmail(e.target.value)} />
+        </div>
+        <FormField label="Key tag number" value={keyTagNumber} onChange={(e) => setKeyTagNumber(e.target.value)} placeholder="e.g. Key #42" />
+        <TextAreaField label="Access notes" value={accessNotes} onChange={(e) => setAccessNotes(e.target.value)} placeholder="Gate codes, alarm codes, pet warnings, parking..." />
+
+        {contactError ? <p className="mb-4 text-sm text-red-600">{contactError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setContactModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveContact.mutate()}
+            disabled={saveContact.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveContact.isPending ? "Saving..." : "Save"}
+          </button>
         </div>
       </Modal>
     </div>
