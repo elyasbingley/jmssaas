@@ -16,6 +16,7 @@
     "@jmssaas/shared": "workspace:*",
     "@supabase/supabase-js": "^2.110.7",
     "@tanstack/react-query": "^5.62.7",
+    "jspdf": "^4.2.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^6.28.0"

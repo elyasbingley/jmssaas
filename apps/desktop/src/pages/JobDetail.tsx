@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   createJobNoteSchema,
   formatCentsAsAud,
@@ -18,6 +18,8 @@ import {
   type PropertyManager,
   type Quote,
   type QuoteLineItem,
+  type ReportInstance,
+  type ReportTemplate,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -26,7 +28,8 @@ import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
-import { TextAreaField } from "../components/FormField";
+import { Modal } from "../components/Modal";
+import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -156,8 +159,34 @@ async function fetchFileUrls(files: JobFile[]): Promise<Record<string, string>> 
   return Object.fromEntries(entries);
 }
 
+async function fetchLinkedReports(jobId: string): Promise<ReportInstance[]> {
+  const { data, error } = await supabase
+    .from("report_instances")
+    .select("*")
+    .eq("job_card_id", jobId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data as ReportInstance[];
+}
+async function fetchUnlinkedReports(): Promise<ReportInstance[]> {
+  const { data, error } = await supabase.from("report_instances").select("*").is("job_card_id", null).order("created_at", { ascending: false });
+  if (error) throw error;
+  return data as ReportInstance[];
+}
+async function fetchActiveReportTemplates(): Promise<ReportTemplate[]> {
+  const { data, error } = await supabase.from("report_templates").select("*").eq("is_active", true).order("title");
+  if (error) throw error;
+  return data as ReportTemplate[];
+}
+async function fetchAllReportTemplates(): Promise<ReportTemplate[]> {
+  const { data, error } = await supabase.from("report_templates").select("*");
+  if (error) throw error;
+  return data as ReportTemplate[];
+}
+
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
@@ -309,6 +338,62 @@ export default function JobDetailPage() {
       }
     }
   };
+
+  const { data: linkedReports } = useQuery({
+    queryKey: ["job-reports", id],
+    queryFn: () => fetchLinkedReports(id!),
+    enabled: !!id,
+  });
+  const { data: activeReportTemplates } = useQuery({ queryKey: ["report-templates", "active"], queryFn: fetchActiveReportTemplates });
+  const { data: allReportTemplates } = useQuery({ queryKey: ["report-templates", "all"], queryFn: fetchAllReportTemplates });
+
+  const [createReportModalOpen, setCreateReportModalOpen] = useState(false);
+  const [createReportSearch, setCreateReportSearch] = useState("");
+  const [createReportError, setCreateReportError] = useState<string | null>(null);
+
+  const startReportForJob = async (templateId: string) => {
+    if (!profile || !job) return;
+    setCreateReportError(null);
+    const { data, error } = await supabase
+      .from("report_instances")
+      .insert({
+        tenant_id: profile.tenant_id,
+        template_id: templateId,
+        job_card_id: job.id,
+        client_id: job.client_id,
+        created_by: profile.id,
+        status: "draft",
+      })
+      .select("id")
+      .single();
+    if (error) {
+      setCreateReportError(getErrorMessage(error, "Failed to start report"));
+      return;
+    }
+    navigate(`/reports/instances/${data.id}`);
+  };
+
+  const [linkReportModalOpen, setLinkReportModalOpen] = useState(false);
+  const { data: unlinkedReports } = useQuery({
+    queryKey: ["report-instances", "unlinked"],
+    queryFn: fetchUnlinkedReports,
+    enabled: linkReportModalOpen,
+  });
+  const [linkReportError, setLinkReportError] = useState<string | null>(null);
+
+  const linkExistingReport = useMutation({
+    mutationFn: async (reportId: string) => {
+      if (!job) throw new Error("Job not loaded");
+      const { error } = await supabase.from("report_instances").update({ job_card_id: job.id, client_id: job.client_id }).eq("id", reportId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-reports", id] });
+      queryClient.invalidateQueries({ queryKey: ["report-instances", "unlinked"] });
+      setLinkReportModalOpen(false);
+    },
+    onError: (e) => setLinkReportError(getErrorMessage(e, "Failed to link report")),
+  });
 
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -668,6 +753,51 @@ export default function JobDetailPage() {
       </div>
 
       <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Reports & Safety</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setLinkReportModalOpen(true)}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Link Existing Report
+            </button>
+            <button
+              onClick={() => setCreateReportModalOpen(true)}
+              className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
+            >
+              + Create New Report
+            </button>
+          </div>
+        </div>
+        {!linkedReports || linkedReports.length === 0 ? (
+          <p className="text-sm text-gray-500">No reports linked to this job yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {linkedReports.map((report) => {
+              const template = (allReportTemplates ?? []).find((t) => t.id === report.template_id);
+              return (
+                <Link
+                  key={report.id}
+                  to={`/reports/instances/${report.id}`}
+                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                >
+                  <span className="font-medium text-blue-700">{template?.title ?? "Report"}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      report.status === "draft" ? "bg-amber-100 text-amber-800" : report.status === "completed" ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-600"
+                    }`}
+                  >
+                    {report.status.charAt(0).toUpperCase() + report.status.slice(1)}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog
           entities={[
@@ -677,6 +807,57 @@ export default function JobDetailPage() {
           ]}
         />
       </div>
+
+      <Modal open={createReportModalOpen} onClose={() => setCreateReportModalOpen(false)} title="Create new report">
+        <FormField label="Search templates" value={createReportSearch} onChange={(e) => setCreateReportSearch(e.target.value)} placeholder="Search by title..." />
+        {createReportError ? <p className="mb-4 text-sm text-red-600">{createReportError}</p> : null}
+        <div className="max-h-80 space-y-1 overflow-y-auto">
+          {(activeReportTemplates ?? [])
+            .filter((t) => t.title.toLowerCase().includes(createReportSearch.trim().toLowerCase()))
+            .map((template) => (
+              <button
+                key={template.id}
+                onClick={() => startReportForJob(template.id)}
+                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50"
+              >
+                <span className="font-medium text-gray-900">{template.title}</span>
+                {template.is_swms ? (
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-800">SWMS</span>
+                ) : null}
+              </button>
+            ))}
+          {(activeReportTemplates ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No report templates yet -{" "}
+              <Link to="/reports" className="text-blue-700 hover:underline">
+                build one in the Template Studio
+              </Link>
+              .
+            </p>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal open={linkReportModalOpen} onClose={() => setLinkReportModalOpen(false)} title="Link existing report">
+        {linkReportError ? <p className="mb-4 text-sm text-red-600">{linkReportError}</p> : null}
+        <div className="max-h-80 space-y-1 overflow-y-auto">
+          {(unlinkedReports ?? []).map((report) => {
+            const template = (allReportTemplates ?? []).find((t) => t.id === report.template_id);
+            return (
+              <button
+                key={report.id}
+                onClick={() => linkExistingReport.mutate(report.id)}
+                disabled={linkExistingReport.isPending}
+                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
+              >
+                <span className="font-medium text-gray-900">{template?.title ?? "Report"}</span>
+                <span className="text-xs text-gray-400">{new Date(report.created_at).toLocaleDateString("en-AU")}</span>
+              </button>
+            );
+          })}
+          {(unlinkedReports ?? []).length === 0 ? <p className="text-sm text-gray-500">No unlinked standalone reports.</p> : null}
+        </div>
+      </Modal>
     </div>
   );
 }

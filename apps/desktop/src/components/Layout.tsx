@@ -8,6 +8,7 @@ const navSections = [
     items: [
       { to: "/dispatch", label: "Dispatch" },
       { to: "/tasks", label: "Tasks" },
+      { to: "/reports", label: "Reports" },
     ],
   },
   {

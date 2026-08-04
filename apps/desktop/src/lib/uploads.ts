@@ -44,6 +44,26 @@ export async function uploadJobPhoto(params: {
   return storagePath;
 }
 
+// Reports & Safety module - "report-files" bucket, <tenant_id>/<report_
+// instance_id>/<uuid>.<ext> path (see the reports_safety_engine
+// migration's storage RLS). No row insert here unlike uploadJobPhoto/
+// uploadTaskPhoto - a report photo's path lives inline inside the
+// relevant answer's photoPaths array in report_instances.form_data, not a
+// separate table, since it's owned by one specific form field, not the
+// report as a whole.
+export async function uploadReportPhoto(params: { tenantId: string; reportInstanceId: string; file: File }): Promise<string> {
+  const id = crypto.randomUUID();
+  const extension = params.file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const storagePath = `${params.tenantId}/${params.reportInstanceId}/${id}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from("report-files")
+    .upload(storagePath, params.file, { contentType: params.file.type || undefined });
+  if (error) throw error;
+
+  return storagePath;
+}
+
 // Same pattern as uploadJobPhoto, for task photo attachments - same
 // job-files bucket, same "<tenant_id>/task-<task_id>/<uuid>.<ext>" storage
 // path shape as apps/mobile/lib/powersync.ts's addTaskPhoto, just a direct

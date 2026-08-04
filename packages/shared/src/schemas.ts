@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReportFieldType } from "./reports";
 
 export const createClientSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -438,3 +439,83 @@ export const createReciprocityLogSchema = z.object({
   date_passed: z.string().date().optional(),
 });
 export type CreateReciprocityLogInput = z.infer<typeof createReciprocityLogSchema>;
+
+// ---------------------------------------------------------------------------
+// Dynamic Reports & Safety Documentation Engine
+// ---------------------------------------------------------------------------
+
+export const createReportCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+});
+export type CreateReportCategoryInput = z.infer<typeof createReportCategorySchema>;
+
+export const createReportSubcategorySchema = z.object({
+  category_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+});
+export type CreateReportSubcategoryInput = z.infer<typeof createReportSubcategorySchema>;
+
+const REPORT_FIELD_TYPES: [ReportFieldType, ...ReportFieldType[]] = [
+  "pass_fail",
+  "risk_matrix",
+  "photo",
+  "text",
+  "long_text",
+  "meter_reading",
+  "signature",
+];
+
+export const reportFieldDefinitionSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(REPORT_FIELD_TYPES),
+  label: z.string().min(1, "Field label is required"),
+  required: z.boolean(),
+  helpText: z.string().optional(),
+  requireActionOnFail: z.boolean().optional(),
+});
+
+export const reportSectionDefinitionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1, "Section title is required"),
+  fields: z.array(reportFieldDefinitionSchema),
+});
+
+export const reportStructureSchemaSchema = z.array(reportSectionDefinitionSchema);
+
+export const createReportTemplateSchema = z.object({
+  subcategory_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  is_swms: z.boolean().default(false),
+  structure_schema: reportStructureSchemaSchema.default([]),
+  is_active: z.boolean().default(true),
+});
+export type CreateReportTemplateInput = z.infer<typeof createReportTemplateSchema>;
+
+export const createReportInstanceSchema = z.object({
+  template_id: z.string().uuid(),
+  job_card_id: z.string().uuid().optional(),
+  client_id: z.string().uuid().optional(),
+});
+export type CreateReportInstanceInput = z.infer<typeof createReportInstanceSchema>;
+
+// form_data's per-field answer shape is enforced by the form runner UI
+// (it only ever writes the ReportAnswer variant matching that field's
+// declared type), not re-validated field-by-field here - same "trust the
+// UI boundary, validate the outer shape" tradeoff property_assets.attributes
+// already makes via z.record.
+export const updateReportFormDataSchema = z.object({
+  form_data: z.record(z.string(), z.unknown()),
+  geo_location: z.object({ lat: z.number(), lng: z.number(), captured_at: z.string() }).optional(),
+});
+export type UpdateReportFormDataInput = z.infer<typeof updateReportFormDataSchema>;
+
+export const createReportSignatureSchema = z.object({
+  report_instance_id: z.string().uuid(),
+  signer_name: z.string().min(1, "Signer name is required"),
+  signer_role: z.enum(["technician", "client", "sub_contractor", "site_supervisor"]),
+  signature_svg_data: z.string().min(1, "A signature is required"),
+});
+export type CreateReportSignatureInput = z.infer<typeof createReportSignatureSchema>;

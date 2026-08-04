@@ -93,6 +93,19 @@ export interface PlaceholderReferralPartnerContext {
   job_value_cents: number | null;
 }
 
+// report_sent only - the recipient is the report's linked client (or the
+// linked job's client), same as the quote/invoice tokens above.
+// pdf_link is a signed URL to the private "report-files" bucket object
+// (see the dispatcher's buildEntityContext) - null if the report has no
+// compiled PDF yet, which shouldn't happen in practice (report_sent is
+// only ever triggered from a completed report's own "Send via Email"
+// button), but a null-safe empty string is cheaper than a runtime
+// assumption.
+export interface PlaceholderReportContext {
+  title: string;
+  pdf_link: string | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
@@ -103,6 +116,7 @@ export interface PlaceholderContext {
   nte?: PlaceholderNteContext;
   property?: PlaceholderPropertyContext;
   referralPartner?: PlaceholderReferralPartnerContext;
+  report?: PlaceholderReportContext;
 }
 
 function formatDateAu(dateString: string | null | undefined): string {
@@ -182,6 +196,11 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     // silently blanking.
   }
 
+  if (context.report) {
+    tokens.report_title = context.report.title;
+    tokens.report_pdf_link = context.report.pdf_link ?? "";
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -234,6 +253,8 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "job_value",
   "digest_jobs_count",
   "digest_total_value",
+  "report_title",
+  "report_pdf_link",
   "company_name",
   "company_phone",
   "company_email",

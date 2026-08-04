@@ -2,6 +2,8 @@
 // Keep in sync by hand for Phase 1; consider `supabase gen types typescript`
 // once the schema stabilises.
 
+import type { ReportFormData, ReportStructureSchema } from "./reports";
+
 export type UserRole = "admin" | "technician";
 
 export type TaskStatus = "todo" | "in_progress" | "done";
@@ -793,4 +795,78 @@ export interface ReferralReciprocityLog {
   date_passed: string;
   created_by: string | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Reports & Safety Documentation Engine - mirrors the
+// reports_safety_engine migration. See reports.ts for
+// ReportStructureSchema/ReportFormData (the jsonb column shapes).
+// ---------------------------------------------------------------------------
+
+export interface ReportCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportSubcategory {
+  id: string;
+  tenant_id: string;
+  category_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportTemplate {
+  id: string;
+  tenant_id: string;
+  subcategory_id: string;
+  title: string;
+  description: string | null;
+  is_swms: boolean;
+  structure_schema: ReportStructureSchema;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ReportInstanceStatus = "draft" | "completed" | "archived";
+
+export interface ReportGeoLocation {
+  lat: number;
+  lng: number;
+  captured_at: string;
+}
+
+export interface ReportInstance {
+  id: string;
+  tenant_id: string;
+  template_id: string;
+  job_card_id: string | null;
+  client_id: string | null;
+  created_by: string | null;
+  status: ReportInstanceStatus;
+  form_data: ReportFormData;
+  geo_location: ReportGeoLocation | null;
+  pdf_storage_path: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ReportSignerRole = "technician" | "client" | "sub_contractor" | "site_supervisor";
+
+export interface ReportSignature {
+  id: string;
+  tenant_id: string;
+  report_instance_id: string;
+  signer_name: string;
+  signer_role: ReportSignerRole;
+  signature_svg_data: string;
+  signed_at: string;
 }

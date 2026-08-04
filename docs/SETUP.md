@@ -4491,3 +4491,149 @@ communication_templates/scheduled_communications engine:
   backend to sign in against, so the UI's data-fetching/aggregation logic
   was verified by tracing the code against the SQL it issues, not by
   clicking it.
+
+## 32. Dynamic Reports & Safety Documentation Engine (SafetyCulture-style)
+
+New module for building, executing, and signing off on custom forms
+(SWMS, JSAs, roof audits, site inspections) with photos, risk matrices,
+and e-signatures - reachable from the sidebar's "Reports" link
+(`/reports`) and from a new "Reports & Safety" section on every Job Card.
+
+Scope decisions, each explained in the relevant file's own comment:
+
+- **Desktop-only**, same precedent as B2B & Referrals and Real Estate &
+  Strata - no mobile/field-technician build in this pass. Camera/GPS/
+  signature capture are done through the browser's own APIs (file input,
+  `navigator.geolocation`, an HTML5 canvas) rather than native device
+  APIs.
+- **"Homepage tile"** becomes a top-level sidebar nav entry
+  (`components/Layout.tsx`, next to Dispatch/Tasks) - desktop has no
+  tile-based home dashboard to place a literal tile on (root `/`
+  redirects straight to `/dispatch`).
+- **PDF compilation is a real client-side compile**, not the browser
+  "Print to PDF" dialog every other PDF export in this app uses (quotes/
+  invoices, the shopping list). Those are always a deliberate save-this-
+  now user action; a report's PDF has to exist with nobody clicking
+  through a print dialog, since the whole point is "auto-compile, store
+  in cloud storage, make it emailable" with no human in that loop. New
+  dependency: `jspdf` (`apps/desktop/src/lib/report-pdf.ts`), the only
+  place in this app that produces actual PDF bytes rather than opening a
+  print dialog.
+- **"Auto-attach to the Job's Documents & Attachments"** becomes "the
+  linked report + its PDF appear in the Job Card's own Reports & Safety
+  section" rather than a duplicate row in the existing `job_files` table
+  - see the migration's own comment for why (job_files' download code
+  hardcodes bucket `"job-files"`, and reports live in their own
+  `"report-files"` bucket so a standalone report never needs its
+  underlying file moved when it's later linked to a job).
+
+### Schema (`reports_safety_engine` migration)
+
+- `report_categories` -> `report_subcategories` -> `report_templates` -
+  a fixed three-level taxonomy, admin-managed reference data (tenant
+  read, admin write - no field-technician surface for this module, same
+  as `referral_partners`/agencies).
+- `report_templates.structure_schema` (jsonb) and
+  `report_instances.form_data` (jsonb) - a form-builder JSON blob and its
+  answers, same "no fixed columns, zod validates the outer shape at the
+  app boundary" tradeoff `property_assets.attributes` already makes. See
+  `packages/shared/src/reports.ts` for the exact TypeScript shape both
+  apps share: `ReportFieldType` = pass_fail / risk_matrix / photo / text
+  / long_text / meter_reading / signature; `calculateRiskRating` is a
+  standard 5x5 (likelihood x consequence) WHS matrix.
+- `report_instances` - `job_card_id`/`client_id` both nullable (Workflow
+  2's standalone-or-linked-either-direction requirement); `status`
+  draft/completed/archived; `pdf_storage_path` set once, at completion.
+- `report_signatures` - SWMS worker sign-off roster, one row per worker
+  per report, each individually timestamped.
+- New private storage bucket `"report-files"`
+  (`<tenant_id>/<report_instance_id>/<filename>`), tenant-scoped RLS,
+  admin read/write.
+- New `report_sent` trigger_key on the existing communication engine
+  (manual send, like `quote_sent`/`invoice_sent` - the user chooses when
+  to email a finished report, not a DB trigger). `{report_title}`/
+  `{report_pdf_link}` tokens added to `packages/shared/src/placeholders.ts`
+  and the Deno dispatcher's own port
+  (`supabase/functions/process-scheduled-comms/index.ts`) - the link is a
+  7-day signed URL into the private bucket (an external client recipient
+  has no Supabase login), same approach quote/invoice approval links use
+  for the same reason.
+
+### UI
+
+- **Reports** (`/reports`, 3 tabs): New Report (searchable Category ->
+  Subcategory -> Template list), Report History (every report across the
+  tenant, status badges, "Link to Job" for any unlinked row), Template
+  Studio (category/subcategory CRUD inline, same expandable-tree pattern
+  RealEstate.tsx's Directory tab uses for Agency -> PM -> Property).
+- **Template editor** (`/reports/templates/new` and `/:id`) - the actual
+  form builder: add/remove/reorder (up/down buttons, no drag-and-drop)
+  sections and fields, per-field type/required/"fail requires action
+  note + photo" toggles, `is_swms` toggle.
+- **Report runner + viewer** (`/reports/instances/:id`) - one page for
+  both states: while `draft`, renders the dynamic form (conditional
+  fail-action-photo sub-question, risk matrix picker with a live colour-
+  coded rating badge, photo upload, canvas signature pad, SWMS roster);
+  once `completed`, shows a read-only summary with Download PDF / Send
+  via Email buttons. "Complete report" validates every required field is
+  answered, best-effort captures GPS (`navigator.geolocation`, 5s
+  timeout, resolves `null` on any failure rather than blocking
+  completion), compiles the PDF, uploads it, and flips status.
+- **Job Card "Reports & Safety" section** (`JobDetail.tsx`) - lists
+  linked reports; "Create New Report" opens a searchable template picker
+  that inserts the draft with `job_card_id`/`client_id` pre-set; "Link
+  Existing Report" opens a picker over every report with a null
+  `job_card_id`.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter mobile typecheck`, and `pnpm --filter
+  desktop build` all pass clean (the build pulls in jsPDF's own
+  `html2canvas`/`purify` sub-dependencies, all resolved fine).
+- Fresh local Postgres 16 database, all 32 real migrations (including
+  this one) applied in order against the same hand-written `auth`/
+  `storage` stubs used in every prior batch.
+- Using the throwaway non-superuser `app_test` role (RLS genuinely
+  enforced): as admin, built a category -> subcategory -> SWMS template
+  (matching the exact Template Studio insert shape, including a
+  `structure_schema` with a pass_fail and a risk_matrix field), created a
+  job, started a report auto-linked to it (the Job Card "Create New
+  Report" insert shape), started a SECOND report from the SAME template
+  with no job link (confirms no artificial one-report-per-template
+  limit - two rows, both present), completed the first report with
+  `form_data`/`geo_location`/`pdf_storage_path` set exactly as the runner
+  sets them, added a SWMS worker sign-off, retroactively linked the
+  second (standalone) report to the job (the Report History "Link to
+  Job" update shape), confirmed `report_sent`'s rule and template were
+  auto-seeded with the correct subject/tokens, and queued a
+  `scheduled_communications` row with `entity_type = 'report'` (the
+  "Send via Email" button's exact insert shape). As the (non-admin)
+  technician: confirmed an `insert` into `report_templates` is rejected
+  outright by RLS, while a plain `select` still returns the template (the
+  intended tenant-wide-read-admin-write shape). Database and the
+  `app_test` role both dropped after, no state left behind.
+- Playwright/Chromium smoke test with a placeholder `.env`: `/reports`,
+  `/reports/templates/new`, `/reports/templates/:id`, and
+  `/reports/instances/:id` all correctly redirect to `/login` when signed
+  out, with no unexpected console errors (the same benign one-time
+  `favicon.ico` 404 seen in every prior batch). Dev server killed and
+  `.env` removed after.
+
+### NOT verified from this sandbox
+
+- Actually opening the PDF a completed report produces and eyeballing
+  its layout, or confirming embedded photos/signatures render correctly
+  inside it - jsPDF's own text-wrapping/pagination/image-embedding logic
+  was traced by reading `report-pdf.ts`, not executed against a browser
+  DOM (jsPDF needs a real Canvas/Image environment this sandbox's
+  Node-only verification path doesn't have).
+- Uploading a real photo through the browser's camera/file picker, or
+  drawing a real signature on the canvas pad and confirming the resulting
+  data URI round-trips correctly through Storage and back into a PDF -
+  this sandbox has no real backend/browser session to click through
+  either flow end to end.
+- The `report_sent` email actually being received with a working 7-day
+  signed PDF link - needs a real Supabase project with Resend configured
+  and a completed report with a real uploaded PDF; this sandbox has
+  neither.

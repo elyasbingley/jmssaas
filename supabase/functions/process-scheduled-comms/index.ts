@@ -157,6 +157,8 @@ interface PlaceholderContext {
   // b2b_referral_automation migration) - the recipient is the referral
   // partner, not a client.
   referralPartner?: { partner_first_name: string; referred_client_name: string | null; job_title: string | null; job_value_cents: number | null };
+  // report_sent only (see the reports_safety_engine migration).
+  report?: { title: string; pdf_link: string | null };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -218,6 +220,10 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.referred_client_name = context.referralPartner.referred_client_name ?? "";
     tokens.job_title = context.referralPartner.job_title ?? "";
     tokens.job_value = context.referralPartner.job_value_cents != null ? formatCentsAsAud(context.referralPartner.job_value_cents) : "";
+  }
+  if (context.report) {
+    tokens.report_title = context.report.title;
+    tokens.report_pdf_link = context.report.pdf_link ?? "";
   }
   if (context.company) {
     tokens.company_name = context.company.name;
@@ -308,7 +314,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner" | "report";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -490,6 +496,32 @@ async function buildEntityContext(
         context.referralPartner = { partner_first_name: firstName(partner.contact_first_name), referred_client_name: null, job_title: null, job_value_cents: null };
       }
     }
+  } else if (row.entity_type === "report") {
+    // report_sent rows (see the reports_safety_engine migration) -
+    // entity_id is the report_instances row itself. Client is resolved via
+    // report.client_id first, falling back to the linked job's client_id
+    // (a report can be linked to a job without its own client_id ever
+    // having been set explicitly - see ReportInstance.tsx's link flow).
+    const { data: report } = await admin.from("report_instances").select("*").eq("id", row.entity_id).single();
+    if (!report) return context;
+    const { data: template } = await admin.from("report_templates").select("title").eq("id", report.template_id).single();
+
+    let clientId: string | null = report.client_id;
+    if (!clientId && report.job_card_id) {
+      const { data: job } = await admin.from("job_cards").select("client_id").eq("id", report.job_card_id).maybeSingle();
+      clientId = job?.client_id ?? null;
+    }
+    if (clientId) {
+      const { data: client } = await admin.from("clients").select("*").eq("id", clientId).maybeSingle();
+      if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    }
+
+    let pdfLink: string | null = null;
+    if (report.pdf_storage_path) {
+      const { data: signed } = await admin.storage.from("report-files").createSignedUrl(report.pdf_storage_path, 60 * 60 * 24 * 7);
+      pdfLink = signed?.signedUrl ?? null;
+    }
+    context.report = { title: template?.title ?? "Report", pdf_link: pdfLink };
   }
 
   return context;
