@@ -3944,6 +3944,9 @@ a unique index (e.g. `(tenant_id, trigger_key, type)`) and an
 already-accumulated rows for existing tenants - worth doing as its own
 follow-up, not bundled into this batch.
 
+**Fixed** in section 29 below, after a real tenant hit exactly this (2-5
+duplicate sends of the same email) and it was reported directly.
+
 **Also found and fixed while writing this migration**: an earlier draft of
 this migration's `seed_default_communication_templates` redefinition only
 listed the one new template (`job_nte_variation_request`) instead of the
@@ -4167,3 +4170,95 @@ something this form was ever the only way to populate.
 - Actually opening the simplified modal in a browser and confirming the
   two fields are gone visually; this sandbox has no real Supabase
   project to sign in against.
+
+## 29. Fix: clients were receiving 2-5 copies of the same automated email
+
+Reported directly: clients were getting several identical copies of the
+same automated email. Root cause was the exact gap flagged (but left
+unfixed) in section 26 - `communication_templates` had no unique
+constraint over `(tenant_id, trigger_key, type)`, and every migration
+since the communication engine was first built re-inserted the *full*
+template list into `seed_default_communication_templates`'s backfill DO
+block with no `ON CONFLICT` guard, unlike `communication_rules`' own
+`unique (tenant_id, trigger_key)` + `on conflict ... do nothing`. A tenant
+that's existed since early in this schema's history had accumulated up
+to 5 duplicate rows per trigger_key by now (seven migrations have touched
+this function).
+
+Duplicate rows alone would just be clutter in the Automation & Messaging
+screen - the actual multi-send came from every place that queues a
+message off `communication_templates` doing a `for ... in (select ...)
+loop`, not a single lookup: `schedule_quote_communications`/
+`schedule_invoice_communications` (this same migration file, further
+down in it), `schedule_job_prep_checklist`/`schedule_job_completion_summary`,
+`schedule_maintenance_reminder`, `process-retention-campaigns`,
+`process-real-estate-maintenance`, and mobile's own
+`queueScheduledCommunication`. Every one of those inserts (and therefore
+sends) one `scheduled_communications` row **per matching template row**
+- with `n` duplicate rows for a trigger_key, every one of those call
+sites sent `n` copies, automatically, with no code change needed to
+trigger it.
+
+Fix, in `fix_duplicate_communication_templates` migration, in order:
+1. De-duplicate existing rows per `(tenant_id, trigger_key, type)`. Since
+   `set_updated_at` only fires on UPDATE, `updated_at > created_at` on a
+   row is a reliable signal "an admin used Edit Message on this exact
+   row" - the other duplicates (only ever INSERTed by a reseed, never
+   updated) won't have that. The dedup keeps whichever row in each group
+   looks most like a genuine edit first, falling back to most recently
+   updated, then earliest created (the original seed) as a last resort -
+   so if an admin actually customized one of the duplicates, that
+   customization survives instead of being silently overwritten by an
+   untouched reseed copy.
+2. Add the missing `unique (tenant_id, trigger_key, type)` constraint -
+   `type` has to be part of it since a trigger_key can legitimately carry
+   one sms row and one email row, that's not a duplicate.
+3. Redefine `seed_default_communication_templates` with an
+   `on conflict (tenant_id, trigger_key, type) do nothing` guard, so no
+   future migration's backfill (or a second manual call, or this
+   accidentally being re-run) can ever recreate the problem.
+
+`scheduled_communications.template_id` is `on delete set null`, so
+deleting a duplicate never breaks an already-scheduled or already-sent
+row - that row's own `rendered_subject`/`rendered_body` were already
+captured independently at insert time, so losing the `template_id`
+pointer afterward changes nothing about what was actually sent.
+
+### Verified from this sandbox
+
+- Fresh local Postgres 16 database, all 27 prior migrations applied,
+  using the throwaway non-superuser `app_test` role.
+- Simulated the actual historical bug rather than just checking the
+  schema: manually inserted 2 extra duplicate `quote_sent` email rows
+  (one of them genuinely "edited" - `updated_at` set after `created_at`,
+  with different subject/body text) and 2 extra duplicate
+  `job_review_request` email rows (all unedited), plus a `client`,
+  `quote`, and a `scheduled_communications` row already marked `sent`
+  that pointed at one of the duplicate `quote_sent` rows about to be
+  deleted - mirroring a real tenant's actual accumulated state, not a
+  toy case.
+- After applying the fix migration:
+  - Zero duplicate `(tenant_id, trigger_key, type)` groups remain.
+  - The surviving `quote_sent` row is the genuinely edited one (its
+    custom subject/body), not a reseeded default - confirming the dedup
+    correctly protects a real admin customization.
+  - The surviving `job_review_request` row is the original seed (none of
+    those duplicates were edited).
+  - The pre-existing `sent` `scheduled_communications` row is untouched
+    except `template_id`, which is now `null` as expected - no error, no
+    lost history.
+  - The unique constraint exists in `pg_constraint`.
+  - Re-calling `seed_default_communication_templates` for the *same*
+    tenant afterward is now a confirmed no-op (19 rows before, 19 after).
+  - A brand-new tenant created afterward still seeds all 19 templates (as
+    well as 19 rules and 5 lifecycle stages) correctly - no regression.
+  - Database and the `app_test` role both dropped after, no state left
+    behind.
+
+### NOT verified from this sandbox
+
+- The actual email volume a real client would have received before this
+  fix, or confirming no more duplicates arrive after deploying it -
+  needs a real Supabase project with `process-scheduled-comms` actually
+  running against real quote/invoice/job activity; this sandbox has no
+  such backend.
