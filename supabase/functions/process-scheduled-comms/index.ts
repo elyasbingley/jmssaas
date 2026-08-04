@@ -153,6 +153,10 @@ interface PlaceholderContext {
   // migration) - the recipient there is the property manager, not a
   // client, hence pm_first_name rather than reusing `client`.
   property?: { address: string; pm_first_name: string | null; maintenance_due_date: string | null };
+  // referral_lead_received/referral_job_completed only (see the
+  // b2b_referral_automation migration) - the recipient is the referral
+  // partner, not a client.
+  referralPartner?: { partner_first_name: string; referred_client_name: string | null; job_title: string | null; job_value_cents: number | null };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -208,6 +212,12 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.property_address = context.property.address;
     tokens.pm_first_name = context.property.pm_first_name ?? "";
     tokens.property_maintenance_due_date = formatDateAu(context.property.maintenance_due_date);
+  }
+  if (context.referralPartner) {
+    tokens.partner_first_name = context.referralPartner.partner_first_name;
+    tokens.referred_client_name = context.referralPartner.referred_client_name ?? "";
+    tokens.job_title = context.referralPartner.job_title ?? "";
+    tokens.job_value = context.referralPartner.job_value_cents != null ? formatCentsAsAud(context.referralPartner.job_value_cents) : "";
   }
   if (context.company) {
     tokens.company_name = context.company.name;
@@ -298,7 +308,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -444,6 +454,42 @@ async function buildEntityContext(
       pm_first_name: pmFirstName,
       maintenance_due_date: dueDate,
     };
+  } else if (row.entity_type === "referral_partner") {
+    // referral_lead_received/referral_job_completed rows (see the
+    // b2b_referral_automation migration) - entity_id is a job_cards.id
+    // (mirrors entity_type='job'), so the partner is resolved via
+    // job.referral_partner_id rather than being the entity itself. The
+    // monthly digest (process-referral-digest) is the one exception: it
+    // has no single job to point at, so its rows use a referral_partners.id
+    // as entity_id instead - tried as a fallback below. That's safe
+    // because job_cards and referral_partners ids are drawn from separate
+    // UUID spaces, never colliding, and the digest email arrives fully
+    // pre-rendered anyway (see that function's own comment), so this
+    // fallback context is never actually substituted into anything.
+    const { data: job } = await admin.from("job_cards").select("*").eq("id", row.entity_id).maybeSingle();
+    if (job?.referral_partner_id) {
+      const { data: partner } = await admin.from("referral_partners").select("*").eq("id", job.referral_partner_id).single();
+      const { data: client } = await admin.from("clients").select("name").eq("id", job.client_id).maybeSingle();
+      const { data: paidInvoices } = await admin
+        .from("invoices")
+        .select("total_cents")
+        .eq("job_card_id", job.id)
+        .eq("status", "paid");
+      const jobValueCents = paidInvoices && paidInvoices.length > 0 ? paidInvoices.reduce((sum: number, inv: { total_cents: number }) => sum + inv.total_cents, 0) : null;
+      if (partner) {
+        context.referralPartner = {
+          partner_first_name: firstName(partner.contact_first_name),
+          referred_client_name: client?.name ?? null,
+          job_title: job.title,
+          job_value_cents: jobValueCents,
+        };
+      }
+    } else {
+      const { data: partner } = await admin.from("referral_partners").select("contact_first_name").eq("id", row.entity_id).maybeSingle();
+      if (partner) {
+        context.referralPartner = { partner_first_name: firstName(partner.contact_first_name), referred_client_name: null, job_title: null, job_value_cents: null };
+      }
+    }
   }
 
   return context;

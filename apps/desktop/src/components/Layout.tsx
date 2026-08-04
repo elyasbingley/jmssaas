@@ -21,6 +21,7 @@ const navSections = [
       { to: "/job-costing", label: "Job Costing" },
       { to: "/inventory", label: "Inventory" },
       { to: "/real-estate", label: "Real Estate & Strata" },
+      { to: "/b2b-referrals", label: "B2B & Referrals" },
     ],
   },
   {

@@ -46,6 +46,9 @@ export const createJobCardSchema = z.object({
   property_id: z.string().uuid().optional(),
   work_order_number: z.string().optional(),
   nte_limit_cents: z.number().int().positive().optional(),
+  // B2B & Referral Tracking module (see the b2b_referral_tracking
+  // migration) - which partner sent this job, if any.
+  referral_partner_id: z.string().uuid().optional(),
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
 
@@ -123,6 +126,7 @@ export const createQuoteSchema = z.object({
   expiry_date: z.string().date().optional(),
   notes: z.string().optional(),
   line_items: z.array(lineItemSchema).min(1, "Add at least one line item"),
+  referral_partner_id: z.string().uuid().optional(),
 });
 export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
 
@@ -391,3 +395,46 @@ export const createKeyLogSchema = z.object({
   status: z.enum(["at_office", "picked_up", "in_van", "returned"]).default("at_office"),
 });
 export type CreateKeyLogInput = z.infer<typeof createKeyLogSchema>;
+
+// ---------------------------------------------------------------------------
+// B2B Partner & Referral Tracking module
+// ---------------------------------------------------------------------------
+
+export const createReferralGroupSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  group_type: z.enum(["bni_chapter", "networking_group", "trade_association", "corporate_network"]).default("networking_group"),
+  meeting_day: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type CreateReferralGroupInput = z.infer<typeof createReferralGroupSchema>;
+
+// reward_percent/reward_flat_cents are both plain optional numbers here (not
+// conditionally required by reward_type) - the form only shows the one
+// field that matches the selected reward_type, so there's nothing to cross-
+// validate; whichever field the UI didn't show just stays undefined.
+export const createReferralPartnerSchema = z.object({
+  group_id: z.string().uuid().optional(),
+  company_name: z.string().optional(),
+  contact_first_name: z.string().min(1, "First name is required"),
+  contact_last_name: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  mobile: z.string().optional(),
+  partner_type: z
+    .enum(["bni_member", "real_estate_agent", "builder_contractor", "architect", "insurance_adjuster", "existing_client", "other_b2b"])
+    .default("other_b2b"),
+  tier: z.enum(["bronze", "silver", "gold", "vip"]).default("bronze"),
+  reward_type: z.enum(["none", "commission_percent", "flat_fee", "gift_card"]).default("none"),
+  reward_percent: z.number().nonnegative().max(100).optional(),
+  reward_flat_cents: z.number().int().nonnegative().optional(),
+  status: z.enum(["active", "inactive"]).default("active"),
+});
+export type CreateReferralPartnerInput = z.infer<typeof createReferralPartnerSchema>;
+
+export const createReciprocityLogSchema = z.object({
+  partner_id: z.string().uuid(),
+  client_name: z.string().min(1, "Client name is required"),
+  description: z.string().optional(),
+  estimated_value_cents: z.number().int().nonnegative().optional(),
+  date_passed: z.string().date().optional(),
+});
+export type CreateReciprocityLogInput = z.infer<typeof createReciprocityLogSchema>;

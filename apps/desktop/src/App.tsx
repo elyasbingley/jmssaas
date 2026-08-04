@@ -31,6 +31,7 @@ import TasksPage from "./pages/Tasks";
 import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
 import PropertyDetailPage from "./pages/PropertyDetail";
+import B2BReferralsPage from "./pages/B2BReferrals";
 
 export default function App() {
   return (
@@ -68,6 +69,7 @@ export default function App() {
                 <Route path="/team" element={<TeamPage />} />
                 <Route path="/real-estate" element={<RealEstatePage />} />
                 <Route path="/real-estate/properties/:id" element={<PropertyDetailPage />} />
+                <Route path="/b2b-referrals" element={<B2BReferralsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />

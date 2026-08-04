@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { calculateDocumentTotals, createQuoteSchema, type Client, type JobCard, type Template } from "@jmssaas/shared";
+import { calculateDocumentTotals, createQuoteSchema, type Client, type JobCard, type ReferralPartner, type Template } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -22,6 +22,12 @@ async function fetchQuoteTemplates(): Promise<Template[]> {
   return data as Template[];
 }
 
+async function fetchReferralPartners(): Promise<ReferralPartner[]> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("status", "active").order("contact_first_name");
+  if (error) throw error;
+  return data as ReferralPartner[];
+}
+
 export default function QuoteNewPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -35,12 +41,14 @@ export default function QuoteNewPage() {
 
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
   const { data: templates } = useQuery({ queryKey: ["quote-templates"], queryFn: fetchQuoteTemplates });
+  const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
 
   const [clientId, setClientId] = useState("");
   const [jobCardId, setJobCardId] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const [referralPartnerId, setReferralPartnerId] = useState("");
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([emptyLineItem(0)]);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -73,6 +81,7 @@ export default function QuoteNewPage() {
         expiry_date: expiryDate || undefined,
         notes,
         line_items: lineItems,
+        referral_partner_id: referralPartnerId || undefined,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
@@ -92,6 +101,7 @@ export default function QuoteNewPage() {
           gst_cents: totals.gst_cents,
           total_cents: totals.total_cents,
           notes: result.data.notes || null,
+          referral_partner_id: result.data.referral_partner_id ?? null,
           created_by: profile.id,
         })
         .select()
@@ -153,6 +163,17 @@ export default function QuoteNewPage() {
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
         />
       </div>
+
+      <SelectField
+        label="Referral source (optional)"
+        value={referralPartnerId}
+        onChange={setReferralPartnerId}
+        options={(referralPartners ?? []).map((p) => ({
+          value: p.id,
+          label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
+        }))}
+        placeholder="None"
+      />
 
       {templates && templates.length > 0 ? (
         <SelectField

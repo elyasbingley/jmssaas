@@ -133,6 +133,15 @@ export interface JobCard {
   work_order_number: string | null;
   nte_limit_cents: number | null;
   nte_exceeded_approved: boolean;
+  // B2B & Referral Tracking module (see the b2b_referral_tracking
+  // migration) - a referred job is still a normal JobCard, just tagged
+  // with which referral_partners row sent it. referral_fee_amount_cents is
+  // computed automatically when the linked invoice is marked paid (see
+  // calculate_referral_fee_on_invoice_paid); referral_fee_paid is a manual
+  // "we actually paid the partner out" flag, never flipped by the system.
+  referral_partner_id: string | null;
+  referral_fee_paid: boolean;
+  referral_fee_amount_cents: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +400,9 @@ export interface Quote {
   accepted_by_name: string | null;
   declined_at: string | null;
   decline_reason: string | null;
+  referral_partner_id: string | null;
+  referral_fee_paid: boolean;
+  referral_fee_amount_cents: number | null;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -424,6 +436,10 @@ export interface Invoice {
   accepted_by_name: string | null;
   declined_at: string | null;
   decline_reason: string | null;
+  // Set once, the first time status transitions to 'paid' - see
+  // set_invoice_paid_at in the b2b_referral_tracking migration. Not
+  // cleared if status ever moves off 'paid' again.
+  paid_at: string | null;
 }
 
 export interface InvoiceLineItem extends LineItemInput {
@@ -711,5 +727,70 @@ export interface ScheduledCommunication {
   sent_at: string | null;
   cancellation_reason: string | null;
   failure_reason: string | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// B2B Partner & Referral Tracking module - mirrors the
+// b2b_referral_tracking migration.
+// ---------------------------------------------------------------------------
+
+export type ReferralGroupType = "bni_chapter" | "networking_group" | "trade_association" | "corporate_network";
+export type ReferralPartnerType =
+  | "bni_member"
+  | "real_estate_agent"
+  | "builder_contractor"
+  | "architect"
+  | "insurance_adjuster"
+  | "existing_client"
+  | "other_b2b";
+export type ReferralPartnerTier = "bronze" | "silver" | "gold" | "vip";
+export type ReferralRewardType = "none" | "commission_percent" | "flat_fee" | "gift_card";
+export type ReferralPartnerStatus = "active" | "inactive";
+
+export interface ReferralGroup {
+  id: string;
+  tenant_id: string;
+  name: string;
+  group_type: ReferralGroupType;
+  meeting_day: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReferralPartner {
+  id: string;
+  tenant_id: string;
+  group_id: string | null;
+  company_name: string | null;
+  contact_first_name: string;
+  contact_last_name: string | null;
+  email: string | null;
+  mobile: string | null;
+  partner_type: ReferralPartnerType;
+  tier: ReferralPartnerTier;
+  reward_type: ReferralRewardType;
+  // reward_percent (e.g. 5.00 for 5%) when reward_type = 'commission_percent';
+  // reward_flat_cents for 'flat_fee'/'gift_card' - see the migration's own
+  // comment for why the spec's single decimal field was split in two.
+  reward_percent: number | null;
+  reward_flat_cents: number | null;
+  status: ReferralPartnerStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+// A referral passed OUT to a partner (Workflow 4) - the inverse of a
+// referral_partner_id on a job/quote, which tracks referrals that came IN.
+export interface ReferralReciprocityLog {
+  id: string;
+  tenant_id: string;
+  partner_id: string;
+  client_name: string;
+  description: string | null;
+  estimated_value_cents: number | null;
+  date_passed: string;
+  created_by: string | null;
   created_at: string;
 }

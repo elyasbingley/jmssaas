@@ -9,6 +9,7 @@ import {
   type JobLifecycleStage,
   type Property,
   type PropertyManager,
+  type ReferralPartner,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -57,6 +58,12 @@ async function fetchProperties(): Promise<Property[]> {
   return data as Property[];
 }
 
+async function fetchReferralPartners(): Promise<ReferralPartner[]> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("status", "active").order("contact_first_name");
+  if (error) throw error;
+  return data as ReferralPartner[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -69,6 +76,7 @@ export default function JobsPage() {
   const { data: agencies } = useQuery({ queryKey: ["agencies"], queryFn: fetchAgencies });
   const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
   const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
+  const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
@@ -115,6 +123,7 @@ export default function JobsPage() {
   const [propertyId, setPropertyId] = useState("");
   const [workOrderNumber, setWorkOrderNumber] = useState("");
   const [nteLimit, setNteLimit] = useState("");
+  const [referralPartnerId, setReferralPartnerId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
   const resetForm = () => {
@@ -129,6 +138,7 @@ export default function JobsPage() {
     setPropertyId("");
     setWorkOrderNumber("");
     setNteLimit("");
+    setReferralPartnerId("");
     setFormError(null);
   };
 
@@ -154,6 +164,7 @@ export default function JobsPage() {
         property_id: isRealEstateJob ? propertyId || undefined : undefined,
         work_order_number: isRealEstateJob ? workOrderNumber || undefined : undefined,
         nte_limit_cents: isRealEstateJob && nteLimit ? Math.round(Number(nteLimit) * 100) : undefined,
+        referral_partner_id: referralPartnerId || undefined,
       });
       if (!result.success) {
         throw new Error(clientId ? result.error.issues[0]?.message ?? "Invalid job" : "Pick a client first");
@@ -175,6 +186,7 @@ export default function JobsPage() {
           property_id: result.data.property_id ?? null,
           work_order_number: result.data.work_order_number ?? null,
           nte_limit_cents: result.data.nte_limit_cents ?? null,
+          referral_partner_id: result.data.referral_partner_id ?? null,
           created_by: profile.id,
         })
         .select()
@@ -407,6 +419,17 @@ export default function JobsPage() {
             </div>
           </div>
         ) : null}
+
+        <SelectField
+          label="Referral source (optional)"
+          value={referralPartnerId}
+          onChange={setReferralPartnerId}
+          options={(referralPartners ?? []).map((p) => ({
+            value: p.id,
+            label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
+          }))}
+          placeholder="None"
+        />
 
         {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
         <div className="flex justify-end gap-3">

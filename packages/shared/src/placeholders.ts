@@ -82,6 +82,17 @@ export interface PlaceholderPropertyContext {
   maintenance_due_date: string | null;
 }
 
+// referral_lead_received/referral_job_completed only - the recipient is the
+// referral partner, not a client, hence partner_first_name rather than
+// reusing PlaceholderClientContext. job_value_cents is null for the
+// lead_received variant (nothing won yet) and set for job_completed.
+export interface PlaceholderReferralPartnerContext {
+  partner_first_name: string;
+  referred_client_name: string | null;
+  job_title: string | null;
+  job_value_cents: number | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
@@ -91,6 +102,7 @@ export interface PlaceholderContext {
   schedule?: PlaceholderScheduleContext;
   nte?: PlaceholderNteContext;
   property?: PlaceholderPropertyContext;
+  referralPartner?: PlaceholderReferralPartnerContext;
 }
 
 function formatDateAu(dateString: string | null | undefined): string {
@@ -157,6 +169,19 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.property_maintenance_due_date = formatDateAu(context.property.maintenance_due_date);
   }
 
+  if (context.referralPartner) {
+    tokens.partner_first_name = context.referralPartner.partner_first_name;
+    tokens.referred_client_name = context.referralPartner.referred_client_name ?? "";
+    tokens.job_title = context.referralPartner.job_title ?? "";
+    tokens.job_value = context.referralPartner.job_value_cents != null ? formatCentsAsAud(context.referralPartner.job_value_cents) : "";
+    // digest_* tokens are never resolved here - the monthly digest email is
+    // fully pre-rendered by process-referral-digest before insert (see that
+    // function's own comment), so there's no per-send context to build for
+    // them; left unhandled here so an unrendered {digest_*} token in any
+    // OTHER trigger_key's template stays visibly wrong rather than
+    // silently blanking.
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -204,6 +229,11 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "property_address",
   "pm_first_name",
   "property_maintenance_due_date",
+  "partner_first_name",
+  "referred_client_name",
+  "job_value",
+  "digest_jobs_count",
+  "digest_total_value",
   "company_name",
   "company_phone",
   "company_email",

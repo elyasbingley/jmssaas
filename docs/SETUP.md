@@ -4338,3 +4338,156 @@ Fix, in `packages/shared` + both fields' worth of desktop UI:
   sandbox has no real backend to sign in against, so the modal's wiring
   was verified by tracing the code and exercising the exact SQL it
   issues, not by clicking it.
+
+## 31. B2B Partner & Referral Tracking module (Sales -> B2B & Referrals)
+
+New module tracking B2B partners, BNI/networking groups, and client
+referral sources; attributing revenue to partners; calculating BNI "Thank
+You For Closed Business" (TYFCB); monitoring referral reciprocity; and
+automating referral appreciation emails. Lives under Sales -> B2B &
+Referrals (`/b2b-referrals`), as 4 in-page sub-tabs - same "one sidebar
+destination, several in-page tabs" relationship RealEstate.tsx already
+established for its own four-sub-tab spec.
+
+Two deliberate departures from the spec as given, both explained in the
+relevant migration's own comment:
+
+- This app has no separate "lead" entity, so the spec's "Lead, Quote, and
+  Job creation forms" becomes job_cards and quotes (the two closest
+  equivalents) - a referral source dropdown was added to both the "New
+  job" modal (Jobs.tsx) and the "New quote" page (QuoteNew.tsx).
+- The spec's single decimal `reward_value` column is split into
+  `reward_percent numeric(5,2)` (commission_percent) and
+  `reward_flat_cents bigint` (flat_fee/gift_card) - a single field is
+  unit-ambiguous, and every other money column in this schema is an
+  explicit `_cents` bigint.
+
+### Schema (`b2b_referral_tracking` + `b2b_referral_automation` migrations)
+
+- `referral_groups`, `referral_partners`, `referral_reciprocity_logs` -
+  new tables, RLS follows the agencies/properties shape (tenant-wide read,
+  admin-only write) since this whole module has no field-technician
+  surface.
+- `job_cards`/`quotes` gain `referral_partner_id` /`referral_fee_paid` /
+  `referral_fee_amount_cents`.
+- `invoices` gains `paid_at`, set once by `set_invoice_paid_at` the first
+  time status transitions to 'paid' - needed because `updated_at` moves on
+  any unrelated edit and would silently corrupt the TYFCB engine's
+  date-range filter.
+- `calculate_referral_fee_on_invoice_paid` (AFTER UPDATE on invoices,
+  same `status -> 'paid'` guard as `paid_at`) computes
+  `job_cards.referral_fee_amount_cents` from the partner's reward rule the
+  moment the linked job's invoice is paid; `referral_fee_paid` is never
+  flipped automatically - an admin marks it once the partner is actually
+  paid out (no bank integration to detect that).
+- Every metric shown in the UI (referrals sent, closed revenue won,
+  reciprocity ratio, TYFCB totals, conversion rate) is computed live from
+  job_cards/invoices/referral_reciprocity_logs client-side, not a stored
+  running total - same tradeoff Job Costing already makes elsewhere:
+  simpler, never drifts out of sync, more client-side aggregation per
+  render.
+
+### Automation (`b2b_referral_automation` migration)
+
+Three new trigger_keys on the existing communication_rules/
+communication_templates/scheduled_communications engine:
+
+- `referral_lead_received` - AFTER INSERT OR UPDATE on job_cards, fires
+  the moment `referral_partner_id` is newly set (new job or later
+  attribution). entity_type gains `'referral_partner'`, entity_id is the
+  **job's** id (mirrors how `entity_type='job'` resolves client context
+  via `job.client_id` - here the dispatcher resolves the partner via
+  `job.referral_partner_id`).
+- `referral_job_completed` - AFTER UPDATE on invoices, same guard as the
+  fee-calc trigger, a separate function so a failure in one can never
+  block the other.
+- `referral_monthly_digest` - NOT event-triggered. Swept once a month by
+  a new Edge Function, `process-referral-digest` (same "calendar-driven
+  check" shape as process-retention-campaigns/process-real-estate-
+  maintenance). Unlike every other trigger_key, this one is **fully
+  rendered before insert** by that function rather than left with raw
+  `{tokens}` for process-scheduled-comms to resolve at send time - there's
+  no single job/invoice this message is "about" (it's a sum across
+  everything that closed last calendar month), so entity_id is the
+  partner's own id, a case `buildEntityContext`'s new `referral_partner`
+  branch handles as a safe fallback (tries a job_cards lookup by entity_id
+  first; if none exists - because it's actually a partner id - falls back
+  to a partner-only context, which is a harmless no-op here since the
+  digest body has no unrendered tokens left to substitute).
+- `communication_templates.category` gains `'partner'` (existing values
+  had no natural fit for a message sent to a partner rather than a
+  client).
+- New placeholder tokens (`packages/shared/src/placeholders.ts` +
+  the Deno-native port in `process-scheduled-comms/index.ts`, kept in
+  sync by hand per that file's own long-standing note): `partner_first_name`,
+  `referred_client_name`, `job_value`, `digest_jobs_count`,
+  `digest_total_value`.
+- Sub-tab 4 (Automated Partner Workflows) is a scoped-down version of
+  AutomationSettings.tsx's rule/template editor, covering only these
+  three trigger_keys, living inside the B2B module rather than added to
+  the shared Settings page.
+
+### UI
+
+- Sub-tab 1 (Partner Directory & Groups): By Partner / By Group dual
+  view, partner cards (referrals sent, closed revenue won, reciprocity),
+  Add Partner / Add BNI Group / Log Referral Passed Out.
+- Sub-tab 2 (Revenue Analytics & BNI TYFCB): 4-tile KPI ribbon (Total
+  Referral Revenue YTD, Conversion Rate, Average Value per Referred Job,
+  BNI TYFCB Total YTD) + the TYFCB export tool (BNI group + date-range
+  filter with This Week/This Month/Last Month/YTD presets, copy-to-
+  clipboard and CSV export).
+- Sub-tab 3 (Reciprocity Ledger): inbound-vs-outbound bar per partner +
+  a 🟢 Balanced / 🟡 Net Exporter / 🔵 Net Importer badge (ratio > 2x
+  either way tips the badge - the spec names the three states but not the
+  cutoffs, so this is a documented judgment call, not a spec requirement).
+- Sub-tab 4 (Automated Partner Workflows): see Automation above.
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter mobile typecheck`, and `pnpm --filter
+  desktop build` all pass clean.
+- Fresh local Postgres 16 database, all 31 real migrations (including
+  both of this module's) applied in order against the same hand-written
+  `auth`/`storage` stubs used in every prior batch.
+- Using the throwaway non-superuser `app_test` role (RLS genuinely
+  enforced): seeded a tenant, an admin, a technician, and a client. As
+  admin: created a BNI chapter group, a commission_percent partner in it,
+  a flat_fee partner with no group, a job referred by the first partner
+  (exact insert the "New job" modal issues), then created and paid an
+  invoice for that job (exact update the Invoice detail flow issues) and
+  confirmed: `referral_fee_amount_cents` computed correctly (5% of
+  $2,000.00 = $100.00 = 10000 cents), `invoices.paid_at` set,
+  `referral_lead_received` and `referral_job_completed` both queued with
+  the correct partner email as recipient and correct rendered subject,
+  a reciprocity log insert round-trips, and a hand-written TYFCB
+  aggregation query (paid invoices joined through job_cards to BNI-
+  chapter partners) returns the correct partner/count/total. As the
+  (non-admin) technician: confirmed an `insert` into `referral_partners`
+  is rejected outright by RLS (`new row violates row-level security
+  policy`). Database and the `app_test` role both dropped after, no state
+  left behind.
+- Playwright/Chromium smoke test with a placeholder `.env`:
+  `/b2b-referrals` correctly redirects to `/login` when signed out, with
+  no unexpected console errors (the same benign one-time `favicon.ico`
+  404 seen in every prior batch). Dev server killed and `.env` removed
+  after.
+
+### NOT verified from this sandbox
+
+- `process-referral-digest` actually deployed and firing on a real
+  monthly pg_cron schedule, or `process-scheduled-comms` actually sending
+  a real email through Resend for any of the three new trigger_keys -
+  needs a real Supabase project with those Edge Functions deployed and
+  cron configured; this sandbox has no such backend. The `select
+  cron.schedule(...)` call for `process-referral-digest` needs to be run
+  by hand against the deployed project (same as every other cron-driven
+  sweep in this schema), e.g. monthly on the 1st:
+  `select cron.schedule('referral-digest-monthly', '0 6 1 * *', $$select net.http_post(url:='https://<project>.supabase.co/functions/v1/process-referral-digest', headers:='{"Authorization": "Bearer <service-role-key>"}'::jsonb) $$);`
+- Manually clicking through all four sub-tabs (KPI numbers rendering,
+  CSV download, the reciprocity bar widths) in a real browser session
+  signed in against a live Supabase project - this sandbox has no real
+  backend to sign in against, so the UI's data-fetching/aggregation logic
+  was verified by tracing the code against the SQL it issues, not by
+  clicking it.
