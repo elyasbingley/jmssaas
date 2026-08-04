@@ -110,19 +110,19 @@ function DirectoryTab() {
   };
 
   // --- Add Agency ---
+  // Deliberately no email/phone fields here - those are always specific to
+  // a particular property manager at the agency (see property_managers),
+  // not the agency as a whole, so this form only collects what an agency
+  // actually is: a name, a type, and its work-order policy.
   const [agencyModalOpen, setAgencyModalOpen] = useState(false);
   const [agencyName, setAgencyName] = useState("");
   const [agencyType, setAgencyType] = useState<AgencyType | "">("real_estate");
-  const [agencyBillingEmail, setAgencyBillingEmail] = useState("");
-  const [agencyPhone, setAgencyPhone] = useState("");
   const [agencyRequireWorkOrder, setAgencyRequireWorkOrder] = useState(true);
   const [agencyError, setAgencyError] = useState<string | null>(null);
 
   const openNewAgency = () => {
     setAgencyName("");
     setAgencyType("real_estate");
-    setAgencyBillingEmail("");
-    setAgencyPhone("");
     setAgencyRequireWorkOrder(true);
     setAgencyError(null);
     setAgencyModalOpen(true);
@@ -133,8 +133,6 @@ function DirectoryTab() {
       const result = createAgencySchema.safeParse({
         name: agencyName,
         type: agencyType || "real_estate",
-        billing_email: agencyBillingEmail,
-        phone: agencyPhone,
         require_work_order_num: agencyRequireWorkOrder,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid agency");
@@ -144,8 +142,6 @@ function DirectoryTab() {
         tenant_id: profile.tenant_id,
         name: result.data.name,
         type: result.data.type,
-        billing_email: result.data.billing_email || null,
-        phone: result.data.phone || null,
         payment_terms_days: result.data.payment_terms_days,
         require_work_order_num: result.data.require_work_order_num,
       });
@@ -387,8 +383,6 @@ function DirectoryTab() {
       <Modal open={agencyModalOpen} onClose={() => setAgencyModalOpen(false)} title="New agency">
         <FormField label="Name" value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="e.g. McGrath Estate Agents" />
         <SelectField label="Type" value={agencyType} onChange={setAgencyType} options={AGENCY_TYPE_OPTIONS} placeholder="Select type" />
-        <FormField label="Billing email" type="email" value={agencyBillingEmail} onChange={(e) => setAgencyBillingEmail(e.target.value)} />
-        <FormField label="Phone" value={agencyPhone} onChange={(e) => setAgencyPhone(e.target.value)} />
         <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
           <input
             type="checkbox"

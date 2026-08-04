@@ -4131,3 +4131,39 @@ synthetic client afterward same as any other client record.
 - Clicking through the Recurring Maintenance tab's filters, checkboxes,
   and both action buttons against a real signed-in session; this sandbox
   has no such backend.
+
+## 28. Fix: New Agency form asked for contact details that belong to a PM, not the agency
+
+The "New agency" modal (Directory tab) had Billing email and Phone
+fields - both already optional at the schema/DB level, but still shown
+as if they were something to fill in for the agency itself. Per direct
+feedback: an agency's actual contact details are always a specific
+property manager's (see `property_managers.email`/`mobile`/`work_phone`),
+not the agency's, so asking for them at the agency level was asking for
+information that doesn't belong there. Removed both fields from the
+form entirely - `createAgency` now only ever inserts `name`, `type`, and
+`require_work_order_num`. The `agencies.billing_email`/`phone` columns
+and the zod schema's optional fields are untouched (still there for any
+future agency-level use), just never populated from this form.
+
+Mobile's `handleRequestNteVariation` still falls back to
+`agency?.billing_email` when a job has no property manager assigned -
+that's unaffected, it's a defensive fallback for an edge case, not
+something this form was ever the only way to populate.
+
+### Verified from this sandbox
+
+- `pnpm --filter desktop typecheck` and `pnpm --filter desktop build`
+  both pass clean.
+- Fresh local Postgres 16 database, all 27 real migrations applied,
+  using the same throwaway non-superuser `app_test` role as every batch
+  since Batch 1. Inserted an agency with only `name`/`type`/
+  `require_work_order_num` (no `billing_email`/`phone`) as the admin -
+  succeeded, with both omitted columns correctly left `null`. Database
+  and role dropped after.
+
+### NOT verified from this sandbox
+
+- Actually opening the simplified modal in a browser and confirming the
+  two fields are gone visually; this sandbox has no real Supabase
+  project to sign in against.
