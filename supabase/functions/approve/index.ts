@@ -30,7 +30,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-type DocType = "quote" | "invoice" | "nte_variation";
+type DocType = "quote" | "invoice" | "nte_variation" | "po_quote";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -60,25 +60,27 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const docType = url.searchParams.get("type");
     const token = url.searchParams.get("token");
-    if ((docType !== "quote" && docType !== "invoice" && docType !== "nte_variation") || !token) {
+    if ((docType !== "quote" && docType !== "invoice" && docType !== "nte_variation" && docType !== "po_quote") || !token) {
       return json({ error: "bad_request" }, 400);
     }
-    // get_${type}_for_approval - same generic name shape for all three,
-    // matching the RPC names in the quote_invoice_approval and
-    // real_estate_nte_and_invoicing migrations.
+    // get_${type}_for_approval - same generic name shape for all four,
+    // matching the RPC names in the quote_invoice_approval,
+    // real_estate_nte_and_invoicing, and subcontractor_management
+    // migrations. po_quote's RPC is literally named get_po_quote_for_approval,
+    // so this generic template still lines up.
     const { data, error } = await supabase.rpc(`get_${docType}_for_approval`, { p_token: token });
     if (error) return json({ error: "server_error" }, 500);
     return json(data);
   }
 
   if (req.method === "POST") {
-    let body: { type?: string; token?: string; action?: string; name?: string; reason?: string };
+    let body: { type?: string; token?: string; action?: string; name?: string; reason?: string; amount_cents?: number };
     try {
       body = await req.json();
     } catch {
       return json({ error: "bad_request" }, 400);
     }
-    const { type: docType, token, action, name, reason } = body;
+    const { type: docType, token, action, name, reason, amount_cents } = body;
     if (!token) {
       return json({ error: "bad_request" }, 400);
     }
@@ -89,6 +91,19 @@ Deno.serve(async (req: Request) => {
     if (docType === "nte_variation") {
       if (action !== "approve") return json({ error: "bad_request" }, 400);
       const { data, error } = await supabase.rpc("approve_nte_variation_by_token", { p_token: token });
+      if (error) return json({ error: "server_error" }, 500);
+      return json(data);
+    }
+
+    // po_quote also has one resolution - a subcontractor submitting their
+    // quoted dollar figure (Workflow 3). See submit_po_quote_by_token in
+    // the subcontractor_management migration.
+    if (docType === "po_quote") {
+      if (action !== "submit") return json({ error: "bad_request" }, 400);
+      const { data, error } = await supabase.rpc("submit_po_quote_by_token", {
+        p_token: token,
+        p_amount_cents: amount_cents ?? null,
+      });
       if (error) return json({ error: "server_error" }, 500);
       return json(data);
     }

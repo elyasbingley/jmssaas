@@ -870,3 +870,104 @@ export interface ReportSignature {
   signature_svg_data: string;
   signed_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Subcontractor Management & Procurement - mirrors the
+// subcontractor_management migration.
+// ---------------------------------------------------------------------------
+
+export type SubcontractorTrade =
+  | "plumber"
+  | "roofer"
+  | "electrician"
+  | "hvac"
+  | "painter"
+  | "carpenter"
+  | "plasterer"
+  | "cleaner"
+  | "other";
+
+// "compliance_hold" is never set directly by the app - only
+// recompute_subcontractor_compliance_status (trigger + the daily
+// process-subcontractor-compliance sweep) writes it. See the migration's
+// own comment.
+export type SubcontractorStatus = "active" | "inactive" | "compliance_hold";
+
+export interface SubcontractorCompany {
+  id: string;
+  tenant_id: string;
+  company_name: string;
+  abn: string | null;
+  trades: SubcontractorTrade[];
+  preference_tier: number;
+  payment_terms_days: number;
+  status: SubcontractorStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubcontractorContact {
+  id: string;
+  tenant_id: string;
+  subcontractor_id: string;
+  first_name: string;
+  last_name: string | null;
+  role_title: string | null;
+  email: string;
+  mobile: string | null;
+  work_phone: string | null;
+  is_primary_contact: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SubcontractorDocType = "public_liability" | "workers_comp" | "trade_license" | "white_card" | "safety_induction" | "other";
+
+export interface SubcontractorComplianceDoc {
+  id: string;
+  tenant_id: string;
+  subcontractor_id: string;
+  doc_type: SubcontractorDocType;
+  doc_number: string | null;
+  storage_path: string;
+  issue_date: string | null;
+  expiry_date: string | null;
+  is_verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// draft -> sent -> (quote requests only: quoted) -> accepted -> completed
+// -> paid, or cancelled at any point before completed. See the migration's
+// own comment for why one table covers both a Quote Request and a real
+// Work Order/PO.
+export type PurchaseOrderStatus = "draft" | "sent" | "quoted" | "accepted" | "completed" | "paid" | "cancelled";
+
+export interface PurchaseOrderLineItem {
+  description: string;
+  quantity: number;
+  unit_cost_cents: number;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  tenant_id: string;
+  po_number: string | null;
+  job_card_id: string;
+  subcontractor_id: string;
+  contact_id: string | null;
+  is_quote_request: boolean;
+  status: PurchaseOrderStatus;
+  line_items: PurchaseOrderLineItem[];
+  total_cost_cents: number;
+  billed_to_client_cents: number | null;
+  access_token: string | null;
+  token_expires_at: string | null;
+  quoted_at: string | null;
+  pdf_storage_path: string | null;
+  issued_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

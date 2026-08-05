@@ -35,6 +35,10 @@ import B2BReferralsPage from "./pages/B2BReferrals";
 import ReportsPage from "./pages/Reports";
 import ReportTemplateEditorPage from "./pages/ReportTemplateEditor";
 import ReportInstancePage from "./pages/ReportInstance";
+import SubcontractorsPage from "./pages/Subcontractors";
+import SubcontractorDetailPage from "./pages/SubcontractorDetail";
+import PurchaseOrderNewPage from "./pages/PurchaseOrderNew";
+import PurchaseOrderDetailPage from "./pages/PurchaseOrderDetail";
 
 export default function App() {
   return (
@@ -77,6 +81,10 @@ export default function App() {
                 <Route path="/reports/templates/new" element={<ReportTemplateEditorPage />} />
                 <Route path="/reports/templates/:id" element={<ReportTemplateEditorPage />} />
                 <Route path="/reports/instances/:id" element={<ReportInstancePage />} />
+                <Route path="/subcontractors" element={<SubcontractorsPage />} />
+                <Route path="/subcontractors/purchase-orders/new" element={<PurchaseOrderNewPage />} />
+                <Route path="/subcontractors/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
+                <Route path="/subcontractors/:id" element={<SubcontractorDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />

@@ -4637,3 +4637,158 @@ Scope decisions, each explained in the relevant file's own comment:
   signed PDF link - needs a real Supabase project with Resend configured
   and a completed report with a real uploaded PDF; this sandbox has
   neither.
+
+## 33. Subcontractor Management & Procurement module (Operations -> Subcontractors)
+
+New module for managing subcontractor companies, their trade/compliance
+paperwork, a 5-tier preference system, and Purchase Order/Work Order/Quote
+Request issuance with PDF generation and email dispatch - reachable from a
+new "Operations" sidebar section (`/subcontractors`) and from a new
+"Subcontractors" section on every Job Card.
+
+Scope decisions, each explained in the relevant file's own comment:
+
+- **Desktop-only, admin-managed RLS** (tenant read, admin write) - same
+  shape as B2B & Referrals and Reports & Safety, explicitly re-documented
+  in the migration's own comments as "no field-technician surface for
+  this module." A subcontractor's own quote submission happens through
+  the existing token-based external approval page, not a signed-in
+  session.
+- **One `purchase_orders` table covers both "Quote Request" and "Work
+  Order/PO"** via an `is_quote_request` flag plus an added `'quoted'`
+  status, rather than two separate tables - the spec's own description of
+  both workflows overlaps almost entirely (pick a job, pick a
+  subcontractor + contact, line items, a total). A Quote Request becomes
+  a real Work Order once its status progresses past `'quoted'`; the flag
+  only records how it originated.
+- **Compliance-hold status is dual-path automated**, never set directly
+  by the app: an `AFTER INSERT OR UPDATE OR DELETE` trigger on
+  `subcontractor_compliance_docs` recomputes status immediately, and a new
+  daily sweep Edge Function (`process-subcontractor-compliance`, same
+  shape as `process-retention-campaigns`/`process-real-estate-
+  maintenance`) catches any expiry that happens silently with no row
+  change (a document's `expiry_date` passing overnight). The sweep's own
+  idempotency check is per-contact, not per-entity like every other
+  trigger_key in this schema - multiple contacts at one subcontractor
+  each need their own reminder, a deliberate departure documented in the
+  migration.
+- **PDF compilation reuses the Reports module's jsPDF-direct-to-Blob
+  approach** (`apps/desktop/src/lib/po-pdf.ts`, modelled on
+  `report-pdf.ts`), not the browser "Print to PDF" dialog quotes/invoices
+  use - a Work Order's PDF has to exist unattended to attach a signed
+  link to an automated email, the same reasoning as a report's PDF.
+- **The external quote-submission link reuses the existing token-based
+  approval-page pattern** (`generate_po_quote_link`/
+  `get_po_quote_for_approval`/`submit_po_quote_by_token`, all `SECURITY
+  DEFINER`, granted to `anon, authenticated`) - a new `po_quote` doc type
+  in the shared `approve` Edge Function and `approval-page.html`, not a
+  new mechanism.
+
+### Schema (`subcontractor_management` migration)
+
+- `subcontractor_companies` (trades array, `preference_tier` 1-5,
+  `status` active/inactive/compliance_hold), `subcontractor_contacts`,
+  `subcontractor_compliance_docs` (doc_type, expiry_date, is_verified),
+  `purchase_orders` (`line_items` as embedded jsonb rather than a child
+  table - a PO line item is just description/quantity/unit_cost_cents,
+  far flatter than quote/invoice's labour/material/markup breakdown, so a
+  separate table would be pure overhead).
+- `assign_po_number()` trigger reuses `next_reference_number()` (prefix
+  `PO`, 4-digit pad) - same auto-incrementing pattern as quotes/invoices.
+- New private `subcontractor-files` storage bucket, same tenant-scoped
+  path convention and RLS shape as `report-files`/`job-files`.
+- `scheduled_communications.entity_type` widened to add
+  `'purchase_order'`/`'subcontractor'`; three new trigger_keys -
+  `subcontractor_quote_request`/`subcontractor_work_order` (manual sends,
+  entity_id is the `purchase_orders` row, same shape as `quote_sent`/
+  `report_sent`) and `subcontractor_compliance_expired` (queued by the
+  daily sweep, entity_id is the `subcontractor_companies` row, one row
+  per contact).
+
+### Desktop (`apps/desktop`)
+
+- **`Subcontractors.tsx`** (`/subcontractors`) - three sub-tabs: Directory
+  & Tier Board (search/trade/tier/status filters, card grid, "New
+  subcontractor" modal), reused by `ComplianceTrackerTab.tsx` (a
+  subcontractor x doc-type matrix, colour-coded by days-to-expiry, with a
+  "Compliance Hold only" toggle) and `FinancialPerformanceTab.tsx` (per-
+  subcontractor cost-paid vs revenue-generated vs margin, using the
+  spec's own formulas, KPI tiles at the top).
+- **`SubcontractorDetail.tsx`** (`/subcontractors/:id`) - header with a
+  tier `<select>`, compliance-hold banner, and four sub-tabs: Contacts,
+  Work Orders & Quote Requests (buttons disabled and a warning shown when
+  the subcontractor is on compliance hold), Compliance Records (upload/
+  verify/delete), Financials & Jobs.
+- **`PurchaseOrderNew.tsx`** (`/subcontractors/purchase-orders/new`) and
+  **`PurchaseOrderDetail.tsx`** (`/subcontractors/purchase-orders/:id`) -
+  creation form and the full editor: status pills, a line item editor
+  (`PoLineItemEditor.tsx`), a "Client billed price" field with a live
+  margin preview, "Send Quote Request" (generates the token, queues +
+  dispatches `subcontractor_quote_request`) or "Send Work Order" (builds
+  the PDF, uploads it, queues + dispatches `subcontractor_work_order`),
+  and a "Download PDF" button for a manual copy. Arriving with
+  `?subcontractorId=`/`?quoteRequest=`/`?jobCardId=` query params pre-
+  fills and (for the job) locks the form, same pattern as `QuoteNew.tsx`.
+- **Job Card "Subcontractors" section** (`JobDetail.tsx`) - lists POs
+  linked to the job; "Assign Subcontractor" opens a tier-sorted picker
+  with a trade filter, compliance-hold subcontractors greyed out with a
+  warning and their action buttons disabled, and "Request Quote"/"Issue
+  Work Order" buttons that navigate to the PO editor pre-filled with this
+  job.
+- New "Operations" sidebar section (`components/Layout.tsx`).
+
+### Verified from this sandbox
+
+- `pnpm --filter @jmssaas/shared typecheck`, `pnpm --filter desktop
+  typecheck`, `pnpm --filter mobile typecheck`, and `pnpm --filter
+  desktop build` all pass clean.
+- Fresh local Postgres 16 database, all 33 real migrations (including
+  this one) applied in order against the same hand-written `auth`/
+  `storage` stubs used in every prior batch.
+- Using the throwaway non-superuser `app_test` role (RLS genuinely
+  enforced), across two tenants: as admin, created a subcontractor with a
+  contact, a compliance doc with a future expiry date (status stayed
+  `active`), and a Purchase Order (confirmed the `PO0001` auto-numbering).
+  Then moved the compliance doc's expiry into the past and confirmed the
+  `AFTER UPDATE` trigger flipped the subcontractor to `compliance_hold`
+  immediately, with no extra step. As the (non-admin) technician:
+  confirmed `select` on `subcontractor_companies`/`purchase_orders`
+  returns the tenant's rows (tenant-wide read), while an `insert` is
+  rejected outright by RLS and an `update` silently affects 0 rows (the
+  established "admin write" pattern). As tenant two's admin: confirmed
+  zero rows of tenant one's subcontractor/PO data are visible (tenant
+  isolation). Exercised the full external quote-link RPC round trip -
+  `generate_po_quote_link` issued a token, `get_po_quote_for_approval`
+  returned the correct JSON (po_number, line_items, tenant/subcontractor/
+  job names), and `submit_po_quote_by_token` (called with no role/session,
+  matching how the public approval page calls it) correctly moved the PO
+  to `status = 'quoted'` with the submitted `total_cost_cents` and a
+  `quoted_at` timestamp. Database and the `app_test` role both dropped
+  after, no state left behind.
+- Playwright/Chromium smoke test with a placeholder `.env`: `/subcontractors`,
+  `/subcontractors/:id`, `/subcontractors/purchase-orders/new`, and
+  `/subcontractors/purchase-orders/:id` all correctly redirect to
+  `/login` when signed out, with no unexpected console errors (the same
+  benign one-time favicon 404 seen in every prior batch). Dev server
+  killed and `.env` removed after.
+
+### NOT verified from this sandbox
+
+- The daily `process-subcontractor-compliance` sweep Edge Function itself
+  running end to end (silent-expiry catch-up, per-contact idempotency) -
+  it was traced by reading the code against the same pattern as its
+  sibling sweep functions, not invoked against a real Deno/Supabase
+  runtime; this sandbox has neither.
+- Actually opening a compiled Purchase Order PDF and eyeballing its
+  layout - `po-pdf.ts`'s pagination/text-wrapping logic was traced by
+  reading the code (and mirrors `report-pdf.ts`'s already-established
+  approach), not executed against a real jsPDF/Canvas environment.
+- The `subcontractor_quote_request`/`subcontractor_work_order`/
+  `subcontractor_compliance_expired` emails actually being received -
+  needs a real Supabase project with Resend configured; this sandbox has
+  neither.
+- Clicking through the Directory/Compliance Tracker/Financial Performance
+  tabs, the detail profile's four sub-tabs, or the "Assign Subcontractor"
+  modal against a real signed-in session - needs a real Supabase project
+  with real data; this sandbox's Playwright check only reached the
+  logged-out route-guard redirect.

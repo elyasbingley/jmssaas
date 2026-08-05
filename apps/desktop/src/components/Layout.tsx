@@ -26,6 +26,10 @@ const navSections = [
     ],
   },
   {
+    heading: "Operations",
+    items: [{ to: "/subcontractors", label: "Subcontractors" }],
+  },
+  {
     heading: null,
     items: [
       { to: "/calendar", label: "Calendar" },

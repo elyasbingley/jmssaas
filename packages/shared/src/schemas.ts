@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ReportFieldType } from "./reports";
+import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
 
 export const createClientSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -519,3 +520,83 @@ export const createReportSignatureSchema = z.object({
   signature_svg_data: z.string().min(1, "A signature is required"),
 });
 export type CreateReportSignatureInput = z.infer<typeof createReportSignatureSchema>;
+
+// ---------------------------------------------------------------------------
+// Subcontractor Management & Procurement
+// ---------------------------------------------------------------------------
+
+const SUBCONTRACTOR_TRADES: [SubcontractorTrade, ...SubcontractorTrade[]] = [
+  "plumber",
+  "roofer",
+  "electrician",
+  "hvac",
+  "painter",
+  "carpenter",
+  "plasterer",
+  "cleaner",
+  "other",
+];
+
+export const createSubcontractorCompanySchema = z.object({
+  company_name: z.string().min(1, "Company name is required"),
+  abn: z.string().optional(),
+  trades: z.array(z.enum(SUBCONTRACTOR_TRADES)).default([]),
+  preference_tier: z.number().int().min(1).max(5).default(3),
+  payment_terms_days: z.number().int().positive().default(30),
+  // Deliberately excludes 'compliance_hold' - see the SubcontractorStatus
+  // type's own comment for why the app never sets that value directly.
+  status: z.enum(["active", "inactive"] satisfies [SubcontractorStatus, SubcontractorStatus]).default("active"),
+  notes: z.string().optional(),
+});
+export type CreateSubcontractorCompanyInput = z.infer<typeof createSubcontractorCompanySchema>;
+
+export const createSubcontractorContactSchema = z.object({
+  subcontractor_id: z.string().uuid(),
+  first_name: z.string().min(1, "First name is required"),
+  last_name: z.string().optional(),
+  role_title: z.string().optional(),
+  email: z.string().email("Enter a valid email"),
+  mobile: z.string().optional(),
+  work_phone: z.string().optional(),
+  is_primary_contact: z.boolean().default(false),
+});
+export type CreateSubcontractorContactInput = z.infer<typeof createSubcontractorContactSchema>;
+
+const SUBCONTRACTOR_DOC_TYPES: [SubcontractorDocType, ...SubcontractorDocType[]] = [
+  "public_liability",
+  "workers_comp",
+  "trade_license",
+  "white_card",
+  "safety_induction",
+  "other",
+];
+
+export const createComplianceDocSchema = z.object({
+  subcontractor_id: z.string().uuid(),
+  doc_type: z.enum(SUBCONTRACTOR_DOC_TYPES).default("other"),
+  doc_number: z.string().optional(),
+  issue_date: z.string().date().optional(),
+  // Not universally required at the zod layer (a White Card genuinely has
+  // no expiry in some states) - the Compliance Tracker UI still visually
+  // flags any required insurance/license type left blank.
+  expiry_date: z.string().date().optional(),
+  is_verified: z.boolean().default(false),
+});
+export type CreateComplianceDocInput = z.infer<typeof createComplianceDocSchema>;
+
+export const poLineItemSchema = z.object({
+  description: z.string().min(1, "Description is required"),
+  quantity: z.number().positive().default(1),
+  unit_cost_cents: z.number().int().nonnegative().default(0),
+});
+export type PoLineItemInput = z.infer<typeof poLineItemSchema>;
+
+export const createPurchaseOrderSchema = z.object({
+  job_card_id: z.string().uuid(),
+  subcontractor_id: z.string().uuid(),
+  contact_id: z.string().uuid().optional(),
+  is_quote_request: z.boolean().default(false),
+  line_items: z.array(poLineItemSchema).default([]),
+  billed_to_client_cents: z.number().int().nonnegative().optional(),
+});
+export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;

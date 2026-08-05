@@ -106,12 +106,40 @@ export interface PlaceholderReportContext {
   pdf_link: string | null;
 }
 
+// subcontractor_quote_request/subcontractor_work_order only - recipient is
+// a subcontractor contact, not a client. contact_first_name comes from
+// whichever contact the PO/quote request names (or the subcontractor's
+// primary contact); job_title/site_address are covered by the existing
+// PlaceholderJobContext (built alongside this one for entity_type=
+// 'purchase_order' - see the dispatcher's buildEntityContext), not
+// duplicated here. quote_link is set only for a quote request, pdf_link
+// only once a real PO has a compiled PDF - both null-safe empty strings
+// otherwise, same reasoning as PlaceholderReportContext.pdf_link.
+export interface PlaceholderPurchaseOrderContext {
+  contact_first_name: string;
+  po_number: string | null;
+  po_total_cents: number;
+  quote_link: string | null;
+  pdf_link: string | null;
+}
+
+// subcontractor_compliance_expired only (queued by the daily
+// process-subcontractor-compliance sweep, one row per contact).
+export interface PlaceholderSubcontractorContext {
+  contact_first_name: string;
+  company_name: string;
+  expired_doc_type_label: string;
+  expired_doc_expiry_date: string | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
   job?: PlaceholderJobContext;
   quote?: PlaceholderQuoteContext;
   invoice?: PlaceholderInvoiceContext;
+  purchaseOrder?: PlaceholderPurchaseOrderContext;
+  subcontractor?: PlaceholderSubcontractorContext;
   schedule?: PlaceholderScheduleContext;
   nte?: PlaceholderNteContext;
   property?: PlaceholderPropertyContext;
@@ -201,6 +229,21 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.report_pdf_link = context.report.pdf_link ?? "";
   }
 
+  if (context.purchaseOrder) {
+    tokens.subcontractor_contact_first_name = context.purchaseOrder.contact_first_name;
+    tokens.po_number = context.purchaseOrder.po_number ?? "";
+    tokens.po_total = formatCentsAsAud(context.purchaseOrder.po_total_cents);
+    tokens.po_quote_link = context.purchaseOrder.quote_link ?? "";
+    tokens.po_pdf_link = context.purchaseOrder.pdf_link ?? "";
+  }
+
+  if (context.subcontractor) {
+    tokens.subcontractor_contact_first_name = context.subcontractor.contact_first_name;
+    tokens.subcontractor_company_name = context.subcontractor.company_name;
+    tokens.expired_doc_type = context.subcontractor.expired_doc_type_label;
+    tokens.expired_doc_expiry_date = formatDateAu(context.subcontractor.expired_doc_expiry_date);
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -255,6 +298,14 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "digest_total_value",
   "report_title",
   "report_pdf_link",
+  "subcontractor_contact_first_name",
+  "po_number",
+  "po_total",
+  "po_quote_link",
+  "po_pdf_link",
+  "subcontractor_company_name",
+  "expired_doc_type",
+  "expired_doc_expiry_date",
   "company_name",
   "company_phone",
   "company_email",

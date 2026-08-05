@@ -159,6 +159,11 @@ interface PlaceholderContext {
   referralPartner?: { partner_first_name: string; referred_client_name: string | null; job_title: string | null; job_value_cents: number | null };
   // report_sent only (see the reports_safety_engine migration).
   report?: { title: string; pdf_link: string | null };
+  // subcontractor_quote_request/subcontractor_work_order only (see the
+  // subcontractor_management migration).
+  purchaseOrder?: { contact_first_name: string; po_number: string | null; po_total_cents: number; quote_link: string | null; pdf_link: string | null };
+  // subcontractor_compliance_expired only.
+  subcontractor?: { contact_first_name: string; company_name: string; expired_doc_type_label: string; expired_doc_expiry_date: string | null };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -224,6 +229,19 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
   if (context.report) {
     tokens.report_title = context.report.title;
     tokens.report_pdf_link = context.report.pdf_link ?? "";
+  }
+  if (context.purchaseOrder) {
+    tokens.subcontractor_contact_first_name = context.purchaseOrder.contact_first_name;
+    tokens.po_number = context.purchaseOrder.po_number ?? "";
+    tokens.po_total = formatCentsAsAud(context.purchaseOrder.po_total_cents);
+    tokens.po_quote_link = context.purchaseOrder.quote_link ?? "";
+    tokens.po_pdf_link = context.purchaseOrder.pdf_link ?? "";
+  }
+  if (context.subcontractor) {
+    tokens.subcontractor_contact_first_name = context.subcontractor.contact_first_name;
+    tokens.subcontractor_company_name = context.subcontractor.company_name;
+    tokens.expired_doc_type = context.subcontractor.expired_doc_type_label;
+    tokens.expired_doc_expiry_date = formatDateAu(context.subcontractor.expired_doc_expiry_date);
   }
   if (context.company) {
     tokens.company_name = context.company.name;
@@ -314,7 +332,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner" | "report";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner" | "report" | "purchase_order" | "subcontractor";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -328,6 +346,15 @@ interface ScheduledCommunicationRow {
 // same join logic, just duplicated here for the same reason as the rest of
 // this file's placeholder logic (no cross-directory imports in an Edge
 // Function).
+const DOC_TYPE_LABELS: Record<string, string> = {
+  public_liability: "Public Liability Insurance",
+  workers_comp: "Workers Compensation policy",
+  trade_license: "Trade License",
+  white_card: "White Card",
+  safety_induction: "Safety Induction certificate",
+  other: "compliance document",
+};
+
 function formatAddress(row: {
   address_line1: string | null;
   address_line2: string | null;
@@ -522,6 +549,91 @@ async function buildEntityContext(
       pdfLink = signed?.signedUrl ?? null;
     }
     context.report = { title: template?.title ?? "Report", pdf_link: pdfLink };
+  } else if (row.entity_type === "purchase_order") {
+    // subcontractor_quote_request/subcontractor_work_order rows (see the
+    // subcontractor_management migration) - entity_id is the
+    // purchase_orders row. job/site_address use the same PlaceholderJobContext
+    // shape entity_type='job' already builds, so {job_title}/{site_address}
+    // work in these templates too without a separate token.
+    const { data: po } = await admin.from("purchase_orders").select("*").eq("id", row.entity_id).single();
+    if (!po) return context;
+
+    const { data: job } = await admin.from("job_cards").select("*").eq("id", po.job_card_id).maybeSingle();
+    if (job) {
+      const { data: client } = await admin.from("clients").select("*").eq("id", job.client_id).maybeSingle();
+      const siteAddress = client ? formatAddress(client) : null;
+      context.job = { number: job.number, title: job.title, site_address: siteAddress };
+    }
+
+    let contactFirstName = "";
+    let contactId = po.contact_id;
+    if (!contactId) {
+      const { data: primary } = await admin
+        .from("subcontractor_contacts")
+        .select("id, first_name")
+        .eq("subcontractor_id", po.subcontractor_id)
+        .eq("is_primary_contact", true)
+        .maybeSingle();
+      if (primary) {
+        contactId = primary.id;
+        contactFirstName = firstName(primary.first_name);
+      }
+    } else {
+      const { data: contact } = await admin.from("subcontractor_contacts").select("first_name").eq("id", contactId).maybeSingle();
+      if (contact) contactFirstName = firstName(contact.first_name);
+    }
+
+    let quoteLink: string | null = null;
+    if (po.access_token && APPROVAL_PAGE_URL) {
+      quoteLink = `${APPROVAL_PAGE_URL}?type=po_quote&token=${po.access_token}`;
+    }
+    let pdfLink: string | null = null;
+    if (po.pdf_storage_path) {
+      const { data: signed } = await admin.storage.from("subcontractor-files").createSignedUrl(po.pdf_storage_path, 60 * 60 * 24 * 7);
+      pdfLink = signed?.signedUrl ?? null;
+    }
+
+    context.purchaseOrder = {
+      contact_first_name: contactFirstName,
+      po_number: po.po_number,
+      po_total_cents: po.total_cost_cents,
+      quote_link: quoteLink,
+      pdf_link: pdfLink,
+    };
+  } else if (row.entity_type === "subcontractor") {
+    // subcontractor_compliance_expired rows (see process-subcontractor-
+    // compliance) - entity_id is the subcontractor_companies row, one row
+    // per contact (recipient_phone_or_email already identifies which
+    // contact). Multiple docs can be expired at once; this references
+    // whichever is most overdue (earliest expiry_date), a reasonable
+    // single example for a message that's fundamentally "please send us
+    // updated paperwork", not an exhaustive list.
+    const { data: subcontractor } = await admin.from("subcontractor_companies").select("company_name").eq("id", row.entity_id).maybeSingle();
+    if (!subcontractor) return context;
+
+    const { data: contact } = await admin
+      .from("subcontractor_contacts")
+      .select("first_name")
+      .eq("subcontractor_id", row.entity_id)
+      .eq("email", row.recipient_phone_or_email)
+      .maybeSingle();
+
+    const { data: expiredDoc } = await admin
+      .from("subcontractor_compliance_docs")
+      .select("doc_type, expiry_date")
+      .eq("subcontractor_id", row.entity_id)
+      .not("expiry_date", "is", null)
+      .lt("expiry_date", new Date().toISOString().slice(0, 10))
+      .order("expiry_date", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    context.subcontractor = {
+      contact_first_name: contact ? firstName(contact.first_name) : "",
+      company_name: subcontractor.company_name,
+      expired_doc_type_label: DOC_TYPE_LABELS[expiredDoc?.doc_type as string] ?? "compliance document",
+      expired_doc_expiry_date: expiredDoc?.expiry_date ?? null,
+    };
   }
 
   return context;

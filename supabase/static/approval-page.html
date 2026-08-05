@@ -52,7 +52,7 @@
       // everything else (which document, its data) comes from the ?type=
       // &token= query params and a fetch() to the function.
 
-      var ACCENT = { quote: "#1f2937", invoice: "#22a366", nte_variation: "#b45309" };
+      var ACCENT = { quote: "#1f2937", invoice: "#22a366", nte_variation: "#b45309", po_quote: "#0369a1" };
 
       function escapeHtml(value) {
         return String(value)
@@ -220,6 +220,76 @@
         }
       }
 
+      function renderPoQuote(doc) {
+        var accent = ACCENT.po_quote;
+        var actionSection;
+        if (doc.status === "quoted" || doc.status === "accepted" || doc.status === "completed" || doc.status === "paid") {
+          actionSection =
+            '<p class="message-body" style="margin-top: 20px;">Thanks - your quote of ' +
+            formatCentsAsAud(doc.total_cost_cents) +
+            " has been received. We'll be in touch shortly.</p>";
+        } else if (doc.status === "cancelled") {
+          actionSection = '<p class="message-body" style="margin-top: 20px;">This quote request has been cancelled.</p>';
+        } else {
+          actionSection =
+            '<form id="quote-form">' +
+            '<label for="quote-amount">Your quoted price (AUD, ex GST)</label>' +
+            '<input type="text" inputmode="decimal" id="quote-amount" placeholder="e.g. 850.00" required />' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">Submit quote</button>' +
+            "</form>";
+        }
+
+        var scopeRows = (doc.line_items || [])
+          .map(function (item) {
+            return "<div style=\"margin-top: 6px;\">" + escapeHtml(item.description) + "</div>";
+          })
+          .join("");
+
+        card.innerHTML =
+          (doc.tenant_logo_url ? '<img class="logo" src="' + escapeHtml(doc.tenant_logo_url) + '" />' : "") +
+          '<p class="doc-title" style="color: ' + accent + ';">Quote Request</p>' +
+          (doc.po_number ? '<p class="doc-number"># ' + escapeHtml(doc.po_number) + "</p>" : "") +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.tenant_name || "") + "</strong></div>" +
+          "<div>Requested from " + escapeHtml(doc.subcontractor_company_name || "") + "</div>" +
+          (doc.job_title ? "<div>Job: " + escapeHtml(doc.job_title) + "</div>" : "") +
+          (doc.job_address ? "<div>Site: " + escapeHtml(doc.job_address) + "</div>" : "") +
+          "</div>" +
+          (scopeRows ? '<div class="notes"><strong>Scope of work</strong>' + scopeRows + "</div>" : "") +
+          actionSection;
+
+        var quoteForm = document.getElementById("quote-form");
+        if (quoteForm) {
+          quoteForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var raw = document.getElementById("quote-amount").value;
+            var dollars = parseFloat(raw);
+            if (isNaN(dollars) || dollars <= 0) {
+              renderMessage("Enter an amount", "Please enter a valid quoted price and try again.");
+              return;
+            }
+            var amountCents = Math.round(dollars * 100);
+            fetch(functionUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ type: "po_quote", token: token, action: "submit", amount_cents: amountCents }),
+            })
+              .then(function (res) { return res.json(); })
+              .then(function (data) {
+                if (data.error === "expired") return renderMessage("Link expired", "This link has expired - please ask for a new one.");
+                if (data.error === "already_resolved") return renderMessage("Already submitted", "A quote has already been submitted for this request.");
+                if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match anything.");
+                if (data.error === "amount_required") return renderMessage("Enter an amount", "Please enter a valid quoted price and try again.");
+                if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+                renderMessage("Thank you", "Your quote of " + formatCentsAsAud(amountCents) + " has been submitted. We'll be in touch shortly.");
+              })
+              .catch(function () {
+                renderMessage("Something went wrong", "Please check your connection and try again.");
+              });
+          });
+        }
+      }
+
       function renderDoc(doc) {
         var accent = ACCENT[docType];
         var title = docType === "invoice" ? "Invoice" : "Quote";
@@ -277,7 +347,7 @@
         attachActionHandlers(doc);
       }
 
-      if (docType !== "quote" && docType !== "invoice" && docType !== "nte_variation") {
+      if (docType !== "quote" && docType !== "invoice" && docType !== "nte_variation" && docType !== "po_quote") {
         renderMessage("Not found", "This link is missing a document type or token.");
       } else if (!token) {
         renderMessage("Not found", "This link is missing a token.");
@@ -289,6 +359,7 @@
             if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
             if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
             if (docType === "nte_variation") return renderNteVariation(data);
+            if (docType === "po_quote") return renderPoQuote(data);
             renderDoc(data);
           })
           .catch(function () {

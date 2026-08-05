@@ -18,9 +18,12 @@ import {
   type PropertyManager,
   type Quote,
   type QuoteLineItem,
+  type PurchaseOrder,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
+  type SubcontractorCompany,
+  type SubcontractorTrade,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -31,6 +34,7 @@ import { uploadJobPhoto } from "../lib/uploads";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
+import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
 // jobs/[id].tsx) - copied verbatim rather than shared, matching how
@@ -182,6 +186,17 @@ async function fetchAllReportTemplates(): Promise<ReportTemplate[]> {
   const { data, error } = await supabase.from("report_templates").select("*");
   if (error) throw error;
   return data as ReportTemplate[];
+}
+
+async function fetchLinkedPurchaseOrders(jobId: string): Promise<PurchaseOrder[]> {
+  const { data, error } = await supabase.from("purchase_orders").select("*").eq("job_card_id", jobId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return data as PurchaseOrder[];
+}
+async function fetchSubcontractors(): Promise<SubcontractorCompany[]> {
+  const { data, error } = await supabase.from("subcontractor_companies").select("*").order("preference_tier").order("company_name");
+  if (error) throw error;
+  return data as SubcontractorCompany[];
 }
 
 export default function JobDetailPage() {
@@ -346,6 +361,15 @@ export default function JobDetailPage() {
   });
   const { data: activeReportTemplates } = useQuery({ queryKey: ["report-templates", "active"], queryFn: fetchActiveReportTemplates });
   const { data: allReportTemplates } = useQuery({ queryKey: ["report-templates", "all"], queryFn: fetchAllReportTemplates });
+
+  const { data: linkedPurchaseOrders } = useQuery({
+    queryKey: ["job-purchase-orders", id],
+    queryFn: () => fetchLinkedPurchaseOrders(id!),
+    enabled: !!id,
+  });
+  const { data: allSubcontractors } = useQuery({ queryKey: ["subcontractors"], queryFn: fetchSubcontractors });
+  const [assignSubModalOpen, setAssignSubModalOpen] = useState(false);
+  const [assignSubTradeFilter, setAssignSubTradeFilter] = useState<SubcontractorTrade | "">("");
 
   const [createReportModalOpen, setCreateReportModalOpen] = useState(false);
   const [createReportSearch, setCreateReportSearch] = useState("");
@@ -798,6 +822,42 @@ export default function JobDetailPage() {
       </div>
 
       <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Subcontractors</h2>
+          <button
+            onClick={() => setAssignSubModalOpen(true)}
+            className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
+          >
+            + Assign Subcontractor
+          </button>
+        </div>
+        {!linkedPurchaseOrders || linkedPurchaseOrders.length === 0 ? (
+          <p className="text-sm text-gray-500">No subcontractor work orders or quote requests for this job yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {linkedPurchaseOrders.map((po) => {
+              const sub = (allSubcontractors ?? []).find((s) => s.id === po.subcontractor_id);
+              return (
+                <Link
+                  key={po.id}
+                  to={`/subcontractors/purchase-orders/${po.id}`}
+                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                >
+                  <span>
+                    <span className="font-medium text-blue-700">{po.po_number ?? "Pending"}</span>{" "}
+                    <span className="text-gray-500">
+                      {sub?.company_name ?? "Unknown subcontractor"} - {po.is_quote_request ? "Quote Request" : "Work Order"}
+                    </span>
+                  </span>
+                  <span className="text-gray-600">{formatCentsAsAud(po.total_cost_cents)}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog
           entities={[
@@ -856,6 +916,74 @@ export default function JobDetailPage() {
             );
           })}
           {(unlinkedReports ?? []).length === 0 ? <p className="text-sm text-gray-500">No unlinked standalone reports.</p> : null}
+        </div>
+      </Modal>
+
+      <Modal open={assignSubModalOpen} onClose={() => setAssignSubModalOpen(false)} title="Assign subcontractor">
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Filter by trade</label>
+          <select
+            value={assignSubTradeFilter}
+            onChange={(e) => setAssignSubTradeFilter(e.target.value as SubcontractorTrade | "")}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">All trades</option>
+            {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
+              <option key={trade} value={trade}>
+                {TRADE_LABELS[trade]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="max-h-96 space-y-2 overflow-y-auto">
+          {(allSubcontractors ?? [])
+            .filter((s) => !assignSubTradeFilter || s.trades.includes(assignSubTradeFilter))
+            .map((sub) => {
+              const onHold = sub.status === "compliance_hold";
+              return (
+                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-100"}`}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className={`font-medium ${onHold ? "text-gray-400" : "text-gray-900"}`}>{sub.company_name}</span>
+                    <span className="text-xs text-gray-500">{TIER_LABELS[sub.preference_tier]}</span>
+                  </div>
+                  {onHold ? (
+                    <p className="mb-2 text-xs text-red-700">
+                      On compliance hold - expired documents must be renewed before new work can be issued.
+                    </p>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <Link
+                      to={`/subcontractors/purchase-orders/new?subcontractorId=${sub.id}&quoteRequest=true&jobCardId=${id}`}
+                      onClick={(e) => onHold && e.preventDefault()}
+                      className={`flex-1 rounded-md px-3 py-1.5 text-center text-xs font-semibold ${
+                        onHold ? "cursor-not-allowed bg-gray-100 text-gray-400" : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Request Quote
+                    </Link>
+                    <Link
+                      to={`/subcontractors/purchase-orders/new?subcontractorId=${sub.id}&quoteRequest=false&jobCardId=${id}`}
+                      onClick={(e) => onHold && e.preventDefault()}
+                      className={`flex-1 rounded-md px-3 py-1.5 text-center text-xs font-semibold text-white ${
+                        onHold ? "cursor-not-allowed bg-gray-300" : "bg-blue-700 hover:bg-blue-800"
+                      }`}
+                    >
+                      Issue Work Order
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          {(allSubcontractors ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No subcontractors yet -{" "}
+              <Link to="/subcontractors" className="text-blue-700 hover:underline">
+                add one first
+              </Link>
+              .
+            </p>
+          ) : null}
         </div>
       </Modal>
     </div>
