@@ -20,10 +20,15 @@ const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/xero-oauth-callback`;
 // offline_access - required for a refresh_token (without it the access
 // token, valid 30 minutes, would be all we ever get). accounting.contacts/
 // accounting.transactions - create/update Contacts and Invoices, Phase 1's
-// entire scope. accounting.settings.read - lets the org's chart of
-// accounts be checked/validated against xero_sales_account_code later if
-// needed; harmless to request now even though nothing reads it yet.
-const SCOPES = "offline_access accounting.contacts accounting.transactions accounting.settings.read";
+// entire scope. Kept to exactly what's actually used - an unused extra
+// scope (accounting.settings.read, requested speculatively for a future
+// chart-of-accounts check) was the cause of a real "invalid_scope" error
+// from Xero's own authorize endpoint the first time this was tried, most
+// likely because this Xero app's configuration doesn't have that scope
+// enabled - see docs/SETUP.md section 35 if a scope ever needs adding
+// back: it must also be turned on for the app in the Xero Developer
+// Portal, not just requested here.
+const SCOPES = "offline_access accounting.contacts accounting.transactions";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
