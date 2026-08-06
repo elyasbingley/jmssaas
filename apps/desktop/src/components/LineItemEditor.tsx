@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
 
@@ -8,6 +9,43 @@ interface LineItemEditorProps {
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
+}
+
+// A plain `value={someNumber}` input re-derives its displayed text from the
+// numeric state on every render. That breaks decimal entry: typing "12."
+// parses to 12, which re-renders as "12" with the trailing "." silently
+// dropped, so a "5" typed next becomes "125" instead of "12.5" - full
+// numbers were the only thing that ever worked. Keeping the raw keystrokes
+// in local text state (only re-seeded when the row identity changes, via
+// React's remount-on-key-change - see the `key={index}` on each row below)
+// lets "12.", "12.5" etc pass through untouched while still calling
+// onChange with the parsed number on every keystroke.
+function DecimalField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(() => (value === 0 ? "" : String(value)));
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+      value={text}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (!/^\d*\.?\d*$/.test(next)) return;
+        setText(next);
+        onChange(parseNumber(next));
+      }}
+    />
+  );
 }
 
 // Port of apps/mobile/components/LineItemEditor.tsx - same admin-only full
@@ -54,59 +92,35 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Labour rate ($/hr)</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              <DecimalField
                 value={item.labour_rate_cents / 100}
-                onChange={(e) => updateItem(index, { labour_rate_cents: Math.round(parseNumber(e.target.value) * 100) })}
+                onChange={(n) => updateItem(index, { labour_rate_cents: Math.round(n * 100) })}
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Labour hours</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={item.labour_hours}
-                onChange={(e) => updateItem(index, { labour_hours: parseNumber(e.target.value) })}
-              />
+              <DecimalField value={item.labour_hours} onChange={(n) => updateItem(index, { labour_hours: n })} />
             </div>
           </div>
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Material cost ($)</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              <DecimalField
                 value={item.material_cost_cents / 100}
-                onChange={(e) => updateItem(index, { material_cost_cents: Math.round(parseNumber(e.target.value) * 100) })}
+                onChange={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Markup (%)</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={item.markup_percent}
-                onChange={(e) => updateItem(index, { markup_percent: parseNumber(e.target.value) })}
-              />
+              <DecimalField value={item.markup_percent} onChange={(n) => updateItem(index, { markup_percent: n })} />
             </div>
           </div>
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Quantity</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={item.quantity}
-                onChange={(e) => updateItem(index, { quantity: parseNumber(e.target.value) })}
-              />
+              <DecimalField value={item.quantity} onChange={(n) => updateItem(index, { quantity: n })} />
             </div>
             <div className="flex items-end">
               <button

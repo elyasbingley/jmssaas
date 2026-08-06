@@ -33,7 +33,18 @@ function newId(): string {
 }
 
 function newField(type: ReportFieldType): ReportFieldDefinition {
-  return { id: newId(), type, label: "", required: false, requireActionOnFail: type === "pass_fail" ? true : undefined };
+  // Label defaults to the field type's name rather than "" - the schema
+  // requires a non-empty label to save, so adding a field used to leave you
+  // stuck needing to type a label before you could save anything at all.
+  // This still starts every field's label at a placeholder-y default, but
+  // it's editable immediately below and never blocks a save.
+  return {
+    id: newId(),
+    type,
+    label: FIELD_TYPE_LABELS[type],
+    required: false,
+    requireActionOnFail: type === "pass_fail" ? true : undefined,
+  };
 }
 
 function newSection(): ReportSectionDefinition {

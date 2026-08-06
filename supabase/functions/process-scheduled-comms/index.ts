@@ -337,6 +337,8 @@ interface ScheduledCommunicationRow {
   trigger_key: string;
   channel: "sms" | "email";
   recipient_phone_or_email: string;
+  cc_emails: string[] | null;
+  bcc_emails: string[] | null;
   rendered_subject: string | null;
   rendered_body: string;
   scheduled_for: string;
@@ -654,7 +656,7 @@ function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]+>/g, "").trim();
 }
 
-async function sendEmail(to: string, subject: string | null, body: string): Promise<void> {
+async function sendEmail(to: string, cc: string[], bcc: string[], subject: string | null, body: string): Promise<void> {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     throw new Error("Email provider not configured (RESEND_* env vars missing)");
   }
@@ -667,6 +669,8 @@ async function sendEmail(to: string, subject: string | null, body: string): Prom
     body: JSON.stringify({
       from: RESEND_FROM_EMAIL,
       to: [to],
+      ...(cc.length > 0 ? { cc } : {}),
+      ...(bcc.length > 0 ? { bcc } : {}),
       subject: subject || "(no subject)",
       html: body.replace(/\n/g, "<br>"),
       text: stripHtmlTags(body),
@@ -746,7 +750,7 @@ async function dispatchOne(
   }
 
   try {
-    await sendEmail(recipient, finalSubject, finalBody);
+    await sendEmail(recipient, row.cc_emails ?? [], row.bcc_emails ?? [], finalSubject, finalBody);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[process-scheduled-comms] Failed to dispatch ${row.id}`, message);
@@ -775,7 +779,7 @@ async function runSweep(): Promise<Response> {
 
   const { data: due, error: fetchError } = await admin
     .from("scheduled_communications")
-    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for")
+    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for")
     .eq("status", "pending")
     .lte("scheduled_for", now.toISOString())
     .order("scheduled_for", { ascending: true })
@@ -842,7 +846,7 @@ async function dispatchNow(req: Request, authHeader: string): Promise<Response> 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const { data: row } = await admin
     .from("scheduled_communications")
-    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, rendered_subject, rendered_body, scheduled_for")
+    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for")
     .eq("id", body.id)
     .eq("tenant_id", callerProfile.tenant_id)
     .eq("status", "pending")

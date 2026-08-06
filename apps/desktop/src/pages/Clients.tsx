@@ -15,6 +15,8 @@ async function fetchClients(): Promise<Client[]> {
 }
 
 const emptyForm = {
+  client_type: "individual" as "individual" | "company",
+  company_name: "",
   name: "",
   phone: "",
   email: "",
@@ -23,6 +25,7 @@ const emptyForm = {
   suburb: "",
   state: "",
   postcode: "",
+  workdrive_url: "",
 };
 
 export default function ClientsPage() {
@@ -43,6 +46,8 @@ export default function ClientsPage() {
 
       const { error } = await supabase.from("clients").insert({
         tenant_id: profile.tenant_id,
+        client_type: result.data.client_type,
+        company_name: result.data.client_type === "company" ? result.data.company_name || null : null,
         name: result.data.name,
         phone: result.data.phone || null,
         email: result.data.email || null,
@@ -51,6 +56,7 @@ export default function ClientsPage() {
         suburb: result.data.suburb || null,
         state: result.data.state || null,
         postcode: result.data.postcode || null,
+        workdrive_url: result.data.workdrive_url || null,
         created_by: profile.id,
       });
       if (error) throw error;
@@ -65,7 +71,7 @@ export default function ClientsPage() {
   });
 
   const filteredClients = (clients ?? []).filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
+    `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -110,8 +116,11 @@ export default function ClientsPage() {
                 <tr key={client.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/clients/${client.id}`} className="font-medium text-blue-700 hover:underline">
-                      {client.name}
+                      {client.client_type === "company" && client.company_name ? client.company_name : client.name}
                     </Link>
+                    {client.client_type === "company" ? (
+                      <p className="text-xs text-gray-500">Contact: {client.name}</p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{client.phone ?? "-"}</td>
                   <td className="px-4 py-3 text-gray-600">{client.email ?? "-"}</td>
@@ -123,7 +132,40 @@ export default function ClientsPage() {
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New client">
-        <FormField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, client_type: "individual" })}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
+              form.client_type === "individual" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
+            }`}
+          >
+            Individual / COD
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, client_type: "company" })}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
+              form.client_type === "company" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
+            }`}
+          >
+            Company
+          </button>
+        </div>
+        {form.client_type === "company" ? (
+          <FormField
+            label="Company name"
+            value={form.company_name}
+            onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+            placeholder="e.g. Copano Property Services"
+          />
+        ) : null}
+        <FormField
+          label={form.client_type === "company" ? "Primary contact full name" : "Full name"}
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder={form.client_type === "company" ? "e.g. Andrew Smith" : undefined}
+        />
         <FormField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         <FormField
           label="Email"
@@ -150,6 +192,12 @@ export default function ClientsPage() {
             onChange={(e) => setForm({ ...form, postcode: e.target.value })}
           />
         </div>
+        <FormField
+          label="WorkDrive link (optional)"
+          value={form.workdrive_url}
+          onChange={(e) => setForm({ ...form, workdrive_url: e.target.value })}
+          placeholder="https://workdrive.zoho.com/..."
+        />
         {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
         <div className="flex justify-end gap-3">
           <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">

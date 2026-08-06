@@ -30,8 +30,13 @@
       button { border: none; border-radius: 8px; padding: 14px 20px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
       .accept-btn { background: #16a34a; color: #fff; }
       .decline-btn { background: #f3f4f6; color: #b91c1c; margin-top: 10px; }
+      .pay-btn { background: #635bff; color: #fff; margin-top: 4px; }
       .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
       .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
+      canvas.sig-pad { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 8px; touch-action: none; margin-bottom: 4px; background: #fff; }
+      .sig-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+      .sig-hint { font-size: 12px; color: #9ca3af; }
+      .sig-clear { font-size: 12px; font-weight: 700; color: #b91c1c; background: none; border: none; width: auto; padding: 0; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -131,14 +136,80 @@
         );
       }
 
+      // Canvas-based signature capture, same base64 PNG data URI convention
+      // as the desktop app's report SignaturePad.tsx (see that component's
+      // own comment) - stored straight into accepted_signature_svg and
+      // stamped onto the quote/invoice PDF as proof of acceptance,
+      // alongside the typed name that already existed.
+      function setupSignaturePad(canvas) {
+        var ctx = canvas.getContext("2d");
+        canvas.width = canvas.clientWidth * 2;
+        canvas.height = canvas.clientHeight * 2;
+        ctx.scale(2, 2);
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#1f2937";
+        var drawing = false;
+        var hasStroke = false;
+
+        function pos(e) {
+          var rect = canvas.getBoundingClientRect();
+          var point = e.touches ? e.touches[0] : e;
+          return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+        }
+        function start(e) {
+          e.preventDefault();
+          drawing = true;
+          var p = pos(e);
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+        }
+        function move(e) {
+          if (!drawing) return;
+          e.preventDefault();
+          var p = pos(e);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          hasStroke = true;
+        }
+        function end() {
+          drawing = false;
+        }
+        canvas.addEventListener("mousedown", start);
+        canvas.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", end);
+        canvas.addEventListener("touchstart", start, { passive: false });
+        canvas.addEventListener("touchmove", move, { passive: false });
+        canvas.addEventListener("touchend", end);
+
+        return {
+          isEmpty: function () { return !hasStroke; },
+          toDataUrl: function () { return hasStroke ? canvas.toDataURL("image/png") : ""; },
+          clear: function () {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasStroke = false;
+          },
+        };
+      }
+
       function attachActionHandlers(doc) {
         var acceptForm = document.getElementById("accept-form");
         var declineForm = document.getElementById("decline-form");
+        var sigCanvas = document.getElementById("sig-canvas");
+        var sigPad = sigCanvas ? setupSignaturePad(sigCanvas) : null;
+        var sigClear = document.getElementById("sig-clear");
+        if (sigClear && sigPad) {
+          sigClear.addEventListener("click", function () { sigPad.clear(); });
+        }
         if (acceptForm) {
           acceptForm.addEventListener("submit", function (e) {
             e.preventDefault();
             var name = document.getElementById("accept-name").value;
-            submitAction("accept", { name: name });
+            if (sigPad && sigPad.isEmpty()) {
+              renderMessage("Signature required", "Please sign above to accept this document, then reload the link to try again.");
+              return;
+            }
+            submitAction("accept", { name: name, signature_svg: sigPad ? sigPad.toDataUrl() : "" });
           });
         }
         if (declineForm) {
@@ -147,6 +218,11 @@
             var reason = document.getElementById("decline-reason").value;
             submitAction("decline", { reason: reason });
           });
+        }
+
+        var payButton = document.getElementById("pay-now-btn");
+        if (payButton) {
+          payButton.addEventListener("click", function () { fetchAndGoToPaymentLink(payButton); });
         }
 
         if (action === "accept" && acceptForm) {
@@ -158,6 +234,34 @@
           var reasonInput = document.getElementById("decline-reason");
           if (reasonInput) reasonInput.focus();
         }
+      }
+
+      // "Pay Now" - reached by tapping the button (never on page load, same
+      // no-auto-mutate caution as accept/decline - see this file's own
+      // comment on email security gateways prefetching links), fetches (or
+      // creates) the invoice's Stripe Checkout URL via the same token this
+      // page already loaded with, then redirects the browser to it.
+      function fetchAndGoToPaymentLink(button) {
+        button.disabled = true;
+        button.textContent = "Preparing payment page...";
+        fetch(functionUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ type: "invoice", token: token, action: "get_payment_link", approval_page_url: location.origin + location.pathname }),
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.checkout_url) {
+              location.href = data.checkout_url;
+              return;
+            }
+            if (data.error === "stripe_not_configured") return renderMessage("Payment not available yet", "Online payment isn't set up yet - please pay using the bank details on the invoice, or contact us directly.");
+            if (data.error === "already_paid") return renderMessage("Already paid", "This invoice has already been paid. Thank you!");
+            renderMessage("Something went wrong", "Please try again, or contact us directly.");
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
       }
 
       function submitAction(action, extra) {
@@ -176,6 +280,14 @@
             if (data.error === "name_required") return renderMessage("Name required", "Please enter your name to accept.");
             if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
             if (action === "approve") return renderMessage("Approved", "Thanks - the " + title + " has been approved. The job can now be completed.");
+            if (action === "accept" && docType === "invoice") {
+              // Straight into the Pay Now flow instead of a dead-end thank-
+              // you message - re-fetches so the card re-renders with
+              // status: "accepted" and shows the pay-now-btn from renderDoc.
+              return fetch(functionUrl + "?type=invoice&token=" + encodeURIComponent(token))
+                .then(function (res) { return res.json(); })
+                .then(function (freshDoc) { renderDoc(freshDoc); });
+            }
             if (action === "accept") return renderMessage("Thank you", "You've accepted this " + title.toLowerCase() + ". We'll be in touch shortly.");
             return renderMessage("Received", "You've declined this " + title.toLowerCase() + ". Thanks for letting us know.");
           })
@@ -306,7 +418,21 @@
 
         var actionSection = "";
         if (doc.status === "accepted") {
-          actionSection = '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " has already been accepted. No further action is needed.</p>";
+          // Once an invoice is accepted, the link should take a client
+          // straight to paying it, not leave them at a dead-end "already
+          // accepted" message - that's the whole point of this branch vs.
+          // the quote one below it, which really has nothing further to do.
+          if (docType === "invoice" && doc.payment_status === "paid") {
+            actionSection = '<p class="message-body" style="margin-top: 20px;">This invoice has already been paid. Thank you!</p>';
+          } else if (docType === "invoice") {
+            actionSection =
+              '<p class="message-body" style="margin-top: 20px;">This invoice has been accepted' +
+              (doc.accepted_by_name ? " by " + escapeHtml(doc.accepted_by_name) : "") +
+              '. Ready to pay?</p>' +
+              '<button id="pay-now-btn" class="pay-btn">Pay Now</button>';
+          } else {
+            actionSection = '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " has already been accepted. No further action is needed.</p>";
+          }
         } else if (doc.status === "declined") {
           actionSection =
             '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " was declined" +
@@ -316,6 +442,9 @@
             '<form id="accept-form">' +
             '<label for="accept-name">Type your full name to accept this ' + title.toLowerCase() + "</label>" +
             '<input type="text" id="accept-name" placeholder="Full name" required />' +
+            '<label>Sign to accept</label>' +
+            '<div class="sig-row"><span class="sig-hint">Draw your signature below</span><button type="button" class="sig-clear" id="sig-clear">Clear</button></div>' +
+            '<canvas class="sig-pad" id="sig-canvas"></canvas>' +
             '<button type="submit" class="accept-btn" style="background: ' + accent + ';">I accept this ' + title.toLowerCase() + "</button>" +
             "</form>" +
             '<form id="decline-form">' +

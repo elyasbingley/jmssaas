@@ -2,10 +2,14 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  collectRecipientEmails,
+  createClientSiteSchema,
   createJobNoteSchema,
   formatCentsAsAud,
   type Agency,
   type Client,
+  type ClientContact,
+  type ClientSite,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
@@ -29,11 +33,13 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { queueAndSendEmail } from "../lib/send-email";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
+import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -57,6 +63,44 @@ async function fetchClient(clientId: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", clientId).single();
   if (error) throw error;
   return data as Client;
+}
+
+async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
+  const { data, error } = await supabase
+    .from("client_sites")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("is_primary", { ascending: false })
+    .order("label");
+  if (error) throw error;
+  return data as ClientSite[];
+}
+
+function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
+  return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase.from("client_contacts").select("*").eq("client_id", clientId);
+  if (error) throw error;
+  return data as ClientContact[];
+}
+
+// Every active email template, any trigger - the free-form job email is a
+// "pick a starting point or write from scratch" tool, not scoped to one
+// automation trigger the way the quote/invoice send buttons are.
+async function fetchEmailTemplates(tenantId: string): Promise<EmailTemplateOption[]> {
+  const { data, error } = await supabase
+    .from("communication_templates")
+    .select("id, name, subject, body")
+    .eq("tenant_id", tenantId)
+    .eq("type", "email")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((t) => ({ id: t.id as string, name: t.name as string, subject: (t.subject as string | null) ?? "", body: t.body as string }));
 }
 
 async function fetchAgency(agencyId: string): Promise<Agency> {
@@ -210,6 +254,21 @@ export default function JobDetailPage() {
     queryKey: ["client", job?.client_id],
     queryFn: () => fetchClient(job!.client_id),
     enabled: !!job,
+  });
+  const { data: clientSites } = useQuery({
+    queryKey: ["client-sites", job?.client_id],
+    queryFn: () => fetchClientSites(job!.client_id),
+    enabled: !!job,
+  });
+  const { data: clientContacts } = useQuery({
+    queryKey: ["client-contacts", job?.client_id],
+    queryFn: () => fetchClientContacts(job!.client_id),
+    enabled: !!job,
+  });
+  const { data: emailTemplates } = useQuery({
+    queryKey: ["email-templates", profile?.tenant_id],
+    queryFn: () => fetchEmailTemplates(profile!.tenant_id),
+    enabled: !!profile,
   });
   const { data: agency } = useQuery({
     queryKey: ["agency", job?.agency_id],
@@ -463,11 +522,107 @@ export default function JobDetailPage() {
     onError: (e) => setNoteError(getErrorMessage(e, "Failed to add note")),
   });
 
+  // --- Job address (client_sites.site_id) + WorkDrive link ---
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [addressSiteChoice, setAddressSiteChoice] = useState<string>("");
+  const [newAddressForm, setNewAddressForm] = useState({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "" });
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  const openAddressModal = () => {
+    setAddressSiteChoice(job?.site_id ?? "");
+    setNewAddressForm({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "" });
+    setAddressError(null);
+    setAddressModalOpen(true);
+  };
+
+  const updateJobSite = useMutation({
+    mutationFn: async () => {
+      if (!profile || !job || !client) throw new Error("Not signed in");
+      let siteId: string | null = addressSiteChoice && addressSiteChoice !== "new" ? addressSiteChoice : null;
+      if (addressSiteChoice === "new") {
+        const result = createClientSiteSchema.safeParse({ ...newAddressForm, client_id: client.id });
+        if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a valid address");
+        const { data: newSite, error: siteError } = await supabase
+          .from("client_sites")
+          .insert({
+            tenant_id: profile.tenant_id,
+            client_id: client.id,
+            label: result.data.label || null,
+            address_line1: result.data.address_line1,
+            address_line2: result.data.address_line2 || null,
+            suburb: result.data.suburb,
+            state: result.data.state,
+            postcode: result.data.postcode,
+          })
+          .select("id")
+          .single();
+        if (siteError) throw siteError;
+        siteId = newSite.id as string;
+      }
+      const { error } = await supabase.from("job_cards").update({ site_id: siteId }).eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["client-sites", job?.client_id] });
+      setAddressModalOpen(false);
+    },
+    onError: (e) => setAddressError(getErrorMessage(e, "Failed to update address")),
+  });
+
+  const [workdriveModalOpen, setWorkdriveModalOpen] = useState(false);
+  const [workdriveInput, setWorkdriveInput] = useState("");
+  const [workdriveError, setWorkdriveError] = useState<string | null>(null);
+
+  const saveWorkdrive = useMutation({
+    mutationFn: async () => {
+      if (!job) throw new Error("Job not loaded");
+      const { error } = await supabase.from("job_cards").update({ workdrive_url: workdriveInput || null }).eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      setWorkdriveModalOpen(false);
+    },
+    onError: (e) => setWorkdriveError(getErrorMessage(e, "Failed to save WorkDrive link")),
+  });
+
+  // Free-form job card email - similar to ServiceM8's per-job "Email"
+  // button: pick a template (or write from scratch), review/edit the body,
+  // choose to/cc/bcc, send. Uses entity_type 'job' with its own trigger_key
+  // ('manual_email') so it's distinguishable from templated automation in
+  // the Communication Log, and goes through the same queueAndSendEmail
+  // helper as the quote/invoice composer.
+  const [jobEmailModalOpen, setJobEmailModalOpen] = useState(false);
+  const [jobEmailError, setJobEmailError] = useState<string | null>(null);
+  const [jobEmailResult, setJobEmailResult] = useState<string | null>(null);
+
+  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => {
+    if (!profile || !job) throw new Error("Not signed in");
+    const wasSent = await queueAndSendEmail({
+      tenantId: profile.tenant_id,
+      entityType: "job",
+      entityId: job.id,
+      triggerKey: "manual_email",
+      ...payload,
+    });
+    queryClient.invalidateQueries({ queryKey: ["communication-log"] });
+    setJobEmailError(null);
+    setJobEmailResult(wasSent ? "Email sent." : "Email queued and will send shortly.");
+    setTimeout(() => setJobEmailResult(null), 5000);
+  };
+
   if (!job) {
     return <div className="p-8 text-sm text-gray-500">Loading...</div>;
   }
 
-  const address = client ? formatClientAddress(client) : null;
+  const jobSite = (clientSites ?? []).find((s) => s.id === job.site_id) ?? null;
+  const address = jobSite ? formatSiteAddress(jobSite) : client ? formatClientAddress(client) : null;
+  const jobRecipientOptions = collectRecipientEmails({
+    clientEmail: client?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+    freeText: [job.description, ...(notes ?? []).map((n) => n.body)],
+  });
 
   // Per-job costing breakdown - same math/caveats as JobCosting.tsx's
   // cross-job report (GST-inclusive charged vs. GST-exclusive cost, and a
@@ -496,23 +651,68 @@ export default function JobDetailPage() {
       </Link>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <div className="mb-2 flex items-center gap-3">
-          <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
-          <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
+            <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
+          </div>
+          <button
+            onClick={() => setJobEmailModalOpen(true)}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Email
+          </button>
         </div>
         {job.description ? <p className="mb-4 text-sm text-gray-600">{job.description}</p> : null}
+        {jobEmailError ? <p className="mb-2 text-sm text-red-600">{jobEmailError}</p> : null}
+        {jobEmailResult ? <p className="mb-2 text-sm text-green-700">{jobEmailResult}</p> : null}
 
         {client ? (
           <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
-            <p className="font-semibold text-gray-900">
-              <Link to={`/clients/${client.id}`} className="hover:underline">
-                {client.name}
-              </Link>
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-semibold text-gray-900">
+                <Link to={`/clients/${client.id}`} className="hover:underline">
+                  {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+                </Link>
+              </p>
+              <button onClick={openAddressModal} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+                Edit address
+              </button>
+            </div>
             {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
-            {address ? <p className="text-gray-600">{address}</p> : null}
+            {address ? (
+              <p className="text-gray-600">
+                {jobSite?.label ? `${jobSite.label}: ` : ""}
+                {address}
+              </p>
+            ) : (
+              <p className="text-gray-400">No address on file</p>
+            )}
           </div>
         ) : null}
+
+        <div className="mb-4 rounded-md border border-gray-200 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">WorkDrive</h3>
+            <button
+              onClick={() => {
+                setWorkdriveInput(job.workdrive_url ?? "");
+                setWorkdriveError(null);
+                setWorkdriveModalOpen(true);
+              }}
+              className="text-xs font-semibold text-blue-700 hover:underline"
+            >
+              {job.workdrive_url ? "Edit link" : "+ Add link"}
+            </button>
+          </div>
+          {job.workdrive_url ? (
+            <a href={job.workdrive_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-700 hover:underline">
+              Open WorkDrive folder &rarr;
+            </a>
+          ) : (
+            <p className="mt-1 text-gray-400">No WorkDrive link for this job yet.</p>
+          )}
+        </div>
 
         {job.is_real_estate_job ? (
           <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm">
@@ -986,6 +1186,111 @@ export default function JobDetailPage() {
           ) : null}
         </div>
       </Modal>
+
+      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit job address">
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <select
+            value={addressSiteChoice}
+            onChange={(e) => setAddressSiteChoice(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">{client ? formatClientAddress(client) ?? "Client's main address (none on file)" : "Client's main address"}</option>
+            {(clientSites ?? []).map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.label || "Site"} - {formatSiteAddress(site)}
+              </option>
+            ))}
+            <option value="new">+ Add a new address...</option>
+          </select>
+        </div>
+        {addressSiteChoice === "new" ? (
+          <div className="mb-4 rounded-md border border-gray-200 p-3">
+            <p className="mb-2 text-xs font-semibold text-gray-500">This address will be saved to the client's card too.</p>
+            <FormField
+              label="Label (optional)"
+              value={newAddressForm.label}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, label: e.target.value })}
+              placeholder="e.g. Warehouse, Shop 4"
+            />
+            <FormField
+              label="Address line 1"
+              value={newAddressForm.address_line1}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line1: e.target.value })}
+            />
+            <FormField
+              label="Address line 2"
+              value={newAddressForm.address_line2}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line2: e.target.value })}
+            />
+            <div className="grid grid-cols-3 gap-3">
+              <FormField
+                label="Suburb"
+                value={newAddressForm.suburb}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, suburb: e.target.value })}
+              />
+              <FormField
+                label="State"
+                value={newAddressForm.state}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, state: e.target.value })}
+              />
+              <FormField
+                label="Postcode"
+                value={newAddressForm.postcode}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, postcode: e.target.value })}
+              />
+            </div>
+          </div>
+        ) : null}
+        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => updateJobSite.mutate()}
+            disabled={updateJobSite.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {updateJobSite.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={workdriveModalOpen} onClose={() => setWorkdriveModalOpen(false)} title="WorkDrive link">
+        <FormField
+          label="Link"
+          value={workdriveInput}
+          onChange={(e) => setWorkdriveInput(e.target.value)}
+          placeholder="https://workdrive.zoho.com/..."
+        />
+        {workdriveError ? <p className="mb-4 text-sm text-red-600">{workdriveError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setWorkdriveModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveWorkdrive.mutate()}
+            disabled={saveWorkdrive.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveWorkdrive.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <EmailComposeModal
+        open={jobEmailModalOpen}
+        onClose={() => setJobEmailModalOpen(false)}
+        title={`Email - ${job.title}`}
+        defaultTo={client?.email ?? ""}
+        defaultSubject=""
+        defaultBody=""
+        recipientOptions={jobRecipientOptions}
+        templates={emailTemplates}
+        onSend={handleSendJobEmail}
+        sendLabel="Send email"
+      />
     </div>
   );
 }

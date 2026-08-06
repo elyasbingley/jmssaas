@@ -36,3 +36,10 @@ enabled = true
 # supabase/migrations/20260728000100_quote_invoice_approval.sql, which is
 # the actual access control here, not JWT verification.
 verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe calls this directly with its own Stripe-Signature header, not a
+# Supabase JWT - same reasoning as [functions.approve] above. Signature
+# verification against STRIPE_WEBHOOK_SECRET (done in the function itself)
+# is the real access control here, not the platform's JWT gateway.
+verify_jwt = false

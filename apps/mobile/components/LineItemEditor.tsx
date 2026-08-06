@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
@@ -9,6 +10,41 @@ interface LineItemEditorProps {
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
+}
+
+// See DecimalField's comment in the desktop port of this file: a plain
+// `value={number.toString()}` TextInput re-derives its displayed text from
+// the numeric state on every keystroke, which silently strips a trailing
+// "." the instant it's typed ("12." -> parses to 12 -> redisplays as "12"),
+// so decimals could never be entered by hand - only whole numbers worked.
+// Local text state, seeded once per row (rows are keyed by index below, so
+// this component instance persists across re-renders of the same row)
+// keeps the raw keystrokes intact while still forwarding the parsed number
+// via onChangeValue on every change.
+function DecimalInput({
+  value,
+  onChangeValue,
+  placeholder,
+}: {
+  value: number;
+  onChangeValue: (n: number) => void;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(() => (value === 0 ? "" : String(value)));
+
+  return (
+    <TextInput
+      style={styles.input}
+      placeholder={placeholder}
+      keyboardType="decimal-pad"
+      value={text}
+      onChangeText={(next) => {
+        if (!/^\d*\.?\d*$/.test(next)) return;
+        setText(next);
+        onChangeValue(parseNumber(next));
+      }}
+    />
+  );
 }
 
 // Shared by quotes/new, quotes/[id], invoices/new and invoices/[id] - the
@@ -57,22 +93,18 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           <View style={styles.fieldGrid}>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Labour rate ($/hr)</Text>
-              <TextInput
-                style={styles.input}
+              <DecimalInput
                 placeholder="0"
-                keyboardType="decimal-pad"
-                value={(item.labour_rate_cents / 100).toString()}
-                onChangeText={(text) => updateItem(index, { labour_rate_cents: Math.round(parseNumber(text) * 100) })}
+                value={item.labour_rate_cents / 100}
+                onChangeValue={(n) => updateItem(index, { labour_rate_cents: Math.round(n * 100) })}
               />
             </View>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Labour hours</Text>
-              <TextInput
-                style={styles.input}
+              <DecimalInput
                 placeholder="0"
-                keyboardType="decimal-pad"
-                value={item.labour_hours.toString()}
-                onChangeText={(text) => updateItem(index, { labour_hours: parseNumber(text) })}
+                value={item.labour_hours}
+                onChangeValue={(n) => updateItem(index, { labour_hours: n })}
               />
             </View>
           </View>
@@ -80,22 +112,18 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           <View style={styles.fieldGrid}>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Material cost ($)</Text>
-              <TextInput
-                style={styles.input}
+              <DecimalInput
                 placeholder="0"
-                keyboardType="decimal-pad"
-                value={(item.material_cost_cents / 100).toString()}
-                onChangeText={(text) => updateItem(index, { material_cost_cents: Math.round(parseNumber(text) * 100) })}
+                value={item.material_cost_cents / 100}
+                onChangeValue={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
               />
             </View>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Markup (%)</Text>
-              <TextInput
-                style={styles.input}
+              <DecimalInput
                 placeholder="0"
-                keyboardType="decimal-pad"
-                value={item.markup_percent.toString()}
-                onChangeText={(text) => updateItem(index, { markup_percent: parseNumber(text) })}
+                value={item.markup_percent}
+                onChangeValue={(n) => updateItem(index, { markup_percent: n })}
               />
             </View>
           </View>
@@ -103,12 +131,10 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           <View style={styles.fieldGrid}>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Quantity</Text>
-              <TextInput
-                style={styles.input}
+              <DecimalInput
                 placeholder="1"
-                keyboardType="decimal-pad"
-                value={item.quantity.toString()}
-                onChangeText={(text) => updateItem(index, { quantity: parseNumber(text) })}
+                value={item.quantity}
+                onChangeValue={(n) => updateItem(index, { quantity: n })}
               />
             </View>
             <View style={styles.fieldCell}>

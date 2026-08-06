@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
+  collectRecipientEmails,
   type Agency,
   type ApprovalStatus,
   type Client,
+  type ClientContact,
+  type ClientSite,
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
@@ -14,10 +17,18 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { queueAndSendEmail } from "../lib/send-email";
 import { buildInvoicePdfHtml } from "../lib/quote-invoice-pdf";
 import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
+import { Modal } from "../components/Modal";
+import { EmailComposeModal } from "../components/EmailComposeModal";
+
+function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
+  return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+}
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -75,6 +86,29 @@ async function fetchProperty(propertyId: string): Promise<Property> {
   return data as Property;
 }
 
+async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
+  const { data, error } = await supabase
+    .from("client_sites")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("is_primary", { ascending: false })
+    .order("label");
+  if (error) throw error;
+  return data as ClientSite[];
+}
+
+async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase.from("client_contacts").select("*").eq("client_id", clientId);
+  if (error) throw error;
+  return data as ClientContact[];
+}
+
+async function fetchJobNoteBodies(jobCardId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("job_notes").select("body").eq("job_card_id", jobCardId);
+  if (error) throw error;
+  return (data ?? []).map((n) => n.body as string);
+}
+
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
@@ -96,6 +130,21 @@ export default function InvoiceDetailPage() {
     queryKey: ["property", jobCard?.property_id],
     queryFn: () => fetchProperty(jobCard!.property_id!),
     enabled: !!jobCard?.property_id,
+  });
+  const { data: clientSites } = useQuery({
+    queryKey: ["client-sites", data?.invoice.client_id],
+    queryFn: () => fetchClientSites(data!.invoice.client_id),
+    enabled: !!data,
+  });
+  const { data: clientContacts } = useQuery({
+    queryKey: ["client-contacts", data?.invoice.client_id],
+    queryFn: () => fetchClientContacts(data!.invoice.client_id),
+    enabled: !!data,
+  });
+  const { data: jobNoteBodies } = useQuery({
+    queryKey: ["job-notes-text", data?.invoice.job_card_id],
+    queryFn: () => fetchJobNoteBodies(data!.invoice.job_card_id!),
+    enabled: !!data?.invoice.job_card_id,
   });
 
   // Workflow 4 of the Real Estate & Strata spec: an agency that requires a
@@ -183,15 +232,27 @@ export default function InvoiceDetailPage() {
     onError: (e) => setLinkError(getErrorMessage(e, "Failed to generate approval link")),
   });
 
-  // Mirrors apps/mobile's handleSendInvoiceEmail exactly, using the
-  // invoice_sent trigger_key instead of quote_sent.
-  const sendEmail = useMutation({
-    mutationFn: async () => {
-      if (!data || !profile) throw new Error("Not signed in");
-      if (agencyComplianceError) throw new Error(agencyComplianceError);
-      const email = data.invoice.clients?.email;
-      if (!email) throw new Error("This client has no email address on file - add one on the Clients screen.");
+  // "Send Invoice via Email" pops the editable EmailComposeModal instead of
+  // firing the template straight off - see QuoteDetail.tsx's identical
+  // split into openSendEmail (prefill) + handleSendEmail (actual send via
+  // queueAndSendEmail) for the full reasoning.
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [openingEmail, setOpeningEmail] = useState(false);
 
+  const openSendEmail = async () => {
+    if (!data || !profile) return;
+    if (agencyComplianceError) {
+      setSendEmailError(agencyComplianceError);
+      return;
+    }
+    if (!data.invoice.clients?.email) {
+      setSendEmailError("This client has no email address on file - add one on the Clients screen.");
+      return;
+    }
+    setOpeningEmail(true);
+    setSendEmailError(null);
+    try {
       const { data: rule } = await supabase
         .from("communication_rules")
         .select("*")
@@ -201,7 +262,6 @@ export default function InvoiceDetailPage() {
       if (!rule || !rule.is_enabled) {
         throw new Error("The 'Invoice Delivery' email is turned off in Settings > Automation & Messaging");
       }
-
       const { data: templates } = await supabase
         .from("communication_templates")
         .select("*")
@@ -210,40 +270,79 @@ export default function InvoiceDetailPage() {
         .eq("is_active", true);
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Invoice Delivery' email template found");
+      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+      setEmailModalOpen(true);
+    } catch (e) {
+      setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
+    } finally {
+      setOpeningEmail(false);
+    }
+  };
 
-      const { data: row, error: insertError } = await supabase
-        .from("scheduled_communications")
-        .insert({
-          tenant_id: profile.tenant_id,
-          entity_type: "invoice",
-          entity_id: id,
-          trigger_key: "invoice_sent",
-          template_id: template.id,
-          channel: template.type,
-          recipient_phone_or_email: email,
-          rendered_subject: template.subject,
-          rendered_body: template.body,
-          scheduled_for: new Date().toISOString(),
-          status: "pending",
-        })
-        .select("id")
-        .single();
-      if (insertError) throw insertError;
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => {
+    if (!profile) throw new Error("Not signed in");
+    const wasSent = await queueAndSendEmail({
+      tenantId: profile.tenant_id,
+      entityType: "invoice",
+      entityId: id!,
+      triggerKey: "invoice_sent",
+      ...payload,
+    });
+    const { error } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+    if (error) throw error;
+    invalidate();
+    setSendEmailError(null);
+    setSendResult(wasSent ? "The invoice email has been sent." : "The invoice is marked sent and the email is queued.");
+    setTimeout(() => setSendResult(null), 5000);
+  };
 
-      const wasSent = await triggerImmediateDispatch(row.id);
+  const recipientOptions = collectRecipientEmails({
+    clientEmail: data?.invoice.clients?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+    freeText: jobNoteBodies ?? [],
+  });
 
-      const { error: statusError } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
-      if (statusError) throw statusError;
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [addressSiteChoice, setAddressSiteChoice] = useState("");
+  const [addressError, setAddressError] = useState<string | null>(null);
 
-      return wasSent;
+  const updateSite = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("invoices").update({ site_id: addressSiteChoice || null }).eq("id", id);
+      if (error) throw error;
     },
-    onSuccess: (wasSent) => {
+    onSuccess: () => {
       invalidate();
-      setSendEmailError(null);
-      setSendResult(wasSent ? "The invoice email has been sent." : "The invoice is marked sent and the email is queued.");
-      setTimeout(() => setSendResult(null), 5000);
+      setAddressModalOpen(false);
     },
-    onError: (e) => setSendEmailError(getErrorMessage(e, "Failed to send")),
+    onError: (e) => setAddressError(getErrorMessage(e, "Failed to update address")),
+  });
+
+  const currentSite = (clientSites ?? []).find((s) => s.id === data?.invoice.site_id) ?? null;
+
+  // Stripe Checkout link - regenerated by the same "approve" Edge Function
+  // that serves the public approval page, so the link stays valid against
+  // whatever Stripe secret is configured server-side (see docs/SETUP.md).
+  const [paymentLinkError, setPaymentLinkError] = useState<string | null>(null);
+  const generatePaymentLink = useMutation({
+    mutationFn: async () => {
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) throw new Error("Supabase URL not configured");
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/approve`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "invoice", action: "create_payment_link", invoice_id: id, approval_page_url: approvalPageUrl }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error === "stripe_not_configured" ? "Stripe isn't set up yet - see docs/SETUP.md" : body.error || "Failed to create payment link");
+      return body.checkout_url as string;
+    },
+    onSuccess: () => invalidate(),
+    onError: (e) => setPaymentLinkError(getErrorMessage(e, "Failed to create payment link")),
   });
 
   const [exporting, setExporting] = useState(false);
@@ -259,7 +358,7 @@ export default function InvoiceDetailPage() {
     setExportError(null);
     try {
       const agencyBilling = jobCard?.is_real_estate_job && agency ? { ownerLandlordName: property?.owner_landlord_name ?? null, agencyName: agency.name } : undefined;
-      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling });
+      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
       exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
@@ -285,6 +384,19 @@ export default function InvoiceDetailPage() {
           Job: {data.invoice.job_cards.title}
         </Link>
       ) : null}
+      <p className="mt-1 text-sm text-gray-600">
+        {currentSite ? `${currentSite.label ? `${currentSite.label}: ` : ""}${formatSiteAddress(currentSite)}` : "Client's main address"}{" "}
+        <button
+          onClick={() => {
+            setAddressSiteChoice(data.invoice.site_id ?? "");
+            setAddressError(null);
+            setAddressModalOpen(true);
+          }}
+          className="text-xs font-semibold text-blue-700 hover:underline"
+        >
+          Edit address
+        </button>
+      </p>
 
       {agencyComplianceError ? (
         <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{agencyComplianceError}</p>
@@ -309,11 +421,11 @@ export default function InvoiceDetailPage() {
 
       <div className="mt-4 flex flex-wrap gap-3">
         <button
-          onClick={() => sendEmail.mutate()}
-          disabled={sendEmail.isPending}
+          onClick={() => openSendEmail()}
+          disabled={openingEmail}
           className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
         >
-          {sendEmail.isPending ? "Sending..." : "Send Invoice via Email"}
+          {openingEmail ? "Preparing..." : "Send Invoice via Email"}
         </button>
         <button
           onClick={() => generateLink.mutate()}
@@ -340,6 +452,38 @@ export default function InvoiceDetailPage() {
       {sendEmailError ? <p className="mt-2 text-sm text-red-600">{sendEmailError}</p> : null}
       {sendResult ? <p className="mt-2 text-sm text-green-700">{sendResult}</p> : null}
       {linkError ? <p className="mt-2 text-sm text-red-600">{linkError}</p> : null}
+
+      {data.invoice.approval_status === "accepted" && data.invoice.status !== "paid" ? (
+        <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-3">
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-green-800">Stripe payment link</p>
+          <p className="mb-2 text-xs text-gray-600">
+            Once accepted, the invoice's own link (the one already emailed to the client) takes them straight here instead of back to the
+            acceptance page.
+          </p>
+          {data.invoice.stripe_checkout_url ? (
+            <div className="flex items-center gap-2">
+              <a href={data.invoice.stripe_checkout_url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 hover:underline">
+                Open payment page &rarr;
+              </a>
+              <button
+                onClick={() => navigator.clipboard.writeText(data.invoice.stripe_checkout_url!)}
+                className="text-xs font-semibold text-gray-600 hover:underline"
+              >
+                Copy link
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => generatePaymentLink.mutate()}
+              disabled={generatePaymentLink.isPending}
+              className="rounded-md bg-green-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-60"
+            >
+              {generatePaymentLink.isPending ? "Creating..." : "Create Stripe payment link"}
+            </button>
+          )}
+          {paymentLinkError ? <p className="mt-2 text-sm text-red-600">{paymentLinkError}</p> : null}
+        </div>
+      ) : null}
 
       <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Status</h2>
       <div className="flex flex-wrap gap-2">
@@ -398,6 +542,52 @@ export default function InvoiceDetailPage() {
           {save.isPending ? "Saving..." : "Save changes"}
         </button>
       ) : null}
+
+      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit invoice address">
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <select
+            value={addressSiteChoice}
+            onChange={(e) => setAddressSiteChoice(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">Client's main address</option>
+            {(clientSites ?? []).map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.label || "Site"} - {formatSiteAddress(site)}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-400">
+            To add a brand new address, add it on the client's card first (Clients &rarr; this client &rarr; Addresses).
+          </p>
+        </div>
+        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => updateSite.mutate()}
+            disabled={updateSite.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {updateSite.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <EmailComposeModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        title="Send invoice"
+        defaultTo={data.invoice.clients?.email ?? ""}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+        recipientOptions={recipientOptions}
+        onSend={handleSendEmail}
+        sendLabel="Send invoice"
+      />
     </div>
   );
 }

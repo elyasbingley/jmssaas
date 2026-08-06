@@ -3,6 +3,13 @@ import type { ReportFieldType } from "./reports";
 import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
 
 export const createClientSchema = z.object({
+  // "Individual" (regular COD homeowner): `name` is their own full name.
+  // "Company": `name` is the primary contact person, company_name is the
+  // company's own name (required in that case - see the refine below) -
+  // this is what stops a company client ever being saved with just a
+  // person's name and no company name, or vice versa.
+  client_type: z.enum(["individual", "company"]).default("individual"),
+  company_name: z.string().optional(),
   name: z.string().min(1, "Name is required"),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
@@ -12,8 +19,22 @@ export const createClientSchema = z.object({
   suburb: z.string().optional(),
   state: z.string().optional(),
   postcode: z.string().optional(),
+  workdrive_url: z.string().optional(),
+}).refine((data) => data.client_type !== "company" || !!data.company_name?.trim(), {
+  message: "Company name is required for a company client",
+  path: ["company_name"],
 });
 export type CreateClientInput = z.infer<typeof createClientSchema>;
+
+export const createClientContactSchema = z.object({
+  client_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  role: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+  is_primary: z.boolean().default(false),
+});
+export type CreateClientContactInput = z.infer<typeof createClientContactSchema>;
 
 export const createClientSiteSchema = z.object({
   client_id: z.string().uuid(),

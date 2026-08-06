@@ -4792,3 +4792,225 @@ Scope decisions, each explained in the relevant file's own comment:
   modal against a real signed-in session - needs a real Supabase project
   with real data; this sandbox's Playwright check only reached the
   logged-out route-guard redirect.
+
+## 34. Bug fixes + Client contacts/addresses + Risk register + Signatures + Stripe + Email composer
+
+A large batch of fixes and features requested together, on branch
+`claude/template-risk-client-updates-7ljk6t`:
+
+- **Fix: quote/PO line item decimal entry.** `LineItemEditor.tsx` and
+  `PoLineItemEditor.tsx` (desktop) and `LineItemEditor.tsx` (mobile) drove
+  their labour rate/hours/material cost/markup/quantity inputs straight off
+  `value={someNumber}` - typing "12." parsed to `12`, which redisplayed as
+  "12" with the "." silently dropped, so a decimal point could never
+  actually be typed (only pasting one worked, since paste bypasses the
+  per-keystroke reformat). Fixed with a small `DecimalField`/`DecimalInput`
+  wrapper that keeps the raw typed text in local state instead of
+  re-deriving it from the numeric value every render.
+- **Fix: Template Studio forced a blank field label.** `newField()` in
+  `ReportTemplateEditor.tsx` created every new field with `label: ""`, and
+  the schema requires a non-empty label to save - so adding a field with no
+  label immediately blocked saving the whole template with no obvious way
+  out. New fields now default their label to the field type's name (e.g.
+  "Risk Assessment Matrix"), editable immediately, never blocking a save.
+- **Risk assessment matrix rebuilt as a hazard register.** The old
+  `risk_matrix` field was a single likelihood x consequence pick - the
+  attached SafeWork NSW WHS Form 04 (Site Specific Risk Assessment) and
+  Form 05 (SWMS) templates are actually a *table* of hazards, each with its
+  own control measure, which a single pick couldn't represent. `RiskMatrixAnswer`
+  in `packages/shared/src/reports.ts` is now `{ rows: RiskHazardRow[] }`,
+  each row carrying its own hazard text/likelihood/consequence/rating/
+  control-measures text. `ReportInstance.tsx`'s field renderer and
+  `report-pdf.ts`'s PDF export both updated to add/remove/edit rows and
+  print them as a table. Backwards-compatible read: any report saved
+  before this change (no `rows` array) just renders as "no hazards
+  recorded" instead of crashing.
+- **Clients: company vs individual, contacts, addresses, WorkDrive.**
+  `clients` gained `client_type` ('individual'/'company'), `company_name`
+  (only meaningful when `client_type = 'company'` - `name` keeps meaning
+  "the client's own name" for an individual, "primary contact person" for
+  a company), and `workdrive_url`. A new `client_contacts` table covers the
+  "a company may have 5 people we deal with" case. `client_sites` already
+  existed in the schema (per-job addresses) but had no UI at all and
+  `job_cards.site_id` was never set by any screen - `ClientDetail.tsx` now
+  has Contacts/Addresses sections (add/remove), and its "New job" modal has
+  an address picker (existing site, or "+ Add a new address" which saves to
+  the client). `quotes`/`invoices` gained their own `site_id` (defaults to
+  the client's primary address when unset), editable from `QuoteDetail.tsx`
+  /`InvoiceDetail.tsx`, and `JobDetail.tsx` got the same address-edit
+  control plus its own WorkDrive link section. `quote-invoice-pdf.ts`
+  prints the resolved site's address (falling back to the client's) instead
+  of always the client's own address.
+- **Quote/invoice acceptance signature.** The public approval page
+  (`supabase/static/approval-page.html`) now has a canvas signature pad on
+  the accept form (same base64 PNG data-URI convention as the desktop
+  Reports e-signature field) - required to accept, alongside the existing
+  typed name. Stored in `quotes.accepted_signature_svg` /
+  `invoices.accepted_signature_svg` via `accept_quote_by_token`/
+  `accept_invoice_by_token` (now taking an extra `p_signature_svg` param),
+  and stamped onto the compiled PDF next to the "Accepted by ..." line.
+- **Stripe-linked invoice payment.** Previously the invoice link always
+  went to the same accept/decline page a quote uses - useless once already
+  accepted. Now: once an invoice is `accepted`, its own link shows a "Pay
+  Now" button (tapped explicitly, never auto-fired on page load, same
+  anti-prefetch caution as accept/decline) that creates/reuses a Stripe
+  Checkout Session via the `approve` function's `getOrCreateStripeCheckoutUrl`
+  helper and redirects there. `InvoiceDetail.tsx` also has its own "Create
+  Stripe payment link" control for the office to (re)send. A new
+  `stripe-webhook` function verifies Stripe's signature by hand (Deno Web
+  Crypto, no SDK) and marks the invoice `paid` on `checkout.session.completed`.
+  **Needs your own Stripe account** - see the exact secrets to set below;
+  until `STRIPE_SECRET_KEY` is set, the payment link button shows "Payment
+  not available yet" rather than failing silently.
+- **Editable email composer everywhere an email is sent.** New
+  `EmailComposeModal` component (desktop): editable To/Cc/Bcc/subject/body
+  before sending, with a click-to-add chip list of every email address
+  linked to the client card (their own email + `client_contacts`) and any
+  email address found written into the job's notes/description text (see
+  `packages/shared/src/email-recipients.ts`). Wired into "Send Quote via
+  Email", "Send Invoice via Email", and a new "Email" button on the Job
+  Card (with a template picker, for a ServiceM8-style free-form send).
+  `scheduled_communications` gained `cc_emails`/`bcc_emails` (text arrays),
+  passed straight through to Resend's own `cc`/`bcc` fields in
+  `process-scheduled-comms`. The "Send review request" action deliberately
+  was **not** routed through the composer - it's meant to stay a genuine
+  one-tap automated send.
+
+### New Supabase secrets needed
+
+Beyond the existing `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/`APPROVAL_PAGE_URL`:
+
+- `STRIPE_SECRET_KEY` - your Stripe account's secret key (Stripe Dashboard
+  -> Developers -> API keys). Test mode (`sk_test_...`) works end-to-end
+  against Stripe's test card numbers before you're ready to go live.
+- `STRIPE_WEBHOOK_SECRET` - created after you add the webhook endpoint (see
+  below), Stripe Dashboard -> Developers -> Webhooks -> your endpoint ->
+  "Signing secret".
+
+### Exact steps to push this out to the live site + mobile app
+
+These assume you're on Windows using PowerShell, with `git`, `node`,
+`pnpm` (`corepack enable`), and the Supabase CLI already installed per
+section 1. Run from the repo root (`cd` there first if PowerShell opens
+somewhere else).
+
+**1. Pull the code and install dependencies**
+
+```powershell
+git fetch origin
+git checkout claude/template-risk-client-updates-7ljk6t
+git pull origin claude/template-risk-client-updates-7ljk6t
+pnpm install
+```
+
+If you instead want this merged into `main` first, open/merge the PR on
+GitHub (or `git checkout main; git merge claude/template-risk-client-updates-7ljk6t; git push origin main`),
+then do the rest of these steps from `main`.
+
+**2. Push the new database migrations to Supabase**
+
+```powershell
+npx supabase login
+npx supabase link --project-ref YOUR-PROJECT-REF
+npx supabase db push
+```
+
+This applies the four new files under `supabase/migrations/` (client
+contacts/sites/WorkDrive, signature + Stripe columns, the updated
+`accept_quote_by_token`/`accept_invoice_by_token` RPCs, and the
+`get_invoice_for_approval` field addition) on top of whatever's already
+applied - it's additive, nothing existing is dropped.
+
+**3. Set the new secrets and deploy the changed/new Edge Functions**
+
+```powershell
+npx supabase secrets set STRIPE_SECRET_KEY=sk_test_your_key_here
+npx supabase functions deploy approve --no-verify-jwt
+npx supabase functions deploy stripe-webhook --no-verify-jwt
+```
+
+(`process-scheduled-comms` also changed - the `cc`/`bcc` support - so
+redeploy that too: `npx supabase functions deploy process-scheduled-comms --no-verify-jwt`.)
+
+Then, in the Stripe Dashboard (Developers -> Webhooks -> Add endpoint):
+
+- Endpoint URL: `https://YOUR-PROJECT-REF.supabase.co/functions/v1/stripe-webhook`
+- Events to send: `checkout.session.completed`
+- Copy the endpoint's "Signing secret" and set it:
+  ```powershell
+  npx supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_your_secret_here
+  ```
+
+**4. Re-publish the updated approval page**
+
+`supabase/static/approval-page.html` changed (signature pad, Pay Now
+button). Per section on quote/invoice digital acceptance further up, this
+file is deployed to whichever external static host you chose (Cloudflare
+Pages/Netlify/GitHub Pages/etc, **not** Supabase Storage or an Edge
+Function - Supabase force-downgrades HTML served from its own shared
+domain). Re-deploy the single updated file the same way you did the first
+time (e.g. Cloudflare Pages' dashboard: drag the file in to overwrite; a
+Git-connected static host: just push this branch/`main` and it redeploys
+automatically). No new environment variable is needed - it's the same
+file at the same URL, so `VITE_APPROVAL_PAGE_URL`/
+`EXPO_PUBLIC_APPROVAL_PAGE_URL` don't change.
+
+**5. Deploy the desktop app**
+
+If it's already connected to Vercel (see "Deploying to Vercel" above),
+pushing to `main` on GitHub is enough - Vercel redeploys automatically:
+
+```powershell
+git checkout main
+git push origin main
+```
+
+No new `VITE_*` environment variables are needed for this batch - Stripe
+key/secrets live server-side only (Edge Function secrets, not the desktop
+app's env).
+
+**6. Rebuild and reinstall the mobile app**
+
+`apps/mobile/eas.json` only has a `development` build profile (internal
+APK distribution, no EAS Update/OTA channel configured, no app-store
+submission set up) - per section 6, the only supported way this app has
+ever reached your phone is installing a fresh development-build APK
+directly, not an over-the-air update. The only mobile-visible change in
+this batch is the decimal-input fix in `LineItemEditor.tsx`, so rebuild
+and reinstall the same way you did the first time:
+
+```powershell
+eas build --profile development --platform android
+```
+
+Once the build finishes, EAS gives you a download link/QR code - install
+it on the phone the same way as the very first development build (see
+section 6), replacing the existing app. Everything else in this batch
+(client contacts/addresses UI, risk register, signatures, Stripe, email
+composer) is desktop-only for now - see "Known gaps" below.
+
+### Known gaps / judgment calls
+
+- **Mobile app has no UI yet for**: client contacts, client addresses
+  (add/edit - `client_sites` was already synced read-only for lookups, just
+  never had a management screen anywhere), WorkDrive links, the new risk
+  register field (mobile has no Reports screens at all - that module is
+  desktop-only), or the email composer/free-form job email. Desktop is
+  fully wired; extending these to mobile is follow-up work, not done here.
+- **Stripe webhook has no automatic retry/reconciliation job** - if the
+  webhook delivery fails for some transient reason and Stripe's own
+  retries are exhausted, an invoice could show as paid in Stripe but not
+  in this app. Worth a periodic reconciliation sweep if this ever becomes
+  a real support burden; not built here since it needs real Stripe usage
+  to know if it's actually needed.
+- **CC/BCC recipients aren't validated as real email addresses** before
+  being sent to Resend - a typo'd address in Cc/Bcc fails at Resend's API
+  (surfaced as a failed `scheduled_communications` row), not caught in the
+  composer itself.
+- Everything above was verified by `tsc --noEmit` (clean on both
+  `apps/desktop` and `apps/mobile`) and a production `vite build` (clean,
+  aside from the pre-existing "chunk larger than 500kB" advisory notice) -
+  not against a real deployed Supabase project/Stripe account/Resend
+  account, since none exist in this sandbox. Test the signature pad, the
+  Stripe payment link end-to-end with a Stripe test card, and the email
+  composer's actual send once deployed.

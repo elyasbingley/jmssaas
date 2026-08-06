@@ -109,8 +109,10 @@ function answerSummary(answer: ReportAnswer | undefined): string {
   switch (answer.type) {
     case "pass_fail":
       return answer.value.toUpperCase();
-    case "risk_matrix":
-      return `${RISK_LIKELIHOOD_LABELS[answer.likelihood]} x ${RISK_CONSEQUENCE_LABELS[answer.consequence]} = ${RISK_RATING_LABELS[answer.rating]} risk`;
+    case "risk_matrix": {
+      const count = answer.rows?.length ?? 0;
+      return count === 0 ? "No hazards recorded" : `${count} hazard(s) recorded`;
+    }
     case "text":
     case "long_text":
     case "meter_reading":
@@ -143,6 +145,28 @@ async function renderSection(cursor: PdfCursor, section: ReportSectionDefinition
           const dataUrl = await loadImageDataUrl(bucket, path);
           if (dataUrl) await cursor.image(dataUrl);
         }
+      }
+    } else if (answer?.type === "risk_matrix") {
+      // `?? []` covers report_instances saved before this field became a
+      // hazard register (see reports.ts's RiskMatrixAnswer comment) - a row
+      // with no `rows` array at all just renders as no hazards recorded,
+      // rather than throwing on a completed report from before this change.
+      const rows = answer.rows ?? [];
+      if (rows.length === 0) {
+        cursor.text("No hazards recorded", 9, [107, 114, 128]);
+      }
+      for (const row of rows) {
+        cursor.gap(1);
+        cursor.ensureSpace(20);
+        cursor.text(row.hazard || "(hazard not described)", 9, [17, 24, 39]);
+        const ratingColor: [number, number, number] =
+          row.rating === "extreme" || row.rating === "high" ? [185, 28, 28] : row.rating === "medium" ? [180, 83, 9] : [21, 128, 61];
+        cursor.text(
+          `${RISK_LIKELIHOOD_LABELS[row.likelihood]} x ${RISK_CONSEQUENCE_LABELS[row.consequence]} = ${RISK_RATING_LABELS[row.rating]} risk`,
+          9,
+          ratingColor
+        );
+        if (row.controlMeasures) cursor.text(`Control measures: ${row.controlMeasures}`, 9, [107, 114, 128]);
       }
     } else if (answer?.type === "photo") {
       cursor.text(answerSummary(answer), 9, [107, 114, 128]);

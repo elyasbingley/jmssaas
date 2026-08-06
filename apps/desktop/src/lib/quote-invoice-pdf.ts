@@ -4,6 +4,7 @@ import {
   formatCentsPlain,
   lineItemSubtotalCents,
   type Client,
+  type ClientSite,
   type Invoice,
   type LineItemFormInput,
   type Quote,
@@ -144,24 +145,51 @@ function renderHeader(docType: "quote" | "invoice", docNumber: string, balanceDu
 // agencyBilling overrides just the name line to "Owner/Landlord c/- Agency"
 // for a real-estate job's invoice (see Workflow 4 in the Real Estate &
 // Strata spec) - the rest of the block (address/phone/email) still comes
-// from the invoice's own `clients` row, same as any other invoice, since
-// that's still where this schema's contact details live.
-function renderBillTo(client: Client, agencyBilling?: { ownerLandlordName: string | null; agencyName: string }): string {
-  const addressLines = formatAddressLines({
-    line1: client.address_line1,
-    line2: client.address_line2,
-    suburb: client.suburb,
-    state: client.state,
-    postcode: client.postcode,
-  });
+// from the invoice's own `clients` row, since that's still where this
+// schema's contact details live, unless `site` is supplied - a quote/
+// invoice's own site_id (one of the client's client_sites), which takes
+// priority over the client's single primary address when set.
+function renderBillTo(
+  client: Client,
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string },
+  site?: ClientSite | null
+): string {
+  const addressLines = site
+    ? formatAddressLines({ line1: site.address_line1, line2: site.address_line2, suburb: site.suburb, state: site.state, postcode: site.postcode })
+    : formatAddressLines({
+        line1: client.address_line1,
+        line2: client.address_line2,
+        suburb: client.suburb,
+        state: client.state,
+        postcode: client.postcode,
+      });
   const billToName = agencyBilling ? `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}` : client.name;
   return `
     <div>
       <div class="bill-to-label">Bill To</div>
       <div class="bill-to-name">${escapeHtml(billToName)}</div>
+      ${site?.label ? `<div class="bill-to-detail">${escapeHtml(site.label)}</div>` : ""}
       ${addressLines.map((line) => `<div class="bill-to-detail">${escapeHtml(line)}</div>`).join("")}
       ${client.phone ? `<div class="bill-to-detail">${escapeHtml(client.phone)}</div>` : ""}
       ${client.email ? `<div class="bill-to-detail">${escapeHtml(client.email)}</div>` : ""}
+    </div>
+  `;
+}
+
+// Proof of acceptance stamped onto the document itself - the drawn
+// signature captured on the public approval page (same base64 PNG data URI
+// convention as report_signatures/SignaturePad.tsx), alongside the typed
+// name and timestamp that already existed.
+function renderAcceptanceSignature(docType: "quote" | "invoice", quoteOrInvoice: Quote | Invoice): string {
+  if (quoteOrInvoice.approval_status !== "accepted" || !quoteOrInvoice.accepted_signature_svg) return "";
+  const label = docType === "quote" ? "Quote accepted" : "Invoice accepted";
+  return `
+    <div class="section-title">${label}</div>
+    <div class="section-body">
+      <img src="${escapeHtml(quoteOrInvoice.accepted_signature_svg)}" style="max-width: 220px; max-height: 90px; display: block; margin-bottom: 4px;" />
+      ${escapeHtml(quoteOrInvoice.accepted_by_name ?? "")}${
+        quoteOrInvoice.accepted_at ? ` &middot; ${formatDate(quoteOrInvoice.accepted_at.slice(0, 10))}` : ""
+      }
     </div>
   `;
 }
@@ -232,8 +260,14 @@ function renderBankDetails(tenant: Tenant): string {
   `;
 }
 
-export function buildQuotePdfHtml(params: { tenant: Tenant; quote: Quote; client: Client; lineItems: LineItemFormInput[] }): string {
-  const { tenant, quote, client, lineItems } = params;
+export function buildQuotePdfHtml(params: {
+  tenant: Tenant;
+  quote: Quote;
+  client: Client;
+  lineItems: LineItemFormInput[];
+  site?: ClientSite | null;
+}): string {
+  const { tenant, quote, client, lineItems, site } = params;
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -245,7 +279,7 @@ export function buildQuotePdfHtml(params: { tenant: Tenant; quote: Quote; client
     ${renderHeader("quote", quote.quote_number, null, tenant)}
 
     <div class="meta-row">
-      ${renderBillTo(client)}
+      ${renderBillTo(client, undefined, site)}
       <div class="dates-block">
         <div class="date-row"><span class="date-label">Quote date</span><span class="date-value">${formatDate(quote.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Expiry date</span><span class="date-value">${formatDate(quote.expiry_date)}</span></div>
@@ -255,6 +289,7 @@ export function buildQuotePdfHtml(params: { tenant: Tenant; quote: Quote; client
     ${renderItemsTable("quote", lineItems)}
     ${renderTotals(lineItems, null)}
     ${renderNotes(quote.notes)}
+    ${renderAcceptanceSignature("quote", quote)}
   </body>
 </html>`;
 }
@@ -265,8 +300,9 @@ export function buildInvoicePdfHtml(params: {
   client: Client;
   lineItems: LineItemFormInput[];
   agencyBilling?: { ownerLandlordName: string | null; agencyName: string };
+  site?: ClientSite | null;
 }): string {
-  const { tenant, invoice, client, lineItems, agencyBilling } = params;
+  const { tenant, invoice, client, lineItems, agencyBilling, site } = params;
   // Invoices don't have their own persisted "terms" field distinct from
   // notes (see docs/SETUP.md known-gaps) - the reference template's "terms"
   // line is derived from due_date rather than a fabricated new column.
@@ -285,7 +321,7 @@ export function buildInvoicePdfHtml(params: {
     ${renderHeader("invoice", invoice.invoice_number, balanceDueCents, tenant)}
 
     <div class="meta-row">
-      ${renderBillTo(client, agencyBilling)}
+      ${renderBillTo(client, agencyBilling, site)}
       <div class="dates-block">
         <div class="date-row"><span class="date-label">Invoice date</span><span class="date-value">${formatDate(invoice.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Terms</span><span class="date-value">${escapeHtml(terms)}</span></div>
@@ -296,6 +332,7 @@ export function buildInvoicePdfHtml(params: {
     ${renderItemsTable("invoice", lineItems)}
     ${renderTotals(lineItems, balanceDueCents)}
     ${renderNotes(invoice.notes)}
+    ${renderAcceptanceSignature("invoice", invoice)}
     ${renderBankDetails(tenant)}
   </body>
 </html>`;
