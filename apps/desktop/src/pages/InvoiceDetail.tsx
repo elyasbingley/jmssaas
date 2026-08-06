@@ -338,7 +338,13 @@ export default function InvoiceDetailPage() {
         body: JSON.stringify({ type: "invoice", action: "create_payment_link", invoice_id: id, approval_page_url: approvalPageUrl }),
       });
       const body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error === "stripe_not_configured" ? "Stripe isn't set up yet - see docs/SETUP.md" : body.error || "Failed to create payment link");
+      if (!res.ok || body.error) {
+        const message =
+          body.error === "stripe_not_configured"
+            ? "Stripe isn't set up yet - see docs/SETUP.md"
+            : body.detail || body.error || "Failed to create payment link";
+        throw new Error(message);
+      }
       return body.checkout_url as string;
     },
     onSuccess: () => invalidate(),

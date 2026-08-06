@@ -186,7 +186,7 @@ async function getOrCreateStripeCheckoutUrl(
   admin: ReturnType<typeof createClient>,
   invoice: Record<string, any>,
   approvalPageUrl: string | undefined
-): Promise<{ ok: true; checkout_url: string } | { ok: false; error: string; status: number }> {
+): Promise<{ ok: true; checkout_url: string } | { ok: false; error: string; detail?: string; status: number }> {
   if (invoice.approval_status !== "accepted") return { ok: false, error: "not_accepted", status: 400 };
   if (invoice.status === "paid") return { ok: false, error: "already_paid", status: 400 };
   if (invoice.stripe_checkout_url) return { ok: true, checkout_url: invoice.stripe_checkout_url };
@@ -214,7 +214,7 @@ async function getOrCreateStripeCheckoutUrl(
   const stripeBody = await stripeRes.json();
   if (!stripeRes.ok) {
     console.error("[approve] Stripe checkout session creation failed", stripeBody);
-    return { ok: false, error: "stripe_error", status: 500 };
+    return { ok: false, error: "stripe_error", detail: stripeBody?.error?.message, status: 500 };
   }
 
   const { error: updateError } = await admin
@@ -251,7 +251,7 @@ async function createPaymentLinkForAdmin(req: Request, invoiceId: string | undef
   if (!invoice) return json({ error: "not_found" }, 404);
 
   const result = await getOrCreateStripeCheckoutUrl(admin, invoice, approvalPageUrl);
-  return result.ok ? json({ ok: true, checkout_url: result.checkout_url }) : json({ error: result.error }, result.status);
+  return result.ok ? json({ ok: true, checkout_url: result.checkout_url }) : json({ error: result.error, detail: result.detail }, result.status);
 }
 
 // Public, token-authenticated path - reached by the client's own invoice
@@ -266,5 +266,5 @@ async function getPaymentLinkForToken(token: string, approvalPageUrl: string | u
   if (invoice.token_expires_at && new Date(invoice.token_expires_at) < new Date()) return json({ error: "expired" }, 400);
 
   const result = await getOrCreateStripeCheckoutUrl(admin, invoice, approvalPageUrl);
-  return result.ok ? json({ ok: true, checkout_url: result.checkout_url }) : json({ error: result.error }, result.status);
+  return result.ok ? json({ ok: true, checkout_url: result.checkout_url }) : json({ error: result.error, detail: result.detail }, result.status);
 }
