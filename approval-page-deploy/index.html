@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Document Approval</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Helvetica, Arial, sans-serif; color: #111827; margin: 0; padding: 0; background: #f3f4f6; }
+      .page { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
+      .card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .logo { max-width: 200px; max-height: 80px; margin-bottom: 16px; }
+      .doc-title { font-size: 26px; margin: 0; }
+      .doc-number { color: #6b7280; font-weight: 700; font-size: 13px; margin-top: 4px; }
+      .meta { color: #374151; font-size: 13px; margin-top: 16px; line-height: 1.6; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+      th { text-align: left; font-size: 11px; color: #fff; padding: 8px; }
+      th.num, td.num { text-align: right; }
+      td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 13px; vertical-align: top; white-space: pre-wrap; }
+      .totals { width: 220px; margin-left: auto; margin-top: 16px; }
+      .totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+      .totals-row.total { border-top: 2px solid #111827; font-weight: 700; font-size: 16px; padding-top: 8px; margin-top: 4px; }
+      .notes { margin-top: 20px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+      .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-top: 12px; }
+      .badge.accepted { background: #dcfce7; color: #15803d; }
+      .badge.declined { background: #fee2e2; color: #b91c1c; }
+      form { margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+      label { display: block; font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+      input[type=text], textarea { width: 100%; padding: 12px; font-size: 15px; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 14px; font-family: inherit; }
+      button { border: none; border-radius: 8px; padding: 14px 20px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+      .accept-btn { background: #16a34a; color: #fff; }
+      .decline-btn { background: #f3f4f6; color: #b91c1c; margin-top: 10px; }
+      .pay-btn { background: #635bff; color: #fff; margin-top: 4px; }
+      .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
+      .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
+      canvas.sig-pad { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 8px; touch-action: none; margin-bottom: 4px; background: #fff; }
+      .sig-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+      .sig-hint { font-size: 12px; color: #9ca3af; }
+      .sig-clear { font-size: 12px; font-weight: 700; color: #b91c1c; background: none; border: none; width: auto; padding: 0; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="page"><div class="card" id="card">
+      <p class="message-body">Loading...</p>
+    </div></div>
+
+    <script>
+      // Static shell for the public quote/invoice approval page - hosted in
+      // Supabase Storage (see docs/SETUP.md "Quote/invoice digital
+      // acceptance" for why: Edge Functions on the shared *.supabase.co
+      // domain get their HTML responses force-downgraded to inert
+      // text/plain by the platform itself, a deliberate anti-phishing
+      // measure with no per-function opt-out short of a paid custom
+      // domain; Storage-served static files aren't subject to that, and
+      // the "approve" Edge Function now serves this page's data as plain
+      // JSON instead of pre-rendered HTML). One file, uploaded once -
+      // everything else (which document, its data) comes from the ?type=
+      // &token= query params and a fetch() to the function.
+
+      var ACCENT = { quote: "#1f2937", invoice: "#22a366", nte_variation: "#b45309", po_quote: "#0369a1" };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatCentsAsAud(cents) {
+        return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(cents / 100);
+      }
+
+      function formatDate(dateString) {
+        if (!dateString) return "-";
+        var d = new Date(dateString + "T00:00:00");
+        if (isNaN(d.getTime())) return dateString;
+        return d.toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" });
+      }
+
+      var params = new URLSearchParams(location.search);
+      var docType = params.get("type");
+      var token = params.get("token");
+      // One-click accept/decline from an email button - see the
+      // reminder_ladder migration's {quote_accept_link}/{quote_decline_link}
+      // tokens. Deliberately does NOT auto-submit the moment this page
+      // loads, even though the link already encodes the intended action:
+      // corporate email security gateways (Microsoft Safe Links, Proofpoint,
+      // Mimecast, ...) prefetch every link in an inbound email to scan for
+      // phishing *before* a human ever opens it, which would silently
+      // accept/decline every quote the instant it lands in an inbox if a
+      // mere page load fired the mutating request. Instead, see
+      // attachActionHandlers below: the matching form is pre-filled (using
+      // the client's own name on file, for accept) and scrolled into view,
+      // so a human still only needs one real tap on the button after
+      // opening the link - the mutating POST only ever happens from that
+      // explicit tap.
+      var action = params.get("action");
+      // Absolute, not location.origin-based - this page is now deployed to
+      // an external static host (Cloudflare Pages/Netlify/etc, see
+      // docs/SETUP.md), not to Supabase itself, so it's genuinely cross-
+      // origin from the function. The approve function already sets
+      // Access-Control-Allow-Origin: * for exactly this. Update this if
+      // the Supabase project ever changes.
+      var SUPABASE_URL = "https://qnlxmpxjmmhcnzzpcabd.supabase.co";
+      var functionUrl = SUPABASE_URL + "/functions/v1/approve";
+      var card = document.getElementById("card");
+
+      function renderMessage(title, body) {
+        card.innerHTML =
+          '<p class="message-title">' + escapeHtml(title) + "</p>" +
+          '<p class="message-body">' + escapeHtml(body) + "</p>";
+      }
+
+      function renderLineItemsTable(items) {
+        var rows = items
+          .map(function (item) {
+            return (
+              "<tr>" +
+              "<td>" + escapeHtml(item.description) + "</td>" +
+              '<td class="num">' + item.quantity + "</td>" +
+              '<td class="num">' + formatCentsAsAud(item.unit_price_cents) + "</td>" +
+              '<td class="num">' + formatCentsAsAud(item.quantity * item.unit_price_cents) + "</td>" +
+              "</tr>"
+            );
+          })
+          .join("");
+        return (
+          "<table><thead><tr style=\"background: " + ACCENT[docType] + ";\">" +
+          "<th>Item &amp; Description</th>" +
+          '<th class="num" style="width: 50px;">Qty</th>' +
+          '<th class="num" style="width: 80px;">Rate</th>' +
+          '<th class="num" style="width: 90px;">Amount</th>' +
+          "</tr></thead><tbody>" + rows + "</tbody></table>"
+        );
+      }
+
+      // Canvas-based signature capture, same base64 PNG data URI convention
+      // as the desktop app's report SignaturePad.tsx (see that component's
+      // own comment) - stored straight into accepted_signature_svg and
+      // stamped onto the quote/invoice PDF as proof of acceptance,
+      // alongside the typed name that already existed.
+      function setupSignaturePad(canvas) {
+        var ctx = canvas.getContext("2d");
+        canvas.width = canvas.clientWidth * 2;
+        canvas.height = canvas.clientHeight * 2;
+        ctx.scale(2, 2);
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#1f2937";
+        var drawing = false;
+        var hasStroke = false;
+
+        function pos(e) {
+          var rect = canvas.getBoundingClientRect();
+          var point = e.touches ? e.touches[0] : e;
+          return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+        }
+        function start(e) {
+          e.preventDefault();
+          drawing = true;
+          var p = pos(e);
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+        }
+        function move(e) {
+          if (!drawing) return;
+          e.preventDefault();
+          var p = pos(e);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          hasStroke = true;
+        }
+        function end() {
+          drawing = false;
+        }
+        canvas.addEventListener("mousedown", start);
+        canvas.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", end);
+        canvas.addEventListener("touchstart", start, { passive: false });
+        canvas.addEventListener("touchmove", move, { passive: false });
+        canvas.addEventListener("touchend", end);
+
+        return {
+          isEmpty: function () { return !hasStroke; },
+          toDataUrl: function () { return hasStroke ? canvas.toDataURL("image/png") : ""; },
+          clear: function () {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasStroke = false;
+          },
+        };
+      }
+
+      function attachActionHandlers(doc) {
+        var acceptForm = document.getElementById("accept-form");
+        var declineForm = document.getElementById("decline-form");
+        var sigCanvas = document.getElementById("sig-canvas");
+        var sigPad = sigCanvas ? setupSignaturePad(sigCanvas) : null;
+        var sigClear = document.getElementById("sig-clear");
+        if (sigClear && sigPad) {
+          sigClear.addEventListener("click", function () { sigPad.clear(); });
+        }
+        if (acceptForm) {
+          acceptForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var name = document.getElementById("accept-name").value;
+            if (sigPad && sigPad.isEmpty()) {
+              renderMessage("Signature required", "Please sign above to accept this document, then reload the link to try again.");
+              return;
+            }
+            submitAction("accept", { name: name, signature_svg: sigPad ? sigPad.toDataUrl() : "" });
+          });
+        }
+        if (declineForm) {
+          declineForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var reason = document.getElementById("decline-reason").value;
+            submitAction("decline", { reason: reason });
+          });
+        }
+
+        var payButton = document.getElementById("pay-now-btn");
+        if (payButton) {
+          payButton.addEventListener("click", function () { fetchAndGoToPaymentLink(payButton); });
+        }
+
+        if (action === "accept" && acceptForm) {
+          var nameInput = document.getElementById("accept-name");
+          if (nameInput && !nameInput.value) nameInput.value = doc.client_name || "";
+          acceptForm.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else if (action === "decline" && declineForm) {
+          declineForm.scrollIntoView({ behavior: "smooth", block: "center" });
+          var reasonInput = document.getElementById("decline-reason");
+          if (reasonInput) reasonInput.focus();
+        }
+      }
+
+      // "Pay Now" - reached by tapping the button (never on page load, same
+      // no-auto-mutate caution as accept/decline - see this file's own
+      // comment on email security gateways prefetching links), fetches (or
+      // creates) the invoice's Stripe Checkout URL via the same token this
+      // page already loaded with, then redirects the browser to it.
+      function fetchAndGoToPaymentLink(button) {
+        button.disabled = true;
+        button.textContent = "Preparing payment page...";
+        fetch(functionUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ type: "invoice", token: token, action: "get_payment_link", approval_page_url: location.origin + location.pathname }),
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.checkout_url) {
+              location.href = data.checkout_url;
+              return;
+            }
+            if (data.error === "stripe_not_configured") return renderMessage("Payment not available yet", "Online payment isn't set up yet - please pay using the bank details on the invoice, or contact us directly.");
+            if (data.error === "already_paid") return renderMessage("Already paid", "This invoice has already been paid. Thank you!");
+            renderMessage("Something went wrong", "Please try again, or contact us directly.");
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+
+      function submitAction(action, extra) {
+        var title = docType === "invoice" ? "Invoice" : docType === "nte_variation" ? "budget variation" : "Quote";
+        var body = Object.assign({ type: docType, token: token, action: action }, extra);
+        fetch(functionUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
+            if (data.error === "already_resolved") return renderMessage("Already resolved", "This has already been resolved.");
+            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match anything.");
+            if (data.error === "name_required") return renderMessage("Name required", "Please enter your name to accept.");
+            if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            if (action === "approve") return renderMessage("Approved", "Thanks - the " + title + " has been approved. The job can now be completed.");
+            if (action === "accept" && docType === "invoice") {
+              // Straight into the Pay Now flow instead of a dead-end thank-
+              // you message - re-fetches so the card re-renders with
+              // status: "accepted" and shows the pay-now-btn from renderDoc.
+              return fetch(functionUrl + "?type=invoice&token=" + encodeURIComponent(token))
+                .then(function (res) { return res.json(); })
+                .then(function (freshDoc) { renderDoc(freshDoc); });
+            }
+            if (action === "accept") return renderMessage("Thank you", "You've accepted this " + title.toLowerCase() + ". We'll be in touch shortly.");
+            return renderMessage("Received", "You've declined this " + title.toLowerCase() + ". Thanks for letting us know.");
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+
+      function renderNteVariation(doc) {
+        var accent = ACCENT.nte_variation;
+        var exceededByCents = doc.current_total_cents - doc.nte_limit_cents;
+        var actionSection;
+        if (doc.already_resolved) {
+          actionSection = '<p class="message-body" style="margin-top: 20px;">This budget variation has already been approved. No further action is needed.</p>';
+        } else {
+          actionSection =
+            '<form id="approve-form">' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">Approve this variation</button>' +
+            "</form>";
+        }
+        card.innerHTML =
+          '<p class="doc-title" style="color: ' + accent + ';">Budget Approval Needed</p>' +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.company_name || "") + "</strong></div>" +
+          "<div>Job: " + escapeHtml(doc.job_title || "") + (doc.job_number ? " (" + escapeHtml(doc.job_number) + ")" : "") + "</div>" +
+          (doc.work_order_number ? "<div>Work order: " + escapeHtml(doc.work_order_number) + "</div>" : "") +
+          (doc.property_address ? "<div>Property: " + escapeHtml(doc.property_address) + "</div>" : "") +
+          "</div>" +
+          '<div class="totals" style="width: 260px;">' +
+          '<div class="totals-row"><span>NTE limit</span><span>' + formatCentsAsAud(doc.nte_limit_cents) + "</span></div>" +
+          '<div class="totals-row"><span>Current total</span><span>' + formatCentsAsAud(doc.current_total_cents) + "</span></div>" +
+          '<div class="totals-row total"><span>Exceeds by</span><span>' + formatCentsAsAud(exceededByCents) + "</span></div>" +
+          "</div>" +
+          actionSection;
+
+        var approveForm = document.getElementById("approve-form");
+        if (approveForm) {
+          approveForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            submitAction("approve", {});
+          });
+        }
+      }
+
+      function renderPoQuote(doc) {
+        var accent = ACCENT.po_quote;
+        var actionSection;
+        if (doc.status === "quoted" || doc.status === "accepted" || doc.status === "completed" || doc.status === "paid") {
+          actionSection =
+            '<p class="message-body" style="margin-top: 20px;">Thanks - your quote of ' +
+            formatCentsAsAud(doc.total_cost_cents) +
+            " has been received. We'll be in touch shortly.</p>";
+        } else if (doc.status === "cancelled") {
+          actionSection = '<p class="message-body" style="margin-top: 20px;">This quote request has been cancelled.</p>';
+        } else {
+          actionSection =
+            '<form id="quote-form">' +
+            '<label for="quote-amount">Your quoted price (AUD, ex GST)</label>' +
+            '<input type="text" inputmode="decimal" id="quote-amount" placeholder="e.g. 850.00" required />' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">Submit quote</button>' +
+            "</form>";
+        }
+
+        var scopeRows = (doc.line_items || [])
+          .map(function (item) {
+            return "<div style=\"margin-top: 6px;\">" + escapeHtml(item.description) + "</div>";
+          })
+          .join("");
+
+        card.innerHTML =
+          (doc.tenant_logo_url ? '<img class="logo" src="' + escapeHtml(doc.tenant_logo_url) + '" />' : "") +
+          '<p class="doc-title" style="color: ' + accent + ';">Quote Request</p>' +
+          (doc.po_number ? '<p class="doc-number"># ' + escapeHtml(doc.po_number) + "</p>" : "") +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.tenant_name || "") + "</strong></div>" +
+          "<div>Requested from " + escapeHtml(doc.subcontractor_company_name || "") + "</div>" +
+          (doc.job_title ? "<div>Job: " + escapeHtml(doc.job_title) + "</div>" : "") +
+          (doc.job_address ? "<div>Site: " + escapeHtml(doc.job_address) + "</div>" : "") +
+          "</div>" +
+          (scopeRows ? '<div class="notes"><strong>Scope of work</strong>' + scopeRows + "</div>" : "") +
+          actionSection;
+
+        var quoteForm = document.getElementById("quote-form");
+        if (quoteForm) {
+          quoteForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var raw = document.getElementById("quote-amount").value;
+            var dollars = parseFloat(raw);
+            if (isNaN(dollars) || dollars <= 0) {
+              renderMessage("Enter an amount", "Please enter a valid quoted price and try again.");
+              return;
+            }
+            var amountCents = Math.round(dollars * 100);
+            fetch(functionUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ type: "po_quote", token: token, action: "submit", amount_cents: amountCents }),
+            })
+              .then(function (res) { return res.json(); })
+              .then(function (data) {
+                if (data.error === "expired") return renderMessage("Link expired", "This link has expired - please ask for a new one.");
+                if (data.error === "already_resolved") return renderMessage("Already submitted", "A quote has already been submitted for this request.");
+                if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match anything.");
+                if (data.error === "amount_required") return renderMessage("Enter an amount", "Please enter a valid quoted price and try again.");
+                if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+                renderMessage("Thank you", "Your quote of " + formatCentsAsAud(amountCents) + " has been submitted. We'll be in touch shortly.");
+              })
+              .catch(function () {
+                renderMessage("Something went wrong", "Please check your connection and try again.");
+              });
+          });
+        }
+      }
+
+      function renderDoc(doc) {
+        var accent = ACCENT[docType];
+        var title = docType === "invoice" ? "Invoice" : "Quote";
+        var number = docType === "invoice" ? doc.invoice_number : doc.quote_number;
+        var dateLabel = docType === "invoice" ? "Due date" : "Expiry date";
+        var dateValue = docType === "invoice" ? doc.due_date : doc.expiry_date;
+
+        var statusBadge = "";
+        if (doc.status === "accepted") {
+          statusBadge = '<span class="badge accepted">Accepted by ' + escapeHtml(doc.accepted_by_name || "client") + "</span>";
+        } else if (doc.status === "declined") {
+          statusBadge = '<span class="badge declined">Declined</span>';
+        }
+
+        var actionSection = "";
+        if (doc.status === "accepted") {
+          // Once an invoice is accepted, the link should take a client
+          // straight to paying it, not leave them at a dead-end "already
+          // accepted" message - that's the whole point of this branch vs.
+          // the quote one below it, which really has nothing further to do.
+          if (docType === "invoice" && doc.payment_status === "paid") {
+            actionSection = '<p class="message-body" style="margin-top: 20px;">This invoice has already been paid. Thank you!</p>';
+          } else if (docType === "invoice") {
+            actionSection =
+              '<p class="message-body" style="margin-top: 20px;">This invoice has been accepted' +
+              (doc.accepted_by_name ? " by " + escapeHtml(doc.accepted_by_name) : "") +
+              '. Ready to pay?</p>' +
+              '<button id="pay-now-btn" class="pay-btn">Pay Now</button>';
+          } else {
+            actionSection = '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " has already been accepted. No further action is needed.</p>";
+          }
+        } else if (doc.status === "declined") {
+          actionSection =
+            '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " was declined" +
+            (doc.decline_reason ? ': "' + escapeHtml(doc.decline_reason) + '"' : ".") + "</p>";
+        } else {
+          actionSection =
+            '<form id="accept-form">' +
+            '<label for="accept-name">Type your full name to accept this ' + title.toLowerCase() + "</label>" +
+            '<input type="text" id="accept-name" placeholder="Full name" required />' +
+            '<label>Sign to accept</label>' +
+            '<div class="sig-row"><span class="sig-hint">Draw your signature below</span><button type="button" class="sig-clear" id="sig-clear">Clear</button></div>' +
+            '<canvas class="sig-pad" id="sig-canvas"></canvas>' +
+            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">I accept this ' + title.toLowerCase() + "</button>" +
+            "</form>" +
+            '<form id="decline-form">' +
+            '<label for="decline-reason">Decline instead (optional reason)</label>' +
+            '<textarea id="decline-reason" rows="3" placeholder="Let us know why (optional)"></textarea>' +
+            '<button type="submit" class="decline-btn">Decline this ' + title.toLowerCase() + "</button>" +
+            "</form>";
+        }
+
+        card.innerHTML =
+          (doc.tenant_logo_url ? '<img class="logo" src="' + escapeHtml(doc.tenant_logo_url) + '" />' : "") +
+          '<p class="doc-title" style="color: ' + accent + ';">' + title + "</p>" +
+          '<p class="doc-number"># ' + escapeHtml(number || "") + "</p>" +
+          statusBadge +
+          '<div class="meta">' +
+          "<div><strong>" + escapeHtml(doc.tenant_name) + "</strong></div>" +
+          "<div>Prepared for " + escapeHtml(doc.client_name) + "</div>" +
+          "<div>Issued " + formatDate(doc.issue_date) + " &middot; " + dateLabel + " " + formatDate(dateValue) + "</div>" +
+          "</div>" +
+          renderLineItemsTable(doc.line_items) +
+          '<div class="totals">' +
+          '<div class="totals-row"><span>Sub Total</span><span>' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
+          '<div class="totals-row"><span>GST</span><span>' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
+          '<div class="totals-row total"><span>Total</span><span>' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
+          "</div>" +
+          (doc.notes ? '<div class="notes"><strong>Notes</strong><br/>' + escapeHtml(doc.notes) + "</div>" : "") +
+          actionSection;
+
+        attachActionHandlers(doc);
+      }
+
+      if (docType !== "quote" && docType !== "invoice" && docType !== "nte_variation" && docType !== "po_quote") {
+        renderMessage("Not found", "This link is missing a document type or token.");
+      } else if (!token) {
+        renderMessage("Not found", "This link is missing a token.");
+      } else {
+        fetch(functionUrl + "?type=" + encodeURIComponent(docType) + "&token=" + encodeURIComponent(token))
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.error === "expired") return renderMessage("Link expired", "This approval link has expired - please ask for a new one.");
+            if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match any document.");
+            if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
+            if (docType === "nte_variation") return renderNteVariation(data);
+            if (docType === "po_quote") return renderPoQuote(data);
+            renderDoc(data);
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+    </script>
+  </body>
+</html>
