@@ -19,16 +19,20 @@ const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/xero-oauth-callback`;
 
 // offline_access - required for a refresh_token (without it the access
 // token, valid 30 minutes, would be all we ever get). accounting.contacts/
-// accounting.transactions - create/update Contacts and Invoices, Phase 1's
-// entire scope. Kept to exactly what's actually used - an unused extra
-// scope (accounting.settings.read, requested speculatively for a future
-// chart-of-accounts check) was the cause of a real "invalid_scope" error
-// from Xero's own authorize endpoint the first time this was tried, most
-// likely because this Xero app's configuration doesn't have that scope
-// enabled - see docs/SETUP.md section 35 if a scope ever needs adding
-// back: it must also be turned on for the app in the Xero Developer
-// Portal, not just requested here.
-const SCOPES = "offline_access accounting.contacts accounting.transactions";
+// accounting.invoices - create/update Contacts and Invoices, Phase 1's
+// entire scope. Two rounds of "invalid_scope" from Xero's own authorize
+// endpoint got this to exactly what this Xero app is actually configured
+// with (checked against the app's own Configuration -> scopes list in the
+// Xero Developer Portal): accounting.transactions - the older, coarser
+// scope name that used to cover invoices/bank transactions/etc together -
+// isn't in this app's available scopes at all; Xero's replaced it with
+// granular per-object scopes (accounting.invoices, accounting.payments,
+// accounting.banktransactions, ...) for newer apps, so accounting.invoices
+// is the correct one for what xero-sync actually does (create/update
+// Invoices). If a scope ever needs adding back, it must also be turned on
+// for the app in the Xero Developer Portal, not just requested here - see
+// docs/SETUP.md section 35.
+const SCOPES = "offline_access accounting.contacts accounting.invoices";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
