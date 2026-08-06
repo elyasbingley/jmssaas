@@ -1,0 +1,164 @@
+# PowerSync sync rules for Phase 1.
+# Uploaded via the PowerSync dashboard (Instance > Sync Rules) - see docs/SETUP.md.
+#
+# Only the tables required to be offline-editable per Phase 1 scope are
+# synced to devices: clients, client_sites, job_cards (+ notes/files) and
+# tasks (+ notes/files), plus profiles as a read-only reference for
+# names/roles. Quotes, invoices, templates and calendar events are office/PC
+# workflows and are read directly from Supabase when online, not synced to
+# local SQLite.
+#
+# Bucket split by role (previously one tenant-wide bucket for everyone):
+#
+# - tenant_reference_data: clients, client_sites and profiles stay
+#   tenant-wide for every signed-in user regardless of role - any tech can
+#   look up any client on site, and everyone needs names/roles for the team.
+#   This is unchanged from before. service_categories and job_lifecycle_stages
+#   joined this bucket too (job_categories_lifecycle_stages migration) - unlike
+#   price_book, which stays Supabase-direct/admin-only quote+invoice tooling,
+#   every job list/detail screen (including technician-facing ones) needs to
+#   render category tags and stage badges offline, so this is tenant-wide read
+#   data like clients, not admin-scoped like admin_job_data. Writes are still
+#   admin-only, enforced by Postgres RLS - PowerSync bucket membership only
+#   controls read/download scope, not write permission.
+#
+#   inventory_locations/inventory_levels joined next (inventory_stock_
+#   control migration) - inventory_locations (naming/managing "Ute 1"/
+#   "Main Warehouse") is admin-managed setup data like service_categories
+#   above; inventory_levels (the day-to-day quantity a technician taps +/-
+#   on) is genuinely tenant-wide *writable*, not just readable - see its
+#   own RLS policies - but PowerSync bucket membership only ever governs
+#   what syncs to a device, not who can write, so both fit in this one
+#   read-side bucket the same as everything else here.
+#
+#   That same migration originally also added price_book_categories/
+#   price_book_items here, reasoning that inventory_levels.item_id pointed
+#   at a price_book_items row and so needed that catalogue synced too. The
+#   inventory_material_categories migration reversed that: inventory turned
+#   out to need its own standalone catalogue (materials/tools aren't
+#   quote/invoice pricing items), so item_id now points at a new
+#   inventory_items row instead, and price_book_categories/price_book_items
+#   are back to Supabase-direct/online-only, same as before that earlier
+#   design (see docs/SETUP.md). inventory_categories/inventory_subcategories/
+#   inventory_items joined this bucket in their place, tenant-wide read for
+#   the same reason job categories/stages did - every inventory screen,
+#   technician-facing included, needs to render this hierarchy offline.
+#   Writes to all three stay admin-only via RLS, same pattern as
+#   inventory_locations.
+#
+#   inventory_suppliers joined next (inventory_suppliers_and_targets
+#   migration) - same reasoning again: a technician picking a location
+#   still needs to see which supplier an item comes from offline, and RLS
+#   already makes it tenant-wide read, admin-only write, same shape as
+#   inventory_categories.
+#
+#   communication_rules/communication_templates joined next (communication_
+#   engine migration) - admin-managed automation timing/message setup data,
+#   tenant-wide read like inventory_categories above (a technician's app
+#   needs the template text offline for the manual "On The Way"/review
+#   request triggers even though only an admin can edit it), admin-only
+#   write via RLS. scheduled_communications joined too - unlike those two,
+#   it's tenant-wide *writable* like inventory_levels, since a technician's
+#   "On The Way" tap inserts a row directly from the field.
+#
+# - admin_job_data: admins still get the full tenant's job_cards, job_notes,
+#   job_files and tasks, same as before - they need to see and assign
+#   everything. Scoped to role = 'admin' so technicians get zero instances
+#   of this bucket. job_measurements (roof_measurements migration) joined
+#   both this bucket and technician_assigned_jobs below alongside job_notes/
+#   job_files - it's the same "job-scoped field data" shape (a technician
+#   drawing/saving a roof measurement on-site needs it to work with no
+#   reception, same as adding a note or photo), and Postgres RLS already
+#   restricts it to admin-or-assigned-technician the same way.
+#
+# - technician_assigned_jobs / technician_own_tasks: technician devices no
+#   longer download every job in the tenant. technician_assigned_jobs uses a
+#   parameter query that returns one row per job card assigned to the
+#   caller - PowerSync fans that out into one bucket instance per job, each
+#   instance carrying only that job's own notes, files and tasks. This is
+#   what makes "notes/files scoped to jobs assigned to me" possible, not
+#   just job_cards itself - the full nested scoping from the original ask
+#   IS achieved here, not deferred. technician_own_tasks separately covers
+#   tasks assigned directly to a technician that aren't tied to one of
+#   their jobs (standalone tasks, or a task on a job that isn't theirs).
+#
+# Neither technician bucket explicitly excludes admins by role (their
+# parameter queries just match on assigned_technician_id / assigned_to =
+# request.user_id(), not a role check) - deliberately left simple rather
+# than joining against profiles to gate by role too, since there's no
+# PowerSync instance provisioned in this environment to confirm PowerSync's
+# sync-rules SQL actually supports a join inside a parameter query the way
+# plain Postgres does (the underlying table/column SQL below was verified
+# against a real Postgres 16 instance - see the note at the bottom of this
+# file - but that only proves the SQL is valid, not that PowerSync's parser
+# accepts every construct plain Postgres does). Being simple here is
+# harmless, not incorrect: if an admin is ever also someone's
+# assigned_technician_id (e.g. the business owner doing field work
+# themselves), they'd just receive that data via two bucket paths instead
+# of one - the same rows, not different ones. They already get everything
+# through admin_job_data regardless.
+#
+# Postgres RLS is unchanged by this file - it already correctly restricts
+# live queries per technician. This closes the separate local-storage gap
+# where a technician's device previously held the entire tenant's job data
+# in local SQLite even though RLS would block them from fetching most of it
+# directly.
+#
+# Validated (in this environment, against a real Postgres 16 instance -
+# see docs/SETUP.md's note in the known-gaps section): every query below,
+# with bucket.*/request.user_id() substituted for literal values, runs
+# without error against the actual schema, and end-to-end - a job card
+# assigned to a technician is returned by technician_assigned_jobs'
+# parameter query, and a job_notes row scoped to that job_card_id returns
+# only that job's own note, not another job's. What's NOT validated here is
+# PowerSync's own YAML parsing and bucket-fanout behavior, since that's
+# evaluated by the PowerSync sync service itself, not Postgres - do a real
+# sync test per docs/SETUP.md section 8 once an instance is provisioned.
+
+bucket_definitions:
+  tenant_reference_data:
+    parameters: select tenant_id from profiles where id = request.user_id()
+    data:
+      - select * from clients where tenant_id = bucket.tenant_id
+      - select * from client_sites where tenant_id = bucket.tenant_id
+      - select * from profiles where tenant_id = bucket.tenant_id
+      - select * from service_categories where tenant_id = bucket.tenant_id
+      - select * from job_lifecycle_stages where tenant_id = bucket.tenant_id
+      - select * from inventory_locations where tenant_id = bucket.tenant_id
+      - select * from inventory_categories where tenant_id = bucket.tenant_id
+      - select * from inventory_subcategories where tenant_id = bucket.tenant_id
+      - select * from inventory_suppliers where tenant_id = bucket.tenant_id
+      - select * from inventory_items where tenant_id = bucket.tenant_id
+      - select * from inventory_levels where tenant_id = bucket.tenant_id
+      - select * from communication_rules where tenant_id = bucket.tenant_id
+      - select * from communication_templates where tenant_id = bucket.tenant_id
+      - select * from scheduled_communications where tenant_id = bucket.tenant_id
+
+  admin_job_data:
+    parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'
+    data:
+      - select * from job_cards where tenant_id = bucket.tenant_id
+      - select * from job_notes where tenant_id = bucket.tenant_id
+      - select * from job_files where tenant_id = bucket.tenant_id
+      - select * from job_measurements where tenant_id = bucket.tenant_id
+      - select * from tasks where tenant_id = bucket.tenant_id
+      - select * from task_notes where tenant_id = bucket.tenant_id
+      - select * from task_files where tenant_id = bucket.tenant_id
+
+  technician_assigned_jobs:
+    parameters: select id as job_card_id from job_cards where assigned_technician_id = request.user_id()
+    data:
+      - select * from job_cards where id = bucket.job_card_id
+      - select * from job_notes where job_card_id = bucket.job_card_id
+      - select * from job_files where job_card_id = bucket.job_card_id
+      - select * from job_measurements where job_card_id = bucket.job_card_id
+      - select * from tasks where job_card_id = bucket.job_card_id
+      - select * from task_notes where job_card_id = bucket.job_card_id
+      - select * from task_files where job_card_id = bucket.job_card_id
+
+  technician_own_tasks:
+    parameters: select request.user_id() as user_id
+    data:
+      - select * from tasks where assigned_to = bucket.user_id
+      - select * from task_notes where assigned_to = bucket.user_id
+      - select * from task_files where assigned_to = bucket.user_id

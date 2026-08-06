@@ -1,0 +1,19 @@
+{
+  "name": "jmssaas",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:mobile": "pnpm --filter mobile dev",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.110.7",
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.3"
+  }
+}

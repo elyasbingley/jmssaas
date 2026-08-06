@@ -1,0 +1,45 @@
+project_id = "jmssaas"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:8081"
+additional_redirect_urls = ["http://localhost:8081"]
+jwt_expiry = 3600
+enable_signup = false
+
+[storage]
+enabled = true
+
+[functions.approve]
+# This function serves the public quote/invoice acceptance page - the
+# client clicking the link is never signed in and sends no Authorization
+# header at all, so with the default verify_jwt = true the platform
+# gateway rejects every request before it even reaches the function code
+# (UNAUTHORIZED_NO_AUTH_HEADER). The function is still safe to expose
+# unauthenticated: every read/write it does goes through the token-
+# validated SECURITY DEFINER RPCs added in
+# supabase/migrations/20260728000100_quote_invoice_approval.sql, which is
+# the actual access control here, not JWT verification.
+verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe calls this directly with its own Stripe-Signature header, not a
+# Supabase JWT - same reasoning as [functions.approve] above. Signature
+# verification against STRIPE_WEBHOOK_SECRET (done in the function itself)
+# is the real access control here, not the platform's JWT gateway.
+verify_jwt = false
