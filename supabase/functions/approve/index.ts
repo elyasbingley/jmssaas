@@ -34,10 +34,18 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 
 type DocType = "quote" | "invoice" | "nte_variation" | "po_quote";
 
+// "authorization" added alongside the original "content-type" - the public
+// approval page never sent an Authorization header (the token in the
+// request body is its credential), but InvoiceDetail.tsx's "Create Stripe
+// payment link" button does (see createPaymentLinkForAdmin), sent with the
+// signed-in admin's own bearer token. Without "authorization" listed here,
+// the browser's CORS preflight rejects that header before the request ever
+// reaches this function - same class of bug already documented in
+// dispatch-now.ts/process-scheduled-comms's own CORS_HEADERS comment.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type",
+  "Access-Control-Allow-Headers": "authorization, content-type",
 };
 
 function json(body: unknown, status = 200): Response {
