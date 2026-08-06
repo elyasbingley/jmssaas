@@ -5014,3 +5014,114 @@ composer) is desktop-only for now - see "Known gaps" below.
   account, since none exist in this sandbox. Test the signature pad, the
   Stripe payment link end-to-end with a Stripe test card, and the email
   composer's actual send once deployed.
+
+## 35. Xero integration - Phase 1 (one-way push: this app -> Xero)
+
+Connects a tenant's Xero organisation via OAuth2 (Settings screen), then
+lets an admin push an individual invoice (creating/reusing its client as a
+Xero Contact, creating/updating the matching Xero Invoice) via a "Sync to
+Xero" button on Invoice Detail. Deliberately staged as one-way for now -
+see the xero-sync function's own comment for why a full two-way sync
+(payments recorded in Xero flowing back to mark an invoice paid here) is
+Phase 2, not built in this pass.
+
+### What's built
+
+- `xero_connections` - one row per tenant, holding the OAuth2 access/
+  refresh tokens for their connected Xero organisation. No RLS policies
+  granted to anon/authenticated at all - only the service role (Edge
+  Functions) can read/write it directly. The desktop app only ever calls
+  `get_xero_connection_status()`/`disconnect_xero()` (SECURITY DEFINER
+  RPCs that never expose the tokens themselves).
+- `xero_oauth_states` - short-lived CSRF-protection rows for the OAuth
+  handshake, same lockdown.
+- `clients.xero_contact_id` / `invoices.xero_invoice_id` /
+  `invoices.xero_synced_at` / `invoices.xero_sync_error` - the mapping
+  and last-sync-result columns.
+- `tenants.xero_sales_account_code` - which chart-of-accounts code
+  invoice line items post against in Xero, admin-configurable in Company
+  Settings (defaults to '200', Xero's standard default AU "Sales" code -
+  not guaranteed to match every tenant's actual chart).
+- Three new Edge Functions: `xero-oauth-start` (builds the Xero authorize
+  URL), `xero-oauth-callback` (public - Xero's own redirect target,
+  exchanges the auth code for tokens, stores the connection, redirects
+  back to Settings), `xero-sync` (the actual Contact+Invoice push,
+  refreshing the access token first if it's near expiry).
+- Settings screen: Connect/Disconnect Xero, connection status, sales
+  account code field.
+- Invoice Detail: "Sync to Xero"/"Re-sync to Xero" button once the
+  invoice is past draft, last-synced time, a "View in Xero" link, and any
+  sync error inline.
+
+### New Xero Developer app + secrets needed
+
+1. [developer.xero.com](https://developer.xero.com) -> **My Apps -> New
+   app** -> **Web app**.
+2. **Redirect URI** (must match exactly):
+   ```
+   https://YOUR-PROJECT-REF.supabase.co/functions/v1/xero-oauth-callback
+   ```
+3. Once created, on the app's **Configuration** tab, copy the **Client ID**
+   and generate/copy a **Client Secret** (shown once only).
+4. Set both as Supabase secrets, plus where the OAuth callback should
+   redirect the browser back to once it's resolved (your desktop app's
+   Settings page):
+   ```powershell
+   npx supabase secrets set XERO_CLIENT_ID=your_client_id_here
+   npx supabase secrets set XERO_CLIENT_SECRET=your_client_secret_here
+   npx supabase secrets set XERO_APP_REDIRECT_URL=https://jmssaas.vercel.app/settings
+   ```
+
+### Deploy steps
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx supabase functions deploy xero-oauth-start
+npx supabase functions deploy xero-oauth-callback --no-verify-jwt
+npx supabase functions deploy xero-sync
+npx vercel --prod
+```
+
+(`xero-oauth-start`/`xero-sync` need the caller's own bearer token and
+work fine under the platform's default JWT verification, so no
+`--no-verify-jwt` for those two - only `xero-oauth-callback`, which Xero
+reaches directly with no Supabase session at all.)
+
+Then in Settings, **Connect to Xero**, approve on Xero's consent screen,
+and confirm it redirects back showing "Connected to [org name]". Test a
+sync on an already-accepted (non-draft) invoice, then check the Contact
+and Invoice actually appear in Xero.
+
+### Known gaps / judgment calls
+
+- **One-way only** - nothing here reads anything back from Xero. A
+  payment recorded directly in Xero does not mark the invoice paid in
+  this app (Stripe payments still do, via the separate stripe-webhook
+  function). Phase 2 (a Xero webhook subscription for
+  `Invoices.PaymentUpdated` or similar, verified and applied the same way
+  stripe-webhook verifies Stripe's signature) would close that loop -
+  intentionally not built yet.
+- **No automatic sync** - nothing pushes to Xero on invoice status change;
+  every sync is a deliberate button click. Worth automating once Phase 1
+  has been exercised against a real Xero org without surprises.
+- **Contact matching is exact-name-only** - `ensureXeroContact` searches
+  Xero by exact contact name before creating a new one, to avoid
+  obviously duplicating a business's existing Xero contacts on first
+  connect. It won't catch near-duplicates (e.g. "J Smith" in Xero vs
+  "John Smith" here) - those would create a second Xero Contact the first
+  time that client's invoice is synced.
+- **Single Xero organisation** - if the Xero user connecting has access to
+  more than one Xero organisation, the callback takes whichever one Xero's
+  `/connections` endpoint lists first, with no picker UI. Disconnect and
+  reconnect, authorising only the correct organisation on Xero's consent
+  screen, if the wrong one gets linked.
+- **Quotes are never pushed** - only invoices. Xero does have its own
+  Quote object, but this pass only covers the Stripe-adjacent "get money
+  in the door" path (invoices), matching how Phase 1 was scoped.
+- Not verified against a real Xero organisation, Client ID/Secret, or
+  live OAuth round-trip - none of those exist in this sandbox. Verified:
+  `tsc --noEmit` clean, a production `vite build` clean, and the Xero REST
+  API shapes (Contacts/Invoices/token endpoints, AU tax types OUTPUT/
+  EXEMPTOUTPUT) checked against Xero's own public API documentation by
+  reading, not by making a live call.

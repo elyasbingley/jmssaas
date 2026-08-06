@@ -47,6 +47,10 @@ export interface Tenant {
   // Settings screen, not Company Details, since it's specifically a
   // messaging concern.
   google_review_link: string | null;
+  // Which Xero chart-of-accounts code sales line items post against - see
+  // the xero_integration migration's own comment on why this is
+  // configurable rather than a fixed guess.
+  xero_sales_account_code: string;
   created_at: string;
 }
 
@@ -87,6 +91,10 @@ export interface Client {
   // Link to that client's WorkDrive folder, pasted in by hand - this app
   // never talks to WorkDrive itself, it's just a stored URL.
   workdrive_url: string | null;
+  // Set the first time this client is pushed to Xero (as a Contact) via
+  // an invoice sync - reused on every later sync instead of creating a
+  // duplicate Xero Contact each time.
+  xero_contact_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -490,6 +498,14 @@ export interface Invoice {
   // set_invoice_paid_at in the b2b_referral_tracking migration. Not
   // cleared if status ever moves off 'paid' again.
   paid_at: string | null;
+  // Xero sync (Phase 1, one-way push - see the xero-sync Edge Function's
+  // own comment). xero_invoice_id is null until the first successful
+  // sync, then reused on every later sync (an update, not a duplicate).
+  // xero_sync_error holds the last failed sync's message, cleared back to
+  // null on the next successful one.
+  xero_invoice_id: string | null;
+  xero_synced_at: string | null;
+  xero_sync_error: string | null;
 }
 
 export interface InvoiceLineItem extends LineItemInput {
