@@ -180,6 +180,7 @@ export const updateCompanySettingsSchema = z.object({
   bank_account_name: z.string().optional(),
   bank_account_number: z.string().optional(),
   bank_bsb: z.string().optional(),
+  xero_sales_account_code: z.string().optional(),
 });
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
 

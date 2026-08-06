@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { updateCompanySettingsSchema, type Tenant } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -14,14 +15,27 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
   return data as Tenant;
 }
 
+interface XeroStatus {
+  connected: boolean;
+  org_name?: string;
+  connected_at?: string;
+}
+
+async function fetchXeroStatus(): Promise<XeroStatus> {
+  const { data, error } = await supabase.rpc("get_xero_connection_status");
+  if (error) throw error;
+  return data as XeroStatus;
+}
+
 export default function SettingsPage() {
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const { data: tenant } = useQuery({
     queryKey: ["tenant", profile?.tenant_id],
     queryFn: () => fetchTenant(profile!.tenant_id),
     enabled: !!profile,
   });
+  const { data: xeroStatus } = useQuery({ queryKey: ["xero-status"], queryFn: fetchXeroStatus, enabled: !!profile });
 
   const [name, setName] = useState("");
   const [abn, setAbn] = useState("");
@@ -37,6 +51,7 @@ export default function SettingsPage() {
   const [bankAccountName, setBankAccountName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankBsb, setBankBsb] = useState("");
+  const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -57,10 +72,64 @@ export default function SettingsPage() {
       setBankAccountName(tenant.bank_account_name ?? "");
       setBankAccountNumber(tenant.bank_account_number ?? "");
       setBankBsb(tenant.bank_bsb ?? "");
+      setXeroSalesAccountCode(tenant.xero_sales_account_code ?? "200");
     }
   }, [tenant]);
 
   const invalidateTenant = () => queryClient.invalidateQueries({ queryKey: ["tenant", profile?.tenant_id] });
+
+  // Xero connect/disconnect - see xero-oauth-start's own comment for why
+  // this needs a bearer-token POST (to build the authorize URL server-side
+  // and record a CSRF-protection state row) rather than just a static link.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [xeroConnectError, setXeroConnectError] = useState<string | null>(null);
+  const [xeroConnecting, setXeroConnecting] = useState(false);
+
+  useEffect(() => {
+    const xeroResult = searchParams.get("xero");
+    if (!xeroResult) return;
+    if (xeroResult === "error") {
+      setXeroConnectError(searchParams.get("xero_message") || "Failed to connect to Xero");
+    } else if (xeroResult === "connected") {
+      queryClient.invalidateQueries({ queryKey: ["xero-status"] });
+    }
+    setSearchParams((params) => {
+      params.delete("xero");
+      params.delete("xero_message");
+      return params;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const connectXero = async () => {
+    setXeroConnecting(true);
+    setXeroConnectError(null);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Xero connection");
+      window.location.href = resBody.url as string;
+    } catch (e) {
+      setXeroConnectError(getErrorMessage(e, "Failed to start Xero connection"));
+      setXeroConnecting(false);
+    }
+  };
+
+  const disconnectXero = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("disconnect_xero");
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["xero-status"] }),
+    onError: (e) => setXeroConnectError(getErrorMessage(e, "Failed to disconnect")),
+  });
 
   // Logo upload is a separate, immediate write (not part of Save changes
   // below) - same pattern as mobile. Each upload uses a fresh filename so
@@ -120,6 +189,7 @@ export default function SettingsPage() {
         bank_account_name: bankAccountName,
         bank_account_number: bankAccountNumber,
         bank_bsb: bankBsb,
+        xero_sales_account_code: xeroSalesAccountCode,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
@@ -141,6 +211,7 @@ export default function SettingsPage() {
           bank_account_name: result.data.bank_account_name || null,
           bank_account_number: result.data.bank_account_number || null,
           bank_bsb: result.data.bank_bsb || null,
+          xero_sales_account_code: result.data.xero_sales_account_code || "200",
         })
         .eq("id", profile.tenant_id);
       if (error) throw error;
@@ -222,6 +293,63 @@ export default function SettingsPage() {
       >
         {save.isPending ? "Saving..." : "Save changes"}
       </button>
+
+      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Xero</h2>
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        {xeroStatus?.connected ? (
+          <div>
+            <p className="text-sm font-semibold text-gray-900">
+              Connected to {xeroStatus.org_name || "Xero"}
+              <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">Connected</span>
+            </p>
+            {xeroStatus.connected_at ? (
+              <p className="mt-1 text-xs text-gray-500">Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</p>
+            ) : null}
+            {isAdmin ? (
+              <button
+                onClick={() => disconnectXero.mutate()}
+                disabled={disconnectXero.isPending}
+                className="mt-3 text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+              >
+                {disconnectXero.isPending ? "Disconnecting..." : "Disconnect Xero"}
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div>
+            <p className="mb-3 text-sm text-gray-600">
+              Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
+              Xero" button once connected.
+            </p>
+            {isAdmin ? (
+              <button
+                onClick={connectXero}
+                disabled={xeroConnecting}
+                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              >
+                {xeroConnecting ? "Redirecting to Xero..." : "Connect to Xero"}
+              </button>
+            ) : (
+              <p className="text-sm text-gray-400">Only an admin can connect Xero.</p>
+            )}
+          </div>
+        )}
+        {xeroConnectError ? <p className="mt-3 text-sm text-red-600">{xeroConnectError}</p> : null}
+      </div>
+      {xeroStatus?.connected ? (
+        <div className="mt-3">
+          <FormField
+            label="Xero sales account code"
+            value={xeroSalesAccountCode}
+            onChange={(e) => setXeroSalesAccountCode(e.target.value)}
+            placeholder="200"
+          />
+          <p className="-mt-3 mb-4 text-xs text-gray-400">
+            The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
+            default "Sales" code - check Xero's Chart of Accounts if yours differs.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -351,6 +351,43 @@ export default function InvoiceDetailPage() {
     onError: (e) => setPaymentLinkError(getErrorMessage(e, "Failed to create payment link")),
   });
 
+  // Xero sync (Phase 1, one-way push - see the xero-sync Edge Function's
+  // own comment). Manual, one invoice at a time - not fired automatically
+  // on status changes yet.
+  const [xeroSyncError, setXeroSyncError] = useState<string | null>(null);
+  const syncToXero = useMutation({
+    mutationFn: async () => {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) throw new Error("Supabase URL not configured");
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: id }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) {
+        const message =
+          body.error === "xero_not_configured"
+            ? "Xero isn't set up yet - see docs/SETUP.md"
+            : body.error === "xero_not_connected"
+              ? "Connect Xero first in Settings"
+              : body.error === "xero_reauth_required"
+                ? "Xero connection expired - reconnect it in Settings"
+                : body.error || "Failed to sync to Xero";
+        throw new Error(message);
+      }
+      return body as { xero_invoice_id: string; xero_view_url: string };
+    },
+    onSuccess: () => {
+      invalidate();
+      setXeroSyncError(null);
+    },
+    onError: (e) => setXeroSyncError(getErrorMessage(e, "Failed to sync to Xero")),
+  });
+
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -488,6 +525,42 @@ export default function InvoiceDetailPage() {
             </button>
           )}
           {paymentLinkError ? <p className="mt-2 text-sm text-red-600">{paymentLinkError}</p> : null}
+        </div>
+      ) : null}
+
+      {data.invoice.status !== "draft" ? (
+        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3">
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-blue-800">Xero</p>
+          {data.invoice.xero_synced_at ? (
+            <p className="mb-2 text-xs text-gray-600">
+              Last synced {new Date(data.invoice.xero_synced_at).toLocaleString("en-AU")}
+              {data.invoice.xero_invoice_id ? (
+                <>
+                  {" - "}
+                  <a
+                    href={`https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${data.invoice.xero_invoice_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-blue-700 hover:underline"
+                  >
+                    View in Xero &rarr;
+                  </a>
+                </>
+              ) : null}
+            </p>
+          ) : (
+            <p className="mb-2 text-xs text-gray-600">Not synced to Xero yet.</p>
+          )}
+          <button
+            onClick={() => syncToXero.mutate()}
+            disabled={syncToXero.isPending}
+            className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {syncToXero.isPending ? "Syncing..." : data.invoice.xero_synced_at ? "Re-sync to Xero" : "Sync to Xero"}
+          </button>
+          {(xeroSyncError || data.invoice.xero_sync_error) ? (
+            <p className="mt-2 text-sm text-red-600">{xeroSyncError || data.invoice.xero_sync_error}</p>
+          ) : null}
         </div>
       ) : null}
 

@@ -43,3 +43,12 @@ verify_jwt = false
 # verification against STRIPE_WEBHOOK_SECRET (done in the function itself)
 # is the real access control here, not the platform's JWT gateway.
 verify_jwt = false
+
+[functions.xero-oauth-callback]
+# Xero redirects the user's own browser here after they approve the
+# connection on Xero's consent screen - a plain browser GET with no
+# Supabase session/Authorization header at all, same class of issue as
+# [functions.approve]. The one-time `state` value (created by
+# xero-oauth-start, burned here) is the real access control, not JWT
+# verification - see the function's own comment.
+verify_jwt = false
