@@ -5125,3 +5125,81 @@ and Invoice actually appear in Xero.
   API shapes (Contacts/Invoices/token endpoints, AU tax types OUTPUT/
   EXEMPTOUTPUT) checked against Xero's own public API documentation by
   reading, not by making a live call.
+
+## 36. Xero integration - Phase 2 (payment read-back: Xero -> app)
+
+Closes the loop Phase 1 deliberately left open: a payment recorded
+directly in Xero (not through this app's Stripe flow) now flows back and
+marks the matching invoice paid here too.
+
+### How it works
+
+Xero webhooks are subscribed once per **app** (not per connected
+organisation) in the Developer Portal - every organisation connected to
+this app's Xero integration sends events to the same URL. The payload
+itself carries no invoice detail, just "this resource changed" -
+`xero-webhook` looks up which of this app's tenants owns that Xero
+organisation (via `xero_connections.xero_tenant_id`), finds the matching
+`invoices` row (via `xero_invoice_id`), fetches the invoice's current
+state from Xero's API, and if Xero now shows it `PAID`, marks it paid
+here. The existing `set_invoice_paid_at`/`calculate_referral_fee_on_invoice_paid`
+triggers then fire exactly as they would for any other paid transition -
+nothing Xero-specific needed there.
+
+Signature verification (HMAC-SHA256 over the raw request body, checked
+against the `X-Xero-Signature` header) is done by hand, same approach as
+`stripe-webhook`. This also transparently handles Xero's "Intent to
+Receive" check - the one-time signed, empty-events request Xero sends
+when you first save the webhook URL, which just needs a valid signature
+and a 200 back.
+
+### Setup
+
+1. developer.xero.com -> your app -> **Webhooks** tab.
+2. Under **Invoices**, set the **Delivery URL**:
+   ```
+   https://YOUR-PROJECT-REF.supabase.co/functions/v1/xero-webhook
+   ```
+3. Copy the **Webhook key** shown there and set it as a secret:
+   ```powershell
+   npx supabase secrets set XERO_WEBHOOK_KEY=your_webhook_key_here
+   ```
+4. Deploy the function, then click **Send Intent to Receive** on the
+   Webhooks tab - it should show as verified within a few seconds:
+   ```powershell
+   npx supabase functions deploy xero-webhook --no-verify-jwt
+   ```
+
+### Test it
+
+Mark an invoice paid **directly in Xero** (not via this app's Stripe
+link) - find it in Xero, add a payment against it. Within a few seconds
+it should flip to **Paid** in this app too. If it doesn't, check the
+Xero Developer Portal's Webhooks tab for delivery failures, and this
+function's logs in the Supabase dashboard.
+
+### Known gaps / judgment calls
+
+- **Full payment only** - a partial payment in Xero (invoice still
+  `AUTHORISED`, `AmountDue > 0`) doesn't change anything here, matching
+  this app's own binary paid/unpaid model (see quote-invoice-pdf.ts's own
+  comment on Balance Due - there's no partial-payment tracking to update
+  even if this function tried).
+- **Voided Xero invoices aren't reflected** - only a `PAID` status is
+  read back; a `VOIDED` Xero invoice doesn't flip the matching invoice
+  here to `void`. Deliberately conservative for this first pass, to
+  avoid a Xero-side bookkeeping action having a surprising effect here -
+  worth reconsidering once Phase 2 has run for a while without issues.
+- **No automatic push on status change** - creating/sending/accepting an
+  invoice here still doesn't automatically push to Xero; "Sync to Xero"
+  is still a manual click (see Phase 1's own known-gaps note).
+- **One bad/malformed event doesn't fail the whole webhook delivery** -
+  each event in a batch is processed independently and logged on
+  failure, so one lookup miss (e.g. an invoice Xero knows about that this
+  app never pushed) doesn't cause Xero to think the endpoint is down and
+  retry-storm it.
+- Not verified against a real Xero webhook delivery or a real payment
+  recorded in a live Xero org - none of those exist in this sandbox.
+  Verified: `tsc --noEmit` clean (no frontend changes this pass), and the
+  webhook payload shape/signature scheme checked against Xero's own
+  public webhook documentation by reading, not a live delivery.
