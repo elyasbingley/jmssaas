@@ -9,6 +9,7 @@ import {
   type Client,
   type ClientContact,
   type ClientSite,
+  type EmailAttachment,
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
@@ -19,6 +20,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
 import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
+import { blobToDataUrl, buildQuotePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
@@ -231,10 +233,11 @@ export default function QuoteDetailPage() {
   // the reminder ladder), same as the old direct-send mutation did.
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
   const [openingEmail, setOpeningEmail] = useState(false);
 
   const openSendEmail = async () => {
-    if (!data || !profile) return;
+    if (!data || !profile || !tenant) return;
     if (!data.quote.clients?.email) {
       setSendEmailError("This client has no email address on file - add one on the Clients screen.");
       return;
@@ -260,6 +263,16 @@ export default function QuoteDetailPage() {
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Quote Delivery' email template found");
       setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+      // Best-effort - if PDF generation fails for any reason, the email
+      // still sends with just the view-online link, same as before this
+      // feature existed, rather than blocking the send entirely.
+      try {
+        const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
+        const pdfDataUrl = await blobToDataUrl(pdfBlob);
+        setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUrl }]);
+      } catch {
+        setEmailDefaultAttachments([]);
+      }
       setEmailModalOpen(true);
     } catch (e) {
       setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
@@ -268,7 +281,7 @@ export default function QuoteDetailPage() {
     }
   };
 
-  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => {
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
     if (!profile) throw new Error("Not signed in");
     const wasSent = await queueAndSendEmail({
       tenantId: profile.tenant_id,
@@ -549,6 +562,7 @@ export default function QuoteDetailPage() {
         defaultTo={data.quote.clients?.email ?? ""}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
+        defaultAttachments={emailDefaultAttachments}
         recipientOptions={recipientOptions}
         onSend={handleSendEmail}
         sendLabel="Send quote"

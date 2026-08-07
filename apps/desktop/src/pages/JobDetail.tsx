@@ -10,6 +10,7 @@ import {
   type Client,
   type ClientContact,
   type ClientSite,
+  type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
@@ -480,12 +481,19 @@ export default function JobDetailPage() {
 
   const [photoError, setPhotoError] = useState<string | null>(null);
 
-  const uploadPhotos = useMutation({
+  // Despite the name (kept for the storage_path convention/RLS policies -
+  // see uploadJobPhoto's own comment), this has never actually been
+  // restricted to images at the storage/DB layer - job_files has always
+  // stored mime_type/size_bytes generically. The upload input below used
+  // to hardcode accept="image/*" though, which was the entire "no way to
+  // upload files" gap - fixed by dropping that restriction and rendering
+  // non-image files as a name+icon tile instead of an <img> below.
+  const uploadFiles = useMutation({
     mutationFn: async (fileList: FileList) => {
       if (!profile) throw new Error("Not signed in");
       // Sequential, not Promise.all - keeps upload order predictable and
       // avoids hammering Storage with a burst of concurrent PUTs for a
-      // multi-select of, say, 20 photos.
+      // multi-select of, say, 20 files.
       for (const file of Array.from(fileList)) {
         await uploadJobPhoto({ tenantId: profile.tenant_id, jobCardId: id!, uploadedBy: profile.id, file });
       }
@@ -494,7 +502,7 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["job-files", id] });
       setPhotoError(null);
     },
-    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload photo")),
+    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload file")),
   });
 
   const [noteBody, setNoteBody] = useState("");
@@ -597,7 +605,7 @@ export default function JobDetailPage() {
   const [jobEmailError, setJobEmailError] = useState<string | null>(null);
   const [jobEmailResult, setJobEmailResult] = useState<string | null>(null);
 
-  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => {
+  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
     if (!profile || !job) throw new Error("Not signed in");
     const wasSent = await queueAndSendEmail({
       tenantId: profile.tenant_id,
@@ -882,17 +890,16 @@ export default function JobDetailPage() {
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Photos</h2>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Files</h2>
           <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
-            {uploadPhotos.isPending ? "Uploading..." : "+ Upload photos"}
+            {uploadFiles.isPending ? "Uploading..." : "+ Upload files"}
             <input
               type="file"
-              accept="image/*"
               multiple
               className="hidden"
-              disabled={uploadPhotos.isPending}
+              disabled={uploadFiles.isPending}
               onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) uploadPhotos.mutate(e.target.files);
+                if (e.target.files && e.target.files.length > 0) uploadFiles.mutate(e.target.files);
                 e.target.value = "";
               }}
             />
@@ -900,22 +907,31 @@ export default function JobDetailPage() {
         </div>
         {photoError ? <p className="mb-3 text-sm text-red-600">{photoError}</p> : null}
         {!files || files.length === 0 ? (
-          <p className="text-sm text-gray-500">No photos yet.</p>
+          <p className="text-sm text-gray-500">No files yet.</p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-            {files.map((f) => (
-              <a
-                key={f.id}
-                href={fileUrls?.[f.id] || undefined}
-                target="_blank"
-                rel="noreferrer"
-                className="block aspect-square overflow-hidden rounded-md border border-gray-200 bg-gray-100"
-              >
-                {fileUrls?.[f.id] ? (
-                  <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
-                ) : null}
-              </a>
-            ))}
+            {files.map((f) => {
+              const isImage = (f.mime_type ?? "").startsWith("image/");
+              return (
+                <a
+                  key={f.id}
+                  href={fileUrls?.[f.id] || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block aspect-square overflow-hidden rounded-md border border-gray-200 bg-gray-100"
+                  title={f.file_name}
+                >
+                  {isImage && fileUrls?.[f.id] ? (
+                    <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                      <span className="text-2xl">📄</span>
+                      <span className="line-clamp-2 break-all text-xs text-gray-600">{f.file_name}</span>
+                    </div>
+                  )}
+                </a>
+              );
+            })}
           </div>
         )}
       </div>

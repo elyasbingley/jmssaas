@@ -1,4 +1,4 @@
-import type { ScheduledCommunicationEntityType } from "@jmssaas/shared";
+import type { EmailAttachment, ScheduledCommunicationEntityType } from "@jmssaas/shared";
 import { supabase } from "./supabase";
 import { triggerImmediateDispatch } from "./dispatch-now";
 
@@ -27,8 +27,9 @@ export async function queueAndSendEmail(params: {
   bcc?: string;
   subject: string;
   body: string;
+  attachments?: EmailAttachment[];
 }): Promise<boolean> {
-  const { tenantId, entityType, entityId, triggerKey, to, cc, bcc, subject, body } = params;
+  const { tenantId, entityType, entityId, triggerKey, to, cc, bcc, subject, body, attachments } = params;
   const { data: row, error } = await supabase
     .from("scheduled_communications")
     .insert({
@@ -42,6 +43,7 @@ export async function queueAndSendEmail(params: {
       bcc_emails: splitEmails(bcc ?? ""),
       rendered_subject: subject,
       rendered_body: body,
+      attachments: attachments ?? [],
       scheduled_for: new Date().toISOString(),
       status: "pending",
     })

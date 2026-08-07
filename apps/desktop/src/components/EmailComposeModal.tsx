@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { EmailAttachment } from "@jmssaas/shared";
 import { Modal } from "./Modal";
 import { FormField, TextAreaField } from "./FormField";
 
@@ -7,6 +8,22 @@ export interface EmailTemplateOption {
   name: string;
   subject: string;
   body: string;
+}
+
+// Kept well under Resend's ~40MB total request limit - base64 inflates
+// raw file size by ~33%, and this is a per-file guardrail, not a total
+// one, so a few of these together could still get close. Good enough for
+// "stop someone attaching an entire video by mistake" without needing a
+// running total.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
 }
 
 interface EmailComposeModalProps {
@@ -23,7 +40,13 @@ interface EmailComposeModalProps {
   // tag-input widget to get there.
   recipientOptions: string[];
   templates?: EmailTemplateOption[];
-  onSend: (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => Promise<void>;
+  // Pre-attached when the modal opens - the quote/invoice PDF for
+  // QuoteDetail/InvoiceDetail's send buttons, empty everywhere else.
+  // Still shown as a removable attachment, same as anything the user adds
+  // themselves, in case they genuinely don't want it on this particular
+  // send.
+  defaultAttachments?: EmailAttachment[];
+  onSend: (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => Promise<void>;
   sendLabel?: string;
 }
 
@@ -41,6 +64,7 @@ export function EmailComposeModal({
   defaultBody,
   recipientOptions,
   templates,
+  defaultAttachments,
   onSend,
   sendLabel,
 }: EmailComposeModalProps) {
@@ -51,6 +75,8 @@ export function EmailComposeModal({
   const [body, setBody] = useState(defaultBody);
   const [templateId, setTemplateId] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,12 +89,31 @@ export function EmailComposeModal({
       setBody(defaultBody);
       setTemplateId("");
       setShowCcBcc(false);
+      setAttachments(defaultAttachments ?? []);
+      setAttachmentError(null);
       setError(null);
     }
     // Only re-seed when the modal opens, not on every prop change while
     // it's already open, so it doesn't clobber in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const handleAddAttachments = async (files: FileList) => {
+    setAttachmentError(null);
+    const oversized = Array.from(files).find((f) => f.size > MAX_ATTACHMENT_BYTES);
+    if (oversized) {
+      setAttachmentError(`${oversized.name} is too large (max 10MB per file)`);
+      return;
+    }
+    try {
+      const newAttachments = await Promise.all(
+        Array.from(files).map(async (file) => ({ filename: file.name, content: await readFileAsDataUrl(file) }))
+      );
+      setAttachments((prev) => [...prev, ...newAttachments]);
+    } catch (e) {
+      setAttachmentError(e instanceof Error ? e.message : "Failed to attach file");
+    }
+  };
 
   const addToField = (field: "to" | "cc" | "bcc", email: string) => {
     const current = field === "to" ? to : field === "cc" ? cc : bcc;
@@ -91,7 +136,7 @@ export function EmailComposeModal({
     setSending(true);
     setError(null);
     try {
-      await onSend({ to: to.trim(), cc: cc.trim(), bcc: bcc.trim(), subject, body });
+      await onSend({ to: to.trim(), cc: cc.trim(), bcc: bcc.trim(), subject, body, attachments });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send");
@@ -147,6 +192,39 @@ export function EmailComposeModal({
 
       <FormField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
       <TextAreaField label="Body" rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+
+      <div className="mb-4">
+        <label className="mb-1 block text-sm font-semibold text-gray-700">Attachments</label>
+        {attachments.length > 0 ? (
+          <ul className="mb-2 space-y-1">
+            {attachments.map((a, i) => (
+              <li key={`${a.filename}-${i}`} className="flex items-center justify-between rounded-md bg-gray-100 px-2.5 py-1.5 text-xs text-gray-700">
+                <span className="truncate">📎 {a.filename}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="ml-2 shrink-0 font-semibold text-red-600 hover:underline"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <label className="inline-block cursor-pointer text-xs font-semibold text-blue-700 hover:underline">
+          + Add attachment
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) void handleAddAttachments(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {attachmentError ? <p className="mt-1 text-xs text-red-600">{attachmentError}</p> : null}
+      </div>
 
       {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
       <div className="flex justify-end gap-3">

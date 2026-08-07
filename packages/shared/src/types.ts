@@ -771,6 +771,17 @@ export interface CommunicationTemplate {
   updated_at: string;
 }
 
+// content is a base64 data URI (e.g. "data:application/pdf;base64,...")
+// exactly like accepted_signature_svg's convention, not raw base64 -
+// keeping the MIME type folded into the string itself means Resend's
+// `attachments[].content` field (which wants raw base64) needs a small
+// strip-the-prefix step at send time (see process-scheduled-comms),
+// rather than needing content_type carried as a second field here.
+export interface EmailAttachment {
+  filename: string;
+  content: string;
+}
+
 // A single outbound message, auto-scheduled by a Postgres trigger (quote
 // sent, invoice sent) or manually inserted from the mobile app ("On The
 // Way", review request) - dispatched by the process-scheduled-comms Edge
@@ -792,6 +803,9 @@ export interface ScheduledCommunication {
   // through the composer).
   cc_emails: string[];
   bcc_emails: string[];
+  // Base64-encoded attachments (a quote/invoice PDF, or anything else
+  // picked in the composer) - see EmailAttachment.
+  attachments: EmailAttachment[];
   rendered_subject: string | null;
   rendered_body: string;
   scheduled_for: string;
