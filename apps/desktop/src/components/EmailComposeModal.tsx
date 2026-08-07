@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { EmailAttachment } from "@jmssaas/shared";
 import { Modal } from "./Modal";
 import { FormField, TextAreaField } from "./FormField";
+import { getErrorMessage } from "../lib/errors";
 
 export interface EmailTemplateOption {
   id: string;
@@ -139,7 +140,13 @@ export function EmailComposeModal({
       await onSend({ to: to.trim(), cc: cc.trim(), bcc: bcc.trim(), subject, body, attachments });
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send");
+      // Supabase's PostgrestError isn't a real Error instance (no
+      // `instanceof Error` match), so a plain `e instanceof Error ?
+      // e.message : fallback` check silently swallows the actual DB error
+      // message/hint and shows nothing but "Failed to send" - getErrorMessage
+      // (already used everywhere else in the app for this exact reason)
+      // reads `.message`/`.hint` off any object shape, not just real Errors.
+      setError(getErrorMessage(e, "Failed to send"));
     } finally {
       setSending(false);
     }
