@@ -5,6 +5,7 @@ import {
   createPropertyAssetSchema,
   formatCentsAsAud,
   updatePropertyContactSchema,
+  updatePropertyDetailsSchema,
   type Agency,
   type Invoice,
   type JobCard,
@@ -13,6 +14,7 @@ import {
   type PropertyAssetAttributes,
   type PropertyAssetCategory,
   type PropertyManager,
+  type PropertyType,
   type Quote,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -35,6 +37,16 @@ async function fetchPropertyManager(id: string): Promise<PropertyManager> {
   const { data, error } = await supabase.from("property_managers").select("*").eq("id", id).single();
   if (error) throw error;
   return data as PropertyManager;
+}
+async function fetchAllAgencies(): Promise<Agency[]> {
+  const { data, error } = await supabase.from("agencies").select("*").order("name");
+  if (error) throw error;
+  return data as Agency[];
+}
+async function fetchAllPropertyManagers(): Promise<PropertyManager[]> {
+  const { data, error } = await supabase.from("property_managers").select("*").order("first_name");
+  if (error) throw error;
+  return data as PropertyManager[];
 }
 async function fetchAssets(propertyId: string): Promise<PropertyAsset[]> {
   const { data, error } = await supabase.from("property_assets").select("*").eq("property_id", propertyId).order("category").order("asset_name");
@@ -77,6 +89,13 @@ const CATEGORY_ICON: Record<PropertyAssetCategory, string> = {
   general: "🔧",
 };
 
+const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
+  { value: "residential", label: "Residential" },
+  { value: "commercial", label: "Commercial" },
+  { value: "strata_common_property", label: "Strata Common Property" },
+  { value: "strata_lot", label: "Strata Lot" },
+];
+
 function isWarrantyActive(warrantyExpiryDate?: string): boolean {
   if (!warrantyExpiryDate) return false;
   return new Date(warrantyExpiryDate).getTime() > Date.now();
@@ -100,6 +119,8 @@ export default function PropertyDetailPage() {
     queryFn: () => fetchPropertyManager(property!.property_manager_id!),
     enabled: !!property?.property_manager_id,
   });
+  const { data: allAgencies } = useQuery({ queryKey: ["agencies"], queryFn: fetchAllAgencies });
+  const { data: allPropertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchAllPropertyManagers });
   const { data: assets } = useQuery({ queryKey: ["property-assets", id], queryFn: () => fetchAssets(id!), enabled: !!id });
   const { data: jobs } = useQuery({ queryKey: ["property-jobs", id], queryFn: () => fetchJobs(id!), enabled: !!id });
   const jobIds = (jobs ?? []).map((j) => j.id);
@@ -177,6 +198,69 @@ export default function PropertyDetailPage() {
     },
     onError: (e) => setContactError(getErrorMessage(e, "Failed to save details")),
   });
+
+  // --- Edit Property Details (address/agency/PM/type) - previously only
+  // ever settable once, at creation, in RealEstate.tsx's "New managed
+  // property" form. ---
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [detailsAgencyId, setDetailsAgencyId] = useState("");
+  const [detailsPmId, setDetailsPmId] = useState("");
+  const [detailsAddress, setDetailsAddress] = useState("");
+  const [detailsSuburb, setDetailsSuburb] = useState("");
+  const [detailsState, setDetailsState] = useState("");
+  const [detailsPostcode, setDetailsPostcode] = useState("");
+  const [detailsPropertyType, setDetailsPropertyType] = useState<PropertyType | "">("residential");
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+
+  const openEditDetails = () => {
+    if (!property) return;
+    setDetailsAgencyId(property.agency_id);
+    setDetailsPmId(property.property_manager_id ?? "");
+    setDetailsAddress(property.address_line1);
+    setDetailsSuburb(property.suburb);
+    setDetailsState(property.state);
+    setDetailsPostcode(property.postcode);
+    setDetailsPropertyType(property.property_type);
+    setDetailsError(null);
+    setDetailsModalOpen(true);
+  };
+
+  const saveDetails = useMutation({
+    mutationFn: async () => {
+      const result = updatePropertyDetailsSchema.safeParse({
+        agency_id: detailsAgencyId,
+        property_manager_id: detailsPmId,
+        address_line1: detailsAddress,
+        suburb: detailsSuburb,
+        state: detailsState,
+        postcode: detailsPostcode,
+        property_type: detailsPropertyType || "residential",
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid details");
+
+      const { error } = await supabase
+        .from("properties")
+        .update({
+          agency_id: result.data.agency_id,
+          property_manager_id: result.data.property_manager_id || null,
+          address_line1: result.data.address_line1,
+          suburb: result.data.suburb,
+          state: result.data.state,
+          postcode: result.data.postcode,
+          property_type: result.data.property_type,
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      setDetailsModalOpen(false);
+    },
+    onError: (e) => setDetailsError(getErrorMessage(e, "Failed to save property details")),
+  });
+
+  const detailsPmsForAgency = (agencyId: string) => (allPropertyManagers ?? []).filter((pm) => pm.agency_id === agencyId);
 
   // --- Asset create/edit ---
   const [assetModalOpen, setAssetModalOpen] = useState(false);
@@ -268,26 +352,36 @@ export default function PropertyDetailPage() {
       </Link>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900">{property.address_line1}</h1>
-          <span className="text-sm text-gray-500">
-            {property.suburb} {property.state} {property.postcode}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {agency ? (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">{agency.name}</span>
-          ) : null}
-          {propertyManager ? (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-              PM: {propertyManager.first_name} {propertyManager.last_name}
-            </span>
-          ) : null}
-          {property.key_tag_number ? (
-            <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
-              🔑 {property.key_tag_number}
-            </span>
-          ) : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-xl font-bold text-gray-900">{property.address_line1}</h1>
+              <span className="text-sm text-gray-500">
+                {property.suburb} {property.state} {property.postcode}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {agency ? (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">{agency.name}</span>
+              ) : null}
+              {propertyManager ? (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                  PM: {propertyManager.first_name} {propertyManager.last_name}
+                </span>
+              ) : null}
+              {property.key_tag_number ? (
+                <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
+                  🔑 {property.key_tag_number}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <button
+            onClick={openEditDetails}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Edit property
+          </button>
         </div>
       </div>
 
@@ -661,6 +755,53 @@ export default function PropertyDetailPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {saveContact.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)} title="Edit property details">
+        <SelectField
+          label="Agency"
+          value={detailsAgencyId}
+          onChange={(v) => {
+            setDetailsAgencyId(v);
+            setDetailsPmId("");
+          }}
+          options={(allAgencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
+          placeholder="Select agency"
+        />
+        <SelectField
+          label="Property manager"
+          value={detailsPmId}
+          onChange={setDetailsPmId}
+          options={detailsPmsForAgency(detailsAgencyId).map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
+          placeholder="Unassigned"
+        />
+        <FormField label="Address line 1" value={detailsAddress} onChange={(e) => setDetailsAddress(e.target.value)} />
+        <div className="grid grid-cols-3 gap-3">
+          <FormField label="Suburb" value={detailsSuburb} onChange={(e) => setDetailsSuburb(e.target.value)} />
+          <FormField label="State" value={detailsState} onChange={(e) => setDetailsState(e.target.value)} />
+          <FormField label="Postcode" value={detailsPostcode} onChange={(e) => setDetailsPostcode(e.target.value)} />
+        </div>
+        <SelectField
+          label="Property type"
+          value={detailsPropertyType}
+          onChange={setDetailsPropertyType}
+          options={PROPERTY_TYPE_OPTIONS}
+          placeholder="Select type"
+        />
+
+        {detailsError ? <p className="mb-4 text-sm text-red-600">{detailsError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setDetailsModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveDetails.mutate()}
+            disabled={saveDetails.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveDetails.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

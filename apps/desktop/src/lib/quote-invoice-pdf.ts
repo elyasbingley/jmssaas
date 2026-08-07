@@ -142,16 +142,20 @@ function renderHeader(docType: "quote" | "invoice", docNumber: string, balanceDu
   `;
 }
 
-// agencyBilling overrides just the name line to "Owner/Landlord c/- Agency"
-// for a real-estate job's invoice (see Workflow 4 in the Real Estate &
-// Strata spec) - the rest of the block (address/phone/email) still comes
-// from the invoice's own `clients` row, since that's still where this
-// schema's contact details live, unless `site` is supplied - a quote/
-// invoice's own site_id (one of the client's client_sites), which takes
-// priority over the client's single primary address when set.
+// agencyBilling overrides the name line to "Owner/Landlord c/- Agency" for
+// a real-estate job's invoice (see Workflow 4 in the Real Estate & Strata
+// spec) - the address block still comes from the invoice's own `clients`
+// row, since that's still where this schema's contact details live,
+// unless `site` is supplied - a quote/invoice's own site_id (one of the
+// client's client_sites), which takes priority over the client's single
+// primary address when set. When `billToLandlord` is set (InvoiceDetail's
+// "Bill to" control), the name drops the "c/- Agency" decoration and the
+// phone/email lines swap to the property's own owner_landlord_phone/email
+// instead of the client's - the address line is left as-is either way,
+// since that's the job/property address regardless of who's paying for it.
 function renderBillTo(
   client: Client,
-  agencyBilling?: { ownerLandlordName: string | null; agencyName: string },
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null },
   site?: ClientSite | null
 ): string {
   const addressLines = site
@@ -163,15 +167,21 @@ function renderBillTo(
         state: client.state,
         postcode: client.postcode,
       });
-  const billToName = agencyBilling ? `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}` : client.name;
+  const billToName = agencyBilling
+    ? agencyBilling.billToLandlord
+      ? (agencyBilling.ownerLandlordName ?? client.name)
+      : `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}`
+    : client.name;
+  const billToPhone = agencyBilling?.billToLandlord ? (agencyBilling.ownerLandlordPhone ?? null) : client.phone;
+  const billToEmail = agencyBilling?.billToLandlord ? (agencyBilling.ownerLandlordEmail ?? null) : client.email;
   return `
     <div>
       <div class="bill-to-label">Bill To</div>
       <div class="bill-to-name">${escapeHtml(billToName)}</div>
       ${site?.label ? `<div class="bill-to-detail">${escapeHtml(site.label)}</div>` : ""}
       ${addressLines.map((line) => `<div class="bill-to-detail">${escapeHtml(line)}</div>`).join("")}
-      ${client.phone ? `<div class="bill-to-detail">${escapeHtml(client.phone)}</div>` : ""}
-      ${client.email ? `<div class="bill-to-detail">${escapeHtml(client.email)}</div>` : ""}
+      ${billToPhone ? `<div class="bill-to-detail">${escapeHtml(billToPhone)}</div>` : ""}
+      ${billToEmail ? `<div class="bill-to-detail">${escapeHtml(billToEmail)}</div>` : ""}
     </div>
   `;
 }
@@ -299,7 +309,7 @@ export function buildInvoicePdfHtml(params: {
   invoice: Invoice;
   client: Client;
   lineItems: LineItemFormInput[];
-  agencyBilling?: { ownerLandlordName: string | null; agencyName: string };
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null };
   site?: ClientSite | null;
 }): string {
   const { tenant, invoice, client, lineItems, agencyBilling, site } = params;

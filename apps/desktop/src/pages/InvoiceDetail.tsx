@@ -244,13 +244,17 @@ export default function InvoiceDetailPage() {
   const [openingEmail, setOpeningEmail] = useState(false);
 
   const openSendEmail = async () => {
-    if (!data || !profile || !tenant) return;
+    if (!data || !profile || !tenant || !data.invoice.clients) return;
     if (agencyComplianceError) {
       setSendEmailError(agencyComplianceError);
       return;
     }
-    if (!data.invoice.clients?.email) {
-      setSendEmailError("This client has no email address on file - add one on the Clients screen.");
+    if (!invoiceRecipientEmail) {
+      setSendEmailError(
+        data.invoice.bill_to_landlord
+          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab, or switch 'Bill to' back to the agency."
+          : "This client has no email address on file - add one on the Clients screen."
+      );
       return;
     }
     setOpeningEmail(true);
@@ -277,7 +281,16 @@ export default function InvoiceDetailPage() {
       // Best-effort, same as QuoteDetail.tsx - a PDF generation failure
       // falls back to no attachment rather than blocking the send.
       try {
-        const agencyBilling = jobCard?.is_real_estate_job && agency ? { ownerLandlordName: property?.owner_landlord_name ?? null, agencyName: agency.name } : undefined;
+        const agencyBilling =
+          jobCard?.is_real_estate_job && agency
+            ? {
+                ownerLandlordName: property?.owner_landlord_name ?? null,
+                agencyName: agency.name,
+                billToLandlord: data.invoice.bill_to_landlord,
+                ownerLandlordPhone: property?.owner_landlord_phone ?? null,
+                ownerLandlordEmail: property?.owner_landlord_email ?? null,
+              }
+            : undefined;
         const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
         const pdfDataUrl = await blobToDataUrl(pdfBlob);
         setEmailDefaultAttachments([{ filename: `Invoice ${data.invoice.invoice_number}.pdf`, content: pdfDataUrl }]);
@@ -309,10 +322,37 @@ export default function InvoiceDetailPage() {
     setTimeout(() => setSendResult(null), 5000);
   };
 
+  // Real-estate jobs: the landlord/tenant on file for the property are
+  // always offered as recipient chips (even when "Bill to" below is still
+  // pointed at the agency) so redirecting a one-off send to them doesn't
+  // require flipping the persistent toggle first.
   const recipientOptions = collectRecipientEmails({
     clientEmail: data?.invoice.clients?.email,
-    contactEmails: (clientContacts ?? []).map((c) => c.email),
+    contactEmails: [...(clientContacts ?? []).map((c) => c.email), property?.owner_landlord_email ?? null, property?.tenant_email ?? null],
     freeText: jobNoteBodies ?? [],
+  });
+
+  // Who this invoice is actually billed to - the agency/PM `clients` row
+  // the job was created against (the default, unchanged from before this
+  // feature existed) or, once bill_to_landlord is set, the property's own
+  // owner_landlord_email. Falls back to the client's email if the toggle
+  // is on but no landlord email is on file, rather than silently going
+  // nowhere.
+  const invoiceRecipientEmail =
+    data?.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : (data?.invoice.clients?.email ?? "");
+
+  const [billToModalOpen, setBillToModalOpen] = useState(false);
+  const [billToError, setBillToError] = useState<string | null>(null);
+  const updateBillTo = useMutation({
+    mutationFn: async (billToLandlord: boolean) => {
+      const { error } = await supabase.from("invoices").update({ bill_to_landlord: billToLandlord }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      setBillToModalOpen(false);
+    },
+    onError: (e) => setBillToError(getErrorMessage(e, "Failed to update billing recipient")),
   });
 
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -413,7 +453,16 @@ export default function InvoiceDetailPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const agencyBilling = jobCard?.is_real_estate_job && agency ? { ownerLandlordName: property?.owner_landlord_name ?? null, agencyName: agency.name } : undefined;
+      const agencyBilling =
+        jobCard?.is_real_estate_job && agency
+          ? {
+              ownerLandlordName: property?.owner_landlord_name ?? null,
+              agencyName: agency.name,
+              billToLandlord: data.invoice.bill_to_landlord,
+              ownerLandlordPhone: property?.owner_landlord_phone ?? null,
+              ownerLandlordEmail: property?.owner_landlord_email ?? null,
+            }
+          : undefined;
       const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
       exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
     } catch (e) {
@@ -453,6 +502,21 @@ export default function InvoiceDetailPage() {
           Edit address
         </button>
       </p>
+
+      {jobCard?.is_real_estate_job && agency ? (
+        <p className="mt-1 text-sm text-gray-600">
+          Billed to: {data.invoice.bill_to_landlord ? (property?.owner_landlord_name ?? "Landlord (name not on file)") : `${agency.name}${data.invoice.clients ? ` (${data.invoice.clients.name})` : ""}`}{" "}
+          <button
+            onClick={() => {
+              setBillToError(null);
+              setBillToModalOpen(true);
+            }}
+            className="text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Change
+          </button>
+        </p>
+      ) : null}
 
       {agencyComplianceError ? (
         <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{agencyComplianceError}</p>
@@ -669,11 +733,56 @@ export default function InvoiceDetailPage() {
         </div>
       </Modal>
 
+      {jobCard?.is_real_estate_job && agency ? (
+        <Modal open={billToModalOpen} onClose={() => setBillToModalOpen(false)} title="Who is this invoice billed to?">
+          <div className="mb-4 space-y-2">
+            <button
+              onClick={() => updateBillTo.mutate(false)}
+              disabled={updateBillTo.isPending}
+              className={`w-full rounded-md border p-3 text-left text-sm ${
+                !data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              <p className="font-semibold text-gray-900">Agency / Property Manager</p>
+              <p className="text-gray-600">
+                {agency.name}
+                {data.invoice.clients ? ` - ${data.invoice.clients.name}` : ""}
+              </p>
+            </button>
+            <button
+              onClick={() => updateBillTo.mutate(true)}
+              disabled={updateBillTo.isPending}
+              className={`w-full rounded-md border p-3 text-left text-sm ${
+                data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              <p className="font-semibold text-gray-900">Landlord / Owner</p>
+              {property?.owner_landlord_name || property?.owner_landlord_email ? (
+                <p className="text-gray-600">
+                  {property.owner_landlord_name}
+                  {property.owner_landlord_email ? ` - ${property.owner_landlord_email}` : ""}
+                </p>
+              ) : (
+                <p className="text-gray-500">
+                  No landlord contact on file yet - add one on the property's Access &amp; Contacts tab first.
+                </p>
+              )}
+            </button>
+          </div>
+          {billToError ? <p className="mb-4 text-sm text-red-600">{billToError}</p> : null}
+          <div className="flex justify-end">
+            <button onClick={() => setBillToModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+              Close
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
       <EmailComposeModal
         open={emailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         title="Send invoice"
-        defaultTo={data.invoice.clients?.email ?? ""}
+        defaultTo={invoiceRecipientEmail}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
         defaultAttachments={emailDefaultAttachments}

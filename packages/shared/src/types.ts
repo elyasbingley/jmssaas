@@ -506,6 +506,12 @@ export interface Invoice {
   xero_invoice_id: string | null;
   xero_synced_at: string | null;
   xero_sync_error: string | null;
+  // Real-estate/strata jobs: redirects who this invoice is billed to (PDF
+  // Bill To name/contact + the email composer's default recipient) from
+  // the job's agency/PM client row to the property's owner_landlord_*
+  // contact fields instead - see InvoiceDetail.tsx's "Bill to" control.
+  // False (the default) is identical to this app's pre-existing behaviour.
+  bill_to_landlord: boolean;
 }
 
 export interface InvoiceLineItem extends LineItemInput {

@@ -399,6 +399,22 @@ export const updatePropertyContactSchema = z.object({
 });
 export type UpdatePropertyContactInput = z.infer<typeof updatePropertyContactSchema>;
 
+// Property Profile's "Edit property details" action - covers exactly the
+// fields updatePropertyContactSchema deliberately excludes (agency_id/
+// property_manager_id/address/property_type), for correcting a typo'd
+// address or reassigning a property to a different agency/PM after
+// creation - previously only settable once, at creation time.
+export const updatePropertyDetailsSchema = z.object({
+  agency_id: z.string().uuid(),
+  property_manager_id: z.string().uuid().optional().or(z.literal("")),
+  address_line1: z.string().min(1, "Address is required"),
+  suburb: z.string().min(1, "Suburb is required"),
+  state: z.string().min(1, "State is required"),
+  postcode: z.string().min(1, "Postcode is required"),
+  property_type: z.enum(["residential", "commercial", "strata_common_property", "strata_lot"]).default("residential"),
+});
+export type UpdatePropertyDetailsInput = z.infer<typeof updatePropertyDetailsSchema>;
+
 // attributes is intentionally z.record rather than a fixed shape - see
 // PropertyAssetAttributes in types.ts for the documented plumbing/roofing
 // fields this actually carries, none of which are required on any one

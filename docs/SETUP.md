@@ -5267,3 +5267,75 @@ No new environment variables or secrets - this reuses the existing
 - Not verified against a live Resend send with real attachments - none
   of those exist in this sandbox. Verified: `tsc --noEmit` clean for both
   `apps/desktop` and `apps/mobile`, `vite build` succeeds.
+
+## 38. Editable property details + invoice "Bill to" (landlord vs agency)
+
+Two related Real Estate & Strata gaps:
+
+1. **Property details were only ever settable once, at creation.** The
+   Property Profile's "Edit" button only covered the Access & Contacts
+   tab (landlord/tenant contact, access notes, key tag) - the property's
+   own address, agency, property manager, and property type had no edit
+   path at all after the "New managed property" form. There's now a
+   separate "Edit property" button on the property header that opens an
+   "Edit property details" modal covering exactly those fields.
+2. **An invoice's recipient was hard-locked to whichever `clients` row
+   the job was created against** - for a real-estate job this is usually
+   the agency/property manager, with no way to redirect a specific
+   invoice to the landlord/owner instead, even though the property record
+   already has landlord contact fields. Invoices now have a "Billed to"
+   line (shown only for real-estate jobs) with a "Change" link that lets
+   you pick Agency/PM (unchanged default) or Landlord/Owner. Once set to
+   Landlord, both the emailed PDF's Bill To name/phone/email and the
+   composer's default "To" address use the property's
+   `owner_landlord_name/_phone/_email` instead of the client's - the job/
+   property address itself is unaffected either way. Regardless of this
+   toggle, the landlord's and tenant's emails (if on file) are now always
+   offered as recipient chips in the composer too, so a one-off send
+   doesn't require flipping the persistent setting first.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+```
+
+No Edge Function changes this pass - just one new `invoices` column
+(`bill_to_landlord`) and frontend changes.
+
+### Test it
+
+1. Real Estate & Strata -> open a managed property -> "Edit property" ->
+   change the agency, property manager, or address -> Save -> confirm the
+   header and the property's entry back on the Real Estate directory both
+   reflect the change.
+2. Open an invoice for a real-estate job -> confirm a "Billed to" line
+   appears under the address with a "Change" link -> click it -> if the
+   property has no landlord contact yet, add one first (property's Access
+   & Contacts tab) -> come back, choose Landlord/Owner -> Save -> confirm
+   the "Billed to" line now shows the landlord's name, "Send Invoice via
+   Email" prefills their email address, and "Export PDF" shows their name/
+   contact details in the Bill To box instead of the agency contact's.
+3. Switch it back to Agency/PM -> confirm everything reverts to the
+   previous (pre-existing) behaviour exactly.
+
+### Known gaps / judgment calls
+
+- **No address override for the landlord** - `properties` only has
+  `owner_landlord_name/_phone/_email`, no separate mailing address, so
+  the Bill To address line always stays the job/property address
+  regardless of who's being billed. Reasonable as-is (the property being
+  serviced is still the property being serviced), but worth knowing if a
+  landlord ever needs invoices posted somewhere else entirely.
+- **The Stripe payment/approval link and Xero sync are untouched** - both
+  still use the invoice's `clients` row exclusively; `bill_to_landlord`
+  only affects the emailed PDF and the composer's default recipient.
+  Redirecting the actual payment/approval flow to the landlord would be a
+  much bigger change (it has no `clients` row of its own to authenticate
+  against) and wasn't asked for here.
+- Not verified against a live property edit or a live invoice send in
+  this sandbox (no deployed Supabase project to test against). Verified:
+  `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
+  `vite build` succeeds.

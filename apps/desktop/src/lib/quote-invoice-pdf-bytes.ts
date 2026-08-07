@@ -167,7 +167,8 @@ function renderBillToAndDates(
   client: Client,
   site: ClientSite | null,
   billToName: string,
-  dateRows: { label: string; value: string }[]
+  dateRows: { label: string; value: string }[],
+  billToContact?: { phone: string | null; email: string | null }
 ) {
   const startY = cursor.y;
   cursor.text("Bill To", MARGIN, 9, [107, 114, 128]);
@@ -183,7 +184,8 @@ function renderBillToAndDates(
         state: client.state,
         postcode: client.postcode,
       });
-  for (const line of [...lines, client.phone, client.email].filter((l): l is string => !!l)) {
+  const contactLines = billToContact ? [billToContact.phone, billToContact.email] : [client.phone, client.email];
+  for (const line of [...lines, ...contactLines].filter((l): l is string => !!l)) {
     cursor.text(line, MARGIN, 9);
     cursor.y += 4.5;
   }
@@ -332,21 +334,35 @@ export async function buildInvoicePdfBytes(params: {
   client: Client;
   lineItems: LineItemFormInput[];
   site?: ClientSite | null;
-  agencyBilling?: { ownerLandlordName: string | null; agencyName: string };
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null };
 }): Promise<Blob> {
   const { tenant, invoice, client, lineItems, site, agencyBilling } = params;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cursor = new Cursor(doc);
 
   const balanceDueCents = invoice.status === "paid" ? 0 : invoice.total_cents;
-  const billToName = agencyBilling ? `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}` : client.name;
+  const billToName = agencyBilling
+    ? agencyBilling.billToLandlord
+      ? (agencyBilling.ownerLandlordName ?? client.name)
+      : `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}`
+    : client.name;
+  const billToContact = agencyBilling?.billToLandlord
+    ? { phone: agencyBilling.ownerLandlordPhone ?? null, email: agencyBilling.ownerLandlordEmail ?? null }
+    : undefined;
 
   await renderHeader(cursor, tenant, ACCENT.invoice, "INVOICE", invoice.invoice_number, balanceDueCents);
-  renderBillToAndDates(cursor, client, site ?? null, billToName, [
-    { label: "Invoice date", value: formatDate(invoice.issue_date) },
-    { label: "Terms", value: invoice.due_date ? `Due ${formatDate(invoice.due_date)}` : "Due on receipt" },
-    { label: "Due date", value: formatDate(invoice.due_date) },
-  ]);
+  renderBillToAndDates(
+    cursor,
+    client,
+    site ?? null,
+    billToName,
+    [
+      { label: "Invoice date", value: formatDate(invoice.issue_date) },
+      { label: "Terms", value: invoice.due_date ? `Due ${formatDate(invoice.due_date)}` : "Due on receipt" },
+      { label: "Due date", value: formatDate(invoice.due_date) },
+    ],
+    billToContact
+  );
   renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
   renderTotals(cursor, lineItems, balanceDueCents);
   renderNotes(cursor, invoice.notes);
