@@ -5203,3 +5203,67 @@ function's logs in the Supabase dashboard.
   Verified: `tsc --noEmit` clean (no frontend changes this pass), and the
   webhook payload shape/signature scheme checked against Xero's own
   public webhook documentation by reading, not a live delivery.
+
+## 37. Job card file upload + email attachments + auto-attached quote/invoice PDFs
+
+Three related additions from the same request:
+
+1. **Job card file upload** no longer restricted to images - the file
+   input's `accept="image/*"` was removed and non-image files now render
+   as a document icon + filename instead of a broken image tile. No
+   backend change needed - `uploadJobPhoto`/the underlying storage bucket
+   were already MIME-agnostic; only the desktop UI enforced images.
+2. **Email attachments** - `EmailComposeModal` (used by every "send
+   email" button in the app) now has an Attachments section: add any
+   number of files (10MB each, no running total cap - see the code
+   comment on `MAX_ATTACHMENT_BYTES` in `EmailComposeModal.tsx`), remove
+   individual ones before sending. Stored as base64 data URIs in a new
+   `attachments` jsonb column on `scheduled_communications` (same
+   convention as `accepted_signature_svg` - no Storage bucket, since
+   these are one-off transactional payloads, not documents the app needs
+   to keep re-serving). `process-scheduled-comms` strips the
+   `data:...;base64,` prefix and passes the rest straight to Resend's
+   `attachments` field.
+3. **Auto-attached quote/invoice PDF** - sending a quote or invoice now
+   attaches a real PDF of it alongside the existing "view online" link,
+   generated on the spot via a new `quote-invoice-pdf-bytes.ts` (jsPDF,
+   producing actual bytes with no print-dialog/human-in-the-loop step,
+   unlike the existing "Export PDF" button's `quote-invoice-pdf.ts` +
+   browser print flow). If PDF generation fails for any reason, the send
+   still goes ahead without it - the view-online link alone is enough to
+   not block delivery over this.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy process-scheduled-comms --no-verify-jwt
+npx vercel --prod
+```
+
+No new environment variables or secrets - this reuses the existing
+`RESEND_API_KEY`/`RESEND_FROM_EMAIL` setup.
+
+### Test it
+
+1. Open a job card with no files yet -> Upload files -> pick a PDF or
+   Word doc (not just an image) -> confirm it appears as a file tile with
+   its name, and opens/downloads on click.
+2. Open a quote or invoice -> Send via Email -> confirm a PDF attachment
+   already shows in the Attachments list before you've added anything
+   yourself -> add a second file (e.g. a photo) -> send -> confirm the
+   recipient's email has both the quote/invoice PDF and your extra file
+   attached, plus the usual view-online link in the body.
+3. Job card's free-form Email button -> add an attachment -> send ->
+   confirm it arrives.
+
+### Known gaps / judgment calls
+
+- **No total-size guardrail** - only a 10MB-per-file cap, no cap on
+  total attachments across a single send. Resend's own request-size
+  limit (~40MB) is the real backstop; worth adding a running-total check
+  later if this ever becomes a real problem in practice, but not before.
+- Not verified against a live Resend send with real attachments - none
+  of those exist in this sandbox. Verified: `tsc --noEmit` clean for both
+  `apps/desktop` and `apps/mobile`, `vite build` succeeds.
