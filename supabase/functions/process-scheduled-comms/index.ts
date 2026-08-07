@@ -342,6 +342,7 @@ interface ScheduledCommunicationRow {
   rendered_subject: string | null;
   rendered_body: string;
   scheduled_for: string;
+  attachments: { filename: string; content: string }[] | null;
 }
 
 // Mirrors apps/mobile/lib/format.ts's formatClientAddress - same fields,
@@ -656,7 +657,23 @@ function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]+>/g, "").trim();
 }
 
-async function sendEmail(to: string, cc: string[], bcc: string[], subject: string | null, body: string): Promise<void> {
+// Resend wants raw base64 in `content`, no `data:...;base64,` prefix - the
+// composer stores attachments as data URIs (readFileAsDataUrl's native
+// output, same convention as accepted_signature_svg) so this is the one
+// place that has to strip it back off before the API call.
+function stripDataUrlPrefix(dataUrl: string): string {
+  const commaIndex = dataUrl.indexOf(",");
+  return commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
+}
+
+async function sendEmail(
+  to: string,
+  cc: string[],
+  bcc: string[],
+  subject: string | null,
+  body: string,
+  attachments: { filename: string; content: string }[]
+): Promise<void> {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     throw new Error("Email provider not configured (RESEND_* env vars missing)");
   }
@@ -674,6 +691,9 @@ async function sendEmail(to: string, cc: string[], bcc: string[], subject: strin
       subject: subject || "(no subject)",
       html: body.replace(/\n/g, "<br>"),
       text: stripHtmlTags(body),
+      ...(attachments.length > 0
+        ? { attachments: attachments.map((a) => ({ filename: a.filename, content: stripDataUrlPrefix(a.content) })) }
+        : {}),
     }),
   });
   if (!res.ok) {
@@ -750,7 +770,7 @@ async function dispatchOne(
   }
 
   try {
-    await sendEmail(recipient, row.cc_emails ?? [], row.bcc_emails ?? [], finalSubject, finalBody);
+    await sendEmail(recipient, row.cc_emails ?? [], row.bcc_emails ?? [], finalSubject, finalBody, row.attachments ?? []);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[process-scheduled-comms] Failed to dispatch ${row.id}`, message);
@@ -779,7 +799,7 @@ async function runSweep(): Promise<Response> {
 
   const { data: due, error: fetchError } = await admin
     .from("scheduled_communications")
-    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for")
+    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for, attachments")
     .eq("status", "pending")
     .lte("scheduled_for", now.toISOString())
     .order("scheduled_for", { ascending: true })
@@ -846,7 +866,7 @@ async function dispatchNow(req: Request, authHeader: string): Promise<Response> 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const { data: row } = await admin
     .from("scheduled_communications")
-    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for")
+    .select("id, tenant_id, entity_type, entity_id, trigger_key, channel, recipient_phone_or_email, cc_emails, bcc_emails, rendered_subject, rendered_body, scheduled_for, attachments")
     .eq("id", body.id)
     .eq("tenant_id", callerProfile.tenant_id)
     .eq("status", "pending")

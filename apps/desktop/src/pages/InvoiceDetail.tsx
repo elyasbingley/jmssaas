@@ -8,6 +8,7 @@ import {
   type Client,
   type ClientContact,
   type ClientSite,
+  type EmailAttachment,
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
@@ -19,6 +20,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
 import { buildInvoicePdfHtml } from "../lib/quote-invoice-pdf";
+import { blobToDataUrl, buildInvoicePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
@@ -238,10 +240,11 @@ export default function InvoiceDetailPage() {
   // queueAndSendEmail) for the full reasoning.
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
   const [openingEmail, setOpeningEmail] = useState(false);
 
   const openSendEmail = async () => {
-    if (!data || !profile) return;
+    if (!data || !profile || !tenant) return;
     if (agencyComplianceError) {
       setSendEmailError(agencyComplianceError);
       return;
@@ -271,6 +274,16 @@ export default function InvoiceDetailPage() {
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Invoice Delivery' email template found");
       setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+      // Best-effort, same as QuoteDetail.tsx - a PDF generation failure
+      // falls back to no attachment rather than blocking the send.
+      try {
+        const agencyBilling = jobCard?.is_real_estate_job && agency ? { ownerLandlordName: property?.owner_landlord_name ?? null, agencyName: agency.name } : undefined;
+        const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
+        const pdfDataUrl = await blobToDataUrl(pdfBlob);
+        setEmailDefaultAttachments([{ filename: `Invoice ${data.invoice.invoice_number}.pdf`, content: pdfDataUrl }]);
+      } catch {
+        setEmailDefaultAttachments([]);
+      }
       setEmailModalOpen(true);
     } catch (e) {
       setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
@@ -279,7 +292,7 @@ export default function InvoiceDetailPage() {
     }
   };
 
-  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string }) => {
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
     if (!profile) throw new Error("Not signed in");
     const wasSent = await queueAndSendEmail({
       tenantId: profile.tenant_id,
@@ -663,6 +676,7 @@ export default function InvoiceDetailPage() {
         defaultTo={data.invoice.clients?.email ?? ""}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
+        defaultAttachments={emailDefaultAttachments}
         recipientOptions={recipientOptions}
         onSend={handleSendEmail}
         sendLabel="Send invoice"
