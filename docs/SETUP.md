@@ -5457,3 +5457,61 @@ npx vercel --prod
 - Not verified against a live deploy in this sandbox. Verified:
   `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
   `vite build` succeeds.
+
+## 41. "Insert link" button for automation templates and the email composer
+
+Raw HTML already worked in any email body - `process-scheduled-comms`'s
+`sendEmail` renders the body as HTML (`html: body.replace(/\n/g, "<br>")`),
+so a hand-typed `<a href="...">text</a>` always rendered as a real
+clickable link. The gap was needing to type HTML tags by hand. New shared
+`InsertLinkButton` (select some text, click it, paste a URL, defaults to
+`https://` if you leave the scheme off) is now wired into:
+
+- **Settings > Automation & Messaging**'s template editor, next to the
+  existing "Insert tag" token buttons.
+- **`EmailComposeModal`** - the one compose popup reused by every "send
+  email" action in the app (quote, invoice, job card's free-form email),
+  so this covers "every other place" in one shot rather than needing a
+  per-page change.
+
+`TextAreaField` (`FormField.tsx`) gained `forwardRef` support (needed so
+`InsertLinkButton` can read cursor position / wrap a selection) and a new
+`labelHidden` prop (keeps the `<label>`/`htmlFor` association for
+accessibility without rendering visible text, since EmailComposeModal
+renders its own "Body" label alongside the button) - both purely additive,
+every existing caller is unaffected.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```
+
+No database changes - this only touches how text gets typed into fields
+that already existed.
+
+### Test it
+
+1. Settings > Automation & Messaging -> edit any email template -> select
+   some existing text (or place the cursor) -> click "🔗 Insert link" ->
+   fill in link text + a URL without `https://` -> Insert -> confirm the
+   `<a href="https://...">` tag lands in the body and the URL got the
+   scheme auto-added.
+2. Save that template, trigger the automation (or just open a quote/
+   invoice and use "Send via Email" with that template) -> confirm the
+   received email has a real clickable link, not literal `<a>` text.
+3. Open any "send email" popup (job card's free-form email is the
+   quickest) -> same Insert link flow -> confirm it works identically
+   there.
+
+### Known gaps / judgment calls
+
+- No rich-text/WYSIWYG editor - the body field is still plain text with
+  raw HTML in it; this button only saves typing the `<a>` tag by hand,
+  it doesn't add bold/italic/etc. Consistent with the rest of this app's
+  "type markup into a plain field" approach (see the reminder-ladder
+  templates' own styled `<a>` button links).
+- Not verified against a live deploy or a real sent email in this
+  sandbox. Verified: `tsc --noEmit` clean for both `apps/desktop` and
+  `apps/mobile`, `vite build` succeeds.

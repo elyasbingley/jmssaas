@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EmailAttachment } from "@jmssaas/shared";
 import { Modal } from "./Modal";
 import { FormField, TextAreaField } from "./FormField";
+import { InsertLinkButton } from "./InsertLinkButton";
 import { getErrorMessage } from "../lib/errors";
 
 export interface EmailTemplateOption {
@@ -80,6 +81,7 @@ export function EmailComposeModal({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -198,7 +200,11 @@ export function EmailComposeModal({
       )}
 
       <FormField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-      <TextAreaField label="Body" rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+      <div className="mb-1 flex items-center justify-between">
+        <label className="block text-sm font-semibold text-gray-700">Body</label>
+        <InsertLinkButton textareaRef={bodyRef} value={body} onChange={setBody} />
+      </div>
+      <TextAreaField label="Body" labelHidden rows={10} value={body} onChange={(e) => setBody(e.target.value)} ref={bodyRef} />
 
       <div className="mb-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700">Attachments</label>

@@ -15,6 +15,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField } from "../components/FormField";
+import { InsertLinkButton } from "../components/InsertLinkButton";
 
 // Direct port of apps/mobile/app/automation-settings.tsx - same trigger
 // groups/labels/timing summaries, same six-trigger_key scope (not a fully
@@ -469,6 +470,7 @@ export default function AutomationSettingsPage() {
               {`{${token}}`}
             </button>
           ))}
+          <InsertLinkButton textareaRef={bodyRef} value={templateBody} onChange={setTemplateBody} />
         </div>
 
         <div className="mb-4">
