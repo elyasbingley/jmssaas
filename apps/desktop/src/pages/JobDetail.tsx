@@ -41,6 +41,7 @@ import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
+import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -595,6 +596,8 @@ export default function JobDetailPage() {
     onError: (e) => setWorkdriveError(getErrorMessage(e, "Failed to save WorkDrive link")),
   });
 
+  const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+
   // Free-form job card email - similar to ServiceM8's per-job "Email"
   // button: pick a template (or write from scratch), review/edit the body,
   // choose to/cc/bcc, send. Uses entity_type 'job' with its own trigger_key
@@ -699,6 +702,15 @@ export default function JobDetailPage() {
           </div>
         ) : null}
 
+        {!job.is_real_estate_job ? (
+          <button
+            onClick={() => setRealEstateModalOpen(true)}
+            className="mb-4 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Mark as real estate / strata job
+          </button>
+        ) : null}
+
         <div className="mb-4 rounded-md border border-gray-200 p-3 text-sm">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">WorkDrive</h3>
@@ -724,14 +736,19 @@ export default function JobDetailPage() {
 
         {job.is_real_estate_job ? (
           <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
-              {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
-              {propertyManager ? (
-                <span className="text-gray-600">
-                  PM: {propertyManager.first_name} {propertyManager.last_name}
-                </span>
-              ) : null}
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
+                {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
+                {propertyManager ? (
+                  <span className="text-gray-600">
+                    PM: {propertyManager.first_name} {propertyManager.last_name}
+                  </span>
+                ) : null}
+              </div>
+              <button onClick={() => setRealEstateModalOpen(true)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+                Edit
+              </button>
             </div>
             {property ? (
               <p className="text-gray-600">
@@ -1294,6 +1311,20 @@ export default function JobDetailPage() {
           </button>
         </div>
       </Modal>
+
+      <RealEstateAssignmentModal
+        open={realEstateModalOpen}
+        onClose={() => setRealEstateModalOpen(false)}
+        jobCardId={job.id}
+        initial={{
+          is_real_estate_job: job.is_real_estate_job,
+          agency_id: job.agency_id,
+          property_manager_id: job.property_manager_id,
+          property_id: job.property_id,
+          work_order_number: job.work_order_number,
+          nte_limit_cents: job.nte_limit_cents,
+        }}
+      />
 
       <EmailComposeModal
         open={jobEmailModalOpen}

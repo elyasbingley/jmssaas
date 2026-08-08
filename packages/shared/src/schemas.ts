@@ -75,6 +75,25 @@ export const createJobCardSchema = z.object({
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
 
+// Retrofits an EXISTING job (and, transitively, any quote/invoice already
+// linked to it - they read these same job_cards columns live via a join,
+// see InvoiceDetail.tsx's fetchInvoice) with real-estate/strata agency
+// assignment - the "New job" form's is_real_estate_job/agency_id/etc.
+// fields were previously only ever settable once, at creation. Same field
+// set as createJobCardSchema's real-estate slice, just standalone since
+// this is a full update (not a create) and is_real_estate_job is
+// required rather than optional here - the control always sends an
+// explicit true/false, never omits it.
+export const updateJobRealEstateAssignmentSchema = z.object({
+  is_real_estate_job: z.boolean(),
+  agency_id: z.string().uuid().optional().or(z.literal("")),
+  property_manager_id: z.string().uuid().optional().or(z.literal("")),
+  property_id: z.string().uuid().optional().or(z.literal("")),
+  work_order_number: z.string().optional(),
+  nte_limit_cents: z.number().int().positive().optional(),
+});
+export type UpdateJobRealEstateAssignmentInput = z.infer<typeof updateJobRealEstateAssignmentSchema>;
+
 export const createJobNoteSchema = z.object({
   job_card_id: z.string().uuid(),
   body: z.string().min(1, "Note can't be empty"),

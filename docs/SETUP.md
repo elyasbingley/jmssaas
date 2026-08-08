@@ -5339,3 +5339,66 @@ No Edge Function changes this pass - just one new `invoices` column
   this sandbox (no deployed Supabase project to test against). Verified:
   `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
   `vite build` succeeds.
+
+## 39. Retrofit an existing job/quote/invoice as a real estate / strata job
+
+`is_real_estate_job`/`agency_id`/`property_manager_id`/`property_id`/
+`work_order_number`/`nte_limit_cents` all live on `job_cards` and were
+previously only ever settable once, at creation, via the "New job" form's
+checkbox + Agency/PM/Property pickers - there was no way back in if a job
+was created as an ordinary job and only later turned out to be agency
+work (or the wrong agency/PM/property was picked at the time).
+
+New shared `RealEstateAssignmentModal` component (same cascading Agency ->
+PM -> Property picker as the "New job" form) is now mounted on all three
+detail pages, each writing to the same underlying `job_cards` row:
+
+- **JobDetail.tsx** - a "Mark as real estate / strata job" button sits
+  between the client/address card and the WorkDrive section (as asked),
+  or an "Edit" link inside the existing blue "Agency Job" info box once
+  it's already set.
+- **QuoteDetail.tsx** / **InvoiceDetail.tsx** - neither page has a
+  WorkDrive section, so the equivalent control sits directly under "Edit
+  address" instead: "Mark as real estate / strata job", or "Real estate /
+  strata job - {Agency} · Edit" once set. Only shown when the quote/
+  invoice is actually linked to a job (`job_card_id` isn't null) - there's
+  no job_cards row to write to otherwise. Since quotes/invoices already
+  read these fields live via their join to `job_cards` (QuoteDetail's own
+  join was extended this pass to match InvoiceDetail's pre-existing one),
+  setting this from any of the three pages immediately shows up on the
+  other two once you're on them too - it's genuinely one shared setting,
+  not three separate ones.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```
+
+No database changes this pass - `job_cards` already had every column
+this needs; this is purely a missing-UI fix.
+
+### Test it
+
+1. Create (or find) an ordinary job with no agency attached -> open it ->
+   confirm "Mark as real estate / strata job" appears between the address
+   card and WorkDrive -> click it -> pick an agency/PM/property -> Save ->
+   confirm the blue "Agency Job" box now appears with an "Edit" link.
+2. Open a quote or invoice linked to that same job -> confirm it now
+   shows "Real estate / strata job - {Agency}" under the address (no page
+   reload needed if you navigated there fresh) -> click Edit -> change
+   the property -> Save -> go back to the job page and confirm it updated
+   there too.
+3. Open a quote/invoice NOT linked to any job -> confirm no real-estate
+   control appears at all (nothing to attach it to).
+
+### Known gaps / judgment calls
+
+- **Unchecking the box clears agency/PM/property/work order/NTE limit**,
+  same as leaving them blank on the "New job" form - there's no
+  "temporarily hide but remember" state, matching how the field always
+  behaved at creation time.
+- Not verified against a live deploy in this sandbox. Verified:
+  `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
+  `vite build` succeeds.

@@ -25,6 +25,7 @@ import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
+import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -48,11 +49,14 @@ const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
 };
 
 type InvoiceJobCard = {
+  id: string;
   title: string;
   is_real_estate_job: boolean;
   agency_id: string | null;
+  property_manager_id: string | null;
   property_id: string | null;
   work_order_number: string | null;
+  nte_limit_cents: number | null;
 };
 type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
@@ -60,7 +64,9 @@ async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: L
   const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
     supabase
       .from("invoices")
-      .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id, work_order_number)")
+      .select(
+        "*, clients(*), job_cards!invoices_job_card_id_fkey(id, title, is_real_estate_job, agency_id, property_manager_id, property_id, work_order_number, nte_limit_cents)"
+      )
       .eq("id", id)
       .single(),
     supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
@@ -341,6 +347,8 @@ export default function InvoiceDetailPage() {
   const invoiceRecipientEmail =
     data?.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : (data?.invoice.clients?.email ?? "");
 
+  const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+
   const [billToModalOpen, setBillToModalOpen] = useState(false);
   const [billToError, setBillToError] = useState<string | null>(null);
   const updateBillTo = useMutation({
@@ -502,6 +510,24 @@ export default function InvoiceDetailPage() {
           Edit address
         </button>
       </p>
+
+      {jobCard ? (
+        jobCard.is_real_estate_job ? (
+          <p className="mt-1 text-sm text-gray-600">
+            Real estate / strata job{agency ? ` - ${agency.name}` : ""}{" "}
+            <button onClick={() => setRealEstateModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+              Edit
+            </button>
+          </p>
+        ) : (
+          <button
+            onClick={() => setRealEstateModalOpen(true)}
+            className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Mark as real estate / strata job
+          </button>
+        )
+      ) : null}
 
       {jobCard?.is_real_estate_job && agency ? (
         <p className="mt-1 text-sm text-gray-600">
@@ -776,6 +802,23 @@ export default function InvoiceDetailPage() {
             </button>
           </div>
         </Modal>
+      ) : null}
+
+      {jobCard ? (
+        <RealEstateAssignmentModal
+          open={realEstateModalOpen}
+          onClose={() => setRealEstateModalOpen(false)}
+          jobCardId={jobCard.id}
+          initial={{
+            is_real_estate_job: jobCard.is_real_estate_job,
+            agency_id: jobCard.agency_id,
+            property_manager_id: jobCard.property_manager_id,
+            property_id: jobCard.property_id,
+            work_order_number: jobCard.work_order_number,
+            nte_limit_cents: jobCard.nte_limit_cents,
+          }}
+          invalidateKeys={[["invoice", id]]}
+        />
       ) : null}
 
       <EmailComposeModal
