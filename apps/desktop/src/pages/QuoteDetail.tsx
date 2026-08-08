@@ -5,6 +5,7 @@ import {
   calculateDocumentTotals,
   collectRecipientEmails,
   formatCentsAsAud,
+  type Agency,
   type ApprovalStatus,
   type Client,
   type ClientContact,
@@ -25,6 +26,7 @@ import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
+import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -47,11 +49,27 @@ const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   declined: "Declined by client",
 };
 
-type QuoteRow = Quote & { clients: Client | null; job_cards: { title: string } | null };
+type QuoteJobCard = {
+  id: string;
+  title: string;
+  is_real_estate_job: boolean;
+  agency_id: string | null;
+  property_manager_id: string | null;
+  property_id: string | null;
+  work_order_number: string | null;
+  nte_limit_cents: number | null;
+};
+type QuoteRow = Quote & { clients: Client | null; job_cards: QuoteJobCard | null };
 
 async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineItemFormInput[] }> {
   const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
-    supabase.from("quotes").select("*, clients(*), job_cards!quotes_job_card_id_fkey(title)").eq("id", id).single(),
+    supabase
+      .from("quotes")
+      .select(
+        "*, clients(*), job_cards!quotes_job_card_id_fkey(id, title, is_real_estate_job, agency_id, property_manager_id, property_id, work_order_number, nte_limit_cents)"
+      )
+      .eq("id", id)
+      .single(),
     supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
   ]);
   if (quoteError) throw quoteError;
@@ -63,6 +81,12 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
   const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
   if (error) throw error;
   return data as Tenant;
+}
+
+async function fetchAgency(agencyId: string): Promise<Agency> {
+  const { data, error } = await supabase.from("agencies").select("*").eq("id", agencyId).single();
+  if (error) throw error;
+  return data as Agency;
 }
 
 async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
@@ -99,6 +123,12 @@ export default function QuoteDetailPage() {
     queryKey: ["tenant", profile?.tenant_id],
     queryFn: () => fetchTenant(profile!.tenant_id),
     enabled: !!profile,
+  });
+  const jobCard = data?.quote.job_cards;
+  const { data: agency } = useQuery({
+    queryKey: ["agency", jobCard?.agency_id],
+    queryFn: () => fetchAgency(jobCard!.agency_id!),
+    enabled: !!jobCard?.agency_id,
   });
   const { data: clientSites } = useQuery({
     queryKey: ["client-sites", data?.quote.client_id],
@@ -307,6 +337,7 @@ export default function QuoteDetailPage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressSiteChoice, setAddressSiteChoice] = useState("");
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
 
   const updateSite = useMutation({
     mutationFn: async () => {
@@ -376,6 +407,24 @@ export default function QuoteDetailPage() {
           Edit address
         </button>
       </p>
+
+      {jobCard ? (
+        jobCard.is_real_estate_job ? (
+          <p className="mt-1 text-sm text-gray-600">
+            Real estate / strata job{agency ? ` - ${agency.name}` : ""}{" "}
+            <button onClick={() => setRealEstateModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+              Edit
+            </button>
+          </p>
+        ) : (
+          <button
+            onClick={() => setRealEstateModalOpen(true)}
+            className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Mark as real estate / strata job
+          </button>
+        )
+      ) : null}
 
       {data.quote.approval_status ? (
         <div
@@ -554,6 +603,23 @@ export default function QuoteDetailPage() {
           </button>
         </div>
       </Modal>
+
+      {jobCard ? (
+        <RealEstateAssignmentModal
+          open={realEstateModalOpen}
+          onClose={() => setRealEstateModalOpen(false)}
+          jobCardId={jobCard.id}
+          initial={{
+            is_real_estate_job: jobCard.is_real_estate_job,
+            agency_id: jobCard.agency_id,
+            property_manager_id: jobCard.property_manager_id,
+            property_id: jobCard.property_id,
+            work_order_number: jobCard.work_order_number,
+            nte_limit_cents: jobCard.nte_limit_cents,
+          }}
+          invalidateKeys={[["quote", id]]}
+        />
+      ) : null}
 
       <EmailComposeModal
         open={emailModalOpen}
