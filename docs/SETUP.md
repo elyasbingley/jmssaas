@@ -5402,3 +5402,58 @@ this needs; this is purely a missing-UI fix.
 - Not verified against a live deploy in this sandbox. Verified:
   `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
   `vite build` succeeds.
+
+## 40. Dedicated "Work order #" quick-edit
+
+Section 39's `RealEstateAssignmentModal` already let a work order number
+be set (it's one of the fields alongside Agency/PM/Property), but reaching
+it meant opening the full agency-reassignment modal just to change one
+number - the actual blocker reported: an agency with
+`require_work_order_num` set blocks sending an invoice
+(`agencyComplianceError` in InvoiceDetail.tsx) until a work order number
+exists, and the fastest fix wasn't obvious from that error message alone.
+
+New single-field `WorkOrderNumberModal` (same minimal text-field-plus-Save
+shape as the existing WorkDrive link modal) is now mounted on all three
+pages, each showing a "Work order #: {value or 'Not set'} - Edit/+ Add"
+line:
+
+- **InvoiceDetail.tsx** - the line sits right under "Billed to"; the
+  `agencyComplianceError` red banner itself also grew an inline "Add it
+  now" button so hitting the block and fixing it is immediate, no need to
+  first find the quick-edit line above it.
+- **QuoteDetail.tsx** - same line, under the "Real estate / strata job"
+  line (quotes don't enforce the compliance check, but can still record
+  the number).
+- **JobDetail.tsx** - the existing "Work order: {value}" text in the blue
+  Agency Job box gained its own Edit/+ Add link, instead of only being
+  reachable via that box's "Edit" link into the full assignment modal.
+
+All three write straight to the same `job_cards.work_order_number` - no
+schema change.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```
+
+### Test it
+
+1. Open a real-estate invoice with no work order number set, for an
+   agency that requires one -> confirm the red compliance banner has an
+   "Add it now" button -> click it -> type a number -> Save -> confirm
+   the banner disappears and "Send Invoice via Email" is no longer
+   blocked.
+2. Same on a quote -> confirm the "Work order #" line lets you set/edit
+   it even though nothing blocks sending a quote without one.
+3. Set it from the invoice, then check the job page and the quote (if
+   any) - confirm the same number shows up everywhere, since it's one
+   shared field.
+
+### Known gaps / judgment calls
+
+- Not verified against a live deploy in this sandbox. Verified:
+  `tsc --noEmit` clean for both `apps/desktop` and `apps/mobile`,
+  `vite build` succeeds.
