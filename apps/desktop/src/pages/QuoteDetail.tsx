@@ -27,6 +27,7 @@ import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
+import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -338,6 +339,7 @@ export default function QuoteDetailPage() {
   const [addressSiteChoice, setAddressSiteChoice] = useState("");
   const [addressError, setAddressError] = useState<string | null>(null);
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
 
   const updateSite = useMutation({
     mutationFn: async () => {
@@ -424,6 +426,15 @@ export default function QuoteDetailPage() {
             Mark as real estate / strata job
           </button>
         )
+      ) : null}
+
+      {jobCard?.is_real_estate_job ? (
+        <p className="mt-1 text-sm text-gray-600">
+          Work order #: {jobCard.work_order_number ?? "Not set"}{" "}
+          <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {jobCard.work_order_number ? "Edit" : "+ Add"}
+          </button>
+        </p>
       ) : null}
 
       {data.quote.approval_status ? (
@@ -617,6 +628,16 @@ export default function QuoteDetailPage() {
             work_order_number: jobCard.work_order_number,
             nte_limit_cents: jobCard.nte_limit_cents,
           }}
+          invalidateKeys={[["quote", id]]}
+        />
+      ) : null}
+
+      {jobCard ? (
+        <WorkOrderNumberModal
+          open={workOrderModalOpen}
+          onClose={() => setWorkOrderModalOpen(false)}
+          jobCardId={jobCard.id}
+          currentValue={jobCard.work_order_number}
           invalidateKeys={[["quote", id]]}
         />
       ) : null}

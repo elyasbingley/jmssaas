@@ -42,6 +42,7 @@ import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
+import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -597,6 +598,7 @@ export default function JobDetailPage() {
   });
 
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
 
   // Free-form job card email - similar to ServiceM8's per-job "Email"
   // button: pick a template (or write from scratch), review/edit the body,
@@ -758,8 +760,13 @@ export default function JobDetailPage() {
                 {property.key_tag_number ? ` - 🔑 ${property.key_tag_number}` : ""}
               </p>
             ) : null}
-            <div className="mt-1 flex flex-wrap gap-x-4 text-gray-600">
-              {job.work_order_number ? <span>Work order: {job.work_order_number}</span> : null}
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 text-gray-600">
+              <span>
+                Work order: {job.work_order_number ?? "Not set"}{" "}
+                <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+                  {job.work_order_number ? "Edit" : "+ Add"}
+                </button>
+              </span>
               {job.nte_limit_cents != null ? <span>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</span> : null}
             </div>
             {isNteExceeded ? (
@@ -1324,6 +1331,13 @@ export default function JobDetailPage() {
           work_order_number: job.work_order_number,
           nte_limit_cents: job.nte_limit_cents,
         }}
+      />
+
+      <WorkOrderNumberModal
+        open={workOrderModalOpen}
+        onClose={() => setWorkOrderModalOpen(false)}
+        jobCardId={job.id}
+        currentValue={job.work_order_number}
       />
 
       <EmailComposeModal

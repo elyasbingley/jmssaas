@@ -26,6 +26,7 @@ import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
+import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -348,6 +349,7 @@ export default function InvoiceDetailPage() {
     data?.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : (data?.invoice.clients?.email ?? "");
 
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
 
   const [billToModalOpen, setBillToModalOpen] = useState(false);
   const [billToError, setBillToError] = useState<string | null>(null);
@@ -544,8 +546,22 @@ export default function InvoiceDetailPage() {
         </p>
       ) : null}
 
+      {jobCard?.is_real_estate_job ? (
+        <p className="mt-1 text-sm text-gray-600">
+          Work order #: {jobCard.work_order_number ?? "Not set"}{" "}
+          <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {jobCard.work_order_number ? "Edit" : "+ Add"}
+          </button>
+        </p>
+      ) : null}
+
       {agencyComplianceError ? (
-        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{agencyComplianceError}</p>
+        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          {agencyComplianceError}{" "}
+          <button onClick={() => setWorkOrderModalOpen(true)} className="font-bold underline">
+            Add it now
+          </button>
+        </p>
       ) : null}
 
       {data.invoice.approval_status ? (
@@ -817,6 +833,16 @@ export default function InvoiceDetailPage() {
             work_order_number: jobCard.work_order_number,
             nte_limit_cents: jobCard.nte_limit_cents,
           }}
+          invalidateKeys={[["invoice", id]]}
+        />
+      ) : null}
+
+      {jobCard ? (
+        <WorkOrderNumberModal
+          open={workOrderModalOpen}
+          onClose={() => setWorkOrderModalOpen(false)}
+          jobCardId={jobCard.id}
+          currentValue={jobCard.work_order_number}
           invalidateKeys={[["invoice", id]]}
         />
       ) : null}
