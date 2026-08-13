@@ -152,7 +152,17 @@ function renderHeader(docType: "quote" | "invoice", docNumber: string, balanceDu
   `;
 }
 
-function renderBillTo(client: Client): string {
+// agencyBilling mirrors apps/desktop/src/lib/quote-invoice-pdf.ts's
+// renderBillTo - decorates the name "Owner/Landlord c/- Agency" for a
+// real-estate invoice, or (once billToLandlord is set, see
+// invoices/[id].tsx's "Billed to" control) drops the agency decoration
+// and swaps the phone/email lines to the property's own
+// owner_landlord_phone/email instead of the client's. The address line
+// stays the job/property address regardless of who's paying.
+function renderBillTo(
+  client: Client,
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null }
+): string {
   const addressLines = formatAddressLines({
     line1: client.address_line1,
     line2: client.address_line2,
@@ -160,13 +170,20 @@ function renderBillTo(client: Client): string {
     state: client.state,
     postcode: client.postcode,
   });
+  const billToName = agencyBilling
+    ? agencyBilling.billToLandlord
+      ? (agencyBilling.ownerLandlordName ?? client.name)
+      : `${agencyBilling.ownerLandlordName ?? client.name} c/- ${agencyBilling.agencyName}`
+    : client.name;
+  const billToPhone = agencyBilling?.billToLandlord ? (agencyBilling.ownerLandlordPhone ?? null) : client.phone;
+  const billToEmail = agencyBilling?.billToLandlord ? (agencyBilling.ownerLandlordEmail ?? null) : client.email;
   return `
     <div>
       <div class="bill-to-label">Bill To</div>
-      <div class="bill-to-name">${escapeHtml(client.name)}</div>
+      <div class="bill-to-name">${escapeHtml(billToName)}</div>
       ${addressLines.map((line) => `<div class="bill-to-detail">${escapeHtml(line)}</div>`).join("")}
-      ${client.phone ? `<div class="bill-to-detail">${escapeHtml(client.phone)}</div>` : ""}
-      ${client.email ? `<div class="bill-to-detail">${escapeHtml(client.email)}</div>` : ""}
+      ${billToPhone ? `<div class="bill-to-detail">${escapeHtml(billToPhone)}</div>` : ""}
+      ${billToEmail ? `<div class="bill-to-detail">${escapeHtml(billToEmail)}</div>` : ""}
     </div>
   `;
 }
@@ -273,8 +290,9 @@ export function buildInvoicePdfHtml(params: {
   invoice: Invoice;
   client: Client;
   lineItems: LineItemFormInput[];
+  agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null };
 }): string {
-  const { tenant, invoice, client, lineItems } = params;
+  const { tenant, invoice, client, lineItems, agencyBilling } = params;
   // Invoices don't have their own persisted "terms" field distinct from
   // notes (see docs/SETUP.md known-gaps) - the reference template's "terms"
   // line is derived from due_date rather than a fabricated new column.
@@ -293,7 +311,7 @@ export function buildInvoicePdfHtml(params: {
     ${renderHeader("invoice", invoice.invoice_number, balanceDueCents, tenant)}
 
     <div class="meta-row">
-      ${renderBillTo(client)}
+      ${renderBillTo(client, agencyBilling)}
       <div class="dates-block">
         <div class="date-row"><span class="date-label">Invoice date</span><span class="date-value">${formatDate(invoice.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Terms</span><span class="date-value">${escapeHtml(terms)}</span></div>

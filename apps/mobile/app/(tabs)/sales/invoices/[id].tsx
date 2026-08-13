@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import type { ApprovalStatus, Client, Invoice, InvoiceStatus, LineItemFormInput, Tenant } from "@jmssaas/shared";
+import type { Agency, ApprovalStatus, Client, Invoice, InvoiceStatus, LineItemFormInput, Property, Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
@@ -11,6 +11,7 @@ import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../../lib/pdf";
 import { exportPdf } from "../../../../lib/print";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { CenteredModal } from "../../../../components/CenteredModal";
 import { LineItemEditor, LineItemSummary } from "../../../../components/LineItemEditor";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
@@ -34,7 +35,13 @@ const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   declined: "Declined by client",
 };
 
-type InvoiceRow = Invoice & { clients: Client | null; job_cards: { title: string } | null };
+type InvoiceJobCard = {
+  title: string;
+  is_real_estate_job: boolean;
+  agency_id: string | null;
+  property_id: string | null;
+};
+type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
@@ -58,7 +65,7 @@ export default function InvoiceDetailScreen() {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
       supabase
         .from("invoices")
-        .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title)")
+        .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id)")
         .eq("id", id)
         .single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
@@ -67,6 +74,20 @@ export default function InvoiceDetailScreen() {
     if (itemsError) throw itemsError;
     return { invoice: invoice as InvoiceRow, items: (items ?? []) as LineItemFormInput[] };
   }, [id, isOnline]);
+
+  const jobCard = data?.invoice.job_cards;
+  const { data: agency } = useSupabaseFetch<Agency | null>(async () => {
+    if (!isOnline || !jobCard?.agency_id) return null;
+    const { data, error } = await supabase.from("agencies").select("*").eq("id", jobCard.agency_id).single();
+    if (error) throw error;
+    return data as Agency;
+  }, [isOnline, jobCard?.agency_id]);
+  const { data: property } = useSupabaseFetch<Property | null>(async () => {
+    if (!isOnline || !jobCard?.property_id) return null;
+    const { data, error } = await supabase.from("properties").select("*").eq("id", jobCard.property_id).single();
+    if (error) throw error;
+    return data as Property;
+  }, [isOnline, jobCard?.property_id]);
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -79,6 +100,24 @@ export default function InvoiceDetailScreen() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendEmailError, setSendEmailError] = useState<string | null>(null);
+  const [billToModalVisible, setBillToModalVisible] = useState(false);
+  const [billToSaving, setBillToSaving] = useState(false);
+  const [billToError, setBillToError] = useState<string | null>(null);
+
+  const handleSetBillToLandlord = async (billToLandlord: boolean) => {
+    setBillToSaving(true);
+    setBillToError(null);
+    try {
+      const { error } = await supabase.from("invoices").update({ bill_to_landlord: billToLandlord }).eq("id", id);
+      if (error) throw error;
+      await refetch();
+      setBillToModalVisible(false);
+    } catch (e) {
+      setBillToError(getErrorMessage(e, "Failed to update billing recipient"));
+    } finally {
+      setBillToSaving(false);
+    }
+  };
 
   // Once the client has actually responded, the line items/totals are
   // locked at the database level too (see the accepted case's trigger in
@@ -145,11 +184,22 @@ export default function InvoiceDetailScreen() {
       if (tenantError) throw tenantError;
       if (!data.invoice.clients) throw new Error("This invoice has no client on file");
 
+      const agencyBilling =
+        jobCard?.is_real_estate_job && agency
+          ? {
+              ownerLandlordName: property?.owner_landlord_name ?? null,
+              agencyName: agency.name,
+              billToLandlord: data.invoice.bill_to_landlord,
+              ownerLandlordPhone: property?.owner_landlord_phone ?? null,
+              ownerLandlordEmail: property?.owner_landlord_email ?? null,
+            }
+          : undefined;
       const html = buildInvoicePdfHtml({
         tenant: tenant as Tenant,
         invoice: data.invoice,
         client: data.invoice.clients,
         lineItems,
+        agencyBilling,
       });
       await exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
     } catch (e) {
@@ -203,9 +253,13 @@ export default function InvoiceDetailScreen() {
   // reasoning), using the invoice_sent trigger_key instead of quote_sent.
   const handleSendInvoiceEmail = async () => {
     if (!data || !profile) return;
-    const email = data.invoice.clients?.email;
+    const email = data.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : data.invoice.clients?.email;
     if (!email) {
-      setSendEmailError("This client has no email address on file - add one on the Client Details screen.");
+      setSendEmailError(
+        data.invoice.bill_to_landlord
+          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab (desktop), or switch 'Billed to' back to the agency."
+          : "This client has no email address on file - add one on the Client Details screen."
+      );
       return;
     }
     setSendingEmail(true);
@@ -297,12 +351,21 @@ export default function InvoiceDetailScreen() {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
       <Text style={styles.title}>{data.invoice.invoice_number}</Text>
       <Text style={styles.subtitle}>{data.invoice.clients?.name ?? "Unknown client"}</Text>
       {data.invoice.job_cards ? (
         <Pressable onPress={() => router.push(`/sales/jobs/${data.invoice.job_card_id}`)}>
           <Text style={styles.link}>Job: {data.invoice.job_cards.title}</Text>
+        </Pressable>
+      ) : null}
+
+      {jobCard?.is_real_estate_job && agency ? (
+        <Pressable onPress={() => { setBillToError(null); setBillToModalVisible(true); }}>
+          <Text style={styles.link}>
+            Billed to: {data.invoice.bill_to_landlord ? (property?.owner_landlord_name ?? "Landlord (name not on file)") : `${agency.name}${data.invoice.clients ? ` (${data.invoice.clients.name})` : ""}`} - Change
+          </Text>
         </Pressable>
       ) : null}
 
@@ -389,6 +452,41 @@ export default function InvoiceDetailScreen() {
         <Text style={styles.exportButtonText}>{exporting ? "Preparing PDF..." : "Export PDF"}</Text>
       </Pressable>
     </ScrollView>
+
+    <CenteredModal visible={billToModalVisible} onClose={() => setBillToModalVisible(false)}>
+      <Text style={styles.modalTitle}>Who is this invoice billed to?</Text>
+      <Pressable
+        style={[styles.billToOption, !data.invoice.bill_to_landlord && styles.billToOptionActive]}
+        onPress={() => handleSetBillToLandlord(false)}
+        disabled={billToSaving}
+      >
+        <Text style={styles.billToOptionTitle}>Agency / Property Manager</Text>
+        <Text style={styles.billToOptionMeta}>
+          {agency?.name}
+          {data.invoice.clients ? ` - ${data.invoice.clients.name}` : ""}
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[styles.billToOption, data.invoice.bill_to_landlord && styles.billToOptionActive]}
+        onPress={() => handleSetBillToLandlord(true)}
+        disabled={billToSaving}
+      >
+        <Text style={styles.billToOptionTitle}>Landlord / Owner</Text>
+        {property?.owner_landlord_name || property?.owner_landlord_email ? (
+          <Text style={styles.billToOptionMeta}>
+            {property.owner_landlord_name}
+            {property.owner_landlord_email ? ` - ${property.owner_landlord_email}` : ""}
+          </Text>
+        ) : (
+          <Text style={styles.billToOptionMeta}>No landlord contact on file yet - add one from the desktop app first.</Text>
+        )}
+      </Pressable>
+      {billToError ? <Text style={styles.error}>{billToError}</Text> : null}
+      <Pressable onPress={() => setBillToModalVisible(false)}>
+        <Text style={styles.link}>Close</Text>
+      </Pressable>
+    </CenteredModal>
+    </>
   );
 }
 
@@ -405,6 +503,11 @@ const styles = StyleSheet.create({
   fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
+  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  billToOption: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, marginTop: 8 },
+  billToOptionActive: { borderColor: "#1d4ed8", backgroundColor: "#eff6ff" },
+  billToOptionTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  billToOptionMeta: { fontSize: 13, color: "#6b7280", marginTop: 2 },
   approvalBadge: { alignSelf: "flex-start", backgroundColor: "#fef9c3", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, marginTop: 10 },
   approvalBadgeAccepted: { backgroundColor: "#dcfce7" },
   approvalBadgeDeclined: { backgroundColor: "#fee2e2" },

@@ -5644,3 +5644,57 @@ npx eas build --profile preview --platform android
 - Not verified against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 44. Mobile feature parity, part 2: invoice "Bill to" (landlord vs agency)
+
+Mirrors desktop's `bill_to_landlord` control (section 29) on
+`apps/mobile/app/(tabs)/sales/invoices/[id].tsx`. Invoices are a
+Supabase-direct/office-workflow screen on mobile (not PowerSync-synced,
+per the schema's own Phase 1 scope comment), so this needed no local
+schema change - just extending the existing `job_cards` join to include
+`is_real_estate_job`/`agency_id`/`property_id` (previously only `title`
+was selected) and fetching `agency`/`property` the same way
+`jobs/[id].tsx` already does.
+
+- A "Billed to: {Agency (Client)} - Change" line appears under the Job
+  link for real-estate invoices, opening a centered modal with the same
+  two Agency/PM vs Landlord/Owner options as desktop.
+- `apps/mobile/lib/pdf.ts`'s `buildInvoicePdfHtml`/`renderBillTo` gained
+  the same `agencyBilling` shape desktop's `quote-invoice-pdf.ts` has, so
+  "Export PDF" reflects the chosen recipient's name/phone/email.
+- `handleSendInvoiceEmail`'s recipient resolution now checks
+  `bill_to_landlord` + `property.owner_landlord_email` before falling
+  back to the client's email, with a clear error if the toggle is on but
+  no landlord email is on file yet.
+
+### Deploy
+
+No migration - `invoices.bill_to_landlord` already exists in Postgres
+(section 29's migration). Redeploy both apps:
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Open a real-estate invoice on mobile -> confirm "Billed to: ..." shows
+   under the Job link -> tap it -> switch to Landlord/Owner -> confirm
+   the line updates.
+2. Export PDF -> confirm the Bill To box shows the landlord's name/
+   contact instead of the agency's.
+3. Send Invoice via Email -> confirm it error-prompts correctly if no
+   landlord email is on file, and sends to the landlord's email once one
+   exists.
+
+### Known gaps / judgment calls
+
+- Setting the landlord's own contact details (name/phone/email) is still
+  desktop-only (Property Profile's Access & Contacts tab) - this section
+  only adds the ability to *choose* landlord billing on mobile, not to
+  enter the landlord's details there too. That gap closes in the next
+  installment (the full Real Estate & Strata module on mobile).
+- Not verified against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile` and `apps/desktop`.
