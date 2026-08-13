@@ -6097,6 +6097,19 @@ table - no `schema.ts` or `sync-rules.yaml` changes, and no new migration
   existing signature shows as a static preview rather than a live canvas
   new strokes get added on top of - clearing and re-signing is the way
   to change it, a deliberate simplification.
+- **`buffer` dependency** (added to `apps/mobile/package.json`, nothing
+  in this app's own code imports it) - `react-native-svg`'s
+  `fetchData.ts` (a remote/data-URI SVG loading helper this app never
+  actually uses, just `<Svg>`/`<Path>`) does `import { Buffer } from
+  "buffer"`, one of the handful of Node core modules Metro doesn't
+  polyfill by default. Without this package physically present in
+  `node_modules`, Metro's bundler fails outright with "Unable to
+  resolve module buffer" - not a warning, a hard build failure (`pnpm
+  expo export:embed` exits 1), caught only when actually running an EAS
+  build, since `tsc --noEmit` doesn't touch Metro's module graph at
+  all. Confirmed fixed by reproducing the exact failing command
+  (`npx expo export:embed --eager --platform android --dev false`)
+  locally and rerunning it clean after adding the dependency.
 - **New `lib/report-pdf.ts`** - `uploadReportPhoto()` (mirrors desktop's
   `uploads.ts`, uploads to the `report-files` bucket at
   `<tenant>/<instance>/<uuid>.<ext>`) and `buildReportPdfHtml()`, an HTML
