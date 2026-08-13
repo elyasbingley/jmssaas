@@ -81,6 +81,7 @@ function RootNavigator() {
       <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
       <Stack.Screen name="real-estate" />
       <Stack.Screen name="reports" />
+      <Stack.Screen name="subcontractors" />
     </Stack>
   );
 }
