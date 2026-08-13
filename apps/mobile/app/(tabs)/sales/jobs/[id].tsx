@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
@@ -10,6 +10,7 @@ import {
   createTaskSchema,
   formatCentsAsAud,
   renderTemplate,
+  updateJobRealEstateAssignmentSchema,
   type Agency,
   type Client,
   type CommunicationRule,
@@ -168,6 +169,29 @@ export default function JobDetailScreen() {
     if (error) throw error;
     return data as Property;
   }, [isOnline, job?.property_id]);
+
+  // Full lists (not just this job's own agency/PM/property) - only used by
+  // the "Real estate assignment" edit modal's pickers below, but fetched
+  // unconditionally like the single-row versions above rather than gated
+  // on the modal being open, matching this screen's existing style.
+  const { data: allAgencies } = useSupabaseFetch<Agency[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("agencies").select("*").order("name");
+    if (error) throw error;
+    return data as Agency[];
+  }, [isOnline]);
+  const { data: allPropertyManagers } = useSupabaseFetch<PropertyManager[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("property_managers").select("*").order("first_name");
+    if (error) throw error;
+    return data as PropertyManager[];
+  }, [isOnline]);
+  const { data: allProperties } = useSupabaseFetch<Property[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("properties").select("*").order("suburb");
+    if (error) throw error;
+    return data as Property[];
+  }, [isOnline]);
 
   // Key Tracking Lifecycle - see Workflow 3 of the Real Estate & Strata
   // spec. key_logs isn't a PowerSync table (same online-only treatment as
@@ -565,6 +589,94 @@ export default function JobDetailScreen() {
     setEditModalVisible(false);
   };
 
+  // --- WorkDrive link ---
+  const [workdriveModalVisible, setWorkdriveModalVisible] = useState(false);
+  const [workdriveInput, setWorkdriveInput] = useState("");
+
+  const openWorkdriveModal = () => {
+    if (!job) return;
+    setWorkdriveInput(job.workdrive_url ?? "");
+    setWorkdriveModalVisible(true);
+  };
+
+  const handleSaveWorkdrive = async () => {
+    await powersync.execute("UPDATE job_cards SET workdrive_url = ?, updated_at = ? WHERE id = ?", [
+      workdriveInput || null,
+      new Date().toISOString(),
+      id,
+    ]);
+    setWorkdriveModalVisible(false);
+  };
+
+  // --- Real estate / strata assignment (retrofit an existing job, or edit
+  // one already assigned) - same job_cards columns as the New Job form
+  // (desktop's Jobs.tsx), previously only ever settable at creation there,
+  // now writable from mobile too via PowerSync (job_cards is already
+  // offline-writable, this just adds the missing UI). ---
+  const [raModalVisible, setRaModalVisible] = useState(false);
+  const [raIsRealEstate, setRaIsRealEstate] = useState(false);
+  const [raAgencyId, setRaAgencyId] = useState<string | null>(null);
+  const [raPropertyManagerId, setRaPropertyManagerId] = useState<string | null>(null);
+  const [raPropertyId, setRaPropertyId] = useState<string | null>(null);
+  const [raWorkOrderNumber, setRaWorkOrderNumber] = useState("");
+  const [raNteLimit, setRaNteLimit] = useState("");
+  const [raError, setRaError] = useState<string | null>(null);
+  const [agencyPickerVisible, setAgencyPickerVisible] = useState(false);
+  const [pmPickerVisible, setPmPickerVisible] = useState(false);
+  const [propertyPickerVisible, setPropertyPickerVisible] = useState(false);
+
+  const openRaModal = () => {
+    if (!job) return;
+    setRaIsRealEstate(job.is_real_estate_job);
+    setRaAgencyId(job.agency_id);
+    setRaPropertyManagerId(job.property_manager_id);
+    setRaPropertyId(job.property_id);
+    setRaWorkOrderNumber(job.work_order_number ?? "");
+    setRaNteLimit(job.nte_limit_cents != null ? String(job.nte_limit_cents / 100) : "");
+    setRaError(null);
+    setRaModalVisible(true);
+  };
+
+  const raPmsForAgency = (allPropertyManagers ?? []).filter((pm) => pm.agency_id === raAgencyId);
+  const raPropertiesForPm = (allProperties ?? []).filter((p) =>
+    raPropertyManagerId ? p.property_manager_id === raPropertyManagerId : p.agency_id === raAgencyId
+  );
+
+  const handleSaveRa = async () => {
+    const result = updateJobRealEstateAssignmentSchema.safeParse({
+      is_real_estate_job: raIsRealEstate,
+      agency_id: raIsRealEstate ? raAgencyId || undefined : undefined,
+      property_manager_id: raIsRealEstate ? raPropertyManagerId || undefined : undefined,
+      property_id: raIsRealEstate ? raPropertyId || undefined : undefined,
+      work_order_number: raIsRealEstate ? raWorkOrderNumber || undefined : undefined,
+      nte_limit_cents: raIsRealEstate && raNteLimit.trim() ? Math.round(Number(raNteLimit) * 100) : undefined,
+    });
+    if (!result.success) {
+      setRaError(result.error.issues[0]?.message ?? "Invalid details");
+      return;
+    }
+    if (result.data.is_real_estate_job && !result.data.agency_id) {
+      setRaError("Pick an agency");
+      return;
+    }
+
+    await powersync.execute(
+      `UPDATE job_cards SET is_real_estate_job = ?, agency_id = ?, property_manager_id = ?, property_id = ?,
+         work_order_number = ?, nte_limit_cents = ?, updated_at = ? WHERE id = ?`,
+      [
+        result.data.is_real_estate_job ? 1 : 0,
+        result.data.agency_id || null,
+        result.data.property_manager_id || null,
+        result.data.property_id || null,
+        result.data.work_order_number || null,
+        result.data.nte_limit_cents ?? null,
+        new Date().toISOString(),
+        id,
+      ]
+    );
+    setRaModalVisible(false);
+  };
+
   const handleAddTask = async () => {
     const result = createTaskSchema.safeParse({ title: taskTitle, job_card_id: id });
     if (!result.success) {
@@ -651,11 +763,32 @@ export default function JobDetailScreen() {
           </Pressable>
         ) : null}
 
+        {!job.is_real_estate_job ? (
+          <Pressable onPress={openRaModal}>
+            <Text style={styles.link}>Mark as real estate / strata job</Text>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.workdriveRow}>
+          <Text style={styles.workdriveLabel}>WorkDrive</Text>
+          <Pressable onPress={openWorkdriveModal}>
+            <Text style={styles.link}>{job.workdrive_url ? "Edit link" : "+ Add link"}</Text>
+          </Pressable>
+        </View>
+        {job.workdrive_url ? <Text style={styles.clientCardMeta}>{job.workdrive_url}</Text> : null}
+
         {job.is_real_estate_job ? (
           <View style={styles.agencyCard}>
-            <Text style={styles.agencyBadge}>AGENCY JOB</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.agencyBadge}>AGENCY JOB</Text>
+              <Pressable onPress={openRaModal}>
+                <Text style={styles.link}>Edit</Text>
+              </Pressable>
+            </View>
             {agency ? <Text style={styles.clientCardName}>{agency.name}</Text> : null}
-            {job.work_order_number ? <Text style={styles.clientCardMeta}>Work order: {job.work_order_number}</Text> : null}
+            <Pressable onPress={openRaModal}>
+              <Text style={styles.clientCardMeta}>Work order: {job.work_order_number ?? "Not set"}</Text>
+            </Pressable>
             {job.nte_limit_cents != null ? (
               <Text style={styles.clientCardMeta}>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</Text>
             ) : null}
@@ -1011,6 +1144,111 @@ export default function JobDetailScreen() {
       onSelect={handleStageChange}
       onClose={() => setStagePickerVisible(false)}
     />
+
+    <CenteredModal visible={workdriveModalVisible} onClose={() => setWorkdriveModalVisible(false)}>
+      <Text style={styles.modalTitle}>WorkDrive link</Text>
+      <FormField label="Link" placeholder="https://workdrive.zoho.com/..." value={workdriveInput} onChangeText={setWorkdriveInput} />
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setWorkdriveModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveWorkdrive}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+
+    <CenteredModal visible={raModalVisible} onClose={() => setRaModalVisible(false)}>
+      <Text style={styles.modalTitle}>Real estate / strata assignment</Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>This is a real estate / strata agency job</Text>
+        <Switch value={raIsRealEstate} onValueChange={setRaIsRealEstate} />
+      </View>
+
+      {raIsRealEstate ? (
+        <>
+          <Text style={styles.sectionTitle}>Agency</Text>
+          <Pressable style={styles.pickerField} onPress={() => setAgencyPickerVisible(true)}>
+            <Text style={raAgencyId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(allAgencies ?? []).find((a) => a.id === raAgencyId)?.name ?? "Select agency"}
+            </Text>
+          </Pressable>
+          <Text style={styles.sectionTitle}>Property manager</Text>
+          <Pressable style={styles.pickerField} onPress={() => setPmPickerVisible(true)}>
+            <Text style={raPropertyManagerId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(() => {
+                const pm = (allPropertyManagers ?? []).find((p) => p.id === raPropertyManagerId);
+                return pm ? `${pm.first_name} ${pm.last_name}` : "Select property manager";
+              })()}
+            </Text>
+          </Pressable>
+          <Text style={styles.sectionTitle}>Property</Text>
+          <Pressable style={styles.pickerField} onPress={() => setPropertyPickerVisible(true)}>
+            <Text style={raPropertyId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(() => {
+                const p = (allProperties ?? []).find((prop) => prop.id === raPropertyId);
+                return p ? `${p.address_line1}, ${p.suburb}` : "Select property";
+              })()}
+            </Text>
+          </Pressable>
+          <FormField label="Work order number" placeholder="e.g. WO-4821" value={raWorkOrderNumber} onChangeText={setRaWorkOrderNumber} />
+          <FormField
+            label="NTE limit ($)"
+            placeholder="e.g. 300.00"
+            value={raNteLimit}
+            onChangeText={setRaNteLimit}
+            keyboardType="decimal-pad"
+          />
+        </>
+      ) : null}
+
+      {raError ? <Text style={styles.error}>{raError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setRaModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveRa}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+
+    <PickerModal
+      visible={agencyPickerVisible}
+      title="Select agency"
+      items={allAgencies ?? []}
+      getKey={(a) => a.id}
+      getLabel={(a) => a.name}
+      onSelect={(a) => {
+        setRaAgencyId(a.id);
+        setRaPropertyManagerId(null);
+        setRaPropertyId(null);
+      }}
+      onClose={() => setAgencyPickerVisible(false)}
+    />
+
+    <PickerModal
+      visible={pmPickerVisible}
+      title="Select property manager"
+      items={raPmsForAgency}
+      getKey={(pm) => pm.id}
+      getLabel={(pm) => `${pm.first_name} ${pm.last_name}`}
+      onSelect={(pm) => {
+        setRaPropertyManagerId(pm.id);
+        setRaPropertyId(null);
+      }}
+      onClose={() => setPmPickerVisible(false)}
+    />
+
+    <PickerModal
+      visible={propertyPickerVisible}
+      title="Select property"
+      items={raPropertiesForPm}
+      getKey={(p) => p.id}
+      getLabel={(p) => `${p.address_line1}, ${p.suburb}`}
+      onSelect={(p) => setRaPropertyId(p.id)}
+      onClose={() => setPropertyPickerVisible(false)}
+    />
     </>
   );
 }
@@ -1028,6 +1266,10 @@ const styles = StyleSheet.create({
   clientCardMeta: { fontSize: 13, color: "#6b7280" },
   agencyCard: { marginTop: 12, backgroundColor: "#eff6ff", borderRadius: 8, padding: 12, gap: 2 },
   agencyBadge: { fontSize: 11, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
+  workdriveRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12 },
+  workdriveLabel: { fontSize: 11, fontWeight: "700", color: "#6b7280", textTransform: "uppercase" },
+  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 12 },
+  switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1 },
   nteExceededText: { fontSize: 13, fontWeight: "700", color: "#b91c1c", marginTop: 4 },
   keyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
