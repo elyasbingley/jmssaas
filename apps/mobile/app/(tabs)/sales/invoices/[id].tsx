@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import type { Agency, ApprovalStatus, Client, Invoice, InvoiceStatus, LineItemFormInput, Property, Tenant } from "@jmssaas/shared";
+import { collectRecipientEmails, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
@@ -9,9 +9,10 @@ import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../../lib/pdf";
-import { exportPdf } from "../../../../lib/print";
+import { buildPdfDataUri, exportPdf } from "../../../../lib/print";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 import { CenteredModal } from "../../../../components/CenteredModal";
+import { EmailComposeModal, type EmailTemplateOption } from "../../../../components/EmailComposeModal";
 import { LineItemEditor, LineItemSummary } from "../../../../components/LineItemEditor";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
@@ -98,7 +99,6 @@ export default function InvoiceDetailScreen() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [sendingEmail, setSendingEmail] = useState(false);
   const [sendEmailError, setSendEmailError] = useState<string | null>(null);
   const [billToModalVisible, setBillToModalVisible] = useState(false);
   const [billToSaving, setBillToSaving] = useState(false);
@@ -332,21 +332,40 @@ export default function InvoiceDetailScreen() {
     }
   };
 
-  // The actual "send it" action - mirrors the quote screen's
-  // handleSendQuoteEmail exactly (see its own comment for the full
-  // reasoning), using the invoice_sent trigger_key instead of quote_sent.
-  const handleSendInvoiceEmail = async () => {
-    if (!data || !profile) return;
-    const email = data.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : data.invoice.clients?.email;
-    if (!email) {
+  // Split into openSendEmail (prefill the composer) + handleSendEmail
+  // (the composer's onSend, actually queues+dispatches) - mirrors
+  // apps/desktop/src/pages/InvoiceDetail.tsx's identical split, replacing
+  // the old one-tap "fire the template unedited" send.
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
+  const [invoiceTemplate, setInvoiceTemplate] = useState<EmailTemplateOption | null>(null);
+  const [openingEmail, setOpeningEmail] = useState(false);
+  const { data: clientContacts } = useSupabaseFetch<ClientContact[]>(async () => {
+    if (!isOnline || !data?.invoice.client_id) return [];
+    const { data: rows, error } = await supabase.from("client_contacts").select("*").eq("client_id", data.invoice.client_id);
+    if (error) throw error;
+    return rows as ClientContact[];
+  }, [isOnline, data?.invoice.client_id]);
+
+  const invoiceRecipientEmail =
+    data?.invoice.bill_to_landlord && property?.owner_landlord_email ? property.owner_landlord_email : (data?.invoice.clients?.email ?? "");
+  const recipientOptions = collectRecipientEmails({
+    clientEmail: data?.invoice.clients?.email,
+    contactEmails: [...(clientContacts ?? []).map((c) => c.email), property?.owner_landlord_email ?? null, property?.tenant_email ?? null],
+  });
+
+  const openSendEmail = async () => {
+    if (!data || !profile || !data.invoice.clients) return;
+    if (!invoiceRecipientEmail) {
       setSendEmailError(
         data.invoice.bill_to_landlord
-          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab (desktop), or switch 'Billed to' back to the agency."
+          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab, or switch 'Billed to' back to the agency."
           : "This client has no email address on file - add one on the Client Details screen."
       );
       return;
     }
-    setSendingEmail(true);
+    setOpeningEmail(true);
     setSendEmailError(null);
     try {
       const { data: rule } = await supabase
@@ -358,7 +377,6 @@ export default function InvoiceDetailScreen() {
       if (!rule || !rule.is_enabled) {
         throw new Error("The 'Invoice Delivery' email is turned off in Settings > Automation & Messaging");
       }
-
       const { data: templates } = await supabase
         .from("communication_templates")
         .select("*")
@@ -367,44 +385,72 @@ export default function InvoiceDetailScreen() {
         .eq("is_active", true);
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Invoice Delivery' email template found");
+      setInvoiceTemplate({ id: template.id, name: template.name, subject: template.subject ?? "", body: template.body });
+      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
 
-      const { data: row, error: insertError } = await supabase
-        .from("scheduled_communications")
-        .insert({
-          tenant_id: profile.tenant_id,
-          entity_type: "invoice",
-          entity_id: id,
-          trigger_key: "invoice_sent",
-          template_id: template.id,
-          channel: template.type,
-          recipient_phone_or_email: email,
-          rendered_subject: template.subject,
-          rendered_body: template.body,
-          scheduled_for: new Date().toISOString(),
-          status: "pending",
-        })
-        .select("id")
-        .single();
-      if (insertError) throw insertError;
-
-      const wasSent = await triggerImmediateDispatch(row.id);
-
-      const { error: statusError } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
-      if (statusError) throw statusError;
-
-      refetch();
-      Alert.alert(
-        wasSent ? "Sent" : "Queued",
-        wasSent
-          ? "The invoice email has been sent."
-          : "The invoice is marked sent and the email is queued - it'll go out shortly."
-      );
+      // Best-effort PDF auto-attach - a generation failure still lets the
+      // email send without it, same as desktop.
+      try {
+        const { data: tenant } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+        const agencyBilling =
+          jobCard?.is_real_estate_job && agency
+            ? {
+                ownerLandlordName: property?.owner_landlord_name ?? null,
+                agencyName: agency.name,
+                billToLandlord: data.invoice.bill_to_landlord,
+                ownerLandlordPhone: property?.owner_landlord_phone ?? null,
+                ownerLandlordEmail: property?.owner_landlord_email ?? null,
+              }
+            : undefined;
+        const html = buildInvoicePdfHtml({ tenant: tenant as Tenant, invoice: data.invoice, client: data.invoice.clients, lineItems, agencyBilling });
+        const pdfDataUri = await buildPdfDataUri(html);
+        setEmailDefaultAttachments([{ filename: `Invoice ${data.invoice.invoice_number}.pdf`, content: pdfDataUri }]);
+      } catch {
+        setEmailDefaultAttachments([]);
+      }
+      setEmailModalVisible(true);
     } catch (e) {
-      console.error("[Invoices] Failed to send invoice email", e);
-      setSendEmailError(getErrorMessage(e, "Failed to send (see console for details)"));
+      setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
     } finally {
-      setSendingEmail(false);
+      setOpeningEmail(false);
     }
+  };
+
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile) throw new Error("Not signed in");
+    const { data: row, error: insertError } = await supabase
+      .from("scheduled_communications")
+      .insert({
+        tenant_id: profile.tenant_id,
+        entity_type: "invoice",
+        entity_id: id,
+        trigger_key: "invoice_sent",
+        template_id: invoiceTemplate?.id ?? null,
+        channel: "email",
+        recipient_phone_or_email: payload.to,
+        cc_emails: payload.cc ? payload.cc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        bcc_emails: payload.bcc ? payload.bcc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        rendered_subject: payload.subject,
+        rendered_body: payload.body,
+        attachments: payload.attachments,
+        scheduled_for: new Date().toISOString(),
+        status: "pending",
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+
+    const wasSent = await triggerImmediateDispatch(row.id);
+
+    const { error: statusError } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+    if (statusError) throw statusError;
+
+    refetch();
+    setSendEmailError(null);
+    Alert.alert(
+      wasSent ? "Sent" : "Queued",
+      wasSent ? "The invoice email has been sent." : "The invoice is marked sent and the email is queued - it'll go out shortly."
+    );
   };
 
   if (!isOnline) {
@@ -477,8 +523,8 @@ export default function InvoiceDetailScreen() {
       ) : null}
 
       {isAdmin ? (
-        <Pressable style={styles.sendEmailButton} onPress={handleSendInvoiceEmail} disabled={sendingEmail}>
-          <Text style={styles.sendEmailButtonText}>{sendingEmail ? "Sending..." : "Send Invoice via Email"}</Text>
+        <Pressable style={styles.sendEmailButton} onPress={openSendEmail} disabled={openingEmail}>
+          <Text style={styles.sendEmailButtonText}>{openingEmail ? "Preparing..." : "Send Invoice via Email"}</Text>
         </Pressable>
       ) : null}
       {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
@@ -623,6 +669,19 @@ export default function InvoiceDetailScreen() {
         <Text style={styles.link}>Close</Text>
       </Pressable>
     </CenteredModal>
+
+    <EmailComposeModal
+      visible={emailModalVisible}
+      onClose={() => setEmailModalVisible(false)}
+      title="Send invoice"
+      defaultTo={invoiceRecipientEmail}
+      defaultSubject={emailDefaults.subject}
+      defaultBody={emailDefaults.body}
+      defaultAttachments={emailDefaultAttachments}
+      recipientOptions={recipientOptions}
+      onSend={handleSendEmail}
+      sendLabel="Send invoice"
+    />
     </>
   );
 }

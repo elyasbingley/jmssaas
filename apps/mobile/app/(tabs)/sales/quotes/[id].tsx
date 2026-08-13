@@ -3,9 +3,12 @@ import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from "rea
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   calculateDocumentTotals,
+  collectRecipientEmails,
   formatCentsAsAud,
   type ApprovalStatus,
   type Client,
+  type ClientContact,
+  type EmailAttachment,
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
@@ -18,10 +21,11 @@ import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { buildQuotePdfHtml } from "../../../../lib/pdf";
-import { exportPdf } from "../../../../lib/print";
+import { buildPdfDataUri, exportPdf } from "../../../../lib/print";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 import { LineItemEditor, LineItemSummary } from "../../../../components/LineItemEditor";
 import { CenteredModal } from "../../../../components/CenteredModal";
+import { EmailComposeModal, type EmailTemplateOption } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
 
@@ -91,8 +95,22 @@ export default function QuoteDetailScreen() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [sendingEmail, setSendingEmail] = useState(false);
   const [sendEmailError, setSendEmailError] = useState<string | null>(null);
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
+  const [quoteTemplateId, setQuoteTemplateId] = useState<string | null>(null);
+  const [openingEmail, setOpeningEmail] = useState(false);
+  const { data: clientContacts } = useSupabaseFetch<ClientContact[]>(async () => {
+    if (!isOnline || !data?.quote.client_id) return [];
+    const { data: rows, error } = await supabase.from("client_contacts").select("*").eq("client_id", data.quote.client_id);
+    if (error) throw error;
+    return rows as ClientContact[];
+  }, [isOnline, data?.quote.client_id]);
+  const recipientOptions = collectRecipientEmails({
+    clientEmail: data?.quote.clients?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+  });
 
   // Once the client has actually responded, the line items/totals are
   // locked at the database level too (see the accepted case's trigger in
@@ -211,7 +229,7 @@ export default function QuoteDetailScreen() {
   // generate_quote_approval_link), then hands the resulting link straight
   // to the native Share sheet - a manual fallback for when the client has
   // no email on file, or the admin would rather text/WhatsApp it
-  // themselves. handleSendQuoteEmail below is the real "send it" action.
+  // themselves. openSendEmail below is the real "send it" action.
   const handleGenerateAndShareLink = async () => {
     if (!data) return;
     // The approval page is deployed externally (Cloudflare Pages/Netlify/
@@ -258,14 +276,14 @@ export default function QuoteDetailScreen() {
   // a separate manual tap of the Status chip) is what actually starts the
   // quote_stage_1/quote_stage_2/quote_expiring_soon/quote_expired reminder
   // ladder - those only fire on that transition.
-  const handleSendQuoteEmail = async () => {
-    if (!data || !profile) return;
-    const email = data.quote.clients?.email;
+  const openSendEmail = async () => {
+    if (!data || !profile || !data.quote.clients) return;
+    const email = data.quote.clients.email;
     if (!email) {
       setSendEmailError("This client has no email address on file - add one on the Client Details screen.");
       return;
     }
-    setSendingEmail(true);
+    setOpeningEmail(true);
     setSendEmailError(null);
     try {
       const { data: rule } = await supabase
@@ -277,7 +295,6 @@ export default function QuoteDetailScreen() {
       if (!rule || !rule.is_enabled) {
         throw new Error("The 'Quote Delivery' email is turned off in Settings > Automation & Messaging");
       }
-
       const { data: templates } = await supabase
         .from("communication_templates")
         .select("*")
@@ -286,44 +303,62 @@ export default function QuoteDetailScreen() {
         .eq("is_active", true);
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Quote Delivery' email template found");
+      setQuoteTemplateId(template.id);
+      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
 
-      const { data: row, error: insertError } = await supabase
-        .from("scheduled_communications")
-        .insert({
-          tenant_id: profile.tenant_id,
-          entity_type: "quote",
-          entity_id: id,
-          trigger_key: "quote_sent",
-          template_id: template.id,
-          channel: template.type,
-          recipient_phone_or_email: email,
-          rendered_subject: template.subject,
-          rendered_body: template.body,
-          scheduled_for: new Date().toISOString(),
-          status: "pending",
-        })
-        .select("id")
-        .single();
-      if (insertError) throw insertError;
-
-      const wasSent = await triggerImmediateDispatch(row.id);
-
-      const { error: statusError } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
-      if (statusError) throw statusError;
-
-      refetch();
-      Alert.alert(
-        wasSent ? "Sent" : "Queued",
-        wasSent
-          ? "The quote email has been sent."
-          : "The quote is marked sent and the email is queued - it'll go out shortly."
-      );
+      // Best-effort PDF auto-attach - a generation failure still lets the
+      // email send without it, same as desktop.
+      try {
+        const { data: tenant } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+        const html = buildQuotePdfHtml({ tenant: tenant as Tenant, quote: data.quote, client: data.quote.clients, lineItems });
+        const pdfDataUri = await buildPdfDataUri(html);
+        setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUri }]);
+      } catch {
+        setEmailDefaultAttachments([]);
+      }
+      setEmailModalVisible(true);
     } catch (e) {
-      console.error("[Quotes] Failed to send quote email", e);
-      setSendEmailError(getErrorMessage(e, "Failed to send (see console for details)"));
+      setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
     } finally {
-      setSendingEmail(false);
+      setOpeningEmail(false);
     }
+  };
+
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile) throw new Error("Not signed in");
+    const { data: row, error: insertError } = await supabase
+      .from("scheduled_communications")
+      .insert({
+        tenant_id: profile.tenant_id,
+        entity_type: "quote",
+        entity_id: id,
+        trigger_key: "quote_sent",
+        template_id: quoteTemplateId,
+        channel: "email",
+        recipient_phone_or_email: payload.to,
+        cc_emails: payload.cc ? payload.cc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        bcc_emails: payload.bcc ? payload.bcc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        rendered_subject: payload.subject,
+        rendered_body: payload.body,
+        attachments: payload.attachments,
+        scheduled_for: new Date().toISOString(),
+        status: "pending",
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+
+    const wasSent = await triggerImmediateDispatch(row.id);
+
+    const { error: statusError } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
+    if (statusError) throw statusError;
+
+    refetch();
+    setSendEmailError(null);
+    Alert.alert(
+      wasSent ? "Sent" : "Queued",
+      wasSent ? "The quote email has been sent." : "The quote is marked sent and the email is queued - it'll go out shortly."
+    );
   };
 
   if (!isOnline) {
@@ -388,8 +423,8 @@ export default function QuoteDetailScreen() {
         ) : null}
 
         {isAdmin ? (
-          <Pressable style={styles.sendEmailButton} onPress={handleSendQuoteEmail} disabled={sendingEmail}>
-            <Text style={styles.sendEmailButtonText}>{sendingEmail ? "Sending..." : "Send Quote via Email"}</Text>
+          <Pressable style={styles.sendEmailButton} onPress={openSendEmail} disabled={openingEmail}>
+            <Text style={styles.sendEmailButtonText}>{openingEmail ? "Preparing..." : "Send Quote via Email"}</Text>
           </Pressable>
         ) : null}
         {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
@@ -468,6 +503,19 @@ export default function QuoteDetailScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <EmailComposeModal
+        visible={emailModalVisible}
+        onClose={() => setEmailModalVisible(false)}
+        title="Send quote"
+        defaultTo={data.quote.clients?.email ?? ""}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+        defaultAttachments={emailDefaultAttachments}
+        recipientOptions={recipientOptions}
+        onSend={handleSendEmail}
+        sendLabel="Send quote"
+      />
     </>
   );
 }
