@@ -5810,3 +5810,69 @@ npx eas build --profile preview --platform android
   Expo/EAS credentials here). Verified: `tsc --noEmit` clean for
   `apps/mobile` and `apps/desktop` after `pnpm install` pulled in the
   new dependency.
+
+## 47. Mobile feature parity, part 5: Real Estate & Strata module
+
+Mobile previously only showed a job's already-assigned agency/PM/
+property read-only (`jobs/[id].tsx`'s blue "AGENCY JOB" card) - there
+was no way to browse the agency/PM/property directory, create new ones,
+or edit a property's landlord/tenant contact details from the field at
+all, which also meant the landlord contact "Bill to landlord" (part 2)
+and real estate assignment retrofit (part 1) needed had nowhere to be
+entered without switching to desktop.
+
+New `apps/mobile/app/real-estate/` route group (reached from Settings >
+Real Estate & Strata, admin-only same as the other Settings items):
+
+- **`index.tsx`** - directory: expandable Agency -> Property Manager ->
+  Property list, "+ Agency"/"+ Property manager"/"+ Property" actions.
+  Mirrors desktop's `RealEstate.tsx` Directory tab exactly (same
+  cascading create flow); its Key Management and Recurring Maintenance
+  dashboard tabs are NOT ported - the field-relevant slice of key
+  tracking (pickup/in-van/return per job) already exists on
+  `jobs/[id].tsx`, and a tenant-wide dashboard of it is a lower-value
+  office/admin screen, left desktop-only for now.
+- **`[id].tsx`** - property profile: Access & Contacts (landlord/tenant/
+  access notes/key tag, editable) plus an "Edit property" action
+  (address/agency/PM/type), mirroring `PropertyDetail.tsx`. Asset
+  Register and Job & Compliance History tabs aren't ported (same
+  scope call, lower field value than the contact/billing information
+  this session's earlier parts actually needed).
+
+All Supabase-direct (office/PC-side data, same `useSupabaseFetch`
+pattern as quotes/invoices/automation-settings) - no PowerSync schema or
+sync-rules change needed.
+
+### Deploy
+
+No migration, no new native module - a straight redeploy of both apps
+covers this:
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Settings > Real Estate & Strata -> "+ Agency" -> create one -> expand
+   it -> "+ Add property manager" -> create one -> "+ Add property" ->
+   create one -> confirm it appears nested under the right PM.
+2. Tap the property -> "Edit" (Access & Contacts) -> set a landlord name/
+   email -> Save -> confirm it shows on the property page.
+3. Go create/open an invoice for a job linked to that property (part 1's
+   real estate assignment retrofit, part 2's Bill to control) -> confirm
+   "Billed to: Landlord/Owner" now shows the name/email just entered,
+   closing the loop between all five parts of this pass.
+
+### Known gaps / judgment calls
+
+- Asset Register and Job & Compliance History (desktop's other two
+  Property Profile tabs) aren't ported - can follow later if actually
+  needed in the field; Access & Contacts was the piece the rest of this
+  pass's features depended on.
+- Key Management / Recurring Maintenance dashboards aren't ported - see
+  above, both are office/admin-facing summary views, not field actions.
+- Not verified against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile` and `apps/desktop`.
