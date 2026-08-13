@@ -30,6 +30,14 @@ const clients = new Table(
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
+    // Company vs individual client + WorkDrive link (see the
+    // client_contacts_sites_workdrive migration) - added to the schema
+    // late, after the rest of this table, so were previously missing from
+    // mobile's offline copy entirely despite existing in Postgres since
+    // that migration.
+    client_type: column.text,
+    company_name: column.text,
+    workdrive_url: column.text,
   },
   { indexes: { tenant: ["tenant_id"] } }
 );
@@ -46,6 +54,25 @@ const client_sites = new Table(
     postcode: column.text,
     is_primary: column.integer,
     notes: column.text,
+    created_at: column.text,
+  },
+  { indexes: { client: ["client_id"] } }
+);
+
+// A named person at a client (especially a company client) beyond the
+// single name/email/phone on the clients row itself - see the
+// client_contacts_sites_workdrive migration. Same tenant-wide read/write
+// RLS shape as clients/client_sites, so it joins the same
+// tenant_reference_data PowerSync bucket.
+const client_contacts = new Table(
+  {
+    tenant_id: column.text,
+    client_id: column.text,
+    name: column.text,
+    role: column.text,
+    email: column.text,
+    phone: column.text,
+    is_primary: column.integer,
     created_at: column.text,
   },
   { indexes: { client: ["client_id"] } }
@@ -394,6 +421,7 @@ export const AppSchema = new Schema({
   profiles,
   clients,
   client_sites,
+  client_contacts,
   job_cards,
   job_notes,
   job_files,

@@ -5698,3 +5698,62 @@ npx eas build --profile preview --platform android
   installment (the full Real Estate & Strata module on mobile).
 - Not verified against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile` and `apps/desktop`.
+
+## 45. Mobile feature parity, part 3: client contacts, addresses, company/individual type
+
+Closes the biggest of the remaining "read-only lookup, no management UI"
+gaps: `client_sites` was already PowerSync-synced but had no add/edit
+screen anywhere on mobile, and `client_contacts` wasn't synced at all.
+
+- **`client_contacts` added to the PowerSync schema and sync rules** -
+  same tenant-wide read/write shape as `clients`/`client_sites` (see the
+  migration's own RLS), so it joins the same `tenant_reference_data`
+  bucket in `powersync/sync-rules.yaml`.
+- **`clients.client_type`/`company_name`/`workdrive_url`** were also
+  missing from the PowerSync schema entirely (added after the rest of
+  that table) - added now, and the mobile "Edit client" modal gained the
+  same company/individual toggle + company name field desktop has.
+  (`workdrive_url` itself doesn't have new UI here - clients don't have a
+  WorkDrive control on desktop either, only job cards do - just closing
+  the schema gap so the column round-trips if it's ever set elsewhere.)
+- **New "Contacts" and "Addresses" sections** on
+  `apps/mobile/app/(tabs)/sales/clients/[id].tsx`, above the Jobs list -
+  add/edit/delete for both, validated against the same shared
+  `createClientContactSchema`/`createClientSiteSchema` desktop uses.
+
+### Deploy
+
+No new migration - every column here already exists in Postgres, this
+was purely a PowerSync-schema and mobile-UI gap. Rebuild mobile (schema
+change) and redeploy desktop:
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+Also re-upload `powersync/sync-rules.yaml` via the PowerSync dashboard
+(Instance > Sync Rules) - it changed in this pass (added `client_contacts`)
+and dashboard sync rules aren't picked up automatically from the repo.
+
+### Test it
+
+1. Open a client -> toggle "Company client" on in Edit -> set a company
+   name -> Save -> confirm the client header now shows the company name
+   as the title with the contact person's name below it.
+2. Add a contact -> mark it primary -> confirm it appears at the top of
+   the Contacts list -> tap it -> Delete -> confirm it's gone.
+3. Add a second address -> confirm both show under Addresses, and the
+   client header's own single address line is unaffected (that's still
+   `clients.address_line1` etc., unrelated to `client_sites`).
+4. Background/reopen the app -> confirm contacts/addresses are still
+   there (offline-cached via PowerSync, not re-fetched from Supabase).
+
+### Known gaps / judgment calls
+
+- The client header's own single address (`clients.address_line1` etc.)
+  and the new Addresses list (`client_sites`) are two separate concepts,
+  same as on desktop - editing one never touches the other.
+- Not verified against a real device/EAS build or a real PowerSync sync
+  rules re-upload in this sandbox. Verified: `tsc --noEmit` clean for
+  `apps/mobile`, `apps/desktop`, and `packages/shared`.
