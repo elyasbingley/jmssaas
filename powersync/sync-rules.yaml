@@ -121,6 +121,7 @@ bucket_definitions:
     data:
       - select * from clients where tenant_id = bucket.tenant_id
       - select * from client_sites where tenant_id = bucket.tenant_id
+      - select * from client_contacts where tenant_id = bucket.tenant_id
       - select * from profiles where tenant_id = bucket.tenant_id
       - select * from service_categories where tenant_id = bucket.tenant_id
       - select * from job_lifecycle_stages where tenant_id = bucket.tenant_id
