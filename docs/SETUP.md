@@ -5966,3 +5966,88 @@ npx eas build --profile preview --platform android
 - Not verified against a real device/EAS build or a live Xero OAuth flow
   in this sandbox. Verified: `tsc --noEmit` clean for `apps/mobile` and
   `apps/desktop`.
+
+## 50. Mobile feature parity, part 8: editable email composer, attachments, and the job "Email" button
+
+Brings mobile's quote/invoice/job email sending up to the same "open an
+editable composer" model desktop already has (see section 41's "Insert
+link" work and the earlier attachments work in section 37), replacing
+the old one-tap "send the raw template" buttons.
+
+- **New `components/EmailComposeModal.tsx`** - a full-screen RN `Modal`
+  version of desktop's `EmailComposeModal.tsx`: To (with a tappable
+  recipient-suggestions list from `recipientOptions`), collapsible
+  Cc/Bcc, Subject, Body with an "Insert link" action (tracks the text
+  input's selection range and splices `<a href="...">text</a>` at the
+  cursor, same as desktop), an attachments list, and Send. Attachments
+  can be added from the photo library (`expo-image-picker`, already a
+  dependency) or from files (`expo-document-picker`, newly added to
+  `apps/mobile/package.json`), both read to base64 via
+  `expo-file-system/legacy` and capped at 10 MB each - oversized picks
+  show an inline error instead of silently failing on send. An optional
+  `templates` prop reuses `PickerModal` for template selection, matching
+  desktop's dropdown.
+- **`lib/print.ts`** gained `buildPdfDataUri()`, a `printToFileAsync`
+  variant that returns a base64 PDF data URI instead of opening the
+  share sheet - used to auto-attach the quote/invoice PDF to the
+  composer's default attachments, exactly like desktop's
+  `queueAndSendEmail` auto-attach behaviour.
+- **`quotes/[id].tsx`** and **`invoices/[id].tsx`**: the old one-shot
+  "Send Quote/Invoice via Email" handlers were split into `openSendEmail`
+  (looks up the enabled communication rule/template, renders the
+  default subject/body, builds and attaches the PDF, opens the modal)
+  and `handleSendEmail` (the modal's `onSend` - inserts the
+  `scheduled_communications` row with the edited to/cc/bcc/subject/
+  body/attachments, calls `triggerImmediateDispatch`, marks the
+  document "sent"). Recipient suggestions come from a new
+  `client_contacts` Supabase fetch combined with the client's own email
+  via `collectRecipientEmails` (same helper desktop uses).
+- **`jobs/[id].tsx`** gained the free-form "Email" button desktop's
+  `JobDetail.tsx` has (section 12) - previously mobile had no equivalent
+  at all. It uses `entity_type: 'job'` / `trigger_key: 'manual_email'`
+  like desktop, and - unlike this screen's other `scheduled_communications`
+  writes (the On The Way/Review Request queueing, which insert straight
+  into the local PowerSync table so they queue while offline) - goes
+  directly to Supabase, because `cc_emails`/`bcc_emails`/`attachments`
+  aren't columns in the local PowerSync schema (`packages/shared/src/
+  powersync/schema.ts` only mirrors what every other feature needs).
+  Sending a free-form job email therefore needs connectivity, same
+  disclosed trade-off as `handleRequestNteVariation` on the same screen.
+
+No schema or sync-rules changes - `client_contacts` was already synced
+(section 45) and `scheduled_communications` was already a PowerSync
+table.
+
+### Deploy
+```powershell
+git pull origin main
+cd apps/mobile
+pnpm install
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Open a quote or invoice with a client that has an email on file ->
+   "Send ... via Email" -> confirm the composer opens pre-filled with
+   the rendered subject/body and the PDF already attached -> edit the
+   body, add a Cc, tap "Insert link" and confirm it inserts at the
+   cursor -> Send -> confirm it lands in the Communication Log.
+2. Attach a photo and a document from the Attachments row, confirm both
+   show in the list and can be removed before sending.
+3. Open a job card -> tap "Email" near the title -> confirm the same
+   composer opens (blank, no template) -> send to a manually-entered
+   address.
+4. Try the job "Email" button while offline -> confirm it surfaces "needs
+   an internet connection" inside the composer rather than silently
+   queuing (unlike the On The Way/Review Request buttons on the same
+   screen, which do queue offline).
+
+### Known gaps / judgment calls
+
+- Job free-form email requires connectivity (see above) - a real,
+  disclosed asymmetry against the rest of the job screen's messaging,
+  not an oversight.
+- Not tested against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
+  `packages/shared`.

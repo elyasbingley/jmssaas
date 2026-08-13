@@ -5,6 +5,7 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
+  collectRecipientEmails,
   createJobCardSchema,
   createJobNoteSchema,
   createTaskSchema,
@@ -13,8 +14,10 @@ import {
   updateJobRealEstateAssignmentSchema,
   type Agency,
   type Client,
+  type ClientContact,
   type CommunicationRule,
   type CommunicationTemplate,
+  type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
@@ -38,6 +41,7 @@ import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
+import { EmailComposeModal } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
@@ -99,6 +103,11 @@ export default function JobDetailScreen() {
 
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
   const client = clientRows[0];
+
+  const { data: clientContacts } = useQuery<ClientContact>(
+    "SELECT * FROM client_contacts WHERE client_id = ?",
+    [job?.client_id ?? ""]
+  );
 
   // Automation & Messaging rules/templates - PowerSync-synced tenant
   // reference data (see powersync/sync-rules.yaml), so these manual field
@@ -215,6 +224,48 @@ export default function JobDetailScreen() {
   useRefetchOnFocus(refetchKeyLog);
 
   const [keyActionError, setKeyActionError] = useState<string | null>(null);
+
+  // Free-form job card email - mirrors desktop JobDetail.tsx's ServiceM8-style
+  // per-job "Email" button. Uses entity_type 'job' with trigger_key
+  // 'manual_email' so it's distinguishable from templated automation in the
+  // Communication Log. Unlike queueScheduledCommunication above, this goes
+  // straight to Supabase rather than the local PowerSync table, since
+  // cc_emails/bcc_emails/attachments aren't columns in the local schema
+  // (see powersync/schema.ts) - so, like handleRequestNteVariation, it
+  // needs connectivity.
+  const [jobEmailModalVisible, setJobEmailModalVisible] = useState(false);
+  const jobRecipientOptions = collectRecipientEmails({
+    clientEmail: client?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+  });
+
+  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile || !job) throw new Error("Not signed in");
+    if (!isOnline) throw new Error("Sending an email needs an internet connection.");
+    const { data: row, error: insertError } = await supabase
+      .from("scheduled_communications")
+      .insert({
+        tenant_id: profile.tenant_id,
+        entity_type: "job",
+        entity_id: job.id,
+        trigger_key: "manual_email",
+        template_id: null,
+        channel: "email",
+        recipient_phone_or_email: payload.to,
+        cc_emails: payload.cc ? payload.cc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        bcc_emails: payload.bcc ? payload.bcc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        rendered_subject: payload.subject,
+        rendered_body: payload.body,
+        attachments: payload.attachments,
+        scheduled_for: new Date().toISOString(),
+        status: "pending",
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+    const wasSent = await triggerImmediateDispatch(row.id);
+    Alert.alert(wasSent ? "Sent" : "Queued", wasSent ? "The email has been sent." : "The email is queued and will go out shortly.");
+  };
 
   const handleKeyPickedUp = async () => {
     if (!profile || !job?.property_id || !property?.key_tag_number) return;
@@ -755,6 +806,10 @@ export default function JobDetailScreen() {
         <Text style={styles.title}>{job.title}</Text>
         {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
 
+        <Pressable onPress={() => setJobEmailModalVisible(true)}>
+          <Text style={styles.link}>Email</Text>
+        </Pressable>
+
         {client ? (
           <Pressable style={styles.clientCard} onPress={() => router.push(`/sales/clients/${client.id}`)}>
             <Text style={styles.clientCardName}>{client.name}</Text>
@@ -1250,6 +1305,18 @@ export default function JobDetailScreen() {
       getLabel={(p) => `${p.address_line1}, ${p.suburb}`}
       onSelect={(p) => setRaPropertyId(p.id)}
       onClose={() => setPropertyPickerVisible(false)}
+    />
+
+    <EmailComposeModal
+      visible={jobEmailModalVisible}
+      onClose={() => setJobEmailModalVisible(false)}
+      title={`Email - ${job.title}`}
+      defaultTo={client?.email ?? ""}
+      defaultSubject=""
+      defaultBody=""
+      recipientOptions={jobRecipientOptions}
+      onSend={handleSendJobEmail}
+      sendLabel="Send email"
     />
     </>
   );
