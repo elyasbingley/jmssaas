@@ -20,6 +20,7 @@ const SETTINGS_ITEMS = [
   { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦" },
   { href: "/automation-settings", label: "Automation & Messaging", emoji: "💬" },
   { href: "/real-estate", label: "Real Estate & Strata", emoji: "🏘️" },
+  { href: "/reports", label: "Reports & Safety", emoji: "📋" },
 ] as const;
 
 export default function SettingsScreen() {
