@@ -5757,3 +5757,56 @@ and dashboard sync rules aren't picked up automatically from the repo.
 - Not verified against a real device/EAS build or a real PowerSync sync
   rules re-upload in this sandbox. Verified: `tsc --noEmit` clean for
   `apps/mobile`, `apps/desktop`, and `packages/shared`.
+
+## 46. Mobile feature parity, part 4: generic job/task file upload
+
+`components/PhotoAttachments.tsx` was strictly photo-only (camera +
+image library) even though the underlying `job_files`/`task_files`
+tables and Storage buckets were already MIME-agnostic - the same gap
+desktop had before its own generic-upload fix, closed the same way:
+non-image files render as a document icon + filename instead of a
+(impossible) thumbnail.
+
+- New `expo-document-picker` dependency (any file type, not just
+  images) - reads the picked file back off disk as base64 via
+  `expo-file-system/legacy` (matching the encoding pattern
+  `lib/attachments.ts` already uses) and hands it to the same
+  `addJobPhoto`/`addTaskPhoto` PowerSync functions photos already use -
+  those were always MIME-agnostic themselves, only this component
+  enforced images.
+- `jobs/[id].tsx`/`tasks/[id].tsx`'s file queries now also select
+  `file_name`/`mime_type` (previously only `id`/`local_uri`, enough for
+  a photo thumbnail but not enough to know what a non-image file even
+  is), threaded through to the component's extended
+  `PhotoAttachmentItem` type.
+- Same filename limitation desktop's own generic upload already has -
+  the stored `file_name` is a generated `<uuid>.<ext>`, not the original
+  picked filename, on both platforms equally, not a mobile-specific
+  regression.
+
+### Deploy
+
+New native module (`expo-document-picker`) - this needs a fresh EAS
+build, a JS-only redeploy isn't enough:
+```powershell
+git pull origin main
+cd apps/mobile
+pnpm install
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Open a job -> Files section -> "Attach file" -> pick a PDF or Word
+   doc (not a photo) -> confirm it appears as a document-icon tile with
+   its picked filename, and tapping it opens/downloads it.
+2. Confirm "Take photos"/"Choose photos" still work exactly as before
+   (no regression to the existing photo flow).
+3. Same on a task's Files section.
+
+### Known gaps / judgment calls
+
+- Not verified against a real device/EAS build in this sandbox (no
+  Expo/EAS credentials here). Verified: `tsc --noEmit` clean for
+  `apps/mobile` and `apps/desktop` after `pnpm install` pulled in the
+  new dependency.
