@@ -6051,3 +6051,105 @@ npx eas build --profile preview --platform android
 - Not tested against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 51. Mobile feature parity, part 9: Reports & Safety Documentation Engine
+
+Ports desktop's SafetyCulture-style dynamic form builder + runner (SWMS,
+JSAs, inspections) to mobile. Like Real Estate & Strata (section 47),
+`report_categories`/`report_subcategories`/`report_templates`/
+`report_instances`/`report_signatures` aren't PowerSync tables - the
+`reports_safety_engine` migration's RLS makes insert/update/delete on all
+five **admin-only** for every tenant member (same scope decision the
+migration made for agencies/referral_partners), so there's no offline
+field-technician write path to support even on desktop today. This is
+therefore a Supabase-direct, connectivity-gated port, not a new PowerSync
+table - no `schema.ts` or `sync-rules.yaml` changes, and no new migration
+(the `report-files` storage bucket already exists).
+
+- **New `app/reports/` route group** (registered in `app/_layout.tsx`,
+  linked from Settings > Reports & Safety, admin-gated the same way
+  Real Estate & Strata is):
+  - **`index.tsx`** - the three sub-tabs from `Reports.tsx`: New Report
+    (browse templates by category -> subcategory, tap to insert a draft
+    `report_instances` row and open it), Report History (every instance,
+    status badge, "Link to Job" for standalone reports), Template Studio
+    (category/subcategory CRUD tree - the template body itself opens in
+    its own screen, same "too complex for a modal" call desktop made).
+  - **`template/[id].tsx`** - the section/field form builder (`id="new"`
+    for a new template). Same seven field types, up/down reordering (no
+    drag-and-drop), required/"fail requires action+photo" toggles as
+    desktop's `ReportTemplateEditor.tsx`.
+  - **`instance/[id].tsx`** - the form runner: renders every field type
+    (pass/fail, a repeatable risk-matrix hazard register scored via the
+    shared `calculateRiskRating`, photo, text/long text/meter reading,
+    signature), a draft-only edit lock once completed, GPS best-effort
+    capture on complete (`expo-location`, never blocks completion), PDF
+    compile + upload, and the SWMS worker sign-off roster.
+- **New `components/SignaturePad.tsx`** - there's no `<canvas>` in React
+  Native, so this is a from-scratch touch equivalent to desktop's
+  canvas-based `SignaturePad.tsx`: `PanResponder` tracks touch points
+  into an SVG `Path` (new `react-native-svg` dependency), then
+  `react-native-view-shot` (new dependency) rasterizes the drawn strokes
+  to a PNG data URI on release - same output shape (a base64 PNG data
+  URI) desktop's `canvas.toDataURL("image/png")` produces, so
+  `report_signatures.signature_svg_data` / a signature answer's
+  `svgData` need no format change between platforms. Unlike desktop, an
+  existing signature shows as a static preview rather than a live canvas
+  new strokes get added on top of - clearing and re-signing is the way
+  to change it, a deliberate simplification.
+- **New `lib/report-pdf.ts`** - `uploadReportPhoto()` (mirrors desktop's
+  `uploads.ts`, uploads to the `report-files` bucket at
+  `<tenant>/<instance>/<uuid>.<ext>`) and `buildReportPdfHtml()`, an HTML
+  builder for `expo-print` (matching this app's existing quote/invoice
+  PDF approach - see `lib/pdf.ts`/`lib/print.ts` - rather than porting
+  desktop's `jsPDF`-based `report-pdf.ts`, since mobile already had the
+  HTML+`expo-print` pipeline built for quotes/invoices and section 50's
+  email composer). Report photos referenced by storage path get resolved
+  back to data URIs at compile time via `supabase.storage.download()`
+  (same technique `lib/attachments.ts` already uses for job file
+  downloads); signature answers embed their data URI directly, no
+  re-fetch needed.
+- **`jobs/[id].tsx`** gained the "Reports & Safety" card desktop's
+  `JobDetail.tsx` has: linked reports list, admin-only "+ Create New
+  Report" (template search picker, pre-linked to the job) and "Link
+  Existing Report" (picker over unlinked standalone instances).
+
+### Deploy
+```powershell
+git pull origin main
+cd apps/mobile
+pnpm install
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Settings > Reports & Safety > Template Studio -> add a category and
+   subcategory -> "+ New template" -> add a section with one of each
+   field type, mark one required, save.
+2. New Report tab -> find the template -> tap it -> confirm a draft
+   report opens. Answer the required field, add a risk matrix hazard row
+   and confirm the rating badge updates live as likelihood/consequence
+   change, attach a photo, sign a `signature` field.
+3. Tap "Complete report" -> confirm it locks to read-only, a PDF gets
+   generated, and "Download PDF"/"Send via Email" appear.
+4. Open a job card -> "Reports & Safety" -> "+ Create New Report" ->
+   confirm the new instance is pre-linked to the job; separately, create
+   a standalone report from the Reports tab and "Link Existing Report"
+   it to a job afterward.
+5. For an `is_swms` template, confirm the Worker Sign-Off Roster section
+   appears and multiple workers can each add a name + signature.
+
+### Known gaps / judgment calls
+
+- Read access follows the same admin-gated Settings entry as Real Estate
+  & Strata; RLS itself allows any tenant member to *read* all five
+  tables, so a non-admin who reached `/reports` directly could view (not
+  edit) reports - consistent with desktop's own nav, which shows Reports
+  to everyone. Not considered a regression since mobile's Settings tab
+  is already a gated "admin configuration" surface by convention.
+- SignaturePad doesn't let you add more strokes on top of a previously
+  saved signature - clear and re-sign instead. See above.
+- Not tested against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
+  `packages/shared`.

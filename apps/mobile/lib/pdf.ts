@@ -31,7 +31,7 @@ const ACCENT = {
   invoice: "#22a366",
 } as const;
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

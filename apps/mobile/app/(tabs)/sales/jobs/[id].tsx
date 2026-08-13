@@ -28,6 +28,8 @@ import {
   type PropertyManager,
   type Quote,
   type QuoteLineItem,
+  type ReportInstance,
+  type ReportTemplate,
   type ServiceCategory,
   type Task,
   type TaskStatus,
@@ -39,6 +41,7 @@ import { supabase } from "../../../../lib/supabase";
 import { addJobPhoto } from "../../../../lib/powersync";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
+import { getErrorMessage } from "../../../../lib/errors";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { EmailComposeModal } from "../../../../components/EmailComposeModal";
@@ -157,6 +160,71 @@ export default function JobDetailScreen() {
     return (data ?? []) as Invoice[];
   }, [id, isOnline]);
   useRefetchOnFocus(refetchInvoices);
+
+  // Reports & Safety - report_instances/report_templates aren't PowerSync
+  // tables (see app/reports/index.tsx), so this is the same Supabase-direct,
+  // online-only treatment as quotes/invoices above.
+  const { data: linkedReports, refetch: refetchLinkedReports } = useSupabaseFetch<ReportInstance[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("report_instances").select("*").eq("job_card_id", id).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as ReportInstance[];
+  }, [id, isOnline]);
+  useRefetchOnFocus(refetchLinkedReports);
+
+  const { data: activeReportTemplates } = useSupabaseFetch<ReportTemplate[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("report_templates").select("*").eq("is_active", true).order("title");
+    if (error) throw error;
+    return (data ?? []) as ReportTemplate[];
+  }, [isOnline]);
+
+  const [createReportModalVisible, setCreateReportModalVisible] = useState(false);
+  const [createReportSearch, setCreateReportSearch] = useState("");
+  const [createReportError, setCreateReportError] = useState<string | null>(null);
+
+  const startReportForJob = async (templateId: string) => {
+    if (!profile || !job) return;
+    setCreateReportError(null);
+    const { data, error } = await supabase
+      .from("report_instances")
+      .insert({
+        tenant_id: profile.tenant_id,
+        template_id: templateId,
+        job_card_id: job.id,
+        client_id: job.client_id,
+        created_by: profile.id,
+        status: "draft",
+      })
+      .select("id")
+      .single();
+    if (error) {
+      setCreateReportError(getErrorMessage(error, "Failed to start report"));
+      return;
+    }
+    setCreateReportModalVisible(false);
+    router.push(`/reports/instance/${data.id}`);
+  };
+
+  const [linkReportModalVisible, setLinkReportModalVisible] = useState(false);
+  const [linkReportError, setLinkReportError] = useState<string | null>(null);
+  const { data: unlinkedReports, refetch: refetchUnlinkedReports } = useSupabaseFetch<ReportInstance[]>(async () => {
+    if (!isOnline || !linkReportModalVisible) return [];
+    const { data, error } = await supabase.from("report_instances").select("*").is("job_card_id", null).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as ReportInstance[];
+  }, [isOnline, linkReportModalVisible]);
+
+  const linkExistingReport = async (reportId: string) => {
+    if (!job) return;
+    const { error } = await supabase.from("report_instances").update({ job_card_id: job.id, client_id: job.client_id }).eq("id", reportId);
+    if (error) {
+      setLinkReportError(getErrorMessage(error, "Failed to link report"));
+      return;
+    }
+    setLinkReportModalVisible(false);
+    refetchLinkedReports();
+  };
 
   // Real Estate & Strata module - agencies aren't a PowerSync table (same
   // "office reference data, fetched online" treatment as quotes/invoices
@@ -1045,6 +1113,44 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Reports & Safety</Text>
+        {(linkedReports ?? []).map((r) => (
+          <Pressable key={r.id} style={styles.linkedRow} onPress={() => router.push(`/reports/instance/${r.id}`)}>
+            <Text style={styles.linkedRowText}>
+              {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+              {r.completed_at ? ` - ${new Date(r.completed_at).toLocaleDateString("en-AU")}` : ""}
+            </Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedReports?.length === 0 ? <Text style={styles.empty}>No reports linked to this job.</Text> : null}
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create reports.</Text>
+        ) : isAdmin ? (
+          <View style={styles.reportActionsRow}>
+            <Pressable
+              style={styles.linkButton}
+              onPress={() => {
+                setCreateReportSearch("");
+                setCreateReportError(null);
+                setCreateReportModalVisible(true);
+              }}
+            >
+              <Text style={styles.linkButtonText}>+ Create New Report</Text>
+            </Pressable>
+            <Pressable
+              style={styles.linkButton}
+              onPress={() => {
+                setLinkReportError(null);
+                setLinkReportModalVisible(true);
+              }}
+            >
+              <Text style={styles.linkButtonText}>Link Existing Report</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Tasks</Text>
         {jobTasks.map((t) => (
           <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
@@ -1318,6 +1424,35 @@ export default function JobDetailScreen() {
       onSend={handleSendJobEmail}
       sendLabel="Send email"
     />
+
+    <CenteredModal visible={createReportModalVisible} onClose={() => setCreateReportModalVisible(false)}>
+      <Text style={styles.modalTitle}>Create new report</Text>
+      <FormField label="Search templates" value={createReportSearch} onChangeText={setCreateReportSearch} placeholder="Search by title..." />
+      {createReportError ? <Text style={styles.error}>{createReportError}</Text> : null}
+      {(activeReportTemplates ?? [])
+        .filter((t) => t.title.toLowerCase().includes(createReportSearch.trim().toLowerCase()))
+        .map((t) => (
+          <Pressable key={t.id} style={styles.reportTemplateRow} onPress={() => startReportForJob(t.id)}>
+            <Text style={styles.reportTemplateRowText}>{t.title}</Text>
+            {t.is_swms ? <Text style={styles.swmsTag}>SWMS</Text> : null}
+          </Pressable>
+        ))}
+      {(activeReportTemplates ?? []).length === 0 ? <Text style={styles.empty}>No report templates yet.</Text> : null}
+      <Pressable onPress={() => setCreateReportModalVisible(false)}>
+        <Text style={styles.link}>Cancel</Text>
+      </Pressable>
+    </CenteredModal>
+
+    <PickerModal
+      visible={linkReportModalVisible}
+      title="Link existing report"
+      items={unlinkedReports ?? []}
+      getKey={(r) => r.id}
+      getLabel={(r) => `${r.status.charAt(0).toUpperCase() + r.status.slice(1)} report`}
+      onSelect={(r) => linkExistingReport(r.id)}
+      onClose={() => setLinkReportModalVisible(false)}
+    />
+    {linkReportError ? <Text style={styles.error}>{linkReportError}</Text> : null}
     </>
   );
 }
@@ -1404,4 +1539,8 @@ const styles = StyleSheet.create({
   noteBody: { fontSize: 15, color: "#111827" },
   noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
   empty: { textAlign: "center", color: "#6b7280", padding: 12 },
+  reportActionsRow: { flexDirection: "row", gap: 16, marginTop: 10 },
+  reportTemplateRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  reportTemplateRowText: { fontSize: 15, color: "#111827" },
+  swmsTag: { fontSize: 10, fontWeight: "700", color: "#9a3412", backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
 });
