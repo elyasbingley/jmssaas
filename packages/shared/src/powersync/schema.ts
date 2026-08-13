@@ -81,6 +81,10 @@ const job_cards = new Table(
     work_order_number: column.text,
     nte_limit_cents: column.integer,
     nte_exceeded_approved: column.integer,
+    // Link to the job's WorkDrive folder (see the workdrive_links
+    // migration) - a plain URL, offline-editable like the rest of this
+    // table since sync rules already select * from job_cards.
+    workdrive_url: column.text,
   },
   { indexes: { client: ["client_id"], technician: ["assigned_technician_id"] } }
 );

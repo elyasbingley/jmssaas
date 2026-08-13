@@ -5586,3 +5586,61 @@ require a Play Store update for a normal app.
   sandbox (no Expo account/EAS credentials here). Verified: `eas.json`
   is valid JSON and matches the shape of the existing `development`
   profile it sits alongside.
+
+## 43. Mobile feature parity, part 1: WorkDrive link, work order number, real estate assignment retrofit
+
+First installment of closing the desktop/mobile feature gap (see the
+"what's missing on mobile" comparison from this same conversation) - the
+three smallest, highest-value gaps, all living on the job detail screen
+(`apps/mobile/app/(tabs)/sales/jobs/[id].tsx`) and all writable through
+PowerSync since `job_cards` was already offline-synced with every column
+these need except one:
+
+- **`workdrive_url`** was missing from the PowerSync schema entirely
+  (`packages/shared/src/powersync/schema.ts`) even though the Postgres
+  column has existed since section 7's WorkDrive feature - added now.
+  `powersync/sync-rules.yaml` needed no change since its `job_cards`
+  bucket already uses `select *`.
+- **Work order number** was already synced but read-only on mobile
+  (`is_real_estate_job`/`agency_id`/`work_order_number`/etc. were all
+  already in the schema and displayed) - now editable via the same modal
+  as the real estate assignment below.
+- **Real estate assignment retrofit** - mirrors desktop's
+  `RealEstateAssignmentModal`: a toggle plus cascading Agency -> Property
+  Manager -> Property pickers (using the existing `PickerModal`
+  component), reusing the same `updateJobRealEstateAssignmentSchema` from
+  `packages/shared` that desktop's version validates against. Agencies/
+  property managers/properties aren't PowerSync tables (office/PC-side
+  data per the schema's own Phase 1 scope comment), so the picker lists
+  are fetched directly via `useSupabaseFetch` the same way this screen
+  already fetches the job's own single agency/PM/property record.
+
+### Deploy
+
+No new migration - `workdrive_url` already exists in Postgres. Rebuild
+the mobile app (schema.ts changed, which affects the local SQLite schema
+PowerSync generates) and redeploy desktop:
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Open a job with no agency assigned -> confirm "Mark as real estate /
+   strata job" appears, and a WorkDrive "+ Add link" row sits right below
+   the client card.
+2. Tap "Mark as real estate / strata job" -> toggle on -> pick an agency,
+   PM, property, type a work order number -> Save -> confirm the blue
+   "AGENCY JOB" card now shows with an "Edit" link, and tapping the work
+   order line reopens the same modal.
+3. Add a WorkDrive link -> confirm it persists after backgrounding/
+   reopening the app (still offline-cached via PowerSync).
+
+### Known gaps / judgment calls
+
+- Not verified against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
+  `packages/shared`.
