@@ -33,6 +33,8 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 interface TaskFileWithLocalUri {
   id: string;
   local_uri: string | null;
+  file_name: string | null;
+  mime_type: string | null;
 }
 
 export default function TaskDetailScreen() {
@@ -50,7 +52,7 @@ export default function TaskDetailScreen() {
   );
 
   const { data: files } = useQuery<TaskFileWithLocalUri>(
-    `SELECT tf.id, a.local_uri
+    `SELECT tf.id, tf.file_name, tf.mime_type, a.local_uri
        FROM task_files tf
        LEFT JOIN attachments a ON a.id = tf.id
       WHERE tf.task_id = ?

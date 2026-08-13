@@ -57,6 +57,8 @@ const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = {
 interface JobFileWithLocalUri {
   id: string;
   local_uri: string | null;
+  file_name: string | null;
+  mime_type: string | null;
 }
 
 function capitalize(value: string): string {
@@ -120,7 +122,7 @@ export default function JobDetailScreen() {
   );
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, a.local_uri
+    `SELECT jf.id, jf.file_name, jf.mime_type, a.local_uri
        FROM job_files jf
        LEFT JOIN attachments a ON a.id = jf.id
       WHERE jf.job_card_id = ?
