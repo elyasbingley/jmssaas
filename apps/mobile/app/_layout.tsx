@@ -82,6 +82,7 @@ function RootNavigator() {
       <Stack.Screen name="real-estate" />
       <Stack.Screen name="reports" />
       <Stack.Screen name="subcontractors" />
+      <Stack.Screen name="b2b-referrals" />
     </Stack>
   );
 }
