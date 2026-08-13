@@ -6153,3 +6153,101 @@ npx eas build --profile preview --platform android
 - Not tested against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 52. Mobile feature parity, part 10: Subcontractor management & procurement
+
+Ports desktop's subcontractor directory, compliance tracking, preference
+tiers, and Purchase Order/Quote Request workflow. Like Reports & Safety
+and Real Estate & Strata, `subcontractor_companies`/`_contacts`/
+`_compliance_docs`/`purchase_orders` aren't PowerSync tables - RLS is
+admin-only for writes, broad tenant-scoped for reads - so this is a
+Supabase-direct, connectivity-gated port with no `schema.ts`/
+`sync-rules.yaml` changes and no new migration (`subcontractor-files`
+storage bucket and the `generate_po_quote_link` RPC already exist).
+Desktop's "Financial Performance" tab (directory) and "Financials &
+Jobs" tab (subcontractor detail) - both pure margin-analytics dashboards
+with no workflow - aren't ported, the same call the Real Estate module
+made dropping its own analytics dashboards.
+
+- **New `app/subcontractors/` route group** (registered in
+  `app/_layout.tsx`, linked from Settings > Subcontractors, admin-gated
+  like Real Estate & Reports):
+  - **`index.tsx`** - Directory (search/tier filter, "+ Add
+    Subcontractor") and Compliance tabs. The Compliance tab is a
+    per-subcontractor card list with a colour-coded doc-type grid
+    (red/amber/green/grey) rather than desktop's wide subcontractor x
+    doc-type matrix table, which doesn't fit a phone screen - same
+    information, a mobile-appropriate layout.
+  - **`[id].tsx`** - subcontractor detail: header (trades, inline tier
+    picker, compliance-hold banner) plus Contacts, Orders, and
+    Compliance Records tabs (upload via `expo-document-picker`, verify
+    toggle, delete, signed-URL "View").
+  - **`purchase-order/new.tsx`** - the shared Quote Request/Work Order
+    creation form (`?subcontractorId=&quoteRequest=&jobCardId=`),
+    blocked when the subcontractor is on compliance hold.
+  - **`purchase-order/[id].tsx`** - PO detail: the same free-form
+    7-status button row as desktop (no gated state machine), "Send
+    Quote Request" (generates the external quote-submission token via
+    `generate_po_quote_link`, queues + dispatches the
+    `subcontractor_quote_request` email) or "Send Work Order" (compiles
+    the PO to PDF, uploads it, queues + dispatches
+    `subcontractor_work_order`), line items, and a live client-billed/
+    margin calculator.
+- **New `components/PoLineItemEditor.tsx`** - the flatter PO line-item
+  shape (description/quantity/unit_cost_cents, no labour/material/GST
+  split), shared by both PO screens, same as desktop's dedicated editor
+  rather than reusing quote/invoice's `LineItemEditor`.
+- **New `lib/po-pdf.ts`** - `uploadComplianceDoc()` (uploads to the
+  `subcontractor-files` bucket) and `buildPurchaseOrderPdfHtml()`, an
+  HTML builder for `expo-print` - like `lib/report-pdf.ts`, this reuses
+  the app's existing HTML+`expo-print` PDF pipeline rather than porting
+  desktop's `jsPDF`-based `po-pdf.ts`. "Download PDF" on the PO detail
+  screen uses `exportPdf()` (share sheet), matching every other manual
+  PDF export in the app; "Send Work Order" uses `buildPdfDataUri()` to
+  get bytes to upload, matching the reports PDF auto-attach flow.
+- **`jobs/[id].tsx`** gained the "Subcontractors" panel desktop's
+  `JobDetail.tsx` has: linked Purchase Orders/Quote Requests, and an
+  admin-only "+ Assign" modal (trade filter, tier shown, "Request
+  Quote"/"Issue Work Order" per subcontractor, disabled with a notice
+  when on compliance hold) - assigning a subcontractor to a job *is*
+  creating a PO, there's no separate assignment table on either
+  platform.
+
+### Deploy
+```powershell
+git pull origin main
+cd apps/mobile
+pnpm install
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Settings > Subcontractors > "+ Add Subcontractor" - fill in company
+   name, trades, tier - save, confirm it appears in the Directory.
+2. Open the subcontractor -> Contacts tab -> add a contact with an
+   email -> Compliance Records tab -> upload a document with an expiry
+   date in the past -> confirm the header status flips to "Compliance
+   Hold" (the DB trigger, not client-side logic) and the Compliance tab
+   shows it red.
+3. Open a job -> "Subcontractors" -> "+ Assign" -> confirm the
+   compliance-held subcontractor's actions are disabled -> pick a
+   different (active) subcontractor -> "Issue Work Order" -> add a line
+   item -> "Create work order" -> confirm it lands on the PO detail
+   screen, linked to the job.
+4. On the PO detail screen, "Send Work Order" -> confirm it compiles +
+   uploads a PDF and queues/sends the email; "Download PDF" -> confirm
+   the share sheet opens with a correct PDF.
+5. For a Quote Request PO, "Send Quote Request" -> confirm it generates
+   a token link and queues/sends the `subcontractor_quote_request`
+   email.
+
+### Known gaps / judgment calls
+
+- Financial Performance / Financials & Jobs analytics tabs aren't
+  ported - see above.
+- Compliance tab is a card list, not desktop's wide matrix table - see
+  above.
+- Not tested against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
+  `packages/shared`.

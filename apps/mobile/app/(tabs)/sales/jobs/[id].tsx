@@ -26,11 +26,14 @@ import {
   type KeyLog,
   type Property,
   type PropertyManager,
+  type PurchaseOrder,
   type Quote,
   type QuoteLineItem,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
+  type SubcontractorCompany,
+  type SubcontractorTrade,
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
@@ -48,6 +51,7 @@ import { EmailComposeModal } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
+import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
@@ -225,6 +229,28 @@ export default function JobDetailScreen() {
     setLinkReportModalVisible(false);
     refetchLinkedReports();
   };
+
+  // Subcontractors - like reports, purchase_orders/subcontractor_companies
+  // aren't PowerSync tables. Assigning a subcontractor to a job *is*
+  // creating a Purchase Order (or Quote Request) - there's no separate
+  // assignment table, same as desktop's JobDetail.tsx.
+  const { data: linkedPurchaseOrders, refetch: refetchLinkedPurchaseOrders } = useSupabaseFetch<PurchaseOrder[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("purchase_orders").select("*").eq("job_card_id", id).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as PurchaseOrder[];
+  }, [id, isOnline]);
+  useRefetchOnFocus(refetchLinkedPurchaseOrders);
+
+  const { data: allSubcontractors } = useSupabaseFetch<SubcontractorCompany[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("subcontractor_companies").select("*").order("preference_tier").order("company_name");
+    if (error) throw error;
+    return (data ?? []) as SubcontractorCompany[];
+  }, [isOnline]);
+
+  const [assignSubModalVisible, setAssignSubModalVisible] = useState(false);
+  const [assignSubTradeFilter, setAssignSubTradeFilter] = useState<SubcontractorTrade | "">("");
 
   // Real Estate & Strata module - agencies aren't a PowerSync table (same
   // "office reference data, fetched online" treatment as quotes/invoices
@@ -1151,6 +1177,31 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>Subcontractors</Text>
+          {isOnline && isAdmin ? (
+            <Pressable onPress={() => setAssignSubModalVisible(true)}>
+              <Text style={styles.link}>+ Assign</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {(linkedPurchaseOrders ?? []).map((po) => {
+          const sub = (allSubcontractors ?? []).find((s) => s.id === po.subcontractor_id);
+          return (
+            <Pressable key={po.id} style={styles.linkedRow} onPress={() => router.push(`/subcontractors/purchase-order/${po.id}`)}>
+              <Text style={styles.linkedRowText}>
+                {po.po_number ?? "Pending"} - {sub?.company_name ?? "Unknown subcontractor"} ({po.is_quote_request ? "Quote Request" : "Work Order"})
+              </Text>
+            </Pressable>
+          );
+        })}
+        {isOnline && linkedPurchaseOrders?.length === 0 ? (
+          <Text style={styles.empty}>No subcontractor work orders or quote requests for this job yet.</Text>
+        ) : null}
+        {!isOnline ? <Text style={styles.empty}>Connect to view or assign subcontractors.</Text> : null}
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Tasks</Text>
         {jobTasks.map((t) => (
           <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
@@ -1453,6 +1504,69 @@ export default function JobDetailScreen() {
       onClose={() => setLinkReportModalVisible(false)}
     />
     {linkReportError ? <Text style={styles.error}>{linkReportError}</Text> : null}
+
+    <CenteredModal visible={assignSubModalVisible} onClose={() => setAssignSubModalVisible(false)}>
+      <Text style={styles.modalTitle}>Assign subcontractor</Text>
+      <View style={styles.tradeFilterRow}>
+        <Pressable style={[styles.tradeFilterChip, !assignSubTradeFilter && styles.tradeFilterChipActive]} onPress={() => setAssignSubTradeFilter("")}>
+          <Text style={[styles.tradeFilterChipText, !assignSubTradeFilter && styles.tradeFilterChipTextActive]}>All trades</Text>
+        </Pressable>
+        {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
+          <Pressable
+            key={trade}
+            style={[styles.tradeFilterChip, assignSubTradeFilter === trade && styles.tradeFilterChipActive]}
+            onPress={() => setAssignSubTradeFilter(trade)}
+          >
+            <Text style={[styles.tradeFilterChipText, assignSubTradeFilter === trade && styles.tradeFilterChipTextActive]}>
+              {TRADE_LABELS[trade]}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {(allSubcontractors ?? [])
+        .filter((s) => !assignSubTradeFilter || s.trades.includes(assignSubTradeFilter))
+        .map((sub) => {
+          const onHold = sub.status === "compliance_hold";
+          return (
+            <View key={sub.id} style={[styles.assignSubCard, onHold && styles.assignSubCardHold]}>
+              <View style={styles.titleRow}>
+                <Text style={[styles.assignSubName, onHold && styles.assignSubNameHold]}>{sub.company_name}</Text>
+                <Text style={styles.assignSubTier}>{TIER_LABELS[sub.preference_tier]}</Text>
+              </View>
+              {onHold ? <Text style={styles.holdNotice}>On compliance hold - expired documents must be renewed first.</Text> : null}
+              <View style={styles.assignSubActions}>
+                <Pressable
+                  style={styles.assignSubButton}
+                  disabled={onHold}
+                  onPress={() => {
+                    setAssignSubModalVisible(false);
+                    router.push(`/subcontractors/purchase-order/new?subcontractorId=${sub.id}&quoteRequest=true&jobCardId=${id}`);
+                  }}
+                >
+                  <Text style={styles.assignSubButtonText}>Request Quote</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.assignSubButton, styles.assignSubButtonPrimary]}
+                  disabled={onHold}
+                  onPress={() => {
+                    setAssignSubModalVisible(false);
+                    router.push(`/subcontractors/purchase-order/new?subcontractorId=${sub.id}&quoteRequest=false&jobCardId=${id}`);
+                  }}
+                >
+                  <Text style={styles.assignSubButtonTextPrimary}>Issue Work Order</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      {(allSubcontractors ?? []).length === 0 ? (
+        <Text style={styles.empty}>No subcontractors yet - add one from Settings &gt; Subcontractors.</Text>
+      ) : null}
+      <Pressable onPress={() => setAssignSubModalVisible(false)}>
+        <Text style={styles.link}>Close</Text>
+      </Pressable>
+    </CenteredModal>
     </>
   );
 }
@@ -1543,4 +1657,20 @@ const styles = StyleSheet.create({
   reportTemplateRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
   reportTemplateRowText: { fontSize: 15, color: "#111827" },
   swmsTag: { fontSize: 10, fontWeight: "700", color: "#9a3412", backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  holdNotice: { color: "#b91c1c", fontSize: 12, marginTop: 4, marginBottom: 8 },
+  tradeFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+  tradeFilterChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  tradeFilterChipActive: { backgroundColor: "#1d4ed8" },
+  tradeFilterChipText: { fontSize: 11, fontWeight: "600", color: "#374151" },
+  tradeFilterChipTextActive: { color: "#fff" },
+  assignSubCard: { borderWidth: 1, borderColor: "#f3f4f6", borderRadius: 8, padding: 12, marginBottom: 8 },
+  assignSubCardHold: { borderColor: "#fecaca", backgroundColor: "#fef2f2" },
+  assignSubName: { fontWeight: "600", color: "#111827", flex: 1 },
+  assignSubNameHold: { color: "#9ca3af" },
+  assignSubTier: { fontSize: 11, color: "#6b7280" },
+  assignSubActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  assignSubButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingVertical: 8, alignItems: "center" },
+  assignSubButtonText: { fontSize: 12, fontWeight: "700", color: "#374151" },
+  assignSubButtonPrimary: { backgroundColor: "#1d4ed8", borderColor: "#1d4ed8" },
+  assignSubButtonTextPrimary: { fontSize: 12, fontWeight: "700", color: "#fff" },
 });
