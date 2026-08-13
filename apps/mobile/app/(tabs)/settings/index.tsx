@@ -19,6 +19,7 @@ const SETTINGS_ITEMS = [
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️" },
   { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦" },
   { href: "/automation-settings", label: "Automation & Messaging", emoji: "💬" },
+  { href: "/real-estate", label: "Real Estate & Strata", emoji: "🏘️" },
 ] as const;
 
 export default function SettingsScreen() {
