@@ -5908,3 +5908,61 @@ card appears -> generate the link -> confirm "Open payment page" and
 
 - Not verified against a real device/EAS build or live Stripe checkout
   in this sandbox. Verified: `tsc --noEmit` clean for `apps/mobile`.
+
+## 49. Mobile feature parity, part 7: Xero integration
+
+Mirrors desktop's Xero connect/disconnect (Settings) and "Sync to Xero"
+(InvoiceDetail.tsx) - same RPCs and Edge Functions, no backend changes.
+
+- **`company-settings.tsx`** gained a Xero card: connection status (via
+  `get_xero_connection_status` RPC), Connect/Disconnect, and the Xero
+  sales account code field (`xero_sales_account_code` was already in
+  `updateCompanySettingsSchema` and on `tenants`, mobile's form just
+  never included it).
+- **`invoices/[id].tsx`** gained the same "Sync to Xero"/"Re-sync to
+  Xero" card desktop has, shown once an invoice leaves draft status.
+
+The one real platform difference: connecting opens the OAuth flow via
+`Linking.openURL` in the device's browser (no in-app webview flow here),
+and `xero-oauth-callback`'s redirect target is a fixed, server-configured
+URL pointing at the desktop web app's Settings page - not
+platform-aware. A mobile-initiated connect finishes visibly in the
+phone's browser landing on the web app, not back in this native screen
+automatically. Since it's one Xero connection per tenant either way,
+`company-settings.tsx` refetches Xero status on screen focus
+(`useRefetchOnFocus`), so returning to the app after finishing in the
+browser picks up the result without needing a custom URL scheme/deep
+link back into the app - a real, disclosed limitation rather than a
+broken flow, and a reasonable trade against building full deep-linking
+OAuth return support for a connect-once admin action.
+
+### Deploy
+
+No migration, no Edge Function change - `xero-oauth-start`, `xero-sync`,
+`get_xero_connection_status`, and `disconnect_xero` already exist and
+already work for any caller with a valid session token.
+```powershell
+git pull origin main
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Settings > Company Details -> Xero card -> "Connect to Xero" -> confirm
+   the device browser opens Xero's consent screen -> approve it -> land
+   on the (desktop) web app's Settings page confirming connection ->
+   switch back to the native app -> confirm the Xero card now shows
+   "Connected to {org}" (may need to leave and re-enter the screen once
+   if it doesn't refresh immediately).
+2. Open an invoice that's been sent -> confirm the blue Xero card appears
+   -> "Sync to Xero" -> confirm it shows "Last synced" + a working "View
+   in Xero" link afterward.
+
+### Known gaps / judgment calls
+
+- OAuth connect finishing in the phone's browser rather than
+  automatically returning to the native app - see above.
+- Not verified against a real device/EAS build or a live Xero OAuth flow
+  in this sandbox. Verified: `tsc --noEmit` clean for `apps/mobile` and
+  `apps/desktop`.
