@@ -5515,3 +5515,74 @@ that already existed.
 - Not verified against a live deploy or a real sent email in this
   sandbox. Verified: `tsc --noEmit` clean for both `apps/desktop` and
   `apps/mobile`, `vite build` succeeds.
+
+## 42. Standalone field-use Android build (no Play Store)
+
+`eas.json` previously only had a `development` build profile
+(`developmentClient: true`) - installable without the Play Store, but it
+needs a Metro dev server running on a nearby machine that the phone can
+reach (same Wi-Fi, USB, or a tunnel) every time the app is opened. Fine
+for active development, not for actually taking the app to a job site.
+
+New `preview` profile: same internal-distribution installable `.apk`, but
+without `developmentClient` - the JS bundle is built into the app itself,
+so once installed it runs completely standalone and just needs normal
+internet access to reach Supabase/PowerSync, exactly like a Play-Store
+install would, minus the Play Store.
+
+### Build and install it (once)
+
+```powershell
+cd apps/mobile
+copy .env.example .env
+notepad .env
+```
+Fill in `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
+`EXPO_PUBLIC_POWERSYNC_URL`, `EXPO_PUBLIC_APPROVAL_PAGE_URL` with the
+same live project values apps/desktop already uses (see docs/SETUP.md's
+earlier Supabase/PowerSync setup sections for where to find them).
+
+```powershell
+npx eas login
+npx eas build --profile preview --platform android
+```
+This builds in Expo's cloud (no local Android Studio needed) - takes a
+few minutes, then prints a QR code and a download link. Scan it (or open
+the link) on the Pixel, allow "install from unknown sources" when
+prompted, and install the `.apk`.
+
+### The Google Maps key gotcha
+
+The roof-measurement tool's satellite map needs
+`GOOGLE_MAPS_API_KEY_ANDROID` - this one is native-only (baked into
+`AndroidManifest.xml` at build time by `app.config.js`, never read from
+the JS bundle), so it is **not enough** to have it in local `.env` -
+`eas build` runs on Expo's servers, which never see your local file.
+Register it as an EAS secret once:
+```powershell
+npx eas env:create --name GOOGLE_MAPS_API_KEY_ANDROID --value "your-key" --visibility sensitive --environment preview
+```
+(create an API key first at console.cloud.google.com/google/maps-apis,
+enable "Maps SDK for Android", restrict it to package name
+`au.bingley.jmssaas`). Without this, the app still works - just the
+satellite map on the measurement screen won't load.
+
+### After that first install
+
+Ordinary app changes (anything in `apps/mobile` that isn't a new native
+dependency) don't need a rebuild - PowerSync/Supabase data syncs live
+over the network the same way the desktop app does. A rebuild is only
+needed again if a new native module gets added later (a new `expo-*`
+package, a new native permission, etc.) - the same trigger that would
+require a Play Store update for a normal app.
+
+### Known gaps / judgment calls
+
+- No EAS Update/OTA channel configured - a JS-only change still needs a
+  full rebuild + reinstall via this same flow, there's no
+  push-an-update-without-reinstalling path yet. Worth adding later if
+  iteration speed in the field becomes a problem.
+- Not verified against a real EAS build or a real Pixel install in this
+  sandbox (no Expo account/EAS credentials here). Verified: `eas.json`
+  is valid JSON and matches the shape of the existing `development`
+  profile it sits alongside.
