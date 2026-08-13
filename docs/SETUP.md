@@ -5876,3 +5876,35 @@ npx eas build --profile preview --platform android
   above, both are office/admin-facing summary views, not field actions.
 - Not verified against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile` and `apps/desktop`.
+
+## 48. Mobile feature parity, part 6: Stripe payment links
+
+Mirrors desktop's `InvoiceDetail.tsx` payment-link card - shown once an
+invoice's approval status is "accepted" and it isn't paid yet. Same
+`approve` Edge Function call (`action: "create_payment_link"`); once a
+`stripe_checkout_url` exists on the invoice, mobile offers "Open payment
+page" (`Linking.openURL`) and "Share link" (`Share.share`) instead of
+desktop's "Open"/"Copy link" - copying to clipboard isn't the natural
+mobile action, sharing straight to a messaging app is.
+
+### Deploy
+
+No migration, no Edge Function change - `approve` already supports this
+action from any caller with a valid session token.
+```powershell
+git pull origin main
+cd apps/mobile
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+Accept a quote/invoice via its approval link (or mark one accepted
+directly) -> open it on mobile -> confirm the green Stripe payment link
+card appears -> generate the link -> confirm "Open payment page" and
+"Share link" both work.
+
+### Known gaps / judgment calls
+
+- Not verified against a real device/EAS build or live Stripe checkout
+  in this sandbox. Verified: `tsc --noEmit` clean for `apps/mobile`.
