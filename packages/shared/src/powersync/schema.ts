@@ -112,6 +112,14 @@ const job_cards = new Table(
     // migration) - a plain URL, offline-editable like the rest of this
     // table since sync rules already select * from job_cards.
     workdrive_url: column.text,
+    // B2B & Referrals attribution (see the b2b_referral_tracking
+    // migration) - null/0 for a job with no referral source.
+    // referral_fee_amount_cents is computed server-side by a Postgres
+    // trigger when the linked invoice is marked paid, not something this
+    // device ever writes; referral_fee_paid is a manual admin toggle.
+    referral_partner_id: column.text,
+    referral_fee_paid: column.integer,
+    referral_fee_amount_cents: column.integer,
   },
   { indexes: { client: ["client_id"], technician: ["assigned_technician_id"] } }
 );

@@ -22,6 +22,7 @@ const SETTINGS_ITEMS = [
   { href: "/real-estate", label: "Real Estate & Strata", emoji: "🏘️" },
   { href: "/reports", label: "Reports & Safety", emoji: "📋" },
   { href: "/subcontractors", label: "Subcontractors", emoji: "🧰" },
+  { href: "/b2b-referrals", label: "B2B & Referrals", emoji: "🤝" },
 ] as const;
 
 export default function SettingsScreen() {

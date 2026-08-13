@@ -6251,3 +6251,92 @@ npx eas build --profile preview --platform android
 - Not tested against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 53. Mobile feature parity, part 11: B2B & Referrals
+
+Ports desktop's B2B partner directory, BNI/networking groups, referral
+revenue attribution, and reciprocity tracking. `referral_groups`/
+`referral_partners`/`referral_reciprocity_logs` are admin-write/tenant-
+read (same RLS shape as Real Estate/Reports/Subcontractors) and aren't
+PowerSync tables, so `app/b2b-referrals/index.tsx` is Supabase-direct
+and connectivity-gated, no `sync-rules.yaml` change.
+
+One thing this batch *did* need, unlike the three prior admin-tool
+ports: referral attribution itself lives on `job_cards` (a column, not
+a new table), and `job_cards` is already a PowerSync table technicians
+create/view offline. So `packages/shared/src/powersync/schema.ts`'s
+existing `job_cards` `Table(...)` gained three columns -
+`referral_partner_id`, `referral_fee_paid`, `referral_fee_amount_cents`
+- mirroring exactly how the WorkDrive link and Real Estate & Strata
+columns were added to this same table in earlier batches. Since
+`sync-rules.yaml` already does `select * from job_cards`, no sync-rules
+change was needed for this either - only the local schema definition.
+Quotes' matching three columns needed no schema change at all, since
+quotes were never a PowerSync table to begin with.
+
+- **New `app/b2b-referrals/index.tsx`** - two sub-tabs (desktop's other
+  two - "Revenue Analytics & BNI TYFCB" and "Automated Partner
+  Workflows" - are pure office reporting/export tooling and a narrow
+  duplicate of the existing Automation & Messaging settings screen
+  respectively, so neither is ported, same call the Real Estate and
+  Subcontractor modules made dropping their own analytics-only tabs):
+  - **Directory** - By Partner / By Group toggle, admin-only "+ Add
+    Group", "+ Add Partner", and "Log Referral" (the outbound
+    reciprocity ledger entry - a referral this business passed *to* a
+    partner, distinct from inbound attribution). Each partner card
+    shows tier, group, referrals sent, closed revenue won, and the
+    sent/received reciprocity line, computed by joining the partner
+    against `job_cards` (local, PowerSync) and `invoices` (Supabase-
+    direct) exactly like desktop's client-side join.
+  - **Reciprocity Ledger** - per-partner inbound-vs-outbound bar
+    comparison with the same balanced/net-exporter/net-importer status
+    bucketing as desktop (`>2x` / `<0.5x` ratio, an explicit judgment
+    call carried over verbatim since the spec never defined the
+    cutoffs), plus the last-20-entries outbound log table.
+- **`jobs/index.tsx`**'s "New Job" modal and **`quotes/new.tsx`**
+  gained the same optional "Referral source" picker desktop's Jobs.tsx/
+  QuoteNew.tsx have, sourced from `referral_partners` (Supabase-direct
+  for both, since the picker's option list itself needs connectivity
+  regardless of which table gets the write) - offline job creation
+  still works, just without a referral pick available until back
+  online (settable later from the B2B & Referrals screen, though there
+  is no "edit a job's referral source after creation" UI on either
+  platform today - it's set once at creation, matching desktop).
+
+### Deploy
+```powershell
+git pull origin main
+cd apps/mobile
+pnpm install
+npx eas build --profile preview --platform android
+```
+
+### Test it
+
+1. Settings > B2B & Referrals > "+ Add Group" (e.g. a BNI chapter) ->
+   "+ Add Partner" assigned to that group -> confirm both appear under
+   "By Group".
+2. Create a job -> confirm the new "Referral source" picker lists the
+   partner -> pick it -> save -> confirm the partner's Directory card
+   now shows "1" referral sent.
+3. "Log Referral" from the Directory tab -> pick the partner, enter a
+   client/lead name and estimated value -> save -> confirm it appears
+   in the Reciprocity Ledger's recent log and updates the outbound bar.
+4. Mark the referred job's invoice paid (desktop or mobile) -> confirm
+   the partner's "Closed revenue won" and the ledger's inbound bar
+   update once refetched.
+
+### Known gaps / judgment calls
+
+- Revenue Analytics/BNI TYFCB export and Automated Partner Workflows
+  tabs aren't ported - see above.
+- No "mark referral fee paid" toggle - desktop itself doesn't appear to
+  have one either (the fee amount is computed automatically by a
+  Postgres trigger when the referred job's invoice is paid, but marking
+  it actually paid out to the partner has no UI found on either
+  platform); not a mobile-specific gap.
+- Referral source is set once at job/quote creation, not editable
+  afterward, on either platform.
+- Not tested against a real device/EAS build in this sandbox. Verified:
+  `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
+  `packages/shared`.
