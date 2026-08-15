@@ -6353,3 +6353,250 @@ npx eas build --profile preview --platform android
 - Not tested against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 54. Google Calendar two-way sync
+
+Every profile (technician or admin) connects their own Google account.
+Once connected: jobs/tasks scheduled here push to that person's real
+Google Calendar, and any edit/move/delete made either side - in the app
+or directly on their phone's Google Calendar app - flows back to the
+other, in real time via Google's push notifications (not polling). A
+technician's pre-existing personal Google events are also pulled in as
+plain "Busy" placeholders so scheduling avoids clashing with them,
+without exposing what those personal events actually are to anyone but
+the technician themselves.
+
+### Privacy model
+
+Visibility is **per-viewer-ownership**, not role-based: you see full
+detail (title/description/location) of events you own; everyone else -
+including admins - sees only a "Busy" placeholder for events they don't
+own. This is enforced at write time, not by a redaction view: a
+`'google_personal'` event's row in `calendar_events` always literally
+stores the title `'Busy'`; the real detail lives only in the satellite
+table `calendar_event_personal_details`, readable via RLS only by
+`owner_profile_id = auth.uid()`. `'app'` events (jobs/tasks scheduled
+from this app) are unaffected - full detail for everyone who could see
+them before, same as today.
+
+### Architecture
+
+- **`google_calendar_connections`** - one row per profile (not per
+  tenant, unlike `xero_connections`), OAuth tokens + the push-
+  notification channel's id/expiry + the incremental `sync_token`. Zero
+  RLS grants, same service-role-only lockdown as `xero_connections` -
+  `get_google_calendar_connection_status()` (self, any profile) and
+  `list_google_calendar_connections()` (admin, whole tenant) are the only
+  way to read connection state, both SECURITY DEFINER RPCs that never
+  expose tokens.
+- **`calendar_events`** gained `source` (`'app'` | `'google_personal'`),
+  `owner_profile_id`, and `google_calendar_connection_id`. RLS was
+  tightened so ordinary write policies only ever apply to `source =
+  'app'` rows - a `'google_personal'` row is service-role-written only
+  (by the sync functions below), never directly editable through the
+  app.
+- **`google-oauth-start`** / **`google-oauth-callback`** - the connect
+  flow. Unlike `xero-oauth-start`, not admin-gated (any profile connects
+  their own account). The callback does the full initial setup inline
+  (resolve the real calendar id, import a rolling 7-days-back/180-days-
+  forward baseline of existing events, create the first push channel)
+  rather than deferring to a cron sweep, so the connection is fully live
+  by the time the browser lands back on the app.
+- **`google-calendar-push`** - outbound. Called by the client right after
+  a `calendar_events` write (and any linked `job_cards.
+  assigned_technician_id` reassignment) lands - see `apps/desktop/src/
+  lib/google-calendar-sync.ts` / `apps/mobile/lib/google-calendar-sync.ts`
+  - same best-effort, swallow-failures shape as `dispatch-now.ts`'s
+  `triggerImmediateDispatch`. Only pushes `'app'` events with a resolved
+  assignee who's connected; a reassignment deletes from the old
+  assignee's calendar and creates fresh on the new one (Google has no
+  "move to a different account" operation).
+- **`google-calendar-webhook`** - inbound. Google calls this directly
+  (`X-Goog-Channel-ID`/`X-Goog-Channel-Token`/`X-Goog-Resource-State`
+  headers, no Supabase JWT - see `[functions.google-calendar-webhook]` in
+  `supabase/config.toml`) whenever a watched calendar changes. Pulls the
+  actual diff via `events.list({syncToken})`, applies each item (delete /
+  update an `'app'` event's schedule fields / update a `'google_personal'`
+  event's satellite detail / insert a brand-new `'google_personal'`
+  event), falls back to a full re-list + local-deletion reconciliation on
+  a 410 Gone.
+- **`google-calendar-renew-channels`** (cron, daily) - push channels
+  expire and can't be renewed in place, only recreated; sweeps every
+  connection whose channel is missing or expiring within 24h.
+- **`google-calendar-reconcile`** (cron, hourly) - two-part backstop:
+  finishes any connection whose inline setup in the callback didn't fully
+  complete (missing `sync_token` and/or channel), and pulls an
+  incremental diff for every connected calendar in case a push
+  notification was ever dropped (Google delivery isn't 100% guaranteed).
+- **`google-calendar-disconnect`** - self-serve (disconnect your own) or
+  admin-triggered (disconnect anyone on the tenant). Stops the push
+  channel and revokes the OAuth grant (both best-effort), deletes local
+  `'google_personal'` rows for that connection, and clears the Google-
+  sync columns on any `'app'` rows that were synced to it.
+- **Desktop**: Settings gained a "Google Calendar" section (self-connect,
+  every profile) plus, for admins, a "Team Google Calendar connections"
+  list with per-person Disconnect. `Calendar.tsx`/`CalendarEventDetail.tsx`/
+  `CalendarEventNew.tsx`/`Dispatch.tsx` all call `pushCalendarEventUpsert`/
+  `pushCalendarEventDelete` after their existing writes, and
+  `CalendarEventDetail.tsx` renders `'google_personal'` events as a
+  simplified read-only card (edit/delete happens on the Google side and
+  flows back automatically) instead of the normal edit form.
+- **Mobile**: a new always-visible "Google Calendar" row in the Settings
+  tab (`app/google-calendar-settings.tsx`, not admin-gated - unlike the
+  rest of that tab's list) mirrors the desktop Settings section
+  (self-connect + admin team list). `(tabs)/calendar/index.tsx`/
+  `(tabs)/calendar/[id].tsx`/`(tabs)/calendar/new.tsx` got the same
+  push-call wiring and read-only `'google_personal'` treatment as
+  desktop.
+
+### New Google Cloud project + secrets needed
+
+1. [console.cloud.google.com](https://console.cloud.google.com) -> new
+   (or existing) project -> **APIs & Services -> Library** -> enable the
+   **Google Calendar API**.
+2. **APIs & Services -> OAuth consent screen** - External, add the
+   `openid`, `email`, and `https://www.googleapis.com/auth/calendar`
+   scopes. While the app is in "Testing" publish status only explicitly
+   added test users can connect - move to "In production" (may trigger
+   Google's verification review, since `calendar` is a sensitive scope)
+   once ready for every technician to connect for real.
+3. **APIs & Services -> Credentials -> Create Credentials -> OAuth client
+   ID** -> Web application. **Authorized redirect URI** (must match
+   exactly):
+   ```
+   https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-oauth-callback
+   ```
+4. Set secrets:
+   ```powershell
+   npx supabase secrets set GOOGLE_CLIENT_ID=your_client_id_here
+   npx supabase secrets set GOOGLE_CLIENT_SECRET=your_client_secret_here
+   npx supabase secrets set GOOGLE_APP_REDIRECT_URL=https://jmssaas.vercel.app/settings
+   npx supabase secrets set GOOGLE_CHANNEL_TOKEN=any_long_random_string_you_generate
+   ```
+   `GOOGLE_CHANNEL_TOKEN` isn't a Google-issued value - it's a shared
+   secret this app makes up once (e.g. `openssl rand -hex 32`) and sends
+   to Google when creating a watch channel; Google echoes it back on
+   every push notification, and `google-calendar-webhook` checks it
+   matches before trusting the notification. Treat it like any other
+   secret - don't reuse it for anything else.
+
+### Push notifications need a verified domain
+
+Google's `events.watch()` push notifications will only deliver to an
+`address` on a domain verified in
+[Google Search Console](https://search.google.com/search-console) under
+the **same Google Cloud project** as the OAuth client above - the shared
+`*.supabase.co` domain every Edge Function otherwise lives on cannot be
+verified (Supabase, not this tenant, owns that domain) and Google will
+reject the watch request outright. This is why sync is push-based instead
+of falling back to polling: it needs the business's own domain wired up
+as a [custom domain for Supabase Edge Functions](https://supabase.com/docs/guides/functions/custom-domains)
+(or a thin reverse-proxy in front of them on that domain), verified once
+in Search Console, before `google-calendar-webhook`'s URL will actually
+receive anything from Google. Until that's done, `createWatchChannel`
+calls in `google-oauth-callback`/`google-calendar-renew-channels` will
+fail (logged, non-fatal - the connection still works, just without live
+push; `google-calendar-reconcile`'s hourly sweep becomes the only sync
+path in that case).
+
+### Deploy steps
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx supabase functions deploy google-oauth-start
+npx supabase functions deploy google-oauth-callback --no-verify-jwt
+npx supabase functions deploy google-calendar-push
+npx supabase functions deploy google-calendar-webhook --no-verify-jwt
+npx supabase functions deploy google-calendar-renew-channels
+npx supabase functions deploy google-calendar-reconcile
+npx supabase functions deploy google-calendar-disconnect
+npx vercel --prod
+```
+
+(Only `google-oauth-callback` and `google-calendar-webhook` need
+`--no-verify-jwt` - both are reached with no Supabase session at all, see
+their `verify_jwt = false` entries in `supabase/config.toml`. The two
+cron functions are called by `pg_net` with the service-role key checked
+by exact string match inside the function itself, same pattern as
+`process-scheduled-comms` - they still work fine under the platform's
+default JWT verification since the service-role key is itself a valid
+JWT.)
+
+Then, in the SQL editor, schedule the two cron sweeps (one-time, requires
+`pg_cron`/`pg_net`, same as every other scheduled sweep in this schema -
+see `process-scheduled-comms`'s own setup notes):
+```sql
+select cron.schedule(
+  'google-calendar-renew-channels',
+  '0 3 * * *',
+  $$select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-calendar-renew-channels',
+    headers := '{"Authorization": "Bearer YOUR-SERVICE-ROLE-KEY"}'::jsonb
+  )$$
+);
+select cron.schedule(
+  'google-calendar-reconcile',
+  '0 * * * *',
+  $$select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-calendar-reconcile',
+    headers := '{"Authorization": "Bearer YOUR-SERVICE-ROLE-KEY"}'::jsonb
+  )$$
+);
+```
+
+### Test it
+
+1. Settings (desktop) or Settings tab -> Google Calendar (mobile) ->
+   **Connect Google Calendar** -> approve on Google's consent screen ->
+   confirm it redirects back showing "Connected as [email]".
+2. Schedule a job to that technician (Dispatch or Calendar > New event) ->
+   confirm the event appears on the technician's real Google Calendar
+   within a few seconds.
+3. Move or rename that event directly in Google Calendar (phone or
+   calendar.google.com) -> confirm it updates here too, without
+   refreshing anything manually (push, not polling - should be near-
+   instant once the webhook domain is verified).
+4. Create a brand-new personal event directly in that technician's Google
+   Calendar, overlapping a work day -> confirm it shows up here as
+   "Busy" for everyone else, with the real title/location visible only
+   when signed in as that technician.
+5. Disconnect from Settings -> confirm the "Busy" placeholders for that
+   person disappear and the badge flips back to "Connect Google
+   Calendar".
+
+### Known gaps / judgment calls
+
+- **Requires a verified custom domain to get live push** - see above; on
+  a fresh project with only the default `*.supabase.co` URL, sync still
+  works but only on `google-calendar-reconcile`'s hourly cadence, not
+  "ideally instantly" until that's set up.
+- **No recurring-event editing UI** - `singleEvents: true` expands
+  recurring series into individual occurrences on import/sync, so a
+  changed recurrence rule on Google's side shows up as many individual
+  occurrence updates here, not a single "edit series" action; there's no
+  way to create a recurring event from this app's side either.
+- **One Google Calendar per profile** - always the account's primary
+  calendar (`calendars/primary`), no picker for a secondary calendar.
+- **`google_personal` events are read-only in-app** - by design (see
+  `CalendarEventDetail.tsx`'s own comment): editing/deleting happens on
+  the Google Calendar side and flows back automatically, since
+  `google-calendar-push` already no-ops any edit to a non-`'app'` event.
+- **OAuth consent screen "Testing" mode caps connections at added test
+  users** - see the Google Cloud project setup above; moving to
+  "In production" needs Google's review since `calendar` is a sensitive
+  scope.
+- Not verified against a real Google Cloud project, OAuth client, live
+  push delivery, or a verified custom domain - none of those exist in
+  this sandbox. Verified: `tsc --noEmit` clean and a production `vite
+  build` clean for `apps/desktop`/`apps/mobile`/`packages/shared`, the
+  migration's RLS/redaction design empirically tested against a real
+  local Postgres 16 instance (base-table reads/writes for admins and
+  `'app'` events unaffected; owner sees full personal-event detail via
+  the satellite table; non-owner sees zero rows there; admin cannot
+  write a `'google_personal'` row directly; cross-tenant isolation
+  holds), and the Google Calendar API v3 request/response shapes
+  (`events.watch`/`events.list` with `syncToken`/`showDeleted`/
+  `singleEvents`, the 410 Gone `fullSyncRequired` contract, OAuth
+  `access_type=offline&prompt=consent`) checked against Google's own
+  public API documentation by reading, not a live call.

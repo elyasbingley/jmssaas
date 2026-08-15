@@ -12,6 +12,7 @@ import { PickerModal } from "../../../components/PickerModal";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
 import { getErrorMessage } from "../../../lib/errors";
+import { pushCalendarEventUpsert } from "../../../lib/google-calendar-sync";
 
 // Google-Calendar-style single creation flow: title, start, end, guests,
 // location, description/link, all in one screen rather than a multi-step
@@ -120,6 +121,10 @@ export default function NewCalendarEventScreen() {
           jobCard.id,
         ]);
       }
+
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(data.id);
 
       router.replace(`/calendar/${data.id}`);
     } catch (e) {

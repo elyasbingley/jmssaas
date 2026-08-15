@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { toDateTimeLocalInput } from "../lib/datetime";
+import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 import { FormField, SelectField, TextAreaField } from "../components/FormField";
 
 async function fetchJobCards(): Promise<JobCard[]> {
@@ -113,6 +114,10 @@ export default function CalendarEventNewPage() {
           .eq("id", jobCardId);
         if (jobError) throw jobError;
       }
+
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(data.id as string);
 
       return data.id as string;
     },

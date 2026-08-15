@@ -5,6 +5,7 @@ import type { CalendarEvent, Profile } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
 import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 
 type CalendarEventRow = CalendarEvent & {
   job_cards: { title: string; assigned_technician_id: string | null } | null;
@@ -18,7 +19,26 @@ async function fetchEvent(id: string): Promise<CalendarEventRow> {
     .eq("id", id)
     .single();
   if (error) throw error;
-  return data as CalendarEventRow;
+  const row = data as CalendarEventRow;
+
+  // The base row's title/description/location for a 'google_personal'
+  // event is always the literal 'Busy' placeholder (see the migration's
+  // own comment on why) - calendar_event_personal_details holds the real
+  // detail, readable only by its owner via RLS. A non-owner querying this
+  // just gets zero rows back, correctly leaving the placeholder in place.
+  if (row.source === "google_personal") {
+    const { data: details } = await supabase
+      .from("calendar_event_personal_details")
+      .select("title, description, location")
+      .eq("calendar_event_id", id)
+      .maybeSingle();
+    if (details) {
+      row.title = details.title;
+      row.description = details.description;
+      row.location = details.location;
+    }
+  }
+  return row;
 }
 async function fetchTechnicians(): Promise<Profile[]> {
   const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
@@ -81,6 +101,10 @@ export default function CalendarEventDetailPage() {
           .eq("id", event.job_card_id);
         if (jobError) throw jobError;
       }
+
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(id!);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-event", id] });
@@ -94,8 +118,13 @@ export default function CalendarEventDetailPage() {
 
   const deleteEvent = useMutation({
     mutationFn: async () => {
+      // Capture these before the row is gone - nothing left to look them
+      // up from afterward.
+      const googleEventId = event?.google_event_id;
+      const googleConnectionId = event?.google_calendar_connection_id;
       const { error } = await supabase.from("calendar_events").delete().eq("id", id);
       if (error) throw error;
+      await pushCalendarEventDelete(id!, googleEventId, googleConnectionId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
@@ -105,6 +134,34 @@ export default function CalendarEventDetailPage() {
 
   if (isLoading || !event) {
     return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+  }
+
+  // 'google_personal' events are a mirror of something that lives in
+  // someone's own Google Calendar, not an app-owned schedule item -
+  // google-calendar-push already no-ops any edit made to a non-'app'
+  // event, so letting the form pretend edits here take effect would be
+  // misleading. Editing/deleting happens on the Google Calendar side and
+  // flows back in automatically (google-calendar-webhook / the reconcile
+  // sweep), same "full permissions either way" behavior, just from the
+  // other direction.
+  if (event.source === "google_personal") {
+    return (
+      <div className="mx-auto max-w-2xl p-8">
+        <Link to="/calendar" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+          &larr; Back to Calendar
+        </Link>
+        <h1 className="mb-1 text-xl font-bold text-gray-900">{event.title}</h1>
+        <p className="mb-4 text-sm text-gray-600">
+          {new Date(event.start_at).toLocaleString("en-AU")} - {new Date(event.end_at).toLocaleString("en-AU")}
+        </p>
+        {event.location ? <p className="mb-2 text-sm text-gray-700">{event.location}</p> : null}
+        {event.description ? <p className="mb-4 whitespace-pre-wrap text-sm text-gray-700">{event.description}</p> : null}
+        <p className="rounded-md bg-gray-50 p-3 text-xs text-gray-500">
+          Personal Google Calendar event, shown here for scheduling visibility only. To change or remove it, edit it in Google
+          Calendar directly - the change syncs back here automatically.
+        </p>
+      </div>
+    );
   }
 
   return (

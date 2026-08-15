@@ -560,6 +560,8 @@ export interface PriceBookItemVariation {
   updated_at: string;
 }
 
+export type CalendarEventSource = "app" | "google_personal";
+
 export interface CalendarEvent {
   id: string;
   tenant_id: string;
@@ -575,9 +577,56 @@ export interface CalendarEvent {
   google_calendar_id: string | null;
   google_event_id: string | null;
   last_synced_at: string | null;
+  // 'app': created in this app, two-way synced with Google when the
+  // resolved assignee has connected their calendar. 'google_personal':
+  // imported from a technician's own Google Calendar - title/description/
+  // location/guests on this row are always "Busy"/null regardless of
+  // source, since the real content only exists in
+  // CalendarEventPersonalDetails, which RLS restricts to the owning
+  // profile. See supabase/migrations/20260902000100_google_calendar_sync.sql.
+  source: CalendarEventSource;
+  owner_profile_id: string | null;
+  google_calendar_connection_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// The real title/description/location/guests of a 'google_personal'
+// CalendarEvent - only ever readable by its owner (RLS: owner_profile_id =
+// auth.uid()), so an unfiltered fetch of this table always safely returns
+// just the caller's own rows. The app merges these back onto the matching
+// CalendarEvent client-side for events the viewer owns; every other
+// google_personal row is displayed exactly as calendar_events itself has
+// it (the "Busy" placeholder), with no further redaction needed.
+export interface CalendarEventPersonalDetails {
+  calendar_event_id: string;
+  owner_profile_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  guests: string | null;
+  created_at: string;
+}
+
+// Status shape returned by get_google_calendar_connection_status() -
+// intentionally never includes tokens, only enough to drive a "Connect" vs
+// "Connected as {email}" UI.
+export interface GoogleCalendarConnectionStatus {
+  connected: boolean;
+  email?: string | null;
+  connected_at?: string | null;
+}
+
+// Row shape returned by the admin-only list_google_calendar_connections()
+// RPC - one row per tenant profile, connection fields null if not
+// connected.
+export interface GoogleCalendarConnectionListItem {
+  profile_id: string;
+  full_name: string;
+  email: string;
+  google_account_email: string | null;
+  connected_at: string | null;
 }
 
 // A physical place stock lives - "Ute 1", "Main Warehouse", a shelf.

@@ -25,6 +25,12 @@ const SETTINGS_ITEMS = [
   { href: "/b2b-referrals", label: "B2B & Referrals", emoji: "🤝" },
 ] as const;
 
+// Every profile (technician or admin) connects their own Google Calendar,
+// unlike everything in SETTINGS_ITEMS above which is admin-only - so this
+// row is shown regardless of role, same reasoning as company-settings.tsx
+// vs. this always-visible item.
+const PERSONAL_SETTINGS_ITEMS = [{ href: "/google-calendar-settings", label: "Google Calendar", emoji: "📅" }] as const;
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -33,6 +39,16 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Text style={styles.title}>Settings</Text>
+
+      <View style={styles.list}>
+        {PERSONAL_SETTINGS_ITEMS.map((item) => (
+          <Pressable key={item.href} style={styles.row} onPress={() => router.push(item.href)}>
+            <Text style={styles.rowEmoji}>{item.emoji}</Text>
+            <Text style={styles.rowLabel}>{item.label}</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ))}
+      </View>
 
       {isAdmin ? (
         <View style={styles.list}>
@@ -44,9 +60,7 @@ export default function SettingsScreen() {
             </Pressable>
           ))}
         </View>
-      ) : (
-        <Text style={styles.empty}>Nothing to configure here yet - check with an admin.</Text>
-      )}
+      ) : null}
     </SafeAreaView>
   );
 }

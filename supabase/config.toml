@@ -62,3 +62,22 @@ verify_jwt = false
 # request for Xero's own "Intent to Receive" verification step when the
 # webhook URL is first saved in the Developer Portal.
 verify_jwt = false
+
+[functions.google-oauth-callback]
+# Google redirects the user's own browser here after they approve the
+# connection on Google's consent screen - a plain browser GET with no
+# Supabase session/Authorization header at all, same class of issue as
+# [functions.xero-oauth-callback]. The one-time `state` value (created by
+# google-oauth-start, burned here) is the real access control, not JWT
+# verification - see the function's own comment.
+verify_jwt = false
+
+[functions.google-calendar-webhook]
+# Google calls this directly with its own X-Goog-Channel-ID/X-Goog-
+# Channel-Token headers, not a Supabase JWT - same reasoning as
+# [functions.xero-webhook]. Checking the channel token against what was
+# stored when the watch channel was created (done in the function itself)
+# is the real access control here, not the platform's JWT gateway. Also
+# has to work unauthenticated for Google's own initial "sync" verification
+# ping sent the moment a channel is created.
+verify_jwt = false

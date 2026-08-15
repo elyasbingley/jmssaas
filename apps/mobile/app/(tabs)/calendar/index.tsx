@@ -34,7 +34,25 @@ export default function CalendarScreen() {
   const { data: events, loading, refetch } = useSupabaseFetch<CalendarEvent[]>(async () => {
     const { data, error } = await supabase.from("calendar_events").select("*").order("start_at", { ascending: true });
     if (error) throw error;
-    return (data ?? []) as CalendarEvent[];
+    const rows = (data ?? []) as CalendarEvent[];
+
+    // Every 'google_personal' row's base title is always the literal
+    // 'Busy' placeholder (see the migration's own comment on why) -
+    // overlay the real title for whichever of these belong to the signed-
+    // in user. calendar_event_personal_details' owner-only RLS means this
+    // query only ever returns the caller's own rows regardless of who
+    // else's personal events are mixed into `rows` above, so no extra
+    // filtering is needed here.
+    const { data: ownDetails } = await supabase.from("calendar_event_personal_details").select("calendar_event_id, title");
+    if (ownDetails && ownDetails.length > 0) {
+      const titleByEventId = new Map(ownDetails.map((d) => [d.calendar_event_id, d.title]));
+      for (const row of rows) {
+        const ownTitle = titleByEventId.get(row.id);
+        if (ownTitle) row.title = ownTitle;
+      }
+    }
+
+    return rows;
   }, [isOnline]);
   useRefetchOnFocus(refetch);
 

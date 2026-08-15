@@ -17,7 +17,25 @@ const MONTH_LABELS = [
 async function fetchEvents(): Promise<CalendarEvent[]> {
   const { data, error } = await supabase.from("calendar_events").select("*").order("start_at", { ascending: true });
   if (error) throw error;
-  return data as CalendarEvent[];
+  const events = data as CalendarEvent[];
+
+  // Every 'google_personal' row's base title is always the literal 'Busy'
+  // placeholder (see the migration's own comment on why) - overlay the
+  // real title for whichever of these belong to the signed-in user.
+  // calendar_event_personal_details' owner-only RLS means this query only
+  // ever returns the caller's own rows regardless of who else's personal
+  // events are mixed into `events` above, so no extra filtering is needed
+  // here.
+  const { data: ownDetails } = await supabase.from("calendar_event_personal_details").select("calendar_event_id, title");
+  if (ownDetails && ownDetails.length > 0) {
+    const titleByEventId = new Map(ownDetails.map((d) => [d.calendar_event_id, d.title]));
+    for (const event of events) {
+      const ownTitle = titleByEventId.get(event.id);
+      if (ownTitle) event.title = ownTitle;
+    }
+  }
+
+  return events;
 }
 
 export default function CalendarPage() {

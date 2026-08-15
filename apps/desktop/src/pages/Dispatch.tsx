@@ -15,6 +15,7 @@ import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile } from 
 import { supabase } from "../lib/supabase";
 import { addDays, isSameDay } from "../lib/datetime";
 import { formatClientAddress } from "../lib/format";
+import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 
 // Dispatch board - the one screen the mobile app deliberately scoped down
 // (see apps/mobile/app/schedule.tsx's own comment: a tap-to-assign list,
@@ -279,15 +280,19 @@ export default function DispatchPage() {
       const start = new Date(dayStart.getTime() + params.startMinutes * 60000);
       const end = new Date(start.getTime() + DEFAULT_DURATION_MINUTES * 60000);
 
-      const { error: eventError } = await supabase.from("calendar_events").insert({
-        tenant_id: job.tenant_id,
-        title: job.title,
-        start_at: start.toISOString(),
-        end_at: end.toISOString(),
-        all_day: false,
-        job_card_id: job.id,
-        created_by: job.created_by,
-      });
+      const { data: insertedEvent, error: eventError } = await supabase
+        .from("calendar_events")
+        .insert({
+          tenant_id: job.tenant_id,
+          title: job.title,
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          all_day: false,
+          job_card_id: job.id,
+          created_by: job.created_by,
+        })
+        .select("id")
+        .single();
       if (eventError) throw eventError;
 
       const { error: jobError } = await supabase
@@ -295,6 +300,10 @@ export default function DispatchPage() {
         .update({ assigned_technician_id: params.technicianId })
         .eq("id", job.id);
       if (jobError) throw jobError;
+
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(insertedEvent.id);
     },
     onSuccess: invalidate,
     onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to schedule job"),
@@ -319,6 +328,12 @@ export default function DispatchPage() {
         .update({ assigned_technician_id: params.technicianId })
         .eq("id", params.jobId);
       if (jobError) throw jobError;
+
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician - this is
+      // exactly the reassignment case google-calendar-push's own comment
+      // warns about calling too early.
+      await pushCalendarEventUpsert(params.eventId);
     },
     onSuccess: invalidate,
     onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to reschedule"),
@@ -333,6 +348,12 @@ export default function DispatchPage() {
   // shouldn't require finding the right drop zone).
   const unassignEvent = useMutation({
     mutationFn: async (params: { eventId: string; jobId: string }) => {
+      // Capture these before the row is gone - nothing left to look them
+      // up from afterward.
+      const existing = (events ?? []).find((e) => e.id === params.eventId);
+      const googleEventId = existing?.google_event_id;
+      const googleConnectionId = existing?.google_calendar_connection_id;
+
       const { error: eventError } = await supabase.from("calendar_events").delete().eq("id", params.eventId);
       if (eventError) throw eventError;
       const { error: jobError } = await supabase
@@ -340,6 +361,8 @@ export default function DispatchPage() {
         .update({ assigned_technician_id: null })
         .eq("id", params.jobId);
       if (jobError) throw jobError;
+
+      await pushCalendarEventDelete(params.eventId, googleEventId, googleConnectionId);
     },
     onSuccess: invalidate,
     onError: (e) => setDragError(e instanceof Error ? e.message : "Failed to remove booking"),
