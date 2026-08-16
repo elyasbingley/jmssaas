@@ -284,7 +284,9 @@ export default function RealEstateDirectoryScreen() {
                               style={styles.propertyRow}
                               onPress={() => router.push(`/real-estate/${property.id}`)}
                             >
-                              <Text style={styles.propertyRowText}>{property.address_line1}</Text>
+                              <Text style={styles.propertyRowText} numberOfLines={1}>
+                                {property.address_line1}
+                              </Text>
                               <Text style={styles.propertyRowMeta}>{property.suburb}</Text>
                             </Pressable>
                           ))
@@ -460,17 +462,21 @@ const styles = StyleSheet.create({
   actionButtonSecondaryText: { color: "#1d4ed8" },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
   emptySmall: { color: "#9ca3af", fontSize: 13, paddingVertical: 4 },
-  agencyCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, marginBottom: 10, overflow: "hidden" },
+  agencyCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, marginBottom: 10, overflow: "hidden" },
   agencyHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
   agencyChevron: { color: "#9ca3af" },
   agencyName: { flex: 1, fontSize: 16, fontWeight: "700", color: "#111827" },
   agencyTypeBadge: { fontSize: 11, fontWeight: "700", color: "#6b7280", backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  agencyBody: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0", padding: 14, gap: 6 },
+  agencyBody: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", padding: 14, gap: 6 },
   pmBlock: { marginBottom: 10, gap: 2 },
   pmName: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  propertyRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, paddingLeft: 8 },
-  propertyRowText: { color: "#1d4ed8", fontSize: 13 },
-  propertyRowMeta: { color: "#6b7280", fontSize: 13 },
+  propertyRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, paddingLeft: 8, gap: 8 },
+  // flex: 1 so the (potentially long, free-text) address is what shrinks
+  // and truncates when space is tight, not the suburb - suburb is short
+  // and important to always see in full at a glance, so it stays
+  // unconstrained and never gets clipped.
+  propertyRowText: { flex: 1, color: "#1d4ed8", fontSize: 13 },
+  propertyRowMeta: { flexShrink: 0, color: "#6b7280", fontSize: 13 },
   link: { color: "#1d4ed8", fontWeight: "600", fontSize: 13, marginTop: 4 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },

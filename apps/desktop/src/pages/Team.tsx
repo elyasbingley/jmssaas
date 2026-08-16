@@ -73,14 +73,14 @@ export default function TeamPage() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : !technicians || technicians.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No technicians yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Email</th>
@@ -88,7 +88,7 @@ export default function TeamPage() {
             </thead>
             <tbody>
               {technicians.map((tech) => (
-                <tr key={tech.id} className="border-b border-gray-100 last:border-0">
+                <tr key={tech.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-3 font-medium text-gray-900">{tech.full_name}</td>
                   <td className="px-4 py-3 text-gray-600">{tech.email}</td>
                 </tr>

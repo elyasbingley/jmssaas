@@ -221,7 +221,7 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
 }
 
 const styles = StyleSheet.create({
-  row: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
+  row: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
   rowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rowNumber: { color: "#9ca3af", fontWeight: "700", fontSize: 12 },
   removeButton: { marginLeft: "auto" },
@@ -235,10 +235,10 @@ const styles = StyleSheet.create({
   gstToggleActive: { backgroundColor: "#111827" },
   gstToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
   gstToggleTextActive: { color: "#fff" },
-  lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
+  lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
   lineTotalLabel: { color: "#6b7280", fontSize: 13, flex: 1 },
   lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },
-  totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", gap: 4 },
+  totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", gap: 4 },
   // Deliberately not justifyContent: "space-between" with two auto-width
   // Text children - that layout gives Yoga a tight target width to hit,
   // and on Android it can resolve rounding by shaving a hair off the
@@ -255,9 +255,9 @@ const styles = StyleSheet.create({
   totalsValue: { color: "#111827", flexShrink: 0, textAlign: "right" },
   totalsLabelBold: { fontWeight: "700", flex: 1 },
   totalsValueBold: { fontWeight: "700", flexShrink: 0, textAlign: "right" },
-  summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
-  summaryRow: { flexDirection: "row", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  summaryRow: { flexDirection: "row", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   summaryCell: { fontSize: 14, color: "#111827" },
   summaryDescCell: { flex: 3 },
   summaryNumCell: { flex: 1, textAlign: "right" },

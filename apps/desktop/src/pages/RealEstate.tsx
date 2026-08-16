@@ -65,7 +65,7 @@ export default function RealEstatePage() {
       <h1 className="mb-1 text-xl font-bold text-gray-900">Real Estate & Strata</h1>
       <p className="mb-6 text-sm text-gray-500">Agencies, property managers, managed properties, and key tracking.</p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "directory", label: "Directory" },
@@ -323,7 +323,7 @@ function DirectoryTab() {
             const expanded = expandedAgencyIds.has(agency.id);
             const pms = pmsByAgency(agency.id);
             return (
-              <div key={agency.id} className="rounded-lg border border-gray-200 bg-white">
+              <div key={agency.id} className="rounded-lg border border-gray-300 bg-white">
                 <button
                   onClick={() => toggleAgency(agency.id)}
                   className="flex w-full items-center justify-between px-4 py-3 text-left"
@@ -340,7 +340,7 @@ function DirectoryTab() {
                   </span>
                 </button>
                 {expanded ? (
-                  <div className="border-t border-gray-100 px-4 py-3">
+                  <div className="border-t border-gray-200 px-4 py-3">
                     {pms.length === 0 ? (
                       <p className="text-sm text-gray-500">No property managers yet for this agency.</p>
                     ) : (
@@ -359,7 +359,7 @@ function DirectoryTab() {
                               <span className="text-xs text-gray-500">{pm.email ?? pm.mobile ?? ""}</span>
                             </button>
                             {selectedPmId === pm.id ? (
-                              <div className="ml-6 mb-2 mt-1 space-y-1 border-l border-gray-100 pl-4">
+                              <div className="ml-6 mb-2 mt-1 space-y-1 border-l border-gray-200 pl-4">
                                 {propertiesByPm(pm.id).length === 0 ? (
                                   <p className="py-1 text-xs text-gray-500">No managed properties for this PM yet.</p>
                                 ) : (
@@ -369,8 +369,8 @@ function DirectoryTab() {
                                       to={`/real-estate/properties/${property.id}`}
                                       className="flex justify-between rounded-md px-2 py-1 text-sm hover:bg-gray-50"
                                     >
-                                      <span className="text-blue-700">{property.address_line1}</span>
-                                      <span className="text-gray-500">{property.suburb}</span>
+                                      <span className="min-w-0 flex-1 truncate text-blue-700">{property.address_line1}</span>
+                                      <span className="ml-2 flex-shrink-0 text-gray-500">{property.suburb}</span>
                                     </Link>
                                   ))
                                 )}

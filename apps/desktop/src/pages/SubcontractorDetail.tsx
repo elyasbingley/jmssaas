@@ -94,7 +94,7 @@ export default function SubcontractorDetailPage() {
         &larr; Back to Subcontractors
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold text-gray-900">{sub.company_name}</h1>
@@ -133,7 +133,7 @@ export default function SubcontractorDetailPage() {
         ) : null}
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "contacts", label: "Contacts" },
@@ -254,7 +254,7 @@ function ContactsTab({ subcontractorId, contacts }: { subcontractorId: string; c
       ) : (
         <div className="space-y-2">
           {contacts.map((c) => (
-            <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
+            <div key={c.id} className="rounded-lg border border-gray-300 bg-white p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-semibold text-gray-900">
@@ -350,9 +350,9 @@ function OrdersTab({
       {purchaseOrders.length === 0 ? (
         <p className="text-sm text-gray-500">No purchase orders or quote requests yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">PO Number</th>
                 <th className="px-4 py-2 font-semibold">Type</th>
@@ -363,7 +363,7 @@ function OrdersTab({
             </thead>
             <tbody>
               {purchaseOrders.map((po) => (
-                <tr key={po.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={po.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/subcontractors/purchase-orders/${po.id}`} className="font-medium text-blue-700 hover:underline">
                       {po.po_number ?? "Pending"}
@@ -478,7 +478,7 @@ function ComplianceRecordsTab({ subcontractorId, docs }: { subcontractorId: stri
 
   return (
     <div>
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-4">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Upload compliance document</h2>
         <div className="grid grid-cols-2 gap-3">
           <SelectField label="Document type" value={docType} onChange={(v) => setDocType(v as SubcontractorDocType)} options={DOC_TYPE_OPTIONS} />
@@ -514,7 +514,7 @@ function ComplianceRecordsTab({ subcontractorId, docs }: { subcontractorId: stri
           {docs.map((doc) => {
             const expired = doc.expiry_date ? new Date(`${doc.expiry_date}T00:00:00`) < new Date(new Date().toDateString()) : false;
             return (
-              <div key={doc.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4">
+              <div key={doc.id} className="flex items-center justify-between rounded-lg border border-gray-300 bg-white p-4">
                 <div>
                   <p className="font-semibold text-gray-900">{DOC_TYPE_OPTIONS.find((o) => o.value === doc.doc_type)?.label}</p>
                   {doc.doc_number ? <p className="text-xs text-gray-500">#{doc.doc_number}</p> : null}
@@ -560,9 +560,9 @@ function FinancialsJobsTab({ purchaseOrders, jobs }: { purchaseOrders: PurchaseO
       {realPos.length === 0 ? (
         <p className="text-sm text-gray-500">No purchase orders linked to jobs yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Job</th>
                 <th className="px-4 py-2 font-semibold">PO Number</th>
@@ -577,7 +577,7 @@ function FinancialsJobsTab({ purchaseOrders, jobs }: { purchaseOrders: PurchaseO
                 const billed = po.billed_to_client_cents ?? 0;
                 const profit = billed - po.total_cost_cents;
                 return (
-                  <tr key={po.id} className="border-b border-gray-100 last:border-0">
+                  <tr key={po.id} className="border-b border-gray-200 last:border-0">
                     <td className="px-4 py-3">
                       {job ? (
                         <Link to={`/jobs/${job.id}`} className="text-blue-700 hover:underline">

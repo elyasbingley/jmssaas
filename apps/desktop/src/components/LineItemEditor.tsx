@@ -73,7 +73,7 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
   return (
     <div>
       {items.map((item, index) => (
-        <div key={index} className="mb-3 rounded-lg border border-gray-200 p-4">
+        <div key={index} className="mb-3 rounded-lg border border-gray-300 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
             <button onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600">
@@ -134,7 +134,7 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
             </div>
           </div>
 
-          <div className="flex justify-between border-t border-gray-100 pt-2 text-sm">
+          <div className="flex justify-between border-t border-gray-200 pt-2 text-sm">
             <span className="text-gray-500">Line total</span>
             <span className="font-bold">{formatCentsAsAud(item.quantity * item.unit_price_cents)}</span>
           </div>
@@ -155,14 +155,14 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
 
   return (
     <div>
-      <div className="flex border-b border-gray-200 pb-2 text-xs font-bold text-gray-500">
+      <div className="flex border-b border-gray-300 pb-2 text-xs font-bold text-gray-500">
         <span className="flex-[3]">Item &amp; Description</span>
         <span className="flex-1 text-right">Qty</span>
         <span className="flex-1 text-right">Rate</span>
         <span className="flex-1 text-right">Amount</span>
       </div>
       {items.map((item, index) => (
-        <div key={index} className="flex border-b border-gray-100 py-2 text-sm">
+        <div key={index} className="flex border-b border-gray-200 py-2 text-sm">
           <span className="flex-[3]">{item.description}</span>
           <span className="flex-1 text-right">{item.quantity}</span>
           <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
@@ -176,7 +176,7 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
 
 function TotalsBox({ totals }: { totals: { subtotal_cents: number; gst_cents: number; total_cents: number } }) {
   return (
-    <div className="mt-3 space-y-1 border-t border-gray-200 pt-3">
+    <div className="mt-3 space-y-1 border-t border-gray-300 pt-3">
       <div className="flex justify-between text-sm text-gray-600">
         <span>Subtotal</span>
         <span>{formatCentsAsAud(totals.subtotal_cents)}</span>

@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   variationName: { fontSize: 15, fontWeight: "600", color: "#111827" },
   variationPrice: { fontSize: 14, color: "#1d4ed8", fontWeight: "600" },

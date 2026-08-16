@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: "#d1d5db",
   },
   title: { fontSize: 17, fontWeight: "700" },
   closeText: { color: "#1d4ed8", fontWeight: "600" },

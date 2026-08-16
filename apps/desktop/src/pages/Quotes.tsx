@@ -40,14 +40,14 @@ export default function QuotesPage() {
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : !quotes || quotes.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No quotes yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Client</th>
@@ -57,7 +57,7 @@ export default function QuotesPage() {
             </thead>
             <tbody>
               {quotes.map((quote) => (
-                <tr key={quote.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={quote.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3 text-blue-700">
                     <Link to={`/quotes/${quote.id}`} className="font-medium hover:underline">
                       {quote.quote_number}

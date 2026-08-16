@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
     gap: 8,
   },
   lowStockMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },

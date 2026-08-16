@@ -564,7 +564,7 @@ function TemplateStudioTab({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
+  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
   tabActive: { borderBottomColor: "#1d4ed8" },
   tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
@@ -579,13 +579,13 @@ const styles = StyleSheet.create({
   categoryTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 8 },
   subBlock: { marginBottom: 12 },
   subTitle: { fontSize: 12, fontWeight: "600", color: "#6b7280", marginBottom: 6 },
-  templateCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 8, backgroundColor: "#fff" },
+  templateCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 8, backgroundColor: "#fff" },
   templateCardTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
   templateCardDesc: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   swmsBadge: { alignSelf: "flex-start", backgroundColor: "#ffedd5", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, marginTop: 8 },
   swmsBadgeText: { fontSize: 11, fontWeight: "700", color: "#9a3412" },
 
-  historyRow: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 10 },
+  historyRow: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10 },
   historyRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   historyTitle: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
   historyMeta: { fontSize: 12, color: "#6b7280", marginTop: 4 },
@@ -598,7 +598,7 @@ const styles = StyleSheet.create({
   secondaryButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
   secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
 
-  treeCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
+  treeCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
   treeCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
   treeChevron: { color: "#9ca3af", fontSize: 12 },
   treeCardTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: "#111827" },

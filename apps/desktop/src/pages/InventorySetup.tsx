@@ -273,14 +273,14 @@ export default function InventorySetupPage() {
         "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
       </p>
 
-      <div className="rounded-lg border border-gray-200 bg-white">
+      <div className="rounded-lg border border-gray-300 bg-white">
         {(categories ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No categories yet.</p>
         ) : (
           (categories ?? []).map((category) => {
             const categorySubcategories = (subcategories ?? []).filter((s) => s.category_id === category.id);
             return (
-              <div key={category.id} className="border-b border-gray-100 last:border-0">
+              <div key={category.id} className="border-b border-gray-200 last:border-0">
                 <div className="flex items-center justify-between gap-3 p-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color ?? "#e5e7eb" }} />
@@ -335,7 +335,7 @@ export default function InventorySetupPage() {
       <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Suppliers</h2>
       <p className="mb-3 text-sm text-gray-500">Who you buy each item from - e.g. "Bunnings", "Reece".</p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
         {(suppliers ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No suppliers yet.</p>
         ) : (

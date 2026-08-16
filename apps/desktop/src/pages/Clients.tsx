@@ -97,14 +97,14 @@ export default function ClientsPage() {
         className="mb-4 w-full max-w-sm rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
       />
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : filteredClients.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No clients found.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Phone</th>
@@ -113,7 +113,7 @@ export default function ClientsPage() {
             </thead>
             <tbody>
               {filteredClients.map((client) => (
-                <tr key={client.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={client.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/clients/${client.id}`} className="font-medium text-blue-700 hover:underline">
                       {client.client_type === "company" && client.company_name ? client.company_name : client.name}

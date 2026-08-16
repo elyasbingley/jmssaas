@@ -57,8 +57,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-4">
+      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-300 bg-white">
+        <div className="border-b border-gray-300 px-4 py-4">
           <h1 className="text-sm font-bold text-gray-900">Bingley Job Management</h1>
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
@@ -79,7 +79,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="border-t border-gray-200 p-3">
+        <div className="border-t border-gray-300 p-3">
           <p className="truncate px-3 text-xs text-gray-500">{profile?.full_name}</p>
           <button
             onClick={() => void signOut()}

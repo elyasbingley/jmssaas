@@ -782,7 +782,7 @@ export default function InvoiceDetailPage() {
               onClick={() => updateBillTo.mutate(false)}
               disabled={updateBillTo.isPending}
               className={`w-full rounded-md border p-3 text-left text-sm ${
-                !data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                !data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:bg-gray-50"
               }`}
             >
               <p className="font-semibold text-gray-900">Agency / Property Manager</p>
@@ -795,7 +795,7 @@ export default function InvoiceDetailPage() {
               onClick={() => updateBillTo.mutate(true)}
               disabled={updateBillTo.isPending}
               className={`w-full rounded-md border p-3 text-left text-sm ${
-                data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:bg-gray-50"
               }`}
             >
               <p className="font-semibold text-gray-900">Landlord / Owner</p>

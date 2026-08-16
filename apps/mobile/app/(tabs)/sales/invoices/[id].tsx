@@ -700,7 +700,7 @@ const styles = StyleSheet.create({
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  billToOption: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, marginTop: 8 },
+  billToOption: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, marginTop: 8 },
   billToOptionActive: { borderColor: "#1d4ed8", backgroundColor: "#eff6ff" },
   billToOptionTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
   billToOptionMeta: { fontSize: 13, color: "#6b7280", marginTop: 2 },

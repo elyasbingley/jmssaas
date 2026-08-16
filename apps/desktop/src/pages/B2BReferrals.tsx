@@ -139,7 +139,7 @@ export default function B2BReferralsPage() {
         B2B partners, BNI/networking groups, referral revenue attribution, and reciprocity tracking.
       </p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "directory", label: "Partner Directory & Groups" },
@@ -411,7 +411,7 @@ function DirectoryTab({
     const group = partner.group_id ? groupById.get(partner.group_id) : null;
 
     return (
-      <div key={partner.id} className="rounded-lg border border-gray-200 bg-white p-4">
+      <div key={partner.id} className="rounded-lg border border-gray-300 bg-white p-4">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div>
             <p className="font-bold text-gray-900">{partnerDisplayName(partner)}</p>
@@ -431,7 +431,7 @@ function DirectoryTab({
           {partner.email ? <p>{partner.email}</p> : null}
           {partner.mobile ? <p>{partner.mobile}</p> : null}
         </div>
-        <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 text-sm">
+        <div className="grid grid-cols-2 gap-2 border-t border-gray-200 pt-3 text-sm">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-400">Referrals sent</p>
             <p className="font-semibold text-gray-900">{referralsSent}</p>
@@ -510,7 +510,7 @@ function DirectoryTab({
             const expanded = expandedGroupIds.has(group.id);
             const groupPartners = partnersByGroup(group.id);
             return (
-              <div key={group.id} className="rounded-lg border border-gray-200 bg-white">
+              <div key={group.id} className="rounded-lg border border-gray-300 bg-white">
                 <button onClick={() => toggleGroup(group.id)} className="flex w-full items-center justify-between px-4 py-3 text-left">
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
@@ -525,7 +525,7 @@ function DirectoryTab({
                   </span>
                 </button>
                 {expanded ? (
-                  <div className="border-t border-gray-100 px-4 py-3">
+                  <div className="border-t border-gray-200 px-4 py-3">
                     {groupPartners.length === 0 ? (
                       <p className="text-sm text-gray-500">No partners in this group yet.</p>
                     ) : (
@@ -540,7 +540,7 @@ function DirectoryTab({
             );
           })}
           {ungroupedPartners.length > 0 ? (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="rounded-lg border border-gray-300 bg-white p-4">
               <p className="mb-3 text-sm font-bold text-gray-900">Ungrouped partners</p>
               <div className="grid grid-cols-3 gap-3">{ungroupedPartners.map(renderPartnerCard)}</div>
             </div>

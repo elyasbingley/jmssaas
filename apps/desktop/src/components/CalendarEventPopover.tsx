@@ -74,7 +74,7 @@ export function CalendarEventPopover({
     <div
       ref={ref}
       style={{ position: "fixed", left: style.left, top: style.top, zIndex: 50 }}
-      className="w-80 rounded-xl border border-gray-200 bg-white p-4 shadow-xl"
+      className="w-80 rounded-xl border border-gray-300 bg-white p-4 shadow-xl"
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-start gap-2">

@@ -401,7 +401,7 @@ function ComplianceTab({ subcontractors, docs }: { subcontractors: Subcontractor
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
+  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
   tabActive: { borderBottomColor: "#1d4ed8" },
   tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
   primaryButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", marginVertical: 12 },
   primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
 
-  subCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
+  subCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
   subCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   subCardName: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
   subCardContact: { fontSize: 12, color: "#6b7280", marginTop: 2 },

@@ -380,7 +380,7 @@ export default function ReportInstancePage() {
 
       <div className="space-y-6">
         {template.structure_schema.map((section) => (
-          <div key={section.id} className="rounded-lg border border-gray-200 bg-white p-5">
+          <div key={section.id} className="rounded-lg border border-gray-300 bg-white p-5">
             <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-gray-500">{section.title}</h2>
             <div className="space-y-5">
               {section.fields.map((field) => {
@@ -488,7 +488,7 @@ export default function ReportInstancePage() {
                             onChange={(dataUrl) => updateAnswer(field.id, { svgData: dataUrl } as Partial<SignatureAnswer>)}
                           />
                         ) : (answer as SignatureAnswer)?.svgData ? (
-                          <img src={(answer as SignatureAnswer).svgData} alt="Signature" className="h-24 rounded-md border border-gray-200 bg-white" />
+                          <img src={(answer as SignatureAnswer).svgData} alt="Signature" className="h-24 rounded-md border border-gray-300 bg-white" />
                         ) : null}
                       </div>
                     ) : null}
@@ -667,7 +667,7 @@ function PhotoField({
         <div className="mb-2 flex flex-wrap gap-2">
           {paths.map((p) => (
             <div key={p} className="relative">
-              {urls[p] ? <img src={urls[p]} alt="" className="h-20 w-20 rounded-md border border-gray-200 object-cover" /> : null}
+              {urls[p] ? <img src={urls[p]} alt="" className="h-20 w-20 rounded-md border border-gray-300 object-cover" /> : null}
               {!disabled ? (
                 <button
                   onClick={() => onChange(paths.filter((x) => x !== p))}
@@ -737,7 +737,7 @@ function RiskMatrixField({
       {rows.length === 0 ? <p className="mb-2 text-sm text-gray-400">No hazards recorded yet.</p> : null}
       <div className="space-y-3">
         {rows.map((row, index) => (
-          <div key={row.id} className="rounded-md border border-gray-200 bg-gray-50 p-3">
+          <div key={row.id} className="rounded-md border border-gray-300 bg-gray-50 p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-bold text-gray-400">Hazard #{index + 1}</span>
               {!disabled ? (

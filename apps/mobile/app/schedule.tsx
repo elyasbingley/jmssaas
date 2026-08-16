@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   jobTitle: { fontSize: 15, fontWeight: "600", color: "#111827" },
   jobSubtitle: { fontSize: 13, color: "#6b7280", marginTop: 2 },

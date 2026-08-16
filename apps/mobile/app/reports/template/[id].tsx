@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8 },
   switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1, marginRight: 12 },
   sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
-  sectionCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 12, backgroundColor: "#fff" },
+  sectionCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 12, backgroundColor: "#fff" },
   sectionCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   sectionTitleInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: "700" },
   reorderArrow: { fontSize: 18, color: "#6b7280", paddingHorizontal: 4 },

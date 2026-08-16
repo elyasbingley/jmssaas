@@ -261,9 +261,9 @@ export function RecurringMaintenanceEngine() {
       {filteredItems.length === 0 ? (
         <p className="text-sm text-gray-500">No upcoming maintenance found.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2 font-semibold">Property</th>
@@ -275,7 +275,7 @@ export function RecurringMaintenanceEngine() {
             </thead>
             <tbody>
               {filteredItems.map((item) => (
-                <tr key={item.asset.id} className="border-b border-gray-100 last:border-0">
+                <tr key={item.asset.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"

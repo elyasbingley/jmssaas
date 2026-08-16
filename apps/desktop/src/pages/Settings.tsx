@@ -396,7 +396,7 @@ export default function SettingsPage() {
       </button>
 
       <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Xero</h2>
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-gray-300 bg-white p-4">
         {xeroStatus?.connected ? (
           <div>
             <p className="text-sm font-semibold text-gray-900">
@@ -453,7 +453,7 @@ export default function SettingsPage() {
       ) : null}
 
       <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Google Calendar</h2>
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-gray-300 bg-white p-4">
         {googleStatus?.connected ? (
           <div>
             <p className="text-sm font-semibold text-gray-900">
@@ -491,7 +491,7 @@ export default function SettingsPage() {
       </div>
 
       {isAdmin && googleConnections && googleConnections.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-gray-200 bg-white p-4">
+        <div className="mt-3 rounded-lg border border-gray-300 bg-white p-4">
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Team Google Calendar connections</h3>
           <ul className="divide-y divide-gray-100">
             {googleConnections.map((c) => (
@@ -523,7 +523,7 @@ export default function SettingsPage() {
       ) : null}
 
       <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Calendar colors</h2>
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="rounded-lg border border-gray-300 bg-white p-4">
         <p className="mb-3 text-sm text-gray-600">
           Every calendar event is colored automatically by what it's linked to - pick the color for each category (Save changes
           below to apply).

@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   techRow: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   techName: { fontSize: 16, fontWeight: "600", color: "#111827" },
   techEmail: { fontSize: 13, color: "#6b7280", marginTop: 2 },

@@ -435,7 +435,7 @@ export default function CalendarPage() {
       key={event.id}
       onClick={(e) => openPopover(event, e)}
       style={{ borderLeftColor: colorFor(event) }}
-      className="block w-full border-b border-l-4 border-gray-100 py-2 pl-2 text-left last:border-b-0 hover:bg-gray-50"
+      className="block w-full border-b border-l-4 border-gray-200 py-2 pl-2 text-left last:border-b-0 hover:bg-gray-50"
     >
       <p className="text-xs font-semibold text-blue-700">{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</p>
       <p className="text-sm font-medium text-gray-900">{event.title}</p>
@@ -462,7 +462,7 @@ export default function CalendarPage() {
         {days.map((day) => {
           const dayEvents = eventsOn(day);
           return (
-            <div key={day.toDateString()} className="rounded-lg border border-gray-200 p-2 text-left">
+            <div key={day.toDateString()} className="rounded-lg border border-gray-300 p-2 text-left">
               <button onClick={() => openDay(day)} className="mb-1 block w-full text-left">
                 <p className={`text-xs font-bold ${isSameDay(day, new Date()) ? "text-blue-700" : "text-gray-700"}`}>
                   {day.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
@@ -488,7 +488,7 @@ export default function CalendarPage() {
         <h2 className="mb-3 flex-shrink-0 text-center text-base font-bold text-gray-900">
           {MONTH_LABELS[anchor.getMonth()]} {anchor.getFullYear()}
         </h2>
-        <div className="grid flex-shrink-0 grid-cols-7 border-b border-gray-200 pb-2">
+        <div className="grid flex-shrink-0 grid-cols-7 border-b border-gray-300 pb-2">
           {WEEKDAY_LABELS.map((label) => (
             <p key={label} className="text-center text-xs font-semibold text-gray-400">
               {label}
@@ -500,7 +500,7 @@ export default function CalendarPage() {
             const inMonth = day.getMonth() === anchor.getMonth();
             const dayEvents = eventsOn(day);
             return (
-              <div key={day.toDateString()} className="flex min-h-0 flex-col overflow-hidden border border-gray-100">
+              <div key={day.toDateString()} className="flex min-h-0 flex-col overflow-hidden border border-gray-200">
                 <button onClick={() => openDay(day)} className="flex-shrink-0 px-1 pt-1 text-left hover:bg-gray-50">
                   <span
                     className={`text-sm ${!inMonth ? "text-gray-300" : isSameDay(day, today) ? "font-extrabold text-blue-700" : "text-gray-900"}`}
@@ -567,7 +567,7 @@ export default function CalendarPage() {
         </button>
       </div>
 
-      <div className="mb-4 flex flex-shrink-0 items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+      <div className="mb-4 flex flex-shrink-0 items-center justify-between rounded-lg border border-gray-300 bg-white p-3">
         <div className="flex gap-2">
           {VIEW_MODES.map((mode) => (
             <button
@@ -597,7 +597,7 @@ export default function CalendarPage() {
       {actionError ? <p className="mb-2 flex-shrink-0 text-sm text-red-600">{actionError}</p> : null}
 
       <div
-        className={`rounded-lg border border-gray-200 bg-white ${
+        className={`rounded-lg border border-gray-300 bg-white ${
           viewMode === "month" ? "min-h-0 flex-1 overflow-hidden" : "flex-shrink-0"
         }`}
       >

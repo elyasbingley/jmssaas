@@ -77,9 +77,9 @@ export function ComplianceTrackerTab({ subcontractors }: { subcontractors: Subco
       {visibleSubs.length === 0 ? (
         <p className="text-sm text-gray-500">No subcontractors to show.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Subcontractor</th>
                 <th className="px-4 py-2 font-semibold">Status</th>
@@ -92,7 +92,7 @@ export function ComplianceTrackerTab({ subcontractors }: { subcontractors: Subco
             </thead>
             <tbody>
               {visibleSubs.map((sub) => (
-                <tr key={sub.id} className="border-b border-gray-100 last:border-0">
+                <tr key={sub.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-3 font-medium text-gray-900">{sub.company_name}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[sub.status].classes}`}>

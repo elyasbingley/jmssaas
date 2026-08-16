@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
     gap: 8,
   },
   rowLabel: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },

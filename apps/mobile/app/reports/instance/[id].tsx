@@ -845,7 +845,7 @@ const styles = StyleSheet.create({
   pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
   pickerFieldValue: { fontSize: 15, color: "#111827" },
 
-  sectionCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 16, marginBottom: 14, backgroundColor: "#fff" },
+  sectionCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 16, marginBottom: 14, backgroundColor: "#fff" },
   sectionTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 12 },
   fieldBlock: { marginBottom: 18 },
   fieldLabel: { fontSize: 14, fontWeight: "700", color: "#1f2937", marginBottom: 4 },
@@ -861,7 +861,7 @@ const styles = StyleSheet.create({
   textInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, fontSize: 14, backgroundColor: "#fff" },
   multiline: { minHeight: 60, textAlignVertical: "top" },
   meterInput: { width: 160 },
-  signaturePreview: { height: 100, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, backgroundColor: "#fff" },
+  signaturePreview: { height: 100, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, backgroundColor: "#fff" },
 
   photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   photoThumb: { width: 80, height: 80, borderRadius: 8, backgroundColor: "#e5e7eb" },
@@ -874,7 +874,7 @@ const styles = StyleSheet.create({
   photoActionButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
   photoActionButtonSecondaryText: { color: "#1d4ed8" },
 
-  hazardCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, backgroundColor: "#f9fafb", marginBottom: 10 },
+  hazardCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, backgroundColor: "#f9fafb", marginBottom: 10 },
   hazardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   hazardIndex: { fontSize: 11, fontWeight: "700", color: "#9ca3af" },
   removeLink: { color: "#dc2626", fontWeight: "700", fontSize: 12 },

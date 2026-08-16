@@ -199,7 +199,7 @@ export default function TaskDetailPage() {
         &larr; Back to Tasks
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold text-blue-700">{task.number ?? "Pending"}</span>
@@ -219,7 +219,7 @@ export default function TaskDetailPage() {
         ) : null}
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Status</h2>
         <div className="flex flex-wrap gap-2">
           {STATUSES.map((status) => (
@@ -236,7 +236,7 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Photos</h2>
           <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
@@ -265,7 +265,7 @@ export default function TaskDetailPage() {
                 href={fileUrls?.[f.id] || undefined}
                 target="_blank"
                 rel="noreferrer"
-                className="block aspect-square overflow-hidden rounded-md border border-gray-200 bg-gray-100"
+                className="block aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100"
               >
                 {fileUrls?.[f.id] ? (
                   <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
@@ -276,7 +276,7 @@ export default function TaskDetailPage() {
         )}
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Notes</h2>
         <div className="mb-4">
           <TextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
@@ -291,7 +291,7 @@ export default function TaskDetailPage() {
         </div>
         <div className="space-y-3">
           {(notes ?? []).map((note) => (
-            <div key={note.id} className="border-t border-gray-100 pt-3 text-sm">
+            <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
               <p className="text-gray-800">{note.body}</p>
               <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
             </div>

@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },

@@ -229,7 +229,7 @@ export default function JobSetupPage() {
       <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Service categories</h2>
       <p className="mb-3 text-sm text-gray-500">Tags shown on jobs, e.g. "Roof Restoration" or "Gutter Cleaning".</p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
         {(categories ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No categories yet.</p>
         ) : (
@@ -269,7 +269,7 @@ export default function JobSetupPage() {
       <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Job lifecycle stages</h2>
       <p className="mb-3 text-sm text-gray-500">A custom pipeline for jobs - this is the only status a job has.</p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
         {(stages ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No stages yet.</p>
         ) : (

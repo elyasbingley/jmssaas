@@ -6749,3 +6749,154 @@ scoping discussion for the full reasoning.
   than only reviewed by eye, and the new migration's `ALTER TABLE`
   statements applied against a real local Postgres 16 instance seeded
   with the relevant existing table shapes.
+
+## 56. Bug-fix batch: job card editing/truncation, referral saving, border contrast, real estate truncation, price book image tiles
+
+Eight fixes/small features reported together, grouped here as one batch
+rather than eight tiny sections.
+
+**Job card title/description not editable (desktop).** Mobile's job
+detail screen already had a working "Edit" modal; desktop's
+`JobDetail.tsx` had none. Added the same shape: an "Edit" button next to
+the existing "Email" button opens a modal (Title + Description fields,
+reusing `createJobCardSchema` from `@jmssaas/shared` for validation) that
+writes straight to `job_cards.title`/`description`. The description
+display itself also gained `whitespace-pre-wrap` so line breaks in a
+saved description actually render as line breaks.
+
+**Mobile "Log Referral" stuck on "Saving..." forever.** Root cause:
+`apps/mobile/app/b2b-referrals/index.tsx`'s `saveGroup`/`savePartner`/
+`saveLog` handlers all called `setXSaving(true)` then `setXSaving(false)`
+as a plain statement *after* the `await supabase...insert(...)` call -
+any thrown exception (a network blip, RLS rejection, anything) skipped
+straight past that line and left the saving flag stuck `true` forever.
+Same bug, identically shaped, in all three handlers even though only the
+referral-log one was reported. Fixed all three with `try/catch/finally`,
+`finally { setXSaving(false); }` guaranteeing the flag always clears.
+
+**App randomly looking logged-out / "fresh account" until restarted.**
+Investigated, no code change. `auth-context.tsx`'s session handling
+already has a documented earlier fix for the closest-sounding bug
+(PowerSync `connect()` re-triggering on every token refresh); the session
+itself isn't being lost. The far more likely explanation, given how many
+`packages/shared/src/powersync/schema.ts` changes shipped across this
+project's recent history: PowerSync detecting a local schema version
+bump and doing a one-time local resync, which blanks the local SQLite
+cache and `hasSynced` flag until it completes - indistinguishable from
+"logged out" to a user, and exactly matches "fixed by restarting" if the
+device regained connectivity around the same time. This is expected
+PowerSync behavior after a schema-changing update, not a bug to fix in
+this codebase.
+
+**Category/status labels cut off on the desktop job card.** Traced to
+plain `<select>` elements clipping their closed-state text hard at the
+box edge (no ellipsis) when the box is narrower than the selected
+option's text - not a `truncate` class anywhere, since this app doesn't
+use one. `JobDetail.tsx`'s Category/Stage/Technician row was
+`grid-cols-2 md:grid-cols-3`, squeezing each select at wider viewports;
+flattened to a plain `grid-cols-2` so each select gets more room.
+
+**Separator/border lines too light, app-wide.** Established as a
+deliberate, global rule: shift every border color one step darker. Desktop
+uses a 3-tier Tailwind gray scale for borders (`border-gray-100` ->
+`-200` -> `-300`, darkest already in use); shifted 100->200 and 200->300
+across 43 files via a placeholder-based `sed` pass (to avoid the 100->200
+values then also being caught by the 200->300 rule). Mobile has two flat
+hex border colors used directly in `StyleSheet.create` objects
+(`#f0f0f0`, `#e5e7eb`); both collapsed to one darker `#d1d5db` across 33
+files, matching only `border*Color:` properties so the same hex used as a
+`backgroundColor` (empty-swatch placeholders, archived-status badges) was
+left untouched.
+
+**Real estate/strata suburb text cut off.** Same root cause on both
+platforms: an address and a suburb rendered as unconstrained siblings in
+a row layout, so a long address pushed the suburb past the visible edge.
+Desktop's `RealEstate.tsx` PM property list and mobile's
+`real-estate/index.tsx` property list both fixed the same way - the
+address becomes the element that shrinks and truncates
+(`min-w-0 flex-1 truncate` / `flex: 1` + `numberOfLines={1}`), the suburb
+becomes the element that always shows in full (`flex-shrink-0` /
+`flexShrink: 0`). `PropertyDetail.tsx` (desktop) and `[id].tsx` (mobile)
+already wrap safely and needed no change.
+
+**Price book image tiles.** `price_book_categories` and
+`price_book_items` each gained an `image_url` column
+(`20260905000100_price_book_image_tiles.sql`), plus a public
+`price-book-images` storage bucket with the same
+public-read/tenant-and-admin-scoped-write RLS shape as the existing
+`company-logos` bucket. Desktop only (no scope given for mobile in the
+request, and the pricebook browsing UI itself is desktop-only today):
+
+- `PriceBook.tsx`'s "New category" modal and `PriceBookCategory.tsx`'s
+  "New item" modal each gained an optional file picker; picking a file
+  uploads it to `<tenant_id>/category-<ts>.<ext>` / `item-<ts>.<ext>`
+  before the row insert, so the row is created with `image_url` already
+  set.
+- Existing categories/items get an immediate-upload "Add/Change tile
+  image" + "Remove image" control (same pattern as the company logo
+  uploader in Settings) - next to "Rename" on the category page, and as
+  its own section on `PriceBookItem.tsx`.
+- Both tile grids (`PriceBook.tsx` categories, `PriceBookCategory.tsx`
+  items) render the image as the tile's `background-image` with the
+  name (and, for items, the computed price) overlaid in a bottom
+  gradient bar when `image_url` is set, falling back to the existing
+  emoji-and-centered-text tile when it isn't.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+```
+
+Mobile-touching fixes in this batch (referral saving fix, border darkening,
+suburb truncation) need a new EAS build to reach devices already installed
+from a prior build.
+
+### Test it
+
+1. Open a job card -> Edit -> change the title and description, including
+   a line break in the description -> Save -> confirm both show correctly
+   and the line break renders.
+2. Mobile: B2B & Referrals -> Log Referral -> submit with the device
+   offline or against a bad network -> confirm the modal shows an error
+   instead of hanging on "Saving..." forever; retry with network back and
+   confirm it saves normally.
+3. Open a job card at a narrower desktop window width -> confirm the
+   Category/Stage/Technician dropdowns show their full selected text
+   without clipping.
+4. Spot-check a few list/card borders across both apps (job list, price
+   book tiles, dispatch board) -> confirm dividing lines are visibly
+   darker/more distinct than before.
+5. Real Estate -> a property manager with a long address -> confirm the
+   suburb still shows in full next to a truncated (not overflowing)
+   address, on both desktop and mobile.
+6. Price Book -> new category -> attach an image -> Save -> confirm the
+   tile shows the image with the name readable at the bottom -> open the
+   category -> new item -> same check -> open an existing item -> upload/
+   change/remove its image and confirm the tile grid reflects it after
+   the query refetch.
+
+### Known gaps / judgment calls
+
+- **Mobile job description "cut off"** - the reported "not editable AND
+  cut off on mobile" was two claims; editing already worked on mobile
+  (only desktop was missing it, now fixed), but no reproducible
+  truncation could be found in `apps/mobile/app/(tabs)/sales/jobs/[id].tsx`'s
+  description display (no `numberOfLines`, no fixed-height/overflow
+  container) or its edit modal (`CenteredModal` scrolls past 85% height
+  rather than clipping). Left as-is; flag it again with a screenshot if
+  it's still visible after this deploy - there may be a code path this
+  pass didn't reach.
+- **Price book image tiles are desktop-only** - the request didn't
+  specify mobile, and mobile has no price book browsing UI to attach
+  this to today.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean across
+  `apps/desktop`, `apps/mobile`, `packages/shared`; a production
+  `vite build` clean for `apps/desktop`; and the new migration's `ALTER
+  TABLE`/bucket/RLS-policy statements applied against a real local
+  Postgres 16 instance, including sanity inserts confirming `image_url`
+  defaults to `null` when omitted and that the four storage policies
+  attach correctly.

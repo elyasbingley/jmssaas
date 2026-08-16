@@ -259,7 +259,7 @@ export default function TaskDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
   title: { fontSize: 20, fontWeight: "700" },
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontWeight: "600" },
   addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
   error: { color: "#dc2626", marginTop: 6 },
-  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
+  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
   noteBody: { fontSize: 15, color: "#111827" },
   noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },

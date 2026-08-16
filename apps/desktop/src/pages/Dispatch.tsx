@@ -176,8 +176,8 @@ function TechnicianRow({
   const { setNodeRef, isOver } = useDroppable({ id: `tech:${technician.id}`, data: { technicianId: technician.id } });
 
   return (
-    <div className="flex border-b border-gray-100 last:border-0">
-      <div className="w-40 flex-shrink-0 border-r border-gray-100 p-3">
+    <div className="flex border-b border-gray-200 last:border-0">
+      <div className="w-40 flex-shrink-0 border-r border-gray-200 p-3">
         <p className="text-sm font-bold text-gray-900">{technician.full_name}</p>
         <p className="text-xs text-gray-400">{events.length} job{events.length === 1 ? "" : "s"}</p>
       </div>
@@ -185,7 +185,7 @@ function TechnicianRow({
         {HOURS.slice(0, -1).map((h) => (
           <div
             key={h}
-            className="absolute top-0 bottom-0 border-r border-gray-100"
+            className="absolute top-0 bottom-0 border-r border-gray-200"
             style={{ left: `${((h - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%` }}
           />
         ))}
@@ -209,7 +209,7 @@ function UnassignedJobPill({ job }: { job: JobCardRow }) {
       {...attributes}
       onClick={() => !isDragging && navigate(`/jobs/${job.id}`)}
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, zIndex: isDragging ? 20 : undefined }}
-      className={`flex-shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-left shadow-sm hover:bg-gray-50 ${
+      className={`flex-shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left shadow-sm hover:bg-gray-50 ${
         isDragging ? "opacity-70" : ""
       }`}
     >
@@ -431,7 +431,7 @@ export default function DispatchPage() {
 
         <div
           ref={setUnassignedRef}
-          className={`mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 ${isOverUnassigned ? "bg-blue-50" : ""}`}
+          className={`mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3 ${isOverUnassigned ? "bg-blue-50" : ""}`}
         >
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
             Unassigned jobs - drag onto a technician to dispatch (drag a booking back here, or hover it for &times;, to
@@ -448,9 +448,9 @@ export default function DispatchPage() {
           )}
         </div>
 
-        <div className="flex-1 overflow-auto rounded-lg border border-gray-200 bg-white">
-          <div className="flex border-b border-gray-200 bg-gray-50">
-            <div className="w-40 flex-shrink-0 border-r border-gray-100" />
+        <div className="flex-1 overflow-auto rounded-lg border border-gray-300 bg-white">
+          <div className="flex border-b border-gray-300 bg-gray-50">
+            <div className="w-40 flex-shrink-0 border-r border-gray-200" />
             <div className="relative flex-1" style={{ height: 24 }}>
               {HOURS.map((h) => (
                 <span

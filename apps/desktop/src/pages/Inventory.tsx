@@ -418,7 +418,7 @@ export default function InventoryPage() {
                 </div>
               ) : null}
 
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-300 bg-white p-3">
                 {visibleItems.length === 0 ? (
                   <p className="p-4 text-sm text-gray-500">No items here yet.</p>
                 ) : (
@@ -520,7 +520,7 @@ export default function InventoryPage() {
             </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-300 bg-white">
             {lowStockItems.length === 0 ? (
               <p className="p-4 text-sm text-gray-500">
                 {lowStockSupplierId ? "Nothing low on stock from this supplier." : "Nothing is low on stock right now."}
@@ -529,7 +529,7 @@ export default function InventoryPage() {
               <table className="w-full text-left text-sm">
                 <tbody>
                   {lowStockItems.map((item) => (
-                    <tr key={item.inventory_level_id} className="border-b border-gray-100 last:border-0">
+                    <tr key={item.inventory_level_id} className="border-b border-gray-200 last:border-0">
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900">{item.item_name}</p>
                         <p className="text-xs text-gray-500">

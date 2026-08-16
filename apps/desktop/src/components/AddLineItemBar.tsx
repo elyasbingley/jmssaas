@@ -102,12 +102,12 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
       {searching ? <p className="mt-1 text-xs text-gray-400">Searching...</p> : null}
 
       {results.length > 0 ? (
-        <div className="mt-2 overflow-hidden rounded-md border border-gray-200">
+        <div className="mt-2 overflow-hidden rounded-md border border-gray-300">
           {results.map((item) => (
             <button
               key={item.id}
               onClick={() => handleSelectResult(item)}
-              className="block w-full truncate border-b border-gray-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+              className="block w-full truncate border-b border-gray-200 px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
             >
               {item.description}
             </button>
@@ -123,7 +123,7 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
         <p className="mb-3 text-sm text-gray-500">{variationTarget?.description}</p>
         <button
           onClick={() => variationTarget && addFromPriceBookItem(variationTarget)}
-          className="block w-full border-b border-gray-100 py-3 text-left text-sm hover:bg-gray-50"
+          className="block w-full border-b border-gray-200 py-3 text-left text-sm hover:bg-gray-50"
         >
           Base pricing (no variation)
         </button>
@@ -131,7 +131,7 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
           <button
             key={variation.id}
             onClick={() => variationTarget && addFromPriceBookItem(variationTarget, variation)}
-            className="block w-full border-b border-gray-100 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
+            className="block w-full border-b border-gray-200 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
           >
             {variation.name}
           </button>

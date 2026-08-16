@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   collectRecipientEmails,
   createClientSiteSchema,
+  createJobCardSchema,
   createJobNoteSchema,
   formatCentsAsAud,
   type Agency,
@@ -583,6 +584,34 @@ export default function JobDetailPage() {
     onError: (e) => setAddressError(getErrorMessage(e, "Failed to update address")),
   });
 
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const saveEdit = useMutation({
+    mutationFn: async () => {
+      if (!job) throw new Error("Job not loaded");
+      const result = createJobCardSchema.safeParse({
+        client_id: job.client_id,
+        title: editTitle,
+        description: editDescription,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid job");
+      const { error } = await supabase
+        .from("job_cards")
+        .update({ title: result.data.title, description: result.data.description || null })
+        .eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      setEditModalOpen(false);
+    },
+    onError: (e) => setEditError(getErrorMessage(e, "Failed to save")),
+  });
+
   const [workdriveModalOpen, setWorkdriveModalOpen] = useState(false);
   const [workdriveInput, setWorkdriveInput] = useState("");
   const [workdriveError, setWorkdriveError] = useState<string | null>(null);
@@ -666,20 +695,33 @@ export default function JobDetailPage() {
         &larr; Back to Jobs
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
             <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
           </div>
-          <button
-            onClick={() => setJobEmailModalOpen(true)}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            Email
-          </button>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <button
+              onClick={() => {
+                setEditTitle(job.title);
+                setEditDescription(job.description ?? "");
+                setEditError(null);
+                setEditModalOpen(true);
+              }}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => setJobEmailModalOpen(true)}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Email
+            </button>
+          </div>
         </div>
-        {job.description ? <p className="mb-4 text-sm text-gray-600">{job.description}</p> : null}
+        {job.description ? <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">{job.description}</p> : null}
         {jobEmailError ? <p className="mb-2 text-sm text-red-600">{jobEmailError}</p> : null}
         {jobEmailResult ? <p className="mb-2 text-sm text-green-700">{jobEmailResult}</p> : null}
 
@@ -716,7 +758,7 @@ export default function JobDetailPage() {
           </button>
         ) : null}
 
-        <div className="mb-4 rounded-md border border-gray-200 p-3 text-sm">
+        <div className="mb-4 rounded-md border border-gray-300 p-3 text-sm">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">WorkDrive</h3>
             <button
@@ -782,7 +824,12 @@ export default function JobDetailPage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        {/* 2 columns, not 3 - a native <select>'s closed-state text clips
+            hard at the box edge with no ellipsis once it's too narrow, and
+            category/stage/technician names are admin-defined free text
+            with no length cap, so this trades a slightly taller layout for
+            enough room that long names stop getting cut off mid-word. */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Category</label>
             <select
@@ -834,7 +881,7 @@ export default function JobDetailPage() {
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="rounded-lg border border-gray-300 bg-white p-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quotes</h2>
             <Link to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
@@ -854,7 +901,7 @@ export default function JobDetailPage() {
             </div>
           )}
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="rounded-lg border border-gray-300 bg-white p-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Invoices</h2>
             <Link to={`/invoices/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
@@ -876,7 +923,7 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Job Costing</h2>
         {!hasCostingDocs ? (
           <p className="text-sm text-gray-500">No quotes or invoices linked to this job yet.</p>
@@ -915,7 +962,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Files</h2>
           <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
@@ -945,7 +992,7 @@ export default function JobDetailPage() {
                   href={fileUrls?.[f.id] || undefined}
                   target="_blank"
                   rel="noreferrer"
-                  className="block aspect-square overflow-hidden rounded-md border border-gray-200 bg-gray-100"
+                  className="block aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100"
                   title={f.file_name}
                 >
                   {isImage && fileUrls?.[f.id] ? (
@@ -963,7 +1010,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Roof Measurement</h2>
           <Link
@@ -980,7 +1027,7 @@ export default function JobDetailPage() {
         ) : (
           <div className="space-y-2">
             {measurements.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border-t border-gray-100 pt-2 text-sm first:border-0 first:pt-0">
+              <div key={m.id} className="flex items-center justify-between border-t border-gray-200 pt-2 text-sm first:border-0 first:pt-0">
                 <div>
                   <p className="font-medium text-gray-900">{m.title}</p>
                   <p className="text-xs text-gray-500">{new Date(m.created_at).toLocaleDateString("en-AU")}</p>
@@ -995,7 +1042,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Notes</h2>
         <div className="mb-4">
           <TextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
@@ -1010,7 +1057,7 @@ export default function JobDetailPage() {
         </div>
         <div className="space-y-3">
           {(notes ?? []).map((note) => (
-            <div key={note.id} className="border-t border-gray-100 pt-3 text-sm">
+            <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
               <p className="text-gray-800">{note.body}</p>
               <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
             </div>
@@ -1019,7 +1066,7 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Reports & Safety</h2>
           <div className="flex gap-2">
@@ -1047,7 +1094,7 @@ export default function JobDetailPage() {
                 <Link
                   key={report.id}
                   to={`/reports/instances/${report.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                 >
                   <span className="font-medium text-blue-700">{template?.title ?? "Report"}</span>
                   <span
@@ -1064,7 +1111,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Subcontractors</h2>
           <button
@@ -1084,7 +1131,7 @@ export default function JobDetailPage() {
                 <Link
                   key={po.id}
                   to={`/subcontractors/purchase-orders/${po.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                 >
                   <span>
                     <span className="font-medium text-blue-700">{po.po_number ?? "Pending"}</span>{" "}
@@ -1100,7 +1147,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog
           entities={[
@@ -1121,7 +1168,7 @@ export default function JobDetailPage() {
               <button
                 key={template.id}
                 onClick={() => startReportForJob(template.id)}
-                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50"
               >
                 <span className="font-medium text-gray-900">{template.title}</span>
                 {template.is_swms ? (
@@ -1151,7 +1198,7 @@ export default function JobDetailPage() {
                 key={report.id}
                 onClick={() => linkExistingReport.mutate(report.id)}
                 disabled={linkExistingReport.isPending}
-                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
               >
                 <span className="font-medium text-gray-900">{template?.title ?? "Report"}</span>
                 <span className="text-xs text-gray-400">{new Date(report.created_at).toLocaleDateString("en-AU")}</span>
@@ -1185,7 +1232,7 @@ export default function JobDetailPage() {
             .map((sub) => {
               const onHold = sub.status === "compliance_hold";
               return (
-                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-100"}`}>
+                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-200"}`}>
                   <div className="mb-1 flex items-center justify-between">
                     <span className={`font-medium ${onHold ? "text-gray-400" : "text-gray-900"}`}>{sub.company_name}</span>
                     <span className="text-xs text-gray-500">{TIER_LABELS[sub.preference_tier]}</span>
@@ -1248,7 +1295,7 @@ export default function JobDetailPage() {
           </select>
         </div>
         {addressSiteChoice === "new" ? (
-          <div className="mb-4 rounded-md border border-gray-200 p-3">
+          <div className="mb-4 rounded-md border border-gray-300 p-3">
             <p className="mb-2 text-xs font-semibold text-gray-500">This address will be saved to the client's card too.</p>
             <FormField
               label="Label (optional)"
@@ -1296,6 +1343,30 @@ export default function JobDetailPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {updateJobSite.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit job">
+        <FormField label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Job title" />
+        <TextAreaField
+          label="Description"
+          rows={4}
+          value={editDescription}
+          onChange={(e) => setEditDescription(e.target.value)}
+          placeholder="Notes, scope of work, etc."
+        />
+        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setEditModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveEdit.mutate()}
+            disabled={saveEdit.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveEdit.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

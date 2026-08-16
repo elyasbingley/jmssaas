@@ -240,7 +240,7 @@ export function CalendarEventEditor({
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-10 px-4" onClick={onClose}>
         <div className="w-full max-w-xl rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+          <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
             <button onClick={onClose} className="text-2xl leading-none text-gray-500 hover:text-gray-900" aria-label="Close">
               &times;
             </button>
@@ -265,7 +265,7 @@ export function CalendarEventEditor({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Add title"
-              className="mb-4 w-full border-b border-gray-200 pb-2 text-xl font-medium text-gray-900 focus:border-blue-500 focus:outline-none"
+              className="mb-4 w-full border-b border-gray-300 pb-2 text-xl font-medium text-gray-900 focus:border-blue-500 focus:outline-none"
             />
 
             <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-gray-700">
@@ -321,7 +321,7 @@ export function CalendarEventEditor({
               </select>
 
               {recurrenceMode === "custom" ? (
-                <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3">
+                <div className="mt-3 rounded-md border border-gray-300 bg-gray-50 p-3">
                   <div className="mb-2 flex items-center gap-2 text-sm text-gray-700">
                     <span>Repeat every</span>
                     <input

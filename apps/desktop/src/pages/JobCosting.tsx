@@ -241,14 +241,14 @@ export default function JobCostingPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : sortedRows.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No jobs with a linked quote or invoice yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Job</th>
                 <th className="px-4 py-2 font-semibold">Client</th>
@@ -261,7 +261,7 @@ export default function JobCostingPage() {
             </thead>
             <tbody>
               {sortedRows.map((row) => (
-                <tr key={row.job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={row.job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/jobs/${row.job.id}`} className="font-medium text-blue-700 hover:underline">
                       {row.job.number ?? "Pending"} - {row.job.title}
@@ -281,7 +281,7 @@ export default function JobCostingPage() {
               ))}
             </tbody>
             {sortedRows.length > 0 ? (
-              <tfoot className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+              <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-bold">
                 <tr>
                   <td className="px-4 py-3" colSpan={2}>
                     Total ({sortedRows.length} job{sortedRows.length === 1 ? "" : "s"})

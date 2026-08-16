@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: "#d1d5db",
   },
   teamName: { fontSize: 14, fontWeight: "600", color: "#111827" },
 });

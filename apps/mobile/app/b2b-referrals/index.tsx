@@ -272,20 +272,25 @@ function DirectoryTab({
     }
     if (!profile) return;
     setGroupSaving(true);
-    const { error } = await supabase.from("referral_groups").insert({
-      tenant_id: profile.tenant_id,
-      name: result.data.name,
-      group_type: result.data.group_type,
-      meeting_day: result.data.meeting_day || null,
-      notes: result.data.notes || null,
-    });
-    setGroupSaving(false);
-    if (error) {
-      setGroupError(getErrorMessage(error, "Failed to create group"));
-      return;
+    try {
+      const { error } = await supabase.from("referral_groups").insert({
+        tenant_id: profile.tenant_id,
+        name: result.data.name,
+        group_type: result.data.group_type,
+        meeting_day: result.data.meeting_day || null,
+        notes: result.data.notes || null,
+      });
+      if (error) {
+        setGroupError(getErrorMessage(error, "Failed to create group"));
+        return;
+      }
+      setGroupModalVisible(false);
+      onGroupsChanged();
+    } catch (e) {
+      setGroupError(getErrorMessage(e, "Failed to create group"));
+    } finally {
+      setGroupSaving(false);
     }
-    setGroupModalVisible(false);
-    onGroupsChanged();
   };
 
   // --- Add Partner ---
@@ -344,27 +349,32 @@ function DirectoryTab({
     }
     if (!profile) return;
     setPartnerSaving(true);
-    const { error } = await supabase.from("referral_partners").insert({
-      tenant_id: profile.tenant_id,
-      group_id: result.data.group_id || null,
-      company_name: result.data.company_name || null,
-      contact_first_name: result.data.contact_first_name,
-      contact_last_name: result.data.contact_last_name || null,
-      email: result.data.email || null,
-      mobile: result.data.mobile || null,
-      partner_type: result.data.partner_type,
-      tier: result.data.tier,
-      reward_type: result.data.reward_type,
-      reward_percent: result.data.reward_percent ?? null,
-      reward_flat_cents: result.data.reward_flat_cents ?? null,
-    });
-    setPartnerSaving(false);
-    if (error) {
-      setPartnerError(getErrorMessage(error, "Failed to create partner"));
-      return;
+    try {
+      const { error } = await supabase.from("referral_partners").insert({
+        tenant_id: profile.tenant_id,
+        group_id: result.data.group_id || null,
+        company_name: result.data.company_name || null,
+        contact_first_name: result.data.contact_first_name,
+        contact_last_name: result.data.contact_last_name || null,
+        email: result.data.email || null,
+        mobile: result.data.mobile || null,
+        partner_type: result.data.partner_type,
+        tier: result.data.tier,
+        reward_type: result.data.reward_type,
+        reward_percent: result.data.reward_percent ?? null,
+        reward_flat_cents: result.data.reward_flat_cents ?? null,
+      });
+      if (error) {
+        setPartnerError(getErrorMessage(error, "Failed to create partner"));
+        return;
+      }
+      setPartnerModalVisible(false);
+      onPartnersChanged();
+    } catch (e) {
+      setPartnerError(getErrorMessage(e, "Failed to create partner"));
+    } finally {
+      setPartnerSaving(false);
     }
-    setPartnerModalVisible(false);
-    onPartnersChanged();
   };
 
   // --- Log Referral Passed Out ---
@@ -399,22 +409,27 @@ function DirectoryTab({
     }
     if (!profile) return;
     setLogSaving(true);
-    const { error } = await supabase.from("referral_reciprocity_logs").insert({
-      tenant_id: profile.tenant_id,
-      partner_id: result.data.partner_id,
-      client_name: result.data.client_name,
-      description: result.data.description || null,
-      estimated_value_cents: result.data.estimated_value_cents ?? null,
-      date_passed: new Date().toISOString().slice(0, 10),
-      created_by: profile.id,
-    });
-    setLogSaving(false);
-    if (error) {
-      setLogError(getErrorMessage(error, "Failed to log referral"));
-      return;
+    try {
+      const { error } = await supabase.from("referral_reciprocity_logs").insert({
+        tenant_id: profile.tenant_id,
+        partner_id: result.data.partner_id,
+        client_name: result.data.client_name,
+        description: result.data.description || null,
+        estimated_value_cents: result.data.estimated_value_cents ?? null,
+        date_passed: new Date().toISOString().slice(0, 10),
+        created_by: profile.id,
+      });
+      if (error) {
+        setLogError(getErrorMessage(error, "Failed to log referral"));
+        return;
+      }
+      setLogModalVisible(false);
+      onLogsChanged();
+    } catch (e) {
+      setLogError(getErrorMessage(e, "Failed to log referral"));
+    } finally {
+      setLogSaving(false);
     }
-    setLogModalVisible(false);
-    onLogsChanged();
   };
 
   const renderPartnerCard = (partner: ReferralPartner) => {
@@ -806,7 +821,7 @@ function ReciprocityLedgerTab({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   flex1: { flex: 1 },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
+  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
   tabActive: { borderBottomColor: "#1d4ed8" },
   tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
@@ -830,7 +845,7 @@ const styles = StyleSheet.create({
   secondaryButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
   secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
 
-  partnerCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
+  partnerCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
   partnerCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   partnerCardName: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
   partnerCardMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
@@ -848,7 +863,7 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 14, fontWeight: "700", color: "#111827", marginTop: 2 },
   reciprocityText: { fontSize: 12, color: "#4b5563", marginTop: 8 },
 
-  treeCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
+  treeCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
   treeCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
   treeChevron: { color: "#9ca3af", fontSize: 12 },
   treeCardTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: "#111827" },
@@ -862,7 +877,7 @@ const styles = StyleSheet.create({
   pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
   pickerFieldValue: { fontSize: 15, color: "#111827" },
 
-  ledgerCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
+  ledgerCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
   ledgerCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   statusBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
   statusBadgeText: { fontSize: 11, fontWeight: "700" },
@@ -875,7 +890,7 @@ const styles = StyleSheet.create({
   barFillOutbound: { height: 6, borderRadius: 3, backgroundColor: "#f59e0b" },
 
   sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
-  logRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  logRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   logDate: { fontSize: 11, color: "#9ca3af", width: 80 },
   logPartner: { fontSize: 13, fontWeight: "600", color: "#111827" },
   logClient: { fontSize: 12, color: "#6b7280" },

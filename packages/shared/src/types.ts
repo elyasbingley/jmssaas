@@ -530,6 +530,9 @@ export interface PriceBookCategory {
   tenant_id: string;
   name: string;
   sort_order: number;
+  // Shown as the tile's background image (name overlaid at the bottom)
+  // instead of the plain color swatch, when set.
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -547,6 +550,9 @@ export interface PriceBookItem {
   material_cost_cents: number;
   markup_percent: number;
   sort_order: number;
+  // Shown as the tile's background image (name overlaid at the bottom)
+  // instead of the plain color swatch, when set.
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }

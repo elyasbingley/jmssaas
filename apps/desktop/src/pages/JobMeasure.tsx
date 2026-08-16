@@ -417,7 +417,7 @@ export default function JobMeasurePage() {
       </div>
 
       <div className="flex gap-4">
-        <div className="h-[600px] flex-1 overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
+        <div className="h-[600px] flex-1 overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
           {mapError ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-600">{mapError}</div>
           ) : locating || !region ? (
@@ -427,7 +427,7 @@ export default function JobMeasurePage() {
           )}
         </div>
 
-        <div className="flex h-[600px] w-96 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="flex h-[600px] w-96 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white">
           <div className="flex-1 overflow-y-auto p-4">
             {!activeFacetId && facets.length === 0 ? (
               <p className="mb-3 text-xs text-gray-500">
@@ -500,7 +500,7 @@ export default function JobMeasurePage() {
             ) : null}
           </div>
 
-          <div className="border-t border-gray-200 p-4">
+          <div className="border-t border-gray-300 p-4">
             {saveError ? <p className="mb-2 text-sm text-red-600">{saveError}</p> : null}
             <button
               onClick={() => save.mutate()}

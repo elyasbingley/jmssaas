@@ -351,7 +351,7 @@ export default function PropertyDetailPage() {
         &larr; Back to Real Estate & Strata
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-3">
@@ -385,7 +385,7 @@ export default function PropertyDetailPage() {
         </div>
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "access", label: "Access & Contacts" },
@@ -416,7 +416,7 @@ export default function PropertyDetailPage() {
             </button>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
+            <div className="rounded-lg border border-gray-300 bg-white p-6">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Landlord / Owner</h2>
               {property.owner_landlord_name ? <p className="text-sm font-semibold text-gray-900">{property.owner_landlord_name}</p> : null}
               <div className="mt-1 flex flex-col gap-1 text-sm">
@@ -444,7 +444,7 @@ export default function PropertyDetailPage() {
                 ) : null}
               </div>
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
+            <div className="rounded-lg border border-gray-300 bg-white p-6">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Tenant Contact</h2>
               {property.tenant_name ? <p className="text-sm font-semibold text-gray-900">{property.tenant_name}</p> : null}
               <div className="mt-1 flex flex-col gap-1 text-sm">
@@ -470,7 +470,7 @@ export default function PropertyDetailPage() {
                 {!property.tenant_phone && !property.tenant_email ? <p className="text-gray-500">Not on file</p> : null}
               </div>
             </div>
-            <div className="col-span-2 rounded-lg border border-gray-200 bg-white p-6">
+            <div className="col-span-2 rounded-lg border border-gray-300 bg-white p-6">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Access Notes</h2>
               <p className="whitespace-pre-wrap text-sm text-gray-700">{property.access_notes || "No access notes on file."}</p>
             </div>
@@ -496,7 +496,7 @@ export default function PropertyDetailPage() {
                 <button
                   key={asset.id}
                   onClick={() => openEditAsset(asset)}
-                  className="rounded-lg border border-gray-200 bg-white p-4 text-left hover:border-blue-300"
+                  className="rounded-lg border border-gray-300 bg-white p-4 text-left hover:border-blue-300"
                 >
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-xl">{CATEGORY_ICON[asset.category]}</span>
@@ -544,7 +544,7 @@ export default function PropertyDetailPage() {
           ) : (
             <div className="space-y-3">
               {jobs.map((job) => (
-                <div key={job.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                <div key={job.id} className="rounded-lg border border-gray-300 bg-white p-4">
                   <div className="flex items-center justify-between">
                     <Link to={`/jobs/${job.id}`} className="font-semibold text-blue-700 hover:underline">
                       {job.number ?? "Pending"} - {job.title}
