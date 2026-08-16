@@ -184,6 +184,7 @@ export default function CalendarPage() {
               all_day: payload.all_day,
               job_card_id: payload.job_card_id,
               task_id: payload.task_id,
+              category_override: payload.category_override,
               created_by: profile.id,
             })
             .select("id")
@@ -206,6 +207,7 @@ export default function CalendarPage() {
           all_day: payload.all_day,
           job_card_id: payload.job_card_id,
           task_id: payload.task_id,
+          category_override: payload.category_override,
           recurrence_rule: payload.recurrence_rule,
           recurrence_group_id: groupId,
           created_by: profile.id,
@@ -245,6 +247,7 @@ export default function CalendarPage() {
               all_day: payload.all_day,
               job_card_id: payload.job_card_id,
               task_id: payload.task_id,
+              category_override: payload.category_override,
             })
             .eq("id", editingEvent.id);
           if (error) throw error;
@@ -269,6 +272,7 @@ export default function CalendarPage() {
             all_day: payload.all_day,
             job_card_id: payload.job_card_id,
             task_id: payload.task_id,
+            category_override: payload.category_override,
             recurrence_rule: payload.recurrence_rule,
             recurrence_group_id: groupId,
           })
@@ -288,6 +292,7 @@ export default function CalendarPage() {
             all_day: payload.all_day,
             job_card_id: payload.job_card_id,
             task_id: payload.task_id,
+            category_override: payload.category_override,
             recurrence_rule: payload.recurrence_rule,
             recurrence_group_id: groupId,
             created_by: profile.id,
@@ -315,6 +320,7 @@ export default function CalendarPage() {
           all_day: payload.all_day,
           job_card_id: payload.job_card_id,
           task_id: payload.task_id,
+          category_override: payload.category_override,
         })
         .eq("id", editingEvent.id);
       if (thisError) throw thisError;
@@ -344,6 +350,7 @@ export default function CalendarPage() {
             all_day: payload.all_day,
             job_card_id: payload.job_card_id,
             task_id: payload.task_id,
+            category_override: payload.category_override,
           };
           if (!payload.all_day) {
             const dayStart = new Date(otherDate.getFullYear(), otherDate.getMonth(), otherDate.getDate());

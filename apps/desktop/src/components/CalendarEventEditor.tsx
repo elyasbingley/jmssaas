@@ -4,6 +4,7 @@ import {
   describeRecurrence,
   type CalendarCategoryColors,
   type CalendarEvent,
+  type CalendarEventCategory,
   type JobCard,
   type Profile,
   type RecurrenceRule,
@@ -17,6 +18,8 @@ type CalendarEventRow = CalendarEvent & {
   tasks: { id: string; title: string } | null;
 };
 
+type OverridableCategory = Exclude<CalendarEventCategory, "personal">;
+
 export interface CalendarEventSavePayload {
   title: string;
   description: string | null;
@@ -29,6 +32,7 @@ export interface CalendarEventSavePayload {
   task_id: string | null;
   technician_id: string | null;
   recurrence_rule: RecurrenceRule | null;
+  category_override: OverridableCategory | null;
 }
 
 const CATEGORY_LABELS: Record<string, string> = { job: "Job", task: "Task", personal: "Personal (Google)", general: "General" };
@@ -109,6 +113,7 @@ export function CalendarEventEditor({
   const [jobCardId, setJobCardId] = useState(event?.job_card_id ?? "");
   const [taskId, setTaskId] = useState(event?.task_id ?? "");
   const [technicianId, setTechnicianId] = useState(event?.job_cards?.assigned_technician_id ?? "");
+  const [categoryOverride, setCategoryOverride] = useState<OverridableCategory | "">(event?.category_override ?? "");
 
   const [recurrenceMode, setRecurrenceMode] = useState<RecurrenceMode>(modeForRule(event?.recurrence_rule ?? null, defaultStart));
   const [customInterval, setCustomInterval] = useState(event?.recurrence_rule?.interval ?? 1);
@@ -132,9 +137,15 @@ export function CalendarEventEditor({
   }, [jobCardId]);
 
   const start = combineDateTime(startDate, allDay ? "00:00" : startTime);
-  const category = event
-    ? categoryForEvent(event)
-    : categoryForEvent({ source: "app", job_card_id: jobCardId || null, task_id: taskId || null });
+  // Reflects the live form state (including the "Event type" picker
+  // below), not the original event - so the color dot updates
+  // immediately as the user changes it, before Save.
+  const category = categoryForEvent({
+    source: "app",
+    job_card_id: jobCardId || null,
+    task_id: taskId || null,
+    category_override: categoryOverride || null,
+  });
 
   function buildRecurrenceRule(): RecurrenceRule | null {
     if (recurrenceMode === "none") return null;
@@ -174,6 +185,7 @@ export function CalendarEventEditor({
       task_id: taskId || null,
       technician_id: technicianId || null,
       recurrence_rule: buildRecurrenceRule(),
+      category_override: categoryOverride || null,
     };
   }
 
@@ -388,8 +400,19 @@ export function CalendarEventEditor({
             </div>
 
             <div className="mb-4 flex items-center gap-2">
-              <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: categoryColors[category] }} />
-              <span className="text-sm text-gray-500">{CATEGORY_LABELS[category]}</span>
+              <span className="h-3 w-3 flex-shrink-0 rounded-sm" style={{ backgroundColor: categoryColors[category] }} />
+              <select
+                value={categoryOverride}
+                onChange={(e) => setCategoryOverride(e.target.value as OverridableCategory | "")}
+                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700"
+              >
+                <option value="">
+                  Auto ({CATEGORY_LABELS[categoryForEvent({ source: "app", job_card_id: jobCardId || null, task_id: taskId || null, category_override: null })]})
+                </option>
+                <option value="job">Job</option>
+                <option value="task">Task</option>
+                <option value="general">General</option>
+              </select>
             </div>
 
             <FormField label="Location" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Add location" />

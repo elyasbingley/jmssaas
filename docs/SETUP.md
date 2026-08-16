@@ -6674,14 +6674,26 @@ comment there for why that was scoped out.
 ### Colors
 
 Four fixed categories - Job, Task, Personal (Google), General - derived
-from an event's own fields (`categoryForEvent` in `calendar-
-recurrence.ts`), never a free-form per-event field. `tenants.
+from an event's own fields by default (`categoryForEvent` in `calendar-
+recurrence.ts`: `job_card_id` set -> Job, `task_id` set -> Task,
+`source = 'google_personal'` -> Personal, else General). `tenants.
 calendar_category_colors` (jsonb, one hex color per category) is
 admin-editable from Settings' new "Calendar colors" section, bundled into
 the same "Save changes" button as the rest of Company Settings rather
 than its own separate save action. Quotes aren't a category - nothing
 schedules a quote onto the calendar today, so there was no real category
 to color; that'd be a separate feature if wanted later.
+
+**`calendar_events.category_override`** (added in a follow-up pass, see
+the `calendar_category_override` migration) lets any `'app'` event's
+type/color be set directly from the editor's "Event type" dropdown
+(Auto / Job / Task / General), independent of what it's actually linked
+to - e.g. a job-linked event can still be colored General, or an
+unlinked event can be colored Job. `categoryForEvent` checks this first
+and only falls back to the derived category when it's `null`. Deliberately
+excludes `'personal'` (enforced by the column's own check constraint) -
+that category only ever applies to read-only `'google_personal'` rows,
+which never reach the editor this is set from.
 
 ### Trimmed from a literal Google Calendar copy
 

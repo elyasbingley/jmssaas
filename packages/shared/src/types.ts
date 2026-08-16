@@ -635,6 +635,12 @@ export interface CalendarEvent {
   // migration's own comment on why. Both null for a non-recurring event.
   recurrence_rule: RecurrenceRule | null;
   recurrence_group_id: string | null;
+  // Directly overrides the derived category/color (see categoryForEvent
+  // in calendar-recurrence.ts) - null means "derive it as usual from
+  // job_card_id/task_id/source". Only 'job' | 'task' | 'general' are
+  // valid here, never 'personal' - see the calendar_category_override
+  // migration's own check constraint.
+  category_override: Exclude<CalendarEventCategory, "personal"> | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

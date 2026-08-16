@@ -1,12 +1,20 @@
 import type { CalendarEvent, CalendarEventCategory, RecurrenceFrequency, RecurrenceRule } from "./types";
 
-// Which of the 4 color categories an event belongs to - derived from its
-// own fields rather than stored separately, so there's no way for an
-// event's category to drift out of sync with what it's actually linked
-// to. Order matters: a 'google_personal' event is never job/task-linked
-// (see the google_calendar_sync migration), so checking source first is
-// just documentation of that invariant, not load-bearing.
-export function categoryForEvent(event: Pick<CalendarEvent, "source" | "job_card_id" | "task_id">): CalendarEventCategory {
+// Which of the 4 color categories an event belongs to. category_override
+// (set directly from the editor's "Event type" picker) wins when present -
+// it exists specifically so an event's displayed type/color can be chosen
+// independently of what it's actually linked to (e.g. color a job-linked
+// event as "General", or an unlinked event as "Job"). Falls back to
+// deriving from job_card_id/task_id/source when there's no override.
+// Order matters: a 'google_personal' event is never job/task-linked (see
+// the google_calendar_sync migration) and never has an override (the
+// column's own check constraint excludes 'personal' - see the
+// calendar_category_override migration), so checking source first is just
+// documentation of that invariant, not load-bearing.
+export function categoryForEvent(
+  event: Pick<CalendarEvent, "source" | "job_card_id" | "task_id" | "category_override">
+): CalendarEventCategory {
+  if (event.category_override) return event.category_override;
   if (event.source === "google_personal") return "personal";
   if (event.job_card_id) return "job";
   if (event.task_id) return "task";
