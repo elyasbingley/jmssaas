@@ -203,6 +203,15 @@ export const updateCompanySettingsSchema = z.object({
 });
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
 
+export const recurrenceRuleSchema = z.object({
+  freq: z.enum(["daily", "weekly", "monthly"]),
+  interval: z.number().int().min(1).max(365),
+  byWeekday: z.array(z.number().int().min(0).max(6)).optional(),
+  endType: z.enum(["never", "on", "after"]),
+  endDate: z.string().optional(),
+  count: z.number().int().min(1).max(500).optional(),
+});
+
 export const createCalendarEventSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -213,6 +222,7 @@ export const createCalendarEventSchema = z.object({
   all_day: z.boolean().default(false),
   job_card_id: z.string().uuid().optional(),
   task_id: z.string().uuid().optional(),
+  recurrence_rule: recurrenceRuleSchema.optional(),
 });
 export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>;
 

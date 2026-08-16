@@ -51,6 +51,11 @@ export interface Tenant {
   // the xero_integration migration's own comment on why this is
   // configurable rather than a fixed guess.
   xero_sales_account_code: string;
+  // Admin-customizable calendar event colors by category - see
+  // CalendarCategoryColors and the calendar_recurrence_and_colors
+  // migration's own comment on why this is a single jsonb column rather
+  // than one column per category.
+  calendar_category_colors: CalendarCategoryColors;
   created_at: string;
 }
 
@@ -562,6 +567,43 @@ export interface PriceBookItemVariation {
 
 export type CalendarEventSource = "app" | "google_personal";
 
+// The four categories the calendar UI actually distinguishes with color -
+// derived from an event's own fields (job_card_id -> "job", task_id ->
+// "task", source='google_personal' -> "personal", anything else ->
+// "general"), not a free-form field of its own. See
+// packages/shared/src/calendar-recurrence.ts's categoryForEvent().
+export type CalendarEventCategory = "job" | "task" | "personal" | "general";
+
+export type CalendarCategoryColors = Record<CalendarEventCategory, string>;
+
+export const DEFAULT_CALENDAR_CATEGORY_COLORS: CalendarCategoryColors = {
+  job: "#1d4ed8",
+  task: "#16a34a",
+  personal: "#f59e0b",
+  general: "#6b7280",
+};
+
+// Recurrence frequency + interval + how the series ends. Deliberately far
+// simpler than an RFC 5545 RRULE string - this app only ever needs to
+// generate a finite list of occurrence dates up front (see
+// generateRecurrenceOccurrences in calendar-recurrence.ts), never parse
+// an arbitrary externally-authored rule, so there's no value in the full
+// RRULE grammar's complexity.
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
+
+export interface RecurrenceRule {
+  freq: RecurrenceFrequency;
+  interval: number;
+  // Only meaningful for freq: 'weekly' - 0 (Sunday) through 6 (Saturday).
+  // Defaults to the start date's own weekday when omitted.
+  byWeekday?: number[];
+  endType: "never" | "on" | "after";
+  // ISO date (yyyy-mm-dd), required when endType is 'on'.
+  endDate?: string;
+  // Occurrence count including the first, required when endType is 'after'.
+  count?: number;
+}
+
 export interface CalendarEvent {
   id: string;
   tenant_id: string;
@@ -587,6 +629,12 @@ export interface CalendarEvent {
   source: CalendarEventSource;
   owner_profile_id: string | null;
   google_calendar_connection_id: string | null;
+  // Every occurrence of a recurring event is its own independent row with
+  // the same recurrence_rule/recurrence_group_id (denormalized, not a
+  // single "series master") - see the calendar_recurrence_and_colors
+  // migration's own comment on why. Both null for a non-recurring event.
+  recurrence_rule: RecurrenceRule | null;
+  recurrence_group_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

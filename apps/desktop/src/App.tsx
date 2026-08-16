@@ -17,8 +17,6 @@ import PriceBookPage from "./pages/PriceBook";
 import PriceBookCategoryPage from "./pages/PriceBookCategory";
 import PriceBookItemPage from "./pages/PriceBookItem";
 import CalendarPage from "./pages/Calendar";
-import CalendarEventNewPage from "./pages/CalendarEventNew";
-import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
@@ -71,8 +69,6 @@ export default function App() {
                 <Route path="/job-costing" element={<JobCostingPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
-                <Route path="/calendar/new" element={<CalendarEventNewPage />} />
-                <Route path="/calendar/:id" element={<CalendarEventDetailPage />} />
                 <Route path="/team" element={<TeamPage />} />
                 <Route path="/real-estate" element={<RealEstatePage />} />
                 <Route path="/real-estate/properties/:id" element={<PropertyDetailPage />} />

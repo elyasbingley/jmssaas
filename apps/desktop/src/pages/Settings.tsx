@@ -3,6 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
+  DEFAULT_CALENDAR_CATEGORY_COLORS,
+  type CalendarCategoryColors,
+  type CalendarEventCategory,
   type Tenant,
   type GoogleCalendarConnectionStatus,
   type GoogleCalendarConnectionListItem,
@@ -79,6 +82,7 @@ export default function SettingsPage() {
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankBsb, setBankBsb] = useState("");
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
+  const [categoryColors, setCategoryColors] = useState<CalendarCategoryColors>(DEFAULT_CALENDAR_CATEGORY_COLORS);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -100,6 +104,7 @@ export default function SettingsPage() {
       setBankAccountNumber(tenant.bank_account_number ?? "");
       setBankBsb(tenant.bank_bsb ?? "");
       setXeroSalesAccountCode(tenant.xero_sales_account_code ?? "200");
+      setCategoryColors(tenant.calendar_category_colors ?? DEFAULT_CALENDAR_CATEGORY_COLORS);
     }
   }, [tenant]);
 
@@ -306,12 +311,14 @@ export default function SettingsPage() {
           bank_account_number: result.data.bank_account_number || null,
           bank_bsb: result.data.bank_bsb || null,
           xero_sales_account_code: result.data.xero_sales_account_code || "200",
+          calendar_category_colors: categoryColors,
         })
         .eq("id", profile.tenant_id);
       if (error) throw error;
     },
     onSuccess: () => {
       invalidateTenant();
+      queryClient.invalidateQueries({ queryKey: ["calendar-category-colors", profile?.tenant_id] });
       setSaveError(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -514,6 +521,34 @@ export default function SettingsPage() {
           </ul>
         </div>
       ) : null}
+
+      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Calendar colors</h2>
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <p className="mb-3 text-sm text-gray-600">
+          Every calendar event is colored automatically by what it's linked to - pick the color for each category (Save changes
+          below to apply).
+        </p>
+        <div className="flex flex-col gap-3">
+          {(
+            [
+              { key: "job", label: "Job-linked events" },
+              { key: "task", label: "Task-linked events" },
+              { key: "personal", label: "Personal Google Calendar events" },
+              { key: "general", label: "General events (no job/task link)" },
+            ] as { key: CalendarEventCategory; label: string }[]
+          ).map((row) => (
+            <div key={row.key} className="flex items-center gap-3">
+              <input
+                type="color"
+                value={categoryColors[row.key]}
+                onChange={(e) => setCategoryColors((prev) => ({ ...prev, [row.key]: e.target.value }))}
+                className="h-8 w-10 cursor-pointer rounded border border-gray-300"
+              />
+              <span className="text-sm text-gray-700">{row.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -6593,15 +6593,17 @@ select cron.schedule(
   instantly" until that's set up - and `WEBHOOK_URL` in `google-oauth-
   callback`/`google-calendar-renew-channels` would need updating to that
   project's own verified domain too, not reused as-is.
-- **No recurring-event editing UI** - `singleEvents: true` expands
-  recurring series into individual occurrences on import/sync, so a
-  changed recurrence rule on Google's side shows up as many individual
-  occurrence updates here, not a single "edit series" action; there's no
-  way to create a recurring event from this app's side either.
+- **Recurring events created in this app sync to Google as N separate
+  events, not one native recurring series** - see section 55 below
+  (`generateRecurrenceOccurrences`) for why and how that works.
+  `singleEvents: true` still expands anything recurring *on Google's own
+  side* into individual occurrences on import/sync either way, so a
+  Google-side recurrence change also shows up as many individual
+  occurrence updates here, not a single "edit series" action.
 - **One Google Calendar per profile** - always the account's primary
   calendar (`calendars/primary`), no picker for a secondary calendar.
 - **`google_personal` events are read-only in-app** - by design (see
-  `CalendarEventDetail.tsx`'s own comment): editing/deleting happens on
+  `CalendarEventEditor.tsx`'s own comment): editing/deleting happens on
   the Google Calendar side and flows back automatically, since
   `google-calendar-push` already no-ops any edit to a non-`'app'` event.
 - **OAuth consent screen "Testing" mode caps connections at added test
@@ -6622,3 +6624,116 @@ select cron.schedule(
   `singleEvents`, the 410 Gone `fullSyncRequired` contract, OAuth
   `access_type=offline&prompt=consent`) checked against Google's own
   public API documentation by reading, not a live call.
+
+## 55. Desktop calendar UI overhaul: Google-Calendar-style popup/editor, colors, recurrence
+
+Rebuilt the desktop Calendar screen to match Google Calendar's own feel,
+not just its layout: click an event and a small popup card appears
+anchored next to it (grid still visible behind), click the pencil icon
+and a larger edit overlay opens over the grid instead of navigating to a
+separate page. `apps/desktop/src/pages/CalendarEventNew.tsx` and
+`CalendarEventDetail.tsx` (and their `/calendar/new`/`/calendar/:id`
+routes) are gone - `CalendarEventPopover.tsx` and `CalendarEventEditor.tsx`
+in `components/` replace them, both driven by local state in
+`Calendar.tsx` rather than routing. Nothing else in the app linked to
+those two routes, so this was a clean removal, not a redirect shim.
+
+### Recurring events
+
+Real recurring events, but deliberately **not** built on Google's native
+RRULE/`recurringEventId` model - see `packages/shared/src/calendar-
+recurrence.ts`. Creating a "Weekly on Tuesday" event generates every
+occurrence as its own independent `calendar_events` row up front
+(`generateRecurrenceOccurrences`, capped at 2 years out / 500 occurrences,
+whichever comes first - a `never`-ending series doesn't actually go
+forever, see the function's own comment), linked only by a shared
+`recurrence_group_id` and a denormalized `recurrence_rule` copied onto
+every row (not a single "series master"). The payoff: every existing sync
+function (`google-calendar-push`/`google-calendar-webhook`/`google-
+calendar-renew-channels`/`google-calendar-reconcile`) needed **zero**
+changes - from their point of view a recurring event's occurrences are
+just N ordinary `'app'` events, pushed/synced independently exactly like
+before. The cost: Google sees N separate calendar entries, not one native
+recurring series, so bulk operations *on Google's own side* (e.g.
+deleting "this and following" from the Google Calendar app) only affect
+whichever single occurrence was clicked - the app's own "This event /
+This and following / All events" scope picker (`RecurrenceScopeDialog.tsx`)
+is where bulk edit/delete for a series actually lives.
+
+Editing "this and following" or "all events" on a series applies
+title/description/location/guests/job/task to every affected row, and -
+for the clock-time/duration only, never the underlying day-of-week/day-
+of-month pattern - shifts every affected occurrence's own start/end by
+applying the edited occurrence's new time-of-day onto each row's existing
+date (`Calendar.tsx`'s save mutation, the `newTimeOfDayMs`/`durationMs`
+block). Deliberately does not attempt to re-anchor the recurrence pattern
+itself (e.g. moving occurrence 3 from a Tuesday to a Wednesday does not
+shift future occurrences from Tuesdays to Wednesdays) - see the code
+comment there for why that was scoped out.
+
+### Colors
+
+Four fixed categories - Job, Task, Personal (Google), General - derived
+from an event's own fields (`categoryForEvent` in `calendar-
+recurrence.ts`), never a free-form per-event field. `tenants.
+calendar_category_colors` (jsonb, one hex color per category) is
+admin-editable from Settings' new "Calendar colors" section, bundled into
+the same "Save changes" button as the rest of Company Settings rather
+than its own separate save action. Quotes aren't a category - nothing
+schedules a quote onto the calendar today, so there was no real category
+to color; that'd be a separate feature if wanted later.
+
+### Trimmed from a literal Google Calendar copy
+
+No Google Meet video conferencing, no "Find a time" availability tab, no
+notification/reminder delivery, no rich-text HTML description (kept
+plain text, matching how description is used everywhere else in the app -
+job cards, PDFs, emails), no granular per-guest permissions (kept the
+existing simple comma-separated guest email field) - none of these have
+any real backing capability in this app, so copying their exact UI would
+have been decorative rather than functional. See the chat thread's own
+scoping discussion for the full reasoning.
+
+### Test it
+
+1. Calendar -> click any existing event -> confirm the popup card appears
+   anchored next to it, grid still visible, with the correct color dot,
+   date/time, category, and (if linked) job/task.
+2. Click the pencil icon -> confirm the edit overlay opens over the grid
+   (no page navigation) with the event's fields populated.
+3. Create a new event, set repeat to "Weekly on [today's weekday]",
+   "Ends after 4 occurrences" -> Save -> confirm 4 events appear on the
+   calendar, one per week, all the same color.
+4. Open one of those 4 -> change its time -> Save -> choose "This and
+   following events" -> confirm that occurrence and the ones after it
+   (not the ones before) moved to the new time, same dates.
+5. Settings -> Calendar colors -> change the Job color -> Save changes ->
+   confirm job-linked events on the Calendar screen immediately reflect
+   the new color after the query refetch.
+6. Delete one occurrence of the series with "All events" scope -> confirm
+   every occurrence (and its synced Google Calendar event, if the
+   assignee is connected) disappears.
+
+### Known gaps / judgment calls
+
+- **Mobile calendar UI is unchanged** - this pass was explicitly scoped
+  to desktop only; mobile keeps its existing full-page create/detail
+  screens and has no recurrence or color-coding UI.
+- **A `never`-ending recurring event is capped at 2 years / 500
+  occurrences** - there's no background job to lazily extend a series
+  past that horizon; re-saving the event with a later end date is the
+  workaround if a series genuinely needs to run longer.
+- **"This event only" edits don't detach from the series** - the edited
+  row keeps its `recurrence_group_id`, so a later "all events" edit on
+  the same series still touches it too. A true per-occurrence "exception"
+  model (like Google's own) was scoped out for complexity - see
+  `RecurrenceScopeDialog`'s own comment.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean and a
+  production `vite build` clean for `apps/desktop`/`packages/shared`, the
+  recurrence generator's date math (multi-weekday ordering, month-end
+  clamping Jan 31 -> Feb 28 without drifting into March, end-date
+  bounding) empirically run via `tsx` against real `Date` objects rather
+  than only reviewed by eye, and the new migration's `ALTER TABLE`
+  statements applied against a real local Postgres 16 instance seeded
+  with the relevant existing table shapes.
