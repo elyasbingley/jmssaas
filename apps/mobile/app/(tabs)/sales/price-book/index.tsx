@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { createPriceBookCategorySchema, type PriceBookCategory } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
@@ -74,13 +74,21 @@ export default function PriceBookScreen() {
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 12, paddingBottom: 80 }}>
         <View style={styles.grid}>
           {(categories ?? []).map((category) => (
-            <Pressable
-              key={category.id}
-              style={styles.tile}
-              onPress={() => router.push(`/sales/price-book/categories/${category.id}`)}
-            >
-              <Text style={styles.tileEmoji}>📋</Text>
-              <Text style={styles.tileLabel}>{category.name}</Text>
+            <Pressable key={category.id} style={styles.tile} onPress={() => router.push(`/sales/price-book/categories/${category.id}`)}>
+              {category.image_url ? (
+                <ImageBackground source={{ uri: category.image_url }} style={styles.tileImageBg}>
+                  <View style={styles.tileImageOverlay}>
+                    <Text style={styles.tileImageLabel} numberOfLines={2}>
+                      {category.name}
+                    </Text>
+                  </View>
+                </ImageBackground>
+              ) : (
+                <View style={styles.tilePlain}>
+                  <Text style={styles.tileEmoji}>📋</Text>
+                  <Text style={styles.tileLabel}>{category.name}</Text>
+                </View>
+              )}
             </Pressable>
           ))}
         </View>
@@ -125,12 +133,19 @@ const styles = StyleSheet.create({
   tile: {
     width: "46%",
     aspectRatio: 1.3,
-    backgroundColor: "#f3f4f6",
     borderRadius: 16,
+    overflow: "hidden",
+  },
+  tilePlain: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
+  tileImageBg: { flex: 1, justifyContent: "flex-end" },
+  tileImageOverlay: { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6 },
+  tileImageLabel: { fontSize: 15, fontWeight: "700", color: "#fff", textAlign: "center" },
   tileEmoji: { fontSize: 32 },
   tileLabel: { fontSize: 16, fontWeight: "700", color: "#111827", textAlign: "center", paddingHorizontal: 8 },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
