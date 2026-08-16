@@ -40,8 +40,10 @@ async function fetchEvent(id: string): Promise<CalendarEventRow> {
   }
   return row;
 }
+// Any profile can be assigned a job - not just role='technician' - so an
+// admin who also does field work can assign jobs to themselves too.
 async function fetchTechnicians(): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
   if (error) throw error;
   return data as Profile[];
 }

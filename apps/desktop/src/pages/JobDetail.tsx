@@ -134,8 +134,11 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   return data as JobLifecycleStage[];
 }
 
+// Any profile can be assigned a job - not just role='technician' - so an
+// admin who also does field work (common in a small team) can assign
+// jobs to themselves too, not only to technician accounts.
 async function fetchTechnicians(): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
   if (error) throw error;
   return data as Profile[];
 }

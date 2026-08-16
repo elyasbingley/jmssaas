@@ -33,7 +33,9 @@ export default function NewCalendarEventScreen() {
 
   const { data: jobCards } = useQuery<JobCard>("SELECT * FROM job_cards ORDER BY title");
   const { data: tasks } = useQuery<Task>("SELECT * FROM tasks ORDER BY title");
-  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles WHERE role = 'technician' ORDER BY full_name");
+  // Any profile can be assigned a job - not just role='technician' - so an
+  // admin who also does field work can assign jobs to themselves too.
+  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");

@@ -52,8 +52,10 @@ async function fetchJobCards(): Promise<JobCardRow[]> {
   if (error) throw error;
   return data as JobCardRow[];
 }
+// Any profile can be dispatched a job - not just role='technician' - so
+// an admin who also does field work can assign jobs to themselves too.
 async function fetchTechnicians(): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
   if (error) throw error;
   return data as Profile[];
 }

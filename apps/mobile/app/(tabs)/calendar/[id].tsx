@@ -58,7 +58,9 @@ export default function CalendarEventDetailScreen() {
     return row;
   }, [id, isOnline]);
 
-  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles WHERE role = 'technician' ORDER BY full_name");
+  // Any profile can be assigned a job - not just role='technician' - so an
+  // admin who also does field work can assign jobs to themselves too.
+  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
 
   const canEdit =
     isAdmin ||

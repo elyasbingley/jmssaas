@@ -41,7 +41,9 @@ export default function ScheduleScreen() {
       { data: stages, error: stagesError },
     ] = await Promise.all([
       supabase.from("job_cards").select("*, clients(*)").order("created_at", { ascending: false }),
-      supabase.from("profiles").select("*").eq("role", "technician").order("full_name"),
+      // Any profile can be dispatched a job - not just role='technician' -
+      // so an admin who also does field work can assign jobs to themselves.
+      supabase.from("profiles").select("*").order("full_name"),
       supabase
         .from("calendar_events")
         .select("*, job_cards(*, clients(*))")
