@@ -6499,6 +6499,25 @@ fail (logged, non-fatal - the connection still works, just without live
 push; `google-calendar-reconcile`'s hourly sweep becomes the only sync
 path in that case).
 
+**Done for this deployment**: `hooks.bingleyroof.com.au` is set up as a
+Supabase custom domain (Settings -> Custom Domains, CNAMEd at VentraIP to
+`qnlxmpxjmmhcnzzpcabd.supabase.co`), verified and activated via `npx
+supabase domains create/reverify/activate --project-ref
+qnlxmpxjmmhcnzzpcabd --custom-hostname hooks.bingleyroof.com.au`.
+`WEBHOOK_URL` in `google-oauth-callback`/`google-calendar-renew-channels`
+is hardcoded to `https://hooks.bingleyroof.com.au/functions/v1/google-calendar-webhook`
+rather than derived from `SUPABASE_URL`, since the whole point is that it
+must NOT be the default `*.supabase.co` address. One real gotcha hit
+during setup worth flagging for next time: this domain briefly had **both**
+VentraIP's and Cloudflare's nameservers delegated at once (split-brain
+DNS - some resolvers answered from one zone, some from the other,
+inconsistently), which made every DNS-dependent step here flaky/
+inconsistent until the unused Cloudflare nameservers were removed from
+the domain's delegation at VentraIP, leaving only VentraIP's authoritative.
+If a future domain hits inexplicably inconsistent DNS behavior during
+this same setup, check for exactly that before assuming it's just
+propagation delay.
+
 ### Deploy steps
 
 ```powershell
@@ -6567,10 +6586,13 @@ select cron.schedule(
 
 ### Known gaps / judgment calls
 
-- **Requires a verified custom domain to get live push** - see above; on
-  a fresh project with only the default `*.supabase.co` URL, sync still
-  works but only on `google-calendar-reconcile`'s hourly cadence, not
-  "ideally instantly" until that's set up.
+- **Requires a verified custom domain to get live push** - see above;
+  done for this deployment (`hooks.bingleyroof.com.au`). On a fresh
+  project with only the default `*.supabase.co` URL, sync still works but
+  only on `google-calendar-reconcile`'s hourly cadence, not "ideally
+  instantly" until that's set up - and `WEBHOOK_URL` in `google-oauth-
+  callback`/`google-calendar-renew-channels` would need updating to that
+  project's own verified domain too, not reused as-is.
 - **No recurring-event editing UI** - `singleEvents: true` expands
   recurring series into individual occurrences on import/sync, so a
   changed recurrence rule on Google's side shows up as many individual

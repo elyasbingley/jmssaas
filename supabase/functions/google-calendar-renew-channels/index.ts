@@ -21,7 +21,10 @@ const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET") ?? "";
 const GOOGLE_CHANNEL_TOKEN = Deno.env.get("GOOGLE_CHANNEL_TOKEN") ?? "";
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-const WEBHOOK_URL = `${SUPABASE_URL}/functions/v1/google-calendar-webhook`;
+// Must match google-oauth-callback's WEBHOOK_URL exactly - see that
+// file's own comment on why this has to be a verified custom domain
+// rather than the default *.supabase.co one.
+const WEBHOOK_URL = "https://hooks.bingleyroof.com.au/functions/v1/google-calendar-webhook";
 
 // Same as process-scheduled-comms etc: pg_net calls this with
 // Authorization: Bearer <service-role-key> exactly, checked by string

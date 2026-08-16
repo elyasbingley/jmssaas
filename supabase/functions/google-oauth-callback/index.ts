@@ -44,7 +44,14 @@ const GOOGLE_APP_REDIRECT_URL = Deno.env.get("GOOGLE_APP_REDIRECT_URL") ?? "";
 const GOOGLE_CHANNEL_TOKEN = Deno.env.get("GOOGLE_CHANNEL_TOKEN") ?? "";
 
 const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/google-oauth-callback`;
-const WEBHOOK_URL = `${SUPABASE_URL}/functions/v1/google-calendar-webhook`;
+// Must be on a domain verified in Google Search Console - the default
+// *.supabase.co domain can't be verified (Supabase, not this tenant, owns
+// it) and Google silently rejects events.watch() requests whose address
+// isn't on a verified domain. hooks.bingleyroof.com.au is a Supabase
+// custom domain (Settings -> Custom Domains) CNAMEd to this same project,
+// so requests to it still land on this same google-calendar-webhook
+// function - see docs/SETUP.md section 54 for the full setup.
+const WEBHOOK_URL = "https://hooks.bingleyroof.com.au/functions/v1/google-calendar-webhook";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
 function redirect(status: "connected" | "error", message?: string): Response {
