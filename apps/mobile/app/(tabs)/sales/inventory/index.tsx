@@ -65,6 +65,7 @@ export default function InventoryScreen() {
 
   const [activeTab, setActiveTab] = useState<"stock" | "low-stock">("stock");
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
   // Low-Stock queue's own filter - independent of the Stock tab's
@@ -90,6 +91,7 @@ export default function InventoryScreen() {
   const levelByKey = new Map(levels.map((level) => [`${level.location_id}:${level.item_id}`, level]));
   const itemById = new Map(items.map((item) => [item.id, item]));
   const locationById = new Map(locations.map((loc) => [loc.id, loc]));
+  const selectedLocation = selectedLocationId ? (locationById.get(selectedLocationId) ?? null) : null;
   const categoryById = new Map(categories.map((cat) => [cat.id, cat]));
   const subcategoryById = new Map(subcategories.map((sub) => [sub.id, sub]));
   const supplierById = new Map(suppliers.map((sup) => [sup.id, sup]));
@@ -358,7 +360,27 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Inventory</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Inventory</Text>
+        {activeTab === "stock" && locations.length > 0 ? (
+          <View style={styles.headerLocationRow}>
+            <Pressable style={styles.locationButton} onPress={() => setLocationPickerVisible(true)}>
+              <Text style={styles.locationButtonText} numberOfLines={1}>
+                📍 {selectedLocation?.name ?? "Select location"}
+              </Text>
+            </Pressable>
+            {isAdmin ? (
+              <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
+                <Text style={styles.addLocationButtonText}>+</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : activeTab === "stock" && isAdmin ? (
+          <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
+            <Text style={styles.addLocationButtonText}>+</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.tabRow}>
         <Pressable
@@ -373,7 +395,7 @@ export default function InventoryScreen() {
         >
           <View style={styles.tabButtonRow}>
             <Text style={[styles.tabButtonText, activeTab === "low-stock" && styles.tabButtonTextActive]}>
-              Out of Stock / Need to Order
+              Low Stock
             </Text>
             {allLowStockItems.length > 0 ? (
               <View style={styles.tabBadge}>
@@ -386,59 +408,43 @@ export default function InventoryScreen() {
 
       {activeTab === "stock" ? (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            {locations.map((location) => (
-              <Pressable
-                key={location.id}
-                style={[styles.chip, selectedLocationId === location.id && styles.chipActive]}
-                onPress={() => setSelectedLocationId(location.id)}
-              >
-                <Text style={[styles.chipText, selectedLocationId === location.id && styles.chipTextActive]}>
-                  {location.name}
-                </Text>
-              </Pressable>
-            ))}
-            {isAdmin ? (
-              <Pressable style={styles.chip} onPress={() => setLocationModalVisible(true)}>
-                <Text style={styles.chipText}>+ New location</Text>
-              </Pressable>
-            ) : null}
-          </ScrollView>
           {locations.length === 0 ? (
             <Text style={styles.empty}>
               {isAdmin ? "Add a location (e.g. \"Ute 1\") to start tracking stock." : "No locations yet - ask an admin to add one."}
             </Text>
           ) : (
             <>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                <Pressable
-                  style={[styles.chip, selectedCategoryId === null && styles.chipActive]}
-                  onPress={() => setSelectedCategoryId(null)}
-                >
-                  <Text style={[styles.chipText, selectedCategoryId === null && styles.chipTextActive]}>All</Text>
-                </Pressable>
-                {categories.map((category) => (
+              <View style={styles.categoryRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.categoryScroll}>
                   <Pressable
-                    key={category.id}
-                    style={[styles.chip, selectedCategoryId === category.id && styles.chipActive]}
-                    onPress={() => setSelectedCategoryId(category.id)}
+                    style={[styles.chip, selectedCategoryId === null && styles.chipActive]}
+                    onPress={() => setSelectedCategoryId(null)}
                   >
-                    <Text style={[styles.chipText, selectedCategoryId === category.id && styles.chipTextActive]}>
-                      {category.name}
-                    </Text>
+                    <Text style={[styles.chipText, selectedCategoryId === null && styles.chipTextActive]}>All</Text>
                   </Pressable>
-                ))}
+                  {categories.map((category) => (
+                    <Pressable
+                      key={category.id}
+                      style={[styles.chip, selectedCategoryId === category.id && styles.chipActive]}
+                      onPress={() => setSelectedCategoryId(category.id)}
+                    >
+                      <Text style={[styles.chipText, selectedCategoryId === category.id && styles.chipTextActive]}>
+                        {category.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
                 {isAdmin ? (
-                  <Pressable style={styles.chip} onPress={() => router.push("/inventory-setup")}>
-                    <Text style={styles.chipText}>⚙ Manage categories</Text>
+                  <Pressable style={styles.manageButton} onPress={() => router.push("/inventory-setup")}>
+                    <Text style={styles.manageButtonText}>⚙</Text>
                   </Pressable>
                 ) : null}
-              </ScrollView>
+              </View>
 
               {categories.length === 0 ? (
                 <Text style={styles.empty}>
                   {isAdmin
-                    ? 'No categories yet - tap "Manage categories" above to set up Material, Tools, etc. before adding items.'
+                    ? "No categories yet - tap ⚙ above to set up Material, Tools, etc. before adding items."
                     : "No categories yet - ask an admin to set some up."}
                 </Text>
               ) : null}
@@ -743,6 +749,16 @@ export default function InventoryScreen() {
       </CenteredModal>
 
       <PickerModal
+        visible={locationPickerVisible}
+        title="Select location"
+        items={locations}
+        getKey={(l) => l.id}
+        getLabel={(l) => l.name}
+        onSelect={(location) => setSelectedLocationId(location.id)}
+        onClose={() => setLocationPickerVisible(false)}
+      />
+
+      <PickerModal
         visible={itemCategoryPickerVisible}
         title="Select category"
         items={categories}
@@ -780,7 +796,34 @@ export default function InventoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 20, fontWeight: "700", padding: 20, paddingBottom: 8 },
+  title: { fontSize: 20, fontWeight: "700" },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  headerLocationRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  locationButton: {
+    backgroundColor: "#eef2ff",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    maxWidth: 170,
+  },
+  locationButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 13 },
+  addLocationButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#1d4ed8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addLocationButtonText: { color: "#fff", fontWeight: "800", fontSize: 16, lineHeight: 18 },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, gap: 8 },
   tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
   tabButtonActive: { backgroundColor: "#1d4ed8" },
@@ -790,6 +833,18 @@ const styles = StyleSheet.create({
   tabBadge: { backgroundColor: "#dc2626", borderRadius: 10, paddingHorizontal: 6, minWidth: 18, alignItems: "center" },
   tabBadgeText: { color: "#fff", fontWeight: "700", fontSize: 11 },
   chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  categoryRow: { flexDirection: "row", alignItems: "center" },
+  categoryScroll: { flex: 1 },
+  manageButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  manageButtonText: { fontSize: 15 },
   chip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
   subChip: { backgroundColor: "#eef2ff", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
   chipActive: { backgroundColor: "#1d4ed8" },
