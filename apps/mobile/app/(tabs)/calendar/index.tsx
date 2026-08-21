@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import type { CalendarEvent } from "@jmssaas/shared";
+import {
+  categoryForEvent,
+  DEFAULT_CALENDAR_CATEGORY_COLORS,
+  type CalendarCategoryColors,
+  type CalendarEvent,
+} from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../lib/use-supabase-fetch";
@@ -56,6 +61,19 @@ export default function CalendarScreen() {
   }, [isOnline]);
   useRefetchOnFocus(refetch);
 
+  // Same admin-configurable per-category colors desktop's calendar reads
+  // from tenants.calendar_category_colors (see Settings' "Calendar colors"
+  // section) - mobile previously showed every event identically regardless
+  // of category, the one piece of the desktop calendar overhaul that never
+  // made it here.
+  const { data: categoryColors } = useSupabaseFetch<CalendarCategoryColors>(async () => {
+    if (!profile) return DEFAULT_CALENDAR_CATEGORY_COLORS;
+    const { data, error } = await supabase.from("tenants").select("calendar_category_colors").eq("id", profile.tenant_id).single();
+    if (error) throw error;
+    return (data.calendar_category_colors as CalendarCategoryColors) ?? DEFAULT_CALENDAR_CATEGORY_COLORS;
+  }, [profile?.tenant_id]);
+  const colorFor = (event: CalendarEvent) => (categoryColors ?? DEFAULT_CALENDAR_CATEGORY_COLORS)[categoryForEvent(event)];
+
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [anchor, setAnchor] = useState(new Date());
 
@@ -89,8 +107,16 @@ export default function CalendarScreen() {
     setViewMode("month");
   };
 
+  // Full-tile fill, not just a colored accent - matches Google Calendar's
+  // own event styling (a solid block in the category's color with white
+  // text) rather than the flat white row every event used to render as
+  // regardless of category.
   const renderEventRow = (event: CalendarEvent) => (
-    <Pressable key={event.id} style={styles.eventRow} onPress={() => router.push(`/calendar/${event.id}`)}>
+    <Pressable
+      key={event.id}
+      style={[styles.eventRow, { backgroundColor: colorFor(event) }]}
+      onPress={() => router.push(`/calendar/${event.id}`)}
+    >
       <Text style={styles.eventTime}>{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</Text>
       <Text style={styles.eventTitle}>{event.title}</Text>
     </Pressable>
@@ -162,7 +188,9 @@ export default function CalendarScreen() {
                 >
                   {day.getDate()}
                 </Text>
-                {dayEvents.length > 0 ? <View style={styles.monthCellDot} /> : null}
+                {dayEvents.length > 0 ? (
+                  <View style={[styles.monthCellDot, { backgroundColor: colorFor(dayEvents[0]) }]} />
+                ) : null}
               </Pressable>
             );
           })}
@@ -280,9 +308,9 @@ const styles = StyleSheet.create({
   navHeadingText: { fontSize: 16, fontWeight: "700" },
   dayViewContent: { padding: 16 },
   dayHeading: { fontSize: 17, fontWeight: "700", marginBottom: 12 },
-  eventRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  eventTime: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-  eventTitle: { fontSize: 16, fontWeight: "600", marginTop: 2 },
+  eventRow: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 6 },
+  eventTime: { color: "rgba(255,255,255,0.85)", fontWeight: "600", fontSize: 12 },
+  eventTitle: { fontSize: 16, fontWeight: "600", marginTop: 2, color: "#fff" },
   weekViewContent: { padding: 16 },
   weekDaySection: { marginBottom: 18 },
   weekDayHeading: { fontWeight: "700", color: "#374151", marginBottom: 6 },

@@ -233,6 +233,7 @@ const inventory_items = new Table(
     name: column.text,
     reorder_threshold: column.integer,
     ideal_stock: column.integer,
+    image_url: column.text,
     created_at: column.text,
     updated_at: column.text,
   },

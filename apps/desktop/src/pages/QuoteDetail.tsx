@@ -5,6 +5,7 @@ import {
   calculateDocumentTotals,
   collectRecipientEmails,
   formatCentsAsAud,
+  renderTemplate,
   type Agency,
   type ApprovalStatus,
   type Client,
@@ -14,6 +15,7 @@ import {
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
+  type ReferralPartner,
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -28,6 +30,8 @@ import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
+import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { PurchaseOrderNumberModal } from "../components/PurchaseOrderNumberModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -113,6 +117,12 @@ async function fetchJobNoteBodies(jobCardId: string): Promise<string[]> {
   return (data ?? []).map((n) => n.body as string);
 }
 
+async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as ReferralPartner;
+}
+
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -145,6 +155,11 @@ export default function QuoteDetailPage() {
     queryKey: ["job-notes-text", data?.quote.job_card_id],
     queryFn: () => fetchJobNoteBodies(data!.quote.job_card_id!),
     enabled: !!data?.quote.job_card_id,
+  });
+  const { data: referralPartner } = useQuery({
+    queryKey: ["referral-partner", data?.quote.referral_partner_id],
+    queryFn: () => fetchReferralPartner(data!.quote.referral_partner_id!),
+    enabled: !!data?.quote.referral_partner_id,
   });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
@@ -293,7 +308,46 @@ export default function QuoteDetailPage() {
         .eq("is_active", true);
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Quote Delivery' email template found");
-      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+
+      // Render tags against this specific client/quote before showing the
+      // composer - previously it showed the raw template ({client_full_name},
+      // {company_name}, ...) verbatim, which the dispatcher (process-
+      // scheduled-comms) always re-renders correctly at actual send time
+      // regardless, but left the *editable preview* looking wrong and made
+      // it awkward to tell what still needed editing. Same approval-link
+      // construction generateLink's own mutation uses, so {quote_accept_link}/
+      // {quote_decline_link} in the preview are real, clickable links too.
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_quote_approval_link", { p_quote_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=quote&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.quote.clients?.name ?? "", phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
+        quote: {
+          quote_number: data.quote.quote_number,
+          total_cents: data.quote.total_cents,
+          issue_date: data.quote.issue_date,
+          expiry_date: data.quote.expiry_date,
+          approval_link: approvalLink,
+          accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+          decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
+        },
+      };
+      setEmailDefaults({
+        subject: template.subject ? renderTemplate(template.subject, renderContext) : "",
+        body: renderTemplate(template.body, renderContext),
+      });
       // Best-effort - if PDF generation fails for any reason, the email
       // still sends with just the view-online link, same as before this
       // feature existed, rather than blocking the send entirely.
@@ -340,6 +394,8 @@ export default function QuoteDetailPage() {
   const [addressError, setAddressError] = useState<string | null>(null);
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
   const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
+  const [referralModalOpen, setReferralModalOpen] = useState(false);
+  const [poModalOpen, setPoModalOpen] = useState(false);
 
   const updateSite = useMutation({
     mutationFn: async () => {
@@ -436,6 +492,20 @@ export default function QuoteDetailPage() {
           </button>
         </p>
       ) : null}
+
+      <p className="mt-1 text-sm text-gray-600">
+        Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}{" "}
+        <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          {data.quote.referral_partner_id ? "Edit" : "+ Add"}
+        </button>
+      </p>
+
+      <p className="mt-1 text-sm text-gray-600">
+        PO number: {data.quote.po_number ?? "Not set"}{" "}
+        <button onClick={() => setPoModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          {data.quote.po_number ? "Edit" : "+ Add"}
+        </button>
+      </p>
 
       {data.quote.approval_status ? (
         <div
@@ -641,6 +711,22 @@ export default function QuoteDetailPage() {
           invalidateKeys={[["quote", id]]}
         />
       ) : null}
+
+      <ReferralPartnerModal
+        open={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        table="quotes"
+        recordId={id!}
+        currentValue={data.quote.referral_partner_id}
+      />
+
+      <PurchaseOrderNumberModal
+        open={poModalOpen}
+        onClose={() => setPoModalOpen(false)}
+        table="quotes"
+        recordId={id!}
+        currentValue={data.quote.po_number}
+      />
 
       <EmailComposeModal
         open={emailModalOpen}

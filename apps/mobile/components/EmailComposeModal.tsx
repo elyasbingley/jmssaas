@@ -122,6 +122,12 @@ export function EmailComposeModal({
 
   const addAttachments = (newOnes: EmailAttachment[]) => setAttachments((prev) => [...prev, ...newOnes]);
 
+  // Reads each picked asset back off disk rather than relying on
+  // ImagePicker's own `base64: true` option, which is unreliable once
+  // `allowsMultipleSelection` triggers the native multi-select picker -
+  // same bug as PhotoAttachments.tsx's own comment on this ("Choose
+  // photos" silently doing nothing because every asset came back with no
+  // base64 and the loop just skipped it).
   const pickAttachmentPhotos = async () => {
     setAttachmentError(null);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -131,7 +137,6 @@ export function EmailComposeModal({
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      base64: true,
       quality: 0.7,
       allowsMultipleSelection: true,
       selectionLimit: 10,
@@ -145,12 +150,17 @@ export function EmailComposeModal({
     }
     const newOnes: EmailAttachment[] = [];
     for (const asset of result.assets) {
-      if (!asset.base64) continue;
-      const mimeType = asset.mimeType ?? "image/jpeg";
-      newOnes.push({
-        filename: asset.fileName ?? `photo.${extensionFor(mimeType)}`,
-        content: `data:${mimeType};base64,${asset.base64}`,
-      });
+      try {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        const mimeType = asset.mimeType ?? "image/jpeg";
+        newOnes.push({
+          filename: asset.fileName ?? `photo.${extensionFor(mimeType)}`,
+          content: `data:${mimeType};base64,${base64}`,
+        });
+      } catch (e) {
+        console.error("[EmailComposeModal] Failed to read picked photo", e);
+        setAttachmentError("One of the selected photos couldn't be read.");
+      }
     }
     addAttachments(newOnes);
   };

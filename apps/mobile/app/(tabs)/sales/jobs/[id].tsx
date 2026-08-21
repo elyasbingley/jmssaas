@@ -29,6 +29,7 @@ import {
   type PurchaseOrder,
   type Quote,
   type QuoteLineItem,
+  type ReferralPartner,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
@@ -53,6 +54,7 @@ import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
 import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -755,6 +757,28 @@ export default function JobDetailScreen() {
     setWorkdriveModalVisible(false);
   };
 
+  // --- Referral source - same "settable any time, not just at creation"
+  // gap as WorkDrive/real estate assignment above. referral_partners isn't
+  // a PowerSync table (see jobs/index.tsx's own comment), so the picker's
+  // options only load while online; the job itself still updates via
+  // PowerSync like every other job_cards field on this screen.
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
+  const [referralPickerVisible, setReferralPickerVisible] = useState(false);
+  const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === job?.referral_partner_id) ?? null;
+
+  const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
+    await powersync.execute("UPDATE job_cards SET referral_partner_id = ?, updated_at = ? WHERE id = ?", [
+      partner?.id ?? null,
+      new Date().toISOString(),
+      id,
+    ]);
+  };
+
   // --- Real estate / strata assignment (retrofit an existing job, or edit
   // one already assigned) - same job_cards columns as the New Job form
   // (desktop's Jobs.tsx), previously only ever settable at creation there,
@@ -927,6 +951,14 @@ export default function JobDetailScreen() {
           </Pressable>
         </View>
         {job.workdrive_url ? <Text style={styles.clientCardMeta}>{job.workdrive_url}</Text> : null}
+
+        <View style={styles.workdriveRow}>
+          <Text style={styles.workdriveLabel}>Referral source</Text>
+          <Pressable onPress={() => setReferralPickerVisible(true)}>
+            <Text style={styles.link}>{job.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
 
         {job.is_real_estate_job ? (
           <View style={styles.agencyCard}>
@@ -1357,6 +1389,16 @@ export default function JobDetailScreen() {
       getLabel={(s) => s.name}
       onSelect={handleStageChange}
       onClose={() => setStagePickerVisible(false)}
+    />
+
+    <PickerModal
+      visible={referralPickerVisible}
+      title="Referral source"
+      items={[null, ...(referralPartners ?? [])]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+      onSelect={handleSelectReferralPartner}
+      onClose={() => setReferralPickerVisible(false)}
     />
 
     <CenteredModal visible={workdriveModalVisible} onClose={() => setWorkdriveModalVisible(false)}>

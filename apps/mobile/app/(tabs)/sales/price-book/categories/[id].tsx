@@ -90,7 +90,7 @@ export default function PriceBookCategoryScreen() {
                 </ImageBackground>
               ) : (
                 <View style={styles.tilePlain}>
-                  <Text style={styles.tileLabel} numberOfLines={1}>
+                  <Text style={styles.tileLabel} numberOfLines={2}>
                     {item.description}
                   </Text>
                   <Text style={styles.tilePrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</Text>
@@ -130,7 +130,11 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   tile: {
     width: "46%",
-    aspectRatio: 1.3,
+    // See price-book/index.tsx's own comment - a wrapped 2-line description
+    // plus the price line needs more vertical room than 1.3 left inside
+    // this overflow-clipped tile, so text that didn't fit was silently cut
+    // off rather than just looking cramped.
+    aspectRatio: 1.05,
     borderRadius: 16,
     overflow: "hidden",
   },

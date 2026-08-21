@@ -6900,3 +6900,233 @@ from a prior build.
   Postgres 16 instance, including sanity inserts confirming `image_url`
   defaults to `null` when omitted and that the four storage policies
   attach correctly.
+
+## 57. Bug-fix batch: referral partner editability, team roles, price book/inventory polish, calendar coloring, PO numbers, template preview rendering
+
+Eleven more fixes/small features from the same "keep reporting bugs as you
+hit them" workflow as section 56.
+
+**Referral partner not editable after creation.** `referral_partner_id`
+was only ever set in the desktop "New Job"/"New Quote" creation forms -
+`JobDetail.tsx`, `QuoteDetail.tsx`, and (by extension, since invoices have
+no column of their own and always derive attribution from the linked job)
+`InvoiceDetail.tsx` had no way to set or change it afterward. New shared
+`ReferralPartnerModal` component (parameterized by `table: "job_cards" |
+"quotes"`) mounted on all three desktop pages, plus the equivalent picker
+added to mobile's job/quote/invoice detail screens (job writes through
+PowerSync like every other `job_cards` field there; quotes/invoices write
+directly via Supabase like the rest of those screens).
+
+**Team member name/role.** `Team.tsx`/`team.tsx` only ever listed
+technicians and had no edit action at all. Now lists every team member
+(admins included) with an Edit action for name, plus a new free-text
+`job_title` column (migration `20260906000100_profile_job_title.sql`) an
+admin can set to whatever the person's actual job is - "Foreman", "Office
+Manager", "Apprentice", anything. `profiles.role` (admin/technician)
+deliberately stays a fixed two-value enum rather than becoming fully
+custom - it drives roughly 160 RLS policy references across the schema,
+and rewriting that into an arbitrary/tenant-defined set would mean
+touching every one of those policies for a purely cosmetic ask. Role
+badge shown read-only next to the new job title field.
+
+**Mobile price book category titles clipping ("Roof Repairs" → "Roof").**
+Self-inflicted regression from section 56's own image-tile work: the tile
+gained `overflow: "hidden"` (to clip the new background image to its
+rounded corners) with no `numberOfLines` on the plain-tile label, so a
+name wrapping to a second line got silently cut off by the same clip
+rather than shown with an ellipsis. Fixed with `numberOfLines={2}` on
+both category and item labels, and a shorter aspect ratio (1.3 → 1.05,
+taller tiles) so two lines actually fit.
+
+**"Choose photos" not working.** `ImagePicker.launchImageLibraryAsync`'s
+own `base64: true` option is unreliable once `allowsMultipleSelection`
+triggers the native multi-select picker - assets often come back with no
+`base64` data and no error, and the upload loop's `if (!asset.base64)
+continue;` silently skipped every one, so nothing visibly happened.
+Fixed in all three affected call sites (`PhotoAttachments.tsx`,
+`reports/instance/[id].tsx`, `EmailComposeModal.tsx`) by reading each
+picked asset back off disk via `expo-file-system` instead - the same
+reliable technique `pickDocument` already used.
+
+**Mobile inventory UI, price-book-style with images.** `inventory_items`
+gained an `image_url` column (migration
+`20260907000100_inventory_item_images.sql`, new `inventory-images`
+bucket, same public-read/admin-write shape as `price-book-images`) and a
+PowerSync schema column so the existing offline-first inventory screen
+can read/write it locally. The flat list of `itemCard` rows became a
+2-column tile grid matching the price book's look (image as background +
+name/supplier overlaid at the bottom, or the previous plain tile when no
+image is set) while keeping the -/qty/+ stepper as its own row below each
+tile - that interaction is still the point of this screen, not just a
+visual match. The New/Edit item modal gained a photo picker (deferred
+upload - only actually uploaded on Save, not the moment a photo is
+picked, so cancelling never leaves an orphaned file behind).
+
+**Mobile job stage automation toggle undoing itself after save** (and,
+it turned out, four other silently-broken toggles). Empirically
+confirmed root cause: PowerSync stores every boolean-shaped flag as
+`column.integer` (SQLite has no boolean type), and `connector.ts`'s
+`uploadData` was forwarding that raw `0`/`1` straight to Supabase's REST
+API as a JSON *number* - which PostgREST rejects for a genuine Postgres
+`boolean` column (verified directly against a local Postgres 16 instance:
+`('{"v":1}'::jsonb -> 'v')::boolean` raises "cannot cast jsonb numeric to
+type boolean", the exact shape of request a `{is_closed: 1}` body
+produces). The CRUD upload silently failed and never completed, so the
+optimistic local toggle reverted back to the last-synced value once
+PowerSync's own consistency check caught up - looking exactly like "I
+flipped it, saved, reopened it, and it's back to what it was." Fixed once
+in the connector (`coerceBooleanColumns`), for every affected column
+across the schema, not just `job_lifecycle_stages.is_closed`:
+`client_sites.is_primary`, `client_contacts.is_primary`, `job_cards.
+is_real_estate_job`/`nte_exceeded_approved`/`referral_fee_paid`, `job_
+lifecycle_stages.is_system_default`/`is_closed`, `communication_rules.
+is_enabled`, `communication_templates.is_active`.
+
+**Mobile Schedule: assigning an unassigned job doesn't remove it from
+Unassigned** (and the identical bug on desktop's Dispatch board, fixed
+alongside it once found there too). Both screens computed "still
+unassigned" as "no calendar event with a start time `>= now`" - comparing
+against the *exact current moment*, not the day. Scheduling a job for
+later *today* at a clock time earlier than right now (e.g. the "new
+event" default of 9am, picked mid-afternoon, or Dispatch's own default
+1-hour block dropped onto an earlier slot) was already "in the past" the
+instant it was created, so the job never left the unassigned list.
+Fixed by comparing against the start of today instead of the exact
+moment - a job scheduled anywhere on today's date (or later) now counts
+as assigned for the rest of that day.
+
+**Desktop Dispatch board filter/search.** Added a search box (job title
+or client name) plus category and stage dropdown filters, matching
+ServiceM8's own dispatch board search/filter. Applied identically to the
+unassigned shelf and to which scheduled blocks show on the technician
+rows, so filtering narrows the whole board, not just the jobs still
+waiting to be dispatched.
+
+**Calendar colors + full-tile coloring, on mobile too, and both
+platforms now fill the whole tile.** Mobile's calendar never read
+`tenants.calendar_category_colors` at all - every event rendered
+identically regardless of category. Added the same `categoryForEvent`/
+color lookup desktop already had. Separately, on **both** platforms, the
+color treatment itself changed from a colored left-edge accent (border-
+left on a plain gray/white row) to a full solid-color tile with white
+text, matching Google Calendar's own event styling rather than the
+subtler accent-bar look this app had been using.
+
+**Optional PO number on quotes/invoices, any client type.** New
+`po_number` column on both `quotes` and `invoices` (migration
+`20260908000100_quote_invoice_po_number.sql`) - distinct from `job_cards.
+work_order_number`, which is a different concept (the agency's own
+work order, real-estate/strata jobs only) that already existed. Quick-
+edit control on both desktop (new `PurchaseOrderNumberModal`) and mobile
+detail screens, independent per document (a quote's PO can differ from
+its invoice's). Shown on the PDF as a "PO" line in the same dates block
+as the issue/expiry/due dates, only when set - no PO number, no line at
+all, not even a blank one.
+
+**Email composer showing raw `{tags}` instead of the client's actual
+values.** "Send Quote via Email"/"Send Invoice via Email" prefilled the
+editable composer with the *literal* stored template - `{client_full_
+name}`, `{company_name}`, `{quote_accept_link}` and so on, verbatim. The
+actual send path was never broken: `process-scheduled-comms` (the
+dispatcher) always re-renders `rendered_subject`/`rendered_body` against
+fresh entity data at actual send time regardless of what's stored, so a
+client was never going to receive a literal unrendered tag - but the
+*editable preview* looked wrong and made it hard to tell what, if
+anything, still needed editing before sending. Fixed by rendering the
+template (via the existing shared `renderTemplate`, the same function
+the dispatcher's own Deno copy is kept in sync with) against the specific
+client/quote-or-invoice/company data before showing it in the composer -
+on both desktop and mobile, for both quotes and invoices. The one field
+that needs an extra step, the accept/decline/payment link, is generated
+via the same `generate_quote_approval_link`/`generate_invoice_approval_
+link` RPC the existing "copy approval link" button already calls, so the
+link shown in the preview is real and clickable, not a placeholder.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+Mobile-touching fixes in this batch (referral partner editing, price book
+tile clipping, "Choose photos", inventory images, the boolean-toggle
+connector fix, Schedule's unassigned-job bug, calendar colors, PO
+numbers, template preview rendering) need a new EAS build to reach
+devices already installed from a prior build.
+
+### Test it
+
+1. Open a job card, quote, and invoice each - confirm "Referral source"
+   shows and is editable on all three, on both desktop and mobile.
+2. Team -> confirm every team member shows (not just technicians), each
+   with a Role badge -> Edit one -> change the name and set a job title
+   -> Save -> confirm both show immediately.
+3. Mobile: Price Book -> a category with a name that wraps to two lines
+   -> confirm both lines show fully, no clipping.
+4. Mobile: a job or task -> "Choose photos" -> pick several from the
+   library -> confirm they actually attach (not silently nothing).
+5. Mobile: Inventory -> confirm the item grid looks like tiles (not a
+   flat list) -> add/edit an item with a photo -> confirm the tile shows
+   the image with the name at the bottom, and the -/qty/+ stepper still
+   works underneath it.
+6. Mobile: Job Setup -> edit a stage -> toggle "Job is done in this
+   stage" -> Save -> leave the screen and come back -> confirm the
+   toggle held (previously it silently reverted).
+7. Mobile: Schedule -> tap an unassigned job -> schedule it for later
+   today with a technician -> confirm it immediately disappears from
+   Unassigned (previously it stayed). Same check on desktop's Dispatch
+   board by dragging a job onto a technician's row at an earlier time
+   slot than right now.
+8. Desktop: Dispatch -> type into the search box, or pick a category/
+   stage filter -> confirm both the unassigned shelf and the scheduled
+   blocks on technician rows narrow to match -> Clear filters -> confirm
+   everything reappears.
+9. Desktop and mobile Calendar -> confirm events render as solid colored
+   tiles (not a thin colored edge on a gray row), and that job/task/
+   personal/general events show different colors matching Settings'
+   Calendar colors on both platforms now.
+10. Open a quote -> "PO number" -> + Add -> type one -> Save -> confirm
+    it shows -> export/preview the PDF -> confirm a "PO" line appears.
+    Clear it back to empty -> confirm the PDF's PO line disappears
+    entirely. Same check on an invoice.
+11. Open a quote with a client that has a name/email on file -> "Send
+    Quote via Email" -> confirm the subject/body show the client's actual
+    name and company details instead of `{client_full_name}`/
+    `{company_name}` placeholders, and that the accept/decline links in
+    the body are real working links, not empty. Same check on an invoice.
+
+### Known gaps / judgment calls
+
+- **`profiles.role` (admin/technician) is still not customisable** - see
+  above; a full custom-role/permission system was scoped out as too big
+  and too security-sensitive for this pass. `job_title` covers the
+  "identify what they actually do" half of the request without touching
+  any RLS policy.
+- **Mobile has no upload UI for price book images** - unchanged from
+  section 56, still desktop-only; this batch only fixed the *display*
+  clipping bug on mobile's existing (read-only) tiles.
+- **The boolean-toggle connector fix is a fixed allowlist, not a generic
+  mechanism** - `BOOLEAN_COLUMNS_BY_TABLE` in `connector.ts` has to be
+  updated by hand if a new boolean-shaped `column.integer` field is added
+  to the PowerSync schema later and gets written to from a mobile screen;
+  nothing enforces that today.
+- **The "in-modal switch template" dropdown inside `EmailComposeModal`
+  still inserts a raw, unrendered template** when a different template is
+  picked *after* the composer is already open (as opposed to the initial
+  "Send Quote/Invoice via Email" prefill, which is fixed) - fixing that
+  properly means plumbing a render context/callback through the shared
+  component for every one of its callers (job's free-form email button
+  has no single obvious entity context to render against), which was out
+  of scope for this pass. The initial prefill this batch fixed is the
+  path the user actually reported.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean across
+  `apps/desktop`, `apps/mobile`, `packages/shared`; a production
+  `vite build` clean for `apps/desktop`; the PostgREST boolean/numeric
+  cast failure empirically reproduced against a real local Postgres 16
+  instance via `node-postgres` before writing the fix (not just inferred
+  from documentation); and all three new migrations applied and sanity-
+  tested (inserts, defaults, bucket/RLS policies where applicable)
+  against real local Postgres 16 instances.

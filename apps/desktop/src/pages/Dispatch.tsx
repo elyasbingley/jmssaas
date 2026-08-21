@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile } from "@jmssaas/shared";
+import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile, ServiceCategory } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { addDays, isSameDay } from "../lib/datetime";
 import { formatClientAddress } from "../lib/format";
@@ -73,6 +73,11 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   if (error) throw error;
   return data as JobLifecycleStage[];
 }
+async function fetchCategories(): Promise<ServiceCategory[]> {
+  const { data, error } = await supabase.from("service_categories").select("*").order("name");
+  if (error) throw error;
+  return data as ServiceCategory[];
+}
 
 function dayStartFor(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), DAY_START_HOUR, 0, 0, 0);
@@ -92,6 +97,24 @@ function clamp(value: number, min: number, max: number): number {
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Same three controls ServiceM8's own dispatch board search/filter offers
+// (free-text search plus category/stage narrowing) - applied identically
+// to the unassigned shelf and to which scheduled blocks show on the
+// technician rows, so filtering narrows the whole board rather than just
+// the jobs still waiting to be dispatched.
+function jobMatchesFilters(
+  job: JobCardRow,
+  filters: { search: string; categoryId: string; stageId: string }
+): boolean {
+  if (filters.categoryId && job.service_category_id !== filters.categoryId) return false;
+  if (filters.stageId && job.lifecycle_stage_id !== filters.stageId) return false;
+  if (filters.search) {
+    const haystack = `${job.title} ${job.clients?.name ?? ""}`.toLowerCase();
+    if (!haystack.includes(filters.search.toLowerCase())) return false;
+  }
+  return true;
 }
 
 interface DragData {
@@ -228,8 +251,14 @@ export default function DispatchPage() {
   const { data: technicians } = useQuery({ queryKey: ["technicians"], queryFn: fetchTechnicians });
   const { data: events } = useQuery({ queryKey: ["dispatch-events"], queryFn: fetchEvents });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
+  const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
 
   const [dragError, setDragError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const trimmedSearch = search.trim();
+  const hasActiveFilters = !!(trimmedSearch || categoryFilter || stageFilter);
 
   // Jobs already in a closed stage (is_closed on job_lifecycle_stages - the
   // default Completed/Invoiced stages, or any custom stage an admin marks
@@ -237,21 +266,33 @@ export default function DispatchPage() {
   // this replaced a status !== 'completed' && status !== 'invoiced' check
   // when the status column was dropped (see the
   // job_status_lifecycle_consolidation migration).
+  //
+  // "Scheduled" is compared against the start of today, not the exact
+  // current moment - comparing against `now` meant a job scheduled for
+  // later today at a clock time earlier than right now (e.g. dropping it
+  // onto a 9am slot mid-afternoon) was already "in the past" the instant
+  // it was created, so it never left the unassigned shelf (same bug fixed
+  // in the mobile Schedule screen's own equivalent computation).
   const unassignedJobs = useMemo(() => {
     if (!jobCards || !events || !stages) return [];
-    const now = new Date();
-    const scheduledJobIds = new Set(events.filter((e) => new Date(e.start_at) >= now).map((e) => e.job_card_id));
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const scheduledJobIds = new Set(events.filter((e) => new Date(e.start_at) >= startOfToday).map((e) => e.job_card_id));
     const closedStageIds = new Set(stages.filter((s) => s.is_closed).map((s) => s.id));
+    const filters = { search: trimmedSearch, categoryId: categoryFilter, stageId: stageFilter };
     return jobCards.filter(
-      (job) => !scheduledJobIds.has(job.id) && !closedStageIds.has(job.lifecycle_stage_id ?? "")
+      (job) =>
+        !scheduledJobIds.has(job.id) && !closedStageIds.has(job.lifecycle_stage_id ?? "") && jobMatchesFilters(job, filters)
     );
-  }, [jobCards, events, stages]);
+  }, [jobCards, events, stages, trimmedSearch, categoryFilter, stageFilter]);
 
   const eventsByTechnician = useMemo(() => {
     const map = new Map<string, CalendarEventRow[]>();
     if (!events) return map;
+    const filters = { search: trimmedSearch, categoryId: categoryFilter, stageId: stageFilter };
     for (const event of events) {
       if (!isSameDay(new Date(event.start_at), selectedDate)) continue;
+      if (event.job_cards && !jobMatchesFilters(event.job_cards, filters)) continue;
       const techId = event.job_cards?.assigned_technician_id;
       if (!techId) continue;
       if (!map.has(techId)) map.set(techId, []);
@@ -259,7 +300,7 @@ export default function DispatchPage() {
     }
     for (const list of map.values()) list.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
     return map;
-  }, [events, selectedDate]);
+  }, [events, selectedDate, trimmedSearch, categoryFilter, stageFilter]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["dispatch-job-cards"] });
@@ -429,6 +470,52 @@ export default function DispatchPage() {
 
         {dragError ? <p className="mb-2 text-sm text-red-600">{dragError}</p> : null}
 
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search jobs or clients..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+          >
+            <option value="">All categories</option>
+            {(categories ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+          >
+            <option value="">All stages</option>
+            {(stages ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {hasActiveFilters ? (
+            <button
+              onClick={() => {
+                setSearch("");
+                setCategoryFilter("");
+                setStageFilter("");
+              }}
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+
         <div
           ref={setUnassignedRef}
           className={`mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3 ${isOverUnassigned ? "bg-blue-50" : ""}`}
@@ -438,7 +525,9 @@ export default function DispatchPage() {
             remove it)
           </p>
           {unassignedJobs.length === 0 ? (
-            <p className="text-sm text-gray-500">Nothing waiting to be scheduled.</p>
+            <p className="text-sm text-gray-500">
+              {hasActiveFilters ? "No unassigned jobs match your filters." : "Nothing waiting to be scheduled."}
+            </p>
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {unassignedJobs.map((job) => (

@@ -293,6 +293,7 @@ export function buildQuotePdfHtml(params: {
       <div class="dates-block">
         <div class="date-row"><span class="date-label">Quote date</span><span class="date-value">${formatDate(quote.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Expiry date</span><span class="date-value">${formatDate(quote.expiry_date)}</span></div>
+        ${quote.po_number ? `<div class="date-row"><span class="date-label">PO</span><span class="date-value">${escapeHtml(quote.po_number)}</span></div>` : ""}
       </div>
     </div>
 
@@ -336,6 +337,7 @@ export function buildInvoicePdfHtml(params: {
         <div class="date-row"><span class="date-label">Invoice date</span><span class="date-value">${formatDate(invoice.issue_date)}</span></div>
         <div class="date-row"><span class="date-label">Terms</span><span class="date-value">${escapeHtml(terms)}</span></div>
         <div class="date-row"><span class="date-label">Due date</span><span class="date-value">${formatDate(invoice.due_date)}</span></div>
+        ${invoice.po_number ? `<div class="date-row"><span class="date-label">PO</span><span class="date-value">${escapeHtml(invoice.po_number)}</span></div>` : ""}
       </div>
     </div>
 

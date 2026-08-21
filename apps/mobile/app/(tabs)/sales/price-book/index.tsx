@@ -86,7 +86,9 @@ export default function PriceBookScreen() {
               ) : (
                 <View style={styles.tilePlain}>
                   <Text style={styles.tileEmoji}>📋</Text>
-                  <Text style={styles.tileLabel}>{category.name}</Text>
+                  <Text style={styles.tileLabel} numberOfLines={2}>
+                    {category.name}
+                  </Text>
                 </View>
               )}
             </Pressable>
@@ -132,7 +134,11 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   tile: {
     width: "46%",
-    aspectRatio: 1.3,
+    // Shorter than 1.3 - a two-word category name wrapping to 2 lines plus
+    // the emoji needs more vertical room than that left, and this tile
+    // clips overflow (see tileImageBg's rounded corners) so text that
+    // didn't fit was silently cut off rather than just looking cramped.
+    aspectRatio: 1.05,
     borderRadius: 16,
     overflow: "hidden",
   },

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
+import * as ImagePicker from "expo-image-picker";
+import { decode as decodeBase64 } from "base64-arraybuffer";
 import {
   createInventoryItemSchema,
   createInventoryLocationSchema,
@@ -24,6 +26,8 @@ import { getErrorMessage } from "../../../../lib/errors";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
 import { PickerModal } from "../../../../components/PickerModal";
+
+const INVENTORY_IMAGE_BUCKET = "inventory-images";
 
 // Multi-location stock tracking over inventory's own standalone catalogue
 // (inventory_items, organised by inventory_categories/inventory_
@@ -202,6 +206,15 @@ export default function InventoryScreen() {
   const [itemSupplierPickerVisible, setItemSupplierPickerVisible] = useState(false);
   const [itemError, setItemError] = useState<string | null>(null);
 
+  // Tile image - deferred upload (only actually uploaded when Save is
+  // pressed, same as desktop's price book category/item modals) rather
+  // than uploading the moment a photo is picked, so cancelling the modal
+  // never leaves an orphaned upload behind. `newItemImageAsset` is only
+  // set when the admin picks a NEW photo this session; with nothing
+  // picked, `editingItem?.image_url` (if any) is left untouched on save.
+  const [newItemImageAsset, setNewItemImageAsset] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
+  const [newItemImageRemoved, setNewItemImageRemoved] = useState(false);
+
   const openNewItemModal = () => {
     setEditingItem(null);
     setNewItemName("");
@@ -210,6 +223,8 @@ export default function InventoryScreen() {
     setNewItemSupplier(null);
     setNewItemReorderThreshold("5");
     setNewItemIdealStock("10");
+    setNewItemImageAsset(null);
+    setNewItemImageRemoved(false);
     setItemError(null);
     setItemModalVisible(true);
   };
@@ -222,13 +237,31 @@ export default function InventoryScreen() {
     setNewItemSupplier(item.supplier_id ? (supplierById.get(item.supplier_id) ?? null) : null);
     setNewItemReorderThreshold(String(item.reorder_threshold));
     setNewItemIdealStock(String(item.ideal_stock));
+    setNewItemImageAsset(null);
+    setNewItemImageRemoved(false);
     setItemError(null);
     setItemModalVisible(true);
+  };
+
+  const pickItemImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Enable photo access in Settings to attach a photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.7, allowsEditing: true });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset?.base64) return;
+    setNewItemImageAsset({ uri: asset.uri, base64: asset.base64, mimeType: asset.mimeType ?? "image/jpeg" });
+    setNewItemImageRemoved(false);
   };
 
   const newItemSubcategoryOptions = newItemCategory
     ? subcategories.filter((s) => s.category_id === newItemCategory.id)
     : [];
+
+  const [savingItem, setSavingItem] = useState(false);
 
   const handleSaveItem = async () => {
     const result = createInventoryItemSchema.safeParse({
@@ -244,42 +277,65 @@ export default function InventoryScreen() {
       return;
     }
     if (!profile) return;
-    const now = new Date().toISOString();
-    if (editingItem) {
-      await powersync.execute(
-        `UPDATE inventory_items
-         SET category_id = ?, subcategory_id = ?, supplier_id = ?, name = ?, reorder_threshold = ?, ideal_stock = ?, updated_at = ?
-         WHERE id = ?`,
-        [
-          result.data.category_id,
-          result.data.subcategory_id ?? null,
-          result.data.supplier_id ?? null,
-          result.data.name,
-          result.data.reorder_threshold,
-          result.data.ideal_stock,
-          now,
-          editingItem.id,
-        ]
-      );
-    } else {
-      await powersync.execute(
-        `INSERT INTO inventory_items (id, tenant_id, category_id, subcategory_id, supplier_id, name, reorder_threshold, ideal_stock, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          uuidv4(),
-          profile.tenant_id,
-          result.data.category_id,
-          result.data.subcategory_id ?? null,
-          result.data.supplier_id ?? null,
-          result.data.name,
-          result.data.reorder_threshold,
-          result.data.ideal_stock,
-          now,
-          now,
-        ]
-      );
+
+    setSavingItem(true);
+    setItemError(null);
+    try {
+      let imageUrl: string | null = newItemImageRemoved ? null : (editingItem?.image_url ?? null);
+      if (newItemImageAsset) {
+        const extension = newItemImageAsset.mimeType.includes("png") ? "png" : "jpg";
+        const path = `${profile.tenant_id}/item-${Date.now()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from(INVENTORY_IMAGE_BUCKET)
+          .upload(path, decodeBase64(newItemImageAsset.base64), { contentType: newItemImageAsset.mimeType, upsert: true });
+        if (uploadError) throw uploadError;
+        imageUrl = supabase.storage.from(INVENTORY_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+      }
+
+      const now = new Date().toISOString();
+      if (editingItem) {
+        await powersync.execute(
+          `UPDATE inventory_items
+           SET category_id = ?, subcategory_id = ?, supplier_id = ?, name = ?, reorder_threshold = ?, ideal_stock = ?, image_url = ?, updated_at = ?
+           WHERE id = ?`,
+          [
+            result.data.category_id,
+            result.data.subcategory_id ?? null,
+            result.data.supplier_id ?? null,
+            result.data.name,
+            result.data.reorder_threshold,
+            result.data.ideal_stock,
+            imageUrl,
+            now,
+            editingItem.id,
+          ]
+        );
+      } else {
+        await powersync.execute(
+          `INSERT INTO inventory_items (id, tenant_id, category_id, subcategory_id, supplier_id, name, reorder_threshold, ideal_stock, image_url, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuidv4(),
+            profile.tenant_id,
+            result.data.category_id,
+            result.data.subcategory_id ?? null,
+            result.data.supplier_id ?? null,
+            result.data.name,
+            result.data.reorder_threshold,
+            result.data.ideal_stock,
+            imageUrl,
+            now,
+            now,
+          ]
+        );
+      }
+      setItemModalVisible(false);
+    } catch (e) {
+      console.error("[Inventory] Failed to save item", e);
+      setItemError(getErrorMessage(e, "Failed to save item"));
+    } finally {
+      setSavingItem(false);
     }
-    setItemModalVisible(false);
   };
 
   const [generatingList, setGeneratingList] = useState(false);
@@ -414,6 +470,8 @@ export default function InventoryScreen() {
               <FlatList
                 data={visibleItems}
                 keyExtractor={(item) => item.id}
+                numColumns={2}
+                columnWrapperStyle={styles.tileRow}
                 contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
                 renderItem={({ item }) => {
                   const level = selectedLocationId ? levelByKey.get(`${selectedLocationId}:${item.id}`) : undefined;
@@ -421,16 +479,32 @@ export default function InventoryScreen() {
                   const isLow = level ? level.quantity <= item.reorder_threshold : false;
                   const supplier = item.supplier_id ? supplierById.get(item.supplier_id) : undefined;
                   return (
-                    <View style={styles.itemCard}>
+                    <View style={styles.tile}>
                       <Pressable
-                        style={{ flex: 1 }}
+                        style={styles.tileTouchable}
                         onPress={isAdmin ? () => openEditItemModal(item) : undefined}
                         disabled={!isAdmin}
                       >
-                        <Text style={styles.itemName}>{item.name}</Text>
-                        {supplier ? <Text style={styles.itemMeta}>{supplier.name}</Text> : null}
+                        {item.image_url ? (
+                          <ImageBackground source={{ uri: item.image_url }} style={styles.tileImageBg}>
+                            <View style={styles.tileImageOverlay}>
+                              <Text style={styles.tileImageLabel} numberOfLines={2}>
+                                {item.name}
+                              </Text>
+                              {supplier ? <Text style={styles.tileImageMeta}>{supplier.name}</Text> : null}
+                            </View>
+                          </ImageBackground>
+                        ) : (
+                          <View style={styles.tilePlain}>
+                            <Text style={styles.tileEmoji}>📦</Text>
+                            <Text style={styles.tileLabel} numberOfLines={2}>
+                              {item.name}
+                            </Text>
+                            {supplier ? <Text style={styles.itemMeta}>{supplier.name}</Text> : null}
+                          </View>
+                        )}
                         {isLow ? (
-                          <View style={[styles.stockBadge, quantity === 0 && styles.stockBadgeOut]}>
+                          <View style={[styles.stockBadge, styles.tileStockBadge, quantity === 0 && styles.stockBadgeOut]}>
                             <Text style={[styles.stockBadgeText, quantity === 0 && styles.stockBadgeTextOut]}>
                               {quantity === 0 ? "Out of stock" : "Low stock"}
                             </Text>
@@ -573,7 +647,35 @@ export default function InventoryScreen() {
 
       <CenteredModal visible={itemModalVisible} onClose={() => setItemModalVisible(false)}>
         <Text style={styles.modalTitle}>{editingItem ? "Edit item" : "New item"}</Text>
-        <FormField label="Name" placeholder='e.g. "Silicone tube - clear"' value={newItemName} onChangeText={setNewItemName} />
+
+        {newItemImageAsset ? (
+          <Image source={{ uri: newItemImageAsset.uri }} style={styles.itemImagePreview} />
+        ) : editingItem?.image_url && !newItemImageRemoved ? (
+          <Image source={{ uri: editingItem.image_url }} style={styles.itemImagePreview} />
+        ) : (
+          <View style={[styles.itemImagePreview, styles.itemImagePreviewEmpty]}>
+            <Text style={styles.itemImagePreviewEmptyText}>No photo</Text>
+          </View>
+        )}
+        <View style={styles.itemImageActions}>
+          <Pressable onPress={pickItemImage}>
+            <Text style={styles.link}>{editingItem?.image_url || newItemImageAsset ? "Change photo" : "+ Add photo"}</Text>
+          </Pressable>
+          {(newItemImageAsset || (editingItem?.image_url && !newItemImageRemoved)) ? (
+            <Pressable
+              onPress={() => {
+                setNewItemImageAsset(null);
+                setNewItemImageRemoved(true);
+              }}
+            >
+              <Text style={styles.removeLink}>Remove</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.fieldSpacing}>
+          <FormField label="Name" placeholder='e.g. "Silicone tube - clear"' value={newItemName} onChangeText={setNewItemName} />
+        </View>
 
         <View style={styles.fieldSpacing}>
           <Pressable style={styles.pickerField} onPress={() => setItemCategoryPickerVisible(true)}>
@@ -634,8 +736,8 @@ export default function InventoryScreen() {
           <Pressable onPress={() => setItemModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveItem}>
-            <Text style={styles.buttonText}>Save</Text>
+          <Pressable style={styles.button} onPress={handleSaveItem} disabled={savingItem}>
+            <Text style={styles.buttonText}>{savingItem ? "Saving..." : "Save"}</Text>
           </Pressable>
         </View>
       </CenteredModal>
@@ -693,22 +795,35 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: "#1d4ed8" },
   chipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
   chipTextActive: { color: "#fff" },
-  itemCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f9fafb",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    gap: 12,
+  tileRow: { justifyContent: "space-between" },
+  tile: { width: "48%", marginBottom: 12 },
+  tileTouchable: {
+    aspectRatio: 1.05,
+    borderRadius: 16,
+    overflow: "hidden",
   },
+  tilePlain: {
+    flex: 1,
+    backgroundColor: "#f9fafb",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    padding: 10,
+  },
+  tileEmoji: { fontSize: 28 },
+  tileLabel: { fontSize: 14, fontWeight: "700", color: "#111827", textAlign: "center" },
+  tileImageBg: { flex: 1, justifyContent: "flex-end" },
+  tileImageOverlay: { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, gap: 2 },
+  tileImageLabel: { fontSize: 14, fontWeight: "700", color: "#fff", textAlign: "center" },
+  tileImageMeta: { fontSize: 11, color: "#e5e7eb", textAlign: "center" },
+  tileStockBadge: { position: "absolute", top: 8, right: 8, marginTop: 0 },
   itemName: { fontSize: 15, fontWeight: "600", color: "#111827" },
   itemMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   stockBadge: { alignSelf: "flex-start", backgroundColor: "#fef3c7", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginTop: 6 },
   stockBadgeOut: { backgroundColor: "#fee2e2" },
   stockBadgeText: { fontSize: 11, fontWeight: "700", color: "#92400e" },
   stockBadgeTextOut: { color: "#dc2626" },
-  qtyControls: { flexDirection: "row", alignItems: "center", gap: 10 },
+  qtyControls: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
   qtyButton: {
     width: 34,
     height: 34,
@@ -721,6 +836,11 @@ const styles = StyleSheet.create({
   qtyValue: { fontSize: 16, fontWeight: "700", color: "#111827", minWidth: 24, textAlign: "center" },
   newItemButton: { backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, alignItems: "center", marginTop: 4 },
   newItemButtonText: { color: "#1d4ed8", fontWeight: "700" },
+  itemImagePreview: { width: "100%", height: 140, borderRadius: 12, backgroundColor: "#f3f4f6" },
+  itemImagePreviewEmpty: { alignItems: "center", justifyContent: "center" },
+  itemImagePreviewEmptyText: { color: "#9ca3af", fontSize: 13 },
+  itemImageActions: { flexDirection: "row", gap: 20, marginTop: 8 },
+  removeLink: { color: "#dc2626", fontWeight: "600" },
   lowStockRow: {
     flexDirection: "row",
     alignItems: "center",

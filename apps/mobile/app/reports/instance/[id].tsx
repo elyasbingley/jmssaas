@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -678,17 +679,28 @@ function ReportPhotoField({
     await upload(asset.base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
   };
 
+  // Reads each picked asset back off disk rather than relying on
+  // ImagePicker's own `base64: true` option, which is unreliable once
+  // `allowsMultipleSelection` triggers the native multi-select picker -
+  // see PhotoAttachments.tsx's own comment on this exact bug ("Choose
+  // photos" silently doing nothing because every asset came back with no
+  // base64 and the loop just skipped it).
   const pickFromLibrary = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert("Permission needed", "Enable photo access in Settings to attach photos.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.6, allowsMultipleSelection: true });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.6, allowsMultipleSelection: true });
     if (result.canceled) return;
     for (const asset of result.assets) {
-      if (!asset.base64) continue;
-      await upload(asset.base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
+      try {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        await upload(base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
+      } catch (e) {
+        console.error("[ReportInstance] Failed to read picked photo", e);
+        Alert.alert("Failed to attach photo", "One of the selected photos couldn't be read.");
+      }
     }
   };
 

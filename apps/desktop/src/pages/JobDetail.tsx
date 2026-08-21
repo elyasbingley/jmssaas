@@ -25,6 +25,7 @@ import {
   type Quote,
   type QuoteLineItem,
   type PurchaseOrder,
+  type ReferralPartner,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
@@ -44,6 +45,7 @@ import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
+import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -121,6 +123,11 @@ async function fetchProperty(id: string): Promise<Property> {
   const { data, error } = await supabase.from("properties").select("*").eq("id", id).single();
   if (error) throw error;
   return data as Property;
+}
+async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as ReferralPartner;
 }
 
 async function fetchCategories(): Promise<ServiceCategory[]> {
@@ -291,6 +298,11 @@ export default function JobDetailPage() {
     queryKey: ["property", job?.property_id],
     queryFn: () => fetchProperty(job!.property_id!),
     enabled: !!job?.property_id,
+  });
+  const { data: referralPartner } = useQuery({
+    queryKey: ["referral-partner", job?.referral_partner_id],
+    queryFn: () => fetchReferralPartner(job!.referral_partner_id!),
+    enabled: !!job?.referral_partner_id,
   });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
@@ -631,6 +643,7 @@ export default function JobDetailPage() {
 
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
   const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
+  const [referralModalOpen, setReferralModalOpen] = useState(false);
 
   // Free-form job card email - similar to ServiceM8's per-job "Email"
   // button: pick a template (or write from scratch), review/edit the body,
@@ -779,6 +792,15 @@ export default function JobDetailPage() {
           ) : (
             <p className="mt-1 text-gray-400">No WorkDrive link for this job yet.</p>
           )}
+        </div>
+
+        <div className="mb-4 flex items-center justify-between rounded-md border border-gray-300 p-3 text-sm">
+          <span className="text-gray-600">
+            Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}
+          </span>
+          <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {job.referral_partner_id ? "Edit" : "+ Add"}
+          </button>
         </div>
 
         {job.is_real_estate_job ? (
@@ -1412,6 +1434,14 @@ export default function JobDetailPage() {
         onClose={() => setWorkOrderModalOpen(false)}
         jobCardId={job.id}
         currentValue={job.work_order_number}
+      />
+
+      <ReferralPartnerModal
+        open={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        table="job_cards"
+        recordId={job.id}
+        currentValue={job.referral_partner_id}
       />
 
       <EmailComposeModal

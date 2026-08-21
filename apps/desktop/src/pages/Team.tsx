@@ -7,21 +7,51 @@ import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField } from "../components/FormField";
 
-async function fetchTechnicians(): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+async function fetchTeamMembers(): Promise<Profile[]> {
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
   if (error) throw error;
   return data as Profile[];
 }
 
 const emptyForm = { fullName: "", email: "", password: "" };
+const ROLE_LABELS: Record<Profile["role"], string> = { admin: "Admin", technician: "Technician" };
 
 export default function TeamPage() {
   const queryClient = useQueryClient();
-  const { data: technicians, isLoading } = useQuery({ queryKey: ["technicians"], queryFn: fetchTechnicians });
+  const { data: teamMembers, isLoading } = useQuery({ queryKey: ["team-members"], queryFn: fetchTeamMembers });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [editingMember, setEditingMember] = useState<Profile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editJobTitle, setEditJobTitle] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEditModal = (member: Profile) => {
+    setEditingMember(member);
+    setEditName(member.full_name);
+    setEditJobTitle(member.job_title ?? "");
+    setEditError(null);
+  };
+
+  const saveEdit = useMutation({
+    mutationFn: async () => {
+      if (!editingMember) throw new Error("No team member selected");
+      if (!editName.trim()) throw new Error("Name is required");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ full_name: editName.trim(), job_title: editJobTitle.trim() || null })
+        .eq("id", editingMember.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["team-members"] });
+      setEditingMember(null);
+    },
+    onError: (e) => setEditError(getErrorMessage(e, "Failed to save")),
+  });
 
   const createTechnician = useMutation({
     mutationFn: async () => {
@@ -50,7 +80,7 @@ export default function TeamPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["team-members"] });
       setModalOpen(false);
       setForm(emptyForm);
       setFormError(null);
@@ -63,7 +93,7 @@ export default function TeamPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Team</h1>
-          <p className="text-sm text-gray-500">Technicians who can sign in to the mobile app.</p>
+          <p className="text-sm text-gray-500">Everyone with sign-in access, and their role in the company.</p>
         </div>
         <button
           onClick={() => setModalOpen(true)}
@@ -76,21 +106,39 @@ export default function TeamPage() {
       <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
-        ) : !technicians || technicians.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No technicians yet.</p>
+        ) : !teamMembers || teamMembers.length === 0 ? (
+          <p className="p-6 text-sm text-gray-500">No team members yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
+                <th className="px-4 py-2 font-semibold">Job title</th>
+                <th className="px-4 py-2 font-semibold">Role</th>
                 <th className="px-4 py-2 font-semibold">Email</th>
+                <th className="px-4 py-2 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
-              {technicians.map((tech) => (
-                <tr key={tech.id} className="border-b border-gray-200 last:border-0">
-                  <td className="px-4 py-3 font-medium text-gray-900">{tech.full_name}</td>
-                  <td className="px-4 py-3 text-gray-600">{tech.email}</td>
+              {teamMembers.map((member) => (
+                <tr key={member.id} className="border-b border-gray-200 last:border-0">
+                  <td className="px-4 py-3 font-medium text-gray-900">{member.full_name}</td>
+                  <td className="px-4 py-3 text-gray-600">{member.job_title ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        member.role === "admin" ? "bg-blue-100 text-blue-800" : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      {ROLE_LABELS[member.role]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{member.email}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => openEditModal(member)} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -132,6 +180,29 @@ export default function TeamPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {createTechnician.isPending ? "Creating..." : "Create"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={!!editingMember} onClose={() => setEditingMember(null)} title="Edit team member">
+        <FormField label="Full name" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="e.g. Sam Taylor" />
+        <FormField
+          label="Job title (optional)"
+          value={editJobTitle}
+          onChange={(e) => setEditJobTitle(e.target.value)}
+          placeholder="e.g. Foreman, Office Manager, Apprentice"
+        />
+        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setEditingMember(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveEdit.mutate()}
+            disabled={saveEdit.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveEdit.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

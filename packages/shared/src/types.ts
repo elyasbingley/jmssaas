@@ -66,6 +66,10 @@ export interface Profile {
   full_name: string;
   email: string;
   phone: string | null;
+  // Free-text position/title (e.g. "Foreman", "Office Manager") - purely
+  // organisational, distinct from `role` which is the fixed admin/
+  // technician value every RLS policy and permission check keys off.
+  job_title: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -455,6 +459,10 @@ export interface Quote {
   referral_partner_id: string | null;
   referral_fee_paid: boolean;
   referral_fee_amount_cents: number | null;
+  // Client-supplied purchase order reference - optional, any client type
+  // (not the real-estate/strata-only job_cards.work_order_number). Shown
+  // on the PDF only when set.
+  po_number: string | null;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -517,6 +525,10 @@ export interface Invoice {
   // contact fields instead - see InvoiceDetail.tsx's "Bill to" control.
   // False (the default) is identical to this app's pre-existing behaviour.
   bill_to_landlord: boolean;
+  // Client-supplied purchase order reference - optional, any client type
+  // (not the real-estate/strata-only job_cards.work_order_number). Shown
+  // on the PDF only when set.
+  po_number: string | null;
 }
 
 export interface InvoiceLineItem extends LineItemInput {
@@ -762,6 +774,9 @@ export interface InventoryItem {
   // distinct from reorder_threshold (the alert point) - see
   // suggestedReorderQuantity in apps/mobile/lib/pdf.ts.
   ideal_stock: number;
+  // Shown as the mobile inventory tile's background image (name overlaid
+  // at the bottom), same treatment as price book category/item tiles.
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }

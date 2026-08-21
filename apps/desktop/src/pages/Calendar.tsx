@@ -419,12 +419,16 @@ export default function CalendarPage() {
     }
   };
 
+  // Full-tile fill, not just a colored left edge - matches Google
+  // Calendar's own event styling (a solid block in the category's color
+  // with white text), rather than the previous gray chip with a colored
+  // accent bar.
   const renderEventChip = (event: CalendarEventRow, dense = false) => (
     <button
       key={event.id}
       onClick={(e) => openPopover(event, e)}
-      style={{ borderLeftColor: colorFor(event) }}
-      className={`block w-full truncate border-l-4 bg-gray-50 px-1.5 text-left text-xs text-gray-800 hover:bg-gray-100 ${dense ? "py-0.5" : "py-1"}`}
+      style={{ backgroundColor: colorFor(event) }}
+      className={`block w-full truncate rounded px-1.5 text-left text-xs font-medium text-white opacity-90 hover:opacity-100 ${dense ? "py-0.5" : "py-1"}`}
     >
       {event.title}
     </button>
@@ -434,11 +438,11 @@ export default function CalendarPage() {
     <button
       key={event.id}
       onClick={(e) => openPopover(event, e)}
-      style={{ borderLeftColor: colorFor(event) }}
-      className="block w-full border-b border-l-4 border-gray-200 py-2 pl-2 text-left last:border-b-0 hover:bg-gray-50"
+      style={{ backgroundColor: colorFor(event) }}
+      className="mb-1 block w-full rounded px-2 py-2 text-left opacity-90 last:mb-0 hover:opacity-100"
     >
-      <p className="text-xs font-semibold text-blue-700">{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</p>
-      <p className="text-sm font-medium text-gray-900">{event.title}</p>
+      <p className="text-xs font-semibold text-white/80">{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</p>
+      <p className="text-sm font-medium text-white">{event.title}</p>
     </button>
   );
 

@@ -66,17 +66,24 @@ export default function ScheduleScreen() {
 
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  // "Unassigned" = no calendar event linking this job that's still in the
-  // future - a job whose only scheduled visit already happened is back in
-  // the queue, same as one that was never scheduled at all. Jobs already in
-  // a closed stage (is_closed on job_lifecycle_stages - the default
+  // "Unassigned" = no calendar event linking this job scheduled today or
+  // later - a job whose only scheduled visit is a past *day* is back in
+  // the queue, same as one that was never scheduled at all. Compared
+  // against the start of today, not the exact current moment: comparing
+  // against "now" meant a job scheduled for later today at a time earlier
+  // than the current clock time (e.g. this screen's own "new event"
+  // default of 9am, picked mid-afternoon) was already "in the past" the
+  // instant it was created, so it never left this list - the "assign an
+  // unassigned job but it stays in Unassigned" bug. Jobs already in a
+  // closed stage (is_closed on job_lifecycle_stages - the default
   // Completed/Invoiced stages, or any custom stage an admin marks the same
   // way) are excluded since there's nothing left to dispatch.
   const unassignedJobs = useMemo(() => {
     if (!data) return [];
-    const now = new Date();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
     const scheduledJobIds = new Set(
-      data.events.filter((e) => new Date(e.start_at) >= now).map((e) => e.job_card_id)
+      data.events.filter((e) => new Date(e.start_at) >= startOfToday).map((e) => e.job_card_id)
     );
     const closedStageIds = new Set(data.stages.filter((s) => s.is_closed).map((s) => s.id));
     return data.jobCards.filter(

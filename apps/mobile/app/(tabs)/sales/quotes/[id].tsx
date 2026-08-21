@@ -5,6 +5,7 @@ import {
   calculateDocumentTotals,
   collectRecipientEmails,
   formatCentsAsAud,
+  renderTemplate,
   type ApprovalStatus,
   type Client,
   type ClientContact,
@@ -12,6 +13,7 @@ import {
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
+  type ReferralPartner,
   type Tenant,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
@@ -28,6 +30,8 @@ import { CenteredModal } from "../../../../components/CenteredModal";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
+import { PickerModal } from "../../../../components/PickerModal";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 const STATUS_LABELS: Record<QuoteStatus, string> = {
@@ -81,6 +85,40 @@ export default function QuoteDetailScreen() {
     if (itemsError) throw itemsError;
     return { quote: quote as QuoteRow, items: (items ?? []) as LineItemFormInput[] };
   }, [id, isOnline]);
+
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
+  const [referralPickerVisible, setReferralPickerVisible] = useState(false);
+  const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === data?.quote.referral_partner_id) ?? null;
+
+  const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
+    const { error } = await supabase.from("quotes").update({ referral_partner_id: partner?.id ?? null }).eq("id", id);
+    if (!error) refetch();
+  };
+
+  const [poModalVisible, setPoModalVisible] = useState(false);
+  const [poNumberInput, setPoNumberInput] = useState("");
+  const [poError, setPoError] = useState<string | null>(null);
+  const [poSaving, setPoSaving] = useState(false);
+
+  const handleSavePoNumber = async () => {
+    setPoSaving(true);
+    setPoError(null);
+    try {
+      const { error } = await supabase.from("quotes").update({ po_number: poNumberInput.trim() || null }).eq("id", id);
+      if (error) throw error;
+      setPoModalVisible(false);
+      refetch();
+    } catch (e) {
+      setPoError(getErrorMessage(e, "Failed to save PO number"));
+    } finally {
+      setPoSaving(false);
+    }
+  };
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -304,13 +342,53 @@ export default function QuoteDetailScreen() {
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Quote Delivery' email template found");
       setQuoteTemplateId(template.id);
-      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+
+      const { data: tenantRow } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+      const tenant = tenantRow as Tenant;
+
+      // Render tags against this specific client/quote before showing the
+      // composer - same fix as desktop's QuoteDetail.tsx, and safe for the
+      // same reason: process-scheduled-comms always re-renders rendered_
+      // subject/rendered_body against fresh data at actual send time
+      // regardless (see that function's own comment), so this only affects
+      // what the editable preview looks like, not what a stale approval
+      // link would eventually resolve to.
+      const approvalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_quote_approval_link", { p_quote_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=quote&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.quote.clients.name, phone: data.quote.clients.phone, email: data.quote.clients.email },
+        quote: {
+          quote_number: data.quote.quote_number,
+          total_cents: data.quote.total_cents,
+          issue_date: data.quote.issue_date,
+          expiry_date: data.quote.expiry_date,
+          approval_link: approvalLink,
+          accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+          decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
+        },
+      };
+      setEmailDefaults({
+        subject: template.subject ? renderTemplate(template.subject, renderContext) : "",
+        body: renderTemplate(template.body, renderContext),
+      });
 
       // Best-effort PDF auto-attach - a generation failure still lets the
       // email send without it, same as desktop.
       try {
-        const { data: tenant } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
-        const html = buildQuotePdfHtml({ tenant: tenant as Tenant, quote: data.quote, client: data.quote.clients, lineItems });
+        const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems });
         const pdfDataUri = await buildPdfDataUri(html);
         setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUri }]);
       } catch {
@@ -398,6 +476,26 @@ export default function QuoteDetailScreen() {
             <Text style={styles.link}>Job: {data.quote.job_cards.title}</Text>
           </Pressable>
         ) : null}
+
+        <View style={styles.referralRow}>
+          <Text style={styles.sectionTitle}>Referral source: {currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+          <Pressable onPress={() => setReferralPickerVisible(true)}>
+            <Text style={styles.linkButtonText}>{data.quote.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.referralRow}>
+          <Text style={styles.sectionTitle}>PO number: {data.quote.po_number ?? "Not set"}</Text>
+          <Pressable
+            onPress={() => {
+              setPoNumberInput(data.quote.po_number ?? "");
+              setPoError(null);
+              setPoModalVisible(true);
+            }}
+          >
+            <Text style={styles.linkButtonText}>{data.quote.po_number ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
 
         {data.quote.approval_status ? (
           <View
@@ -504,6 +602,30 @@ export default function QuoteDetailScreen() {
         </View>
       </CenteredModal>
 
+      <PickerModal
+        visible={referralPickerVisible}
+        title="Referral source"
+        items={[null, ...(referralPartners ?? [])]}
+        getKey={(p) => p?.id ?? "none"}
+        getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+        onSelect={handleSelectReferralPartner}
+        onClose={() => setReferralPickerVisible(false)}
+      />
+
+      <CenteredModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>
+        <Text style={styles.modalTitle}>PO number</Text>
+        <FormField label="PO number" placeholder="e.g. PO-4821" value={poNumberInput} onChangeText={setPoNumberInput} />
+        {poError ? <Text style={styles.error}>{poError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setPoModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.saveButton} onPress={handleSavePoNumber} disabled={poSaving}>
+            <Text style={styles.saveButtonText}>{poSaving ? "Saving..." : "Save"}</Text>
+          </Pressable>
+        </View>
+      </CenteredModal>
+
       <EmailComposeModal
         visible={emailModalVisible}
         onClose={() => setEmailModalVisible(false)}
@@ -525,6 +647,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "700" },
   subtitle: { color: "#6b7280", marginTop: 2 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
+  referralRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
   statusChipActive: { backgroundColor: "#1d4ed8" },

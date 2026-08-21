@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { collectRecipientEmails, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type Tenant } from "@jmssaas/shared";
+import { collectRecipientEmails, renderTemplate, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type ReferralPartner, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
@@ -16,6 +16,8 @@ import { EmailComposeModal, type EmailTemplateOption } from "../../../../compone
 import { LineItemEditor, LineItemSummary } from "../../../../components/LineItemEditor";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
+import { PickerModal } from "../../../../components/PickerModal";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -41,6 +43,7 @@ type InvoiceJobCard = {
   is_real_estate_job: boolean;
   agency_id: string | null;
   property_id: string | null;
+  referral_partner_id: string | null;
 };
 type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
@@ -66,7 +69,7 @@ export default function InvoiceDetailScreen() {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
       supabase
         .from("invoices")
-        .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id)")
+        .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id, referral_partner_id)")
         .eq("id", id)
         .single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
@@ -89,6 +92,46 @@ export default function InvoiceDetailScreen() {
     if (error) throw error;
     return data as Property;
   }, [isOnline, jobCard?.property_id]);
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
+  const [referralPickerVisible, setReferralPickerVisible] = useState(false);
+  const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === jobCard?.referral_partner_id) ?? null;
+
+  // No referral_partner_id column of its own on invoices - this writes
+  // through to the linked job_card, same field JobDetail edits directly
+  // (see the desktop equivalent's own comment on why).
+  const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
+    if (!data?.invoice.job_card_id) return;
+    const { error } = await supabase
+      .from("job_cards")
+      .update({ referral_partner_id: partner?.id ?? null })
+      .eq("id", data.invoice.job_card_id);
+    if (!error) refetch();
+  };
+
+  const [poModalVisible, setPoModalVisible] = useState(false);
+  const [poNumberInput, setPoNumberInput] = useState("");
+  const [poError, setPoError] = useState<string | null>(null);
+  const [poSaving, setPoSaving] = useState(false);
+
+  const handleSavePoNumber = async () => {
+    setPoSaving(true);
+    setPoError(null);
+    try {
+      const { error } = await supabase.from("invoices").update({ po_number: poNumberInput.trim() || null }).eq("id", id);
+      if (error) throw error;
+      setPoModalVisible(false);
+      refetch();
+    } catch (e) {
+      setPoError(getErrorMessage(e, "Failed to save PO number"));
+    } finally {
+      setPoSaving(false);
+    }
+  };
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
@@ -386,12 +429,46 @@ export default function InvoiceDetailScreen() {
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Invoice Delivery' email template found");
       setInvoiceTemplate({ id: template.id, name: template.name, subject: template.subject ?? "", body: template.body });
-      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+
+      const { data: tenantRow } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+      const tenant = tenantRow as Tenant;
+
+      // Render tags against this specific client/invoice before showing the
+      // composer - same fix as desktop's InvoiceDetail.tsx, safe for the
+      // same reason (process-scheduled-comms always re-renders at actual
+      // send time regardless - see that function's own comment).
+      const previewApprovalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+      let previewApprovalLink: string | null = null;
+      if (previewApprovalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_invoice_approval_link", { p_invoice_id: id });
+        if (token) previewApprovalLink = `${previewApprovalPageUrl}?type=invoice&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.invoice.clients.name, phone: data.invoice.clients.phone, email: data.invoice.clients.email },
+        invoice: {
+          invoice_number: data.invoice.invoice_number,
+          total_cents: data.invoice.total_cents,
+          due_date: data.invoice.due_date,
+          payment_link: previewApprovalLink,
+        },
+      };
+      setEmailDefaults({
+        subject: template.subject ? renderTemplate(template.subject, renderContext) : "",
+        body: renderTemplate(template.body, renderContext),
+      });
 
       // Best-effort PDF auto-attach - a generation failure still lets the
       // email send without it, same as desktop.
       try {
-        const { data: tenant } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
         const agencyBilling =
           jobCard?.is_real_estate_job && agency
             ? {
@@ -498,6 +575,28 @@ export default function InvoiceDetailScreen() {
           </Text>
         </Pressable>
       ) : null}
+
+      {jobCard ? (
+        <View style={styles.referralRow}>
+          <Text style={styles.sectionTitle}>Referral source: {currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+          <Pressable onPress={() => setReferralPickerVisible(true)}>
+            <Text style={styles.linkButtonText}>{jobCard.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <View style={styles.referralRow}>
+        <Text style={styles.sectionTitle}>PO number: {data.invoice.po_number ?? "Not set"}</Text>
+        <Pressable
+          onPress={() => {
+            setPoNumberInput(data.invoice.po_number ?? "");
+            setPoError(null);
+            setPoModalVisible(true);
+          }}
+        >
+          <Text style={styles.linkButtonText}>{data.invoice.po_number ? "Edit" : "+ Add"}</Text>
+        </Pressable>
+      </View>
 
       {data.invoice.approval_status ? (
         <View
@@ -682,6 +781,30 @@ export default function InvoiceDetailScreen() {
       onSend={handleSendEmail}
       sendLabel="Send invoice"
     />
+
+    <CenteredModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>
+      <Text style={styles.modalTitle}>PO number</Text>
+      <FormField label="PO number" placeholder="e.g. PO-4821" value={poNumberInput} onChangeText={setPoNumberInput} />
+      {poError ? <Text style={styles.error}>{poError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setPoModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.saveButton} onPress={handleSavePoNumber} disabled={poSaving}>
+          <Text style={styles.saveButtonText}>{poSaving ? "Saving..." : "Save"}</Text>
+        </Pressable>
+      </View>
+    </CenteredModal>
+
+    <PickerModal
+      visible={referralPickerVisible}
+      title="Referral source"
+      items={[null, ...(referralPartners ?? [])]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+      onSelect={handleSelectReferralPartner}
+      onClose={() => setReferralPickerVisible(false)}
+    />
     </>
   );
 }
@@ -691,6 +814,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "700" },
   subtitle: { color: "#6b7280", marginTop: 2 },
   sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
+  referralRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
   statusChipActive: { backgroundColor: "#1d4ed8" },
@@ -699,6 +823,7 @@ const styles = StyleSheet.create({
   fieldSpacing: { marginTop: 16 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 12 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
   billToOption: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, marginTop: 8 },
   billToOptionActive: { borderColor: "#1d4ed8", backgroundColor: "#eff6ff" },
