@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createTaskSchema, type Task, type TaskStatus } from "@jmssaas/shared";
+import { createTaskSchema, type Profile, type Task, type TaskPriority, type TaskProject, type TaskSection, type TaskStatus } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { CenteredModal } from "../../../components/CenteredModal";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
+import { PickerModal } from "../../../components/PickerModal";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -15,8 +16,11 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: "In progress",
   done: "Done",
 };
+const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
+const PRIORITY_LABELS: Record<TaskPriority, string> = { low: "Low", medium: "Medium", high: "High", urgent: "Urgent" };
 
 type StatusFilter = TaskStatus | "all";
+type QuickFilter = "all" | "mine" | "due_today";
 
 function toDateInput(d: Date | null): string | undefined {
   if (!d) return undefined;
@@ -38,23 +42,49 @@ export default function TasksScreen() {
       : "SELECT * FROM tasks WHERE assigned_to = ? ORDER BY (due_date IS NULL), due_date, created_at DESC",
     isAdmin ? [] : [profile?.id ?? ""]
   );
+  const { data: projects } = useQuery<TaskProject>("SELECT * FROM task_projects ORDER BY name");
+  const { data: profiles } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
+
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { data: sections } = useQuery<TaskSection>(
+    "SELECT * FROM task_sections WHERE project_id = ? ORDER BY position_order",
+    [selectedProjectId ?? ""]
+  );
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const filteredTasks = useMemo(
-    () => (statusFilter === "all" ? tasks : tasks.filter((t) => t.status === statusFilter)),
-    [tasks, statusFilter]
-  );
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+
+  const todayStr = toDateInput(new Date());
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (selectedProjectId && t.project_id !== selectedProjectId) return false;
+      if (selectedSectionId && t.section_id !== selectedSectionId) return false;
+      if (quickFilter === "mine" && t.assigned_to !== profile?.id) return false;
+      if (quickFilter === "due_today" && t.due_date !== todayStr) return false;
+      return true;
+    });
+  }, [tasks, statusFilter, selectedProjectId, selectedSectionId, quickFilter, profile?.id, todayStr]);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState<Date | null>(null);
+  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [isMilestone, setIsMilestone] = useState(false);
+  const [assignee, setAssignee] = useState<Profile | null>(null);
+  const [assigneePickerVisible, setAssigneePickerVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const resetForm = () => {
     setTitle("");
     setDescription("");
     setDueDate(null);
+    setPriority("medium");
+    setIsMilestone(false);
+    setAssignee(null);
     setFormError(null);
   };
 
@@ -63,6 +93,11 @@ export default function TasksScreen() {
       title,
       description,
       due_date: toDateInput(dueDate),
+      priority,
+      is_milestone: isMilestone,
+      assigned_to: assignee?.id,
+      project_id: selectedProjectId ?? undefined,
+      section_id: selectedSectionId ?? undefined,
     });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Invalid task");
@@ -72,14 +107,19 @@ export default function TasksScreen() {
 
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO tasks (id, tenant_id, title, description, status, due_date, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, tenant_id, title, description, status, due_date, priority, is_milestone, assigned_to, project_id, section_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuidv4(),
         profile.tenant_id,
         result.data.title,
         result.data.description || null,
         result.data.due_date || null,
+        result.data.priority,
+        result.data.is_milestone ? 1 : 0,
+        result.data.assigned_to || null,
+        result.data.project_id || null,
+        result.data.section_id || null,
         profile.id,
         now,
         now,
@@ -92,6 +132,60 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.filterRow}>
+        <Pressable
+          style={[styles.filterChip, selectedProjectId === null && styles.filterChipActive]}
+          onPress={() => {
+            setSelectedProjectId(null);
+            setSelectedSectionId(null);
+          }}
+        >
+          <Text style={[styles.filterChipText, selectedProjectId === null && styles.filterChipTextActive]}>All Projects</Text>
+        </Pressable>
+        {projects.map((project) => (
+          <Pressable
+            key={project.id}
+            style={[styles.filterChip, selectedProjectId === project.id && styles.filterChipActive]}
+            onPress={() => {
+              setSelectedProjectId(project.id);
+              setSelectedSectionId(null);
+            }}
+          >
+            <Text style={[styles.filterChipText, selectedProjectId === project.id && styles.filterChipTextActive]}>{project.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {selectedProjectId && sections.length > 0 ? (
+        <View style={styles.filterRow}>
+          <Pressable
+            style={[styles.filterChip, selectedSectionId === null && styles.filterChipActive]}
+            onPress={() => setSelectedSectionId(null)}
+          >
+            <Text style={[styles.filterChipText, selectedSectionId === null && styles.filterChipTextActive]}>All sections</Text>
+          </Pressable>
+          {sections.map((section) => (
+            <Pressable
+              key={section.id}
+              style={[styles.filterChip, selectedSectionId === section.id && styles.filterChipActive]}
+              onPress={() => setSelectedSectionId(section.id)}
+            >
+              <Text style={[styles.filterChipText, selectedSectionId === section.id && styles.filterChipTextActive]}>{section.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.filterRow}>
+        {(["all", "mine", "due_today"] as QuickFilter[]).map((f) => (
+          <Pressable key={f} style={[styles.filterChip, quickFilter === f && styles.filterChipActive]} onPress={() => setQuickFilter(f)}>
+            <Text style={[styles.filterChipText, quickFilter === f && styles.filterChipTextActive]}>
+              {f === "all" ? "All" : f === "mine" ? "My Tasks" : "Due Today"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <View style={styles.filterRow}>
         {(["all", ...STATUSES] as StatusFilter[]).map((status) => (
           <Pressable
@@ -114,7 +208,10 @@ export default function TasksScreen() {
             <View style={{ flex: 1 }}>
               <View style={styles.rowTitleRow}>
                 <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
-                <Text style={styles.rowTitle}>{item.title}</Text>
+                <Text style={styles.rowTitle}>
+                  {item.is_milestone ? "🔶 " : ""}
+                  {item.title}
+                </Text>
               </View>
               {item.due_date ? <Text style={styles.rowSubtitle}>Due {item.due_date}</Text> : null}
             </View>
@@ -149,6 +246,26 @@ export default function TasksScreen() {
           style={styles.multiline}
         />
         <DateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+
+        <Text style={styles.fieldLabel}>Priority</Text>
+        <View style={styles.priorityRow}>
+          {PRIORITIES.map((p) => (
+            <Pressable key={p} style={[styles.priorityChip, priority === p && styles.filterChipActive]} onPress={() => setPriority(p)}>
+              <Text style={[styles.filterChipText, priority === p && styles.filterChipTextActive]}>{PRIORITY_LABELS[p]}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Pressable style={styles.assigneeRow} onPress={() => setAssigneePickerVisible(true)}>
+          <Text style={styles.fieldLabel}>Assignee</Text>
+          <Text style={styles.link}>{assignee?.full_name ?? "Unassigned"}</Text>
+        </Pressable>
+
+        <View style={styles.switchRow}>
+          <Text style={styles.fieldLabel}>Milestone</Text>
+          <Switch value={isMilestone} onValueChange={setIsMilestone} />
+        </View>
+
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable
@@ -164,13 +281,23 @@ export default function TasksScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <PickerModal
+        visible={assigneePickerVisible}
+        title="Select assignee"
+        items={[null, ...profiles]}
+        getKey={(p) => p?.id ?? "none"}
+        getLabel={(p) => p?.full_name ?? "Unassigned"}
+        onSelect={setAssignee}
+        onClose={() => setAssigneePickerVisible(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 12 },
+  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingTop: 12 },
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6" },
   filterChipActive: { backgroundColor: "#111827" },
   filterChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
@@ -207,4 +334,9 @@ const styles = StyleSheet.create({
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   buttonText: { color: "#fff", fontWeight: "600" },
   error: { color: "#dc2626" },
+  fieldLabel: { fontWeight: "600", color: "#374151", marginTop: 10, marginBottom: 6 },
+  priorityRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
+  priorityChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6" },
+  assigneeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
+  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
 });

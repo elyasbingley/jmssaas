@@ -98,6 +98,22 @@
 # of one - the same rows, not different ones. They already get everything
 # through admin_job_data regardless.
 #
+# task_projects/task_sections/task_custom_fields joined tenant_reference_data
+# next (asana_task_engine migration) - same admin-managed-setup-data,
+# tenant-wide-read shape as service_categories/job_lifecycle_stages above:
+# any technician's board/list view needs project names, section columns and
+# custom field definitions offline, writes stay admin-only via RLS.
+# task_dependencies/task_custom_field_values joined admin_job_data instead -
+# per-task child data like task_notes/task_files, but keyed by task_id
+# rather than job_card_id, so (per the same join-support caveat noted
+# above for the technician buckets) they are NOT added to
+# technician_assigned_jobs/technician_own_tasks in this pass: this app's
+# mobile screens don't yet surface dependency management or custom field
+# editing (see docs/SETUP.md's Asana engine notes), only desktop does, and
+# desktop is Supabase-direct/always-online like every other desktop screen,
+# not PowerSync-backed at all. Revisit if/when mobile needs offline access
+# to either.
+#
 # Postgres RLS is unchanged by this file - it already correctly restricts
 # live queries per technician. This closes the separate local-storage gap
 # where a technician's device previously held the entire tenant's job data
@@ -134,6 +150,9 @@ bucket_definitions:
       - select * from communication_rules where tenant_id = bucket.tenant_id
       - select * from communication_templates where tenant_id = bucket.tenant_id
       - select * from scheduled_communications where tenant_id = bucket.tenant_id
+      - select * from task_projects where tenant_id = bucket.tenant_id
+      - select * from task_sections where tenant_id = bucket.tenant_id
+      - select * from task_custom_fields where tenant_id = bucket.tenant_id
 
   admin_job_data:
     parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'
@@ -145,6 +164,8 @@ bucket_definitions:
       - select * from tasks where tenant_id = bucket.tenant_id
       - select * from task_notes where tenant_id = bucket.tenant_id
       - select * from task_files where tenant_id = bucket.tenant_id
+      - select * from task_dependencies where tenant_id = bucket.tenant_id
+      - select * from task_custom_field_values where tenant_id = bucket.tenant_id
 
   technician_assigned_jobs:
     parameters: select id as job_card_id from job_cards where assigned_technician_id = request.user_id()

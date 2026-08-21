@@ -7130,3 +7130,252 @@ devices already installed from a prior build.
   from documentation); and all three new migrations applied and sanity-
   tested (inserts, defaults, bucket/RLS policies where applicable)
   against real local Postgres 16 instances.
+
+## 58. Asana-style task management engine
+
+Upgraded the flat single-list Tasks screen into a full project management
+system: Projects, Kanban sections, subtasks, task dependencies,
+per-project custom fields, and a system activity log alongside the
+existing human-authored notes - on both desktop and mobile.
+
+### Scope decisions (read this before touching `tasks`)
+
+- **`tasks.status` (todo/in_progress/done) was NOT replaced.** Too much
+  already keys off it - the Complete button, mobile's status chips, the
+  subtask rollup, and the new dependency guardrail's "mark complete"
+  check - same reasoning as `job_lifecycle_stages` alongside
+  `job_cards.status` (section 32's migration). The new `section_id` is a
+  purely organisational Kanban-column position within a project,
+  independent of completion state: dragging a card into a "Done"-looking
+  section does not itself flip `status`. An admin who wants that
+  automatic behaviour drags the completed card there themselves.
+- **The JMS "Job" link reuses the existing `job_card_id` column** - this
+  schema's job entity is `job_cards`, not a separate `jobs` table, so
+  there was nothing new to add there. `client_id`/`property_id` are the
+  two genuinely new JMS link columns.
+- **No new `task_comments` table.** The existing `task_notes` table
+  (already PowerSync-synced) already is exactly that - author, body,
+  timestamp - so it's reused as the human-authored half of the "Activity
+  & Comment feed". The new `task_activity_logs` table is the
+  system-generated half (field-change history), populated by a single
+  `AFTER UPDATE` trigger (`log_task_activity()`) rather than scattered
+  application-side insert calls at every mutation site.
+- **No project-membership/collaborator table, and no notification
+  wiring for milestone completion.** There's no existing "who's on this
+  project" concept in this schema to notify, and building one plus
+  wiring it into the communication/dispatch engine is a separate feature
+  in its own right. Milestone completion still gets its own
+  `task_activity_logs` entry (`field_name = 'milestone_completed'`),
+  just not a push/email - a real, visible gap against the original ask,
+  called out here rather than silently dropped.
+
+### Database (`supabase/migrations/20260909000100_asana_task_engine.sql`)
+
+New tables: `task_projects`, `task_sections`, `task_dependencies` (a
+directed `blocking_task_id` -> `dependent_task_id` edge, no self-loops,
+no duplicate edges), `task_custom_fields` + `task_custom_field_values`
+(per-project field definitions, one value row per task+field pair), and
+`task_activity_logs`. New columns on `tasks`: `project_id`, `section_id`,
+`parent_task_id` (subtasks are ordinary `tasks` rows, no separate
+subtask table), `priority` (low/medium/high/urgent), `is_milestone`,
+`start_date`, `position_order`, `estimated_hours`/`actual_hours`,
+`client_id`/`property_id`. RLS mirrors two existing shapes exactly:
+`task_projects`/`task_sections`/`task_custom_fields` are tenant-wide
+read, admin-only write (same as `job_lifecycle_stages`/
+`service_categories`); `task_dependencies`/`task_custom_field_values`/
+`task_activity_logs` are visible/writable via the parent task's own
+admin-or-assigned rule (same as `task_notes`/`task_files`).
+
+Empirically tested against a local Postgres 16 instance before being
+considered done, same bar as every other migration in this repo: a
+minimal mirrored schema (`tenants`/`profiles`/`clients`/`properties`/
+`job_cards`/`tasks` plus the `task_status` enum and the
+`set_updated_at()`/`current_tenant_id()`/`is_admin()` helper functions
+this migration's triggers/RLS depend on), the real migration applied on
+top, then real inserts covering: a project + two sections, a task in
+each linked to `client_id`/`property_id`, a dependency edge between two
+tasks (confirmed the self-loop and duplicate-edge constraints reject bad
+inserts), a custom field + its value (confirmed the one-value-per-
+task-per-field unique constraint rejects a duplicate), and a single
+`UPDATE` changing `status`/`priority`/`assigned_to`/`due_date`/
+`section_id` together - confirmed exactly 5 `task_activity_logs` rows
+came out of the trigger, plus a separate check that the
+`milestone_completed` special-case entry fires only for a milestone task
+transitioning to `done` and not for an ordinary one.
+
+### Shared (`packages/shared/src`)
+
+`types.ts`: `Task` extended with the new columns; new `TaskProject`,
+`TaskSection`, `TaskDependency`, `TaskCustomField`,
+`TaskCustomFieldValue`, `TaskActivityLog` interfaces. `schemas.ts`: new
+Zod schemas for all of the above, and `createTaskSchema` extended to
+match. `powersync/schema.ts`: `tasks` gained the same new columns;
+`task_projects`/`task_sections`/`task_custom_fields` added as new
+PowerSync tables. `task_dependencies`/`task_custom_field_values` were
+**also** added to the local PowerSync schema (per the original ask) but
+deliberately **not** wired into `powersync/sync-rules.yaml`'s
+technician-scoped buckets - see the known gap below.
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Tasks.tsx` is now a multi-view workspace: a project sidebar ("All
+Tasks" plus each `task_projects` row), a view switcher (Board/List/
+Calendar/Timeline - defaulting to the selected project's own
+`view_type`, since Board/Timeline need a project's sections/dates to
+mean anything and aren't offered for "All Tasks"), quick filters (My
+Tasks/Overdue/Unassigned/priority/search), and "+ New Project"/"+ New
+Section"/"+ New Task". The four views live in
+`components/tasks/{BoardView,ListView,CalendarView,TimelineView}.tsx`:
+Board is a `@dnd-kit`-based Kanban (same library already used by
+Dispatch's board) with drag-and-drop updating `section_id`/
+`position_order` instantly; List is a grouped accordion (by section when
+a project is selected, by priority for "All Tasks") with inline editing;
+Calendar is a month grid plotting `due_date`/`start_date`; Timeline is a
+horizontal Gantt-style bar chart with SVG arrows for dependencies, drawn
+between each row's known y-position and the shared date scale - a real,
+working implementation, not a polished commercial Gantt (no resize-by-
+drag, no cross-project view).
+
+`pages/TaskDetail.tsx` became a slide-over drawer instead of a full-page
+navigation: `App.tsx`'s `/tasks/:id` route nests under `/tasks` and
+`TasksPage` renders `<Outlet/>` inside a fixed right-side panel (only
+when the child route matches, via `useMatch`), so the board/list stays
+mounted behind the drawer like real Asana instead of navigating away.
+The drawer covers every piece from the spec: breadcrumb (Project /
+Section / Parent task), a properties grid (assignee/dates/priority/
+estimated vs actual hours), JMS entity link dropdowns (Job/Client/
+Property - "combobox" here means the same `<select>` convention every
+other entity-link field in this app already uses, not a new rich-text
+autocomplete component), dynamic custom-field inputs per the task's
+project, a dependencies widget ("Blocked by"/"Blocking" with a search-
+to-add box), a subtask checklist (add + up/down reorder + progress),
+photos (unchanged from before), and a merged activity/comment feed
+(system-generated `task_activity_logs` lines interleaved with
+`task_notes` comments by timestamp). @mentions are a lightweight
+"tap a name to insert `@Full Name`" row under the comment box, not a
+live autocomplete-while-typing or a real notification - there's no rich
+text editor in this app to hang that off, and wiring actual mention
+notifications is the same out-of-scope problem as the milestone
+notification above.
+
+### Mobile (`apps/mobile/app/(tabs)/tasks`)
+
+`index.tsx` gained a project filter row, section tabs (shown once a
+project with sections is selected), and quick filter chips (My Tasks/Due
+Today), on top of the existing status filter row - the "+ New task"
+form (admin-only, unchanged) gained priority chips, a milestone switch,
+and an assignee picker (`PickerModal`, the same searchable-list
+component quotes/invoices/job detail already use for client/job/
+category pickers). `[id].tsx` gained priority chips, an assignee picker,
+a start-date field alongside the existing due-date field, and a subtask
+checklist (checkbox to toggle status, "+ Add subtask" input) - all
+writable offline via the same `powersync.execute()` pattern the existing
+status chips already used, no new sync plumbing needed since these are
+all just columns/rows in tables mobile already syncs.
+
+### Guardrails (`apps/desktop/src/components/tasks/taskHelpers.ts`)
+
+- **Dependency guardrail**: `unresolvedBlockers()` + `dependencyGuardrailMessage()`
+  are shared by every place a desktop task can be marked complete - the
+  drawer's Complete button and the List view's inline status
+  controls - so completing a task from either place surfaces "This task
+  is blocked by X. Resolve dependencies first or override?" rather than
+  the warning being bypassable by using the other view. An admin can
+  still confirm through it; this is a warning, not a hard block. Not
+  enforced on mobile - see the known gap below.
+- **Milestone auto-completion**: handled entirely by the
+  `log_task_activity()` trigger - no client-side code needed. Does not
+  notify collaborators (see the scope decision above).
+- **Subtask rollup**: `subtaskProgress()` computes done/total from the
+  same in-memory task list every view already has (subtasks are just
+  rows with `parent_task_id` set) - shown as an "X/Y" badge on cards, list
+  rows, the drawer's subtask section, and mobile's subtask section.
+- **JMS integration link**: the Job # badge on Board/List cards is a
+  real button (not a static label) that navigates to `/jobs/:id`,
+  `stopPropagation`-guarded so clicking it doesn't also open the task
+  drawer underneath it.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+A new EAS build is needed for the mobile changes (new tasks columns,
+project/section filters, subtasks) to reach devices already installed
+from a prior build.
+
+### Test it
+
+1. Tasks -> "+ New Project" -> name it, pick a default view -> confirm it
+   appears in the sidebar and is auto-selected.
+2. On that project -> "+ New Section" twice -> switch to Board view ->
+   confirm both columns appear -> "+ New Task" into one -> drag the card
+   into the other column -> confirm it stays there after a refetch
+   (`section_id`/`position_order` persisted).
+3. Switch to List view -> confirm the same tasks group by section ->
+   inline-edit a task's assignee/due date/priority/status directly in
+   the row, with no drawer open.
+4. Switch to Calendar view -> confirm a task with a due date shows on
+   that day; Timeline view -> confirm a task with both start and due
+   dates renders as a bar spanning that range.
+5. Click a task to open the drawer -> confirm the board stays visible
+   behind it. Add a subtask, reorder it, mark it done -> confirm the
+   parent's "X/Y" badge updates on close. Link a Client and a Property
+   via the JMS dropdowns -> Save -> reopen -> confirm they held.
+6. Add a second task -> from the first task's Dependencies widget,
+   search for it and add it under "Blocking" -> confirm it now shows
+   under "Blocked by" on the second task -> try marking the second task
+   complete -> confirm the warning appears -> Cancel -> mark the first
+   task done first -> mark the second complete again -> confirm no
+   warning this time.
+7. On a project with a custom field (add one via Supabase directly for
+   this test, no admin UI for defining fields was built beyond the
+   migration/table) -> confirm it renders in the drawer and saves.
+8. Click a task's Job # badge on a Board or List card -> confirm it
+   navigates straight to that job, without opening the task drawer.
+9. Mobile: Tasks tab -> filter by project, then by section, then by "My
+   Tasks"/"Due Today" -> confirm each narrows the list correctly. Open a
+   task -> change its priority and assignee -> add a subtask -> tick it
+   done -> confirm it all persists after a background/foreground cycle
+   (offline-first via PowerSync).
+
+### Known gaps / judgment calls
+
+- **`task_dependencies`/`task_custom_field_values` are declared in
+  mobile's local PowerSync schema but not wired into any
+  `sync-rules.yaml` bucket for technician devices** - only into
+  `admin_job_data` (so admin devices do get them). They're keyed by
+  `task_id` rather than `job_card_id`, so scoping them into
+  `technician_assigned_jobs`/`technician_own_tasks` the way
+  `task_notes`/`task_files` are would need a join those buckets'
+  existing "NOT verified against a real PowerSync instance" caveat
+  already flags as uncertain. Mobile's own screens don't yet surface
+  dependency management or custom fields either (only desktop does), so
+  there's nothing on a technician's device that would need them today -
+  revisit both together if mobile ever gains that UI.
+- **No admin UI for defining a project's custom fields** - the
+  `task_custom_fields` table, RLS, and the drawer's rendering of
+  whatever fields exist are all in place, but creating/editing a field
+  definition itself is Supabase-direct-only for now (test step 7 above).
+  A `task_custom_fields` settings screen is a reasonable, bounded
+  follow-up.
+- **@mentions are an insert-only affordance, not a real notification
+  system** - see the scope decision above; same for milestone
+  completion. Both are one clearly-scoped feature away (a project
+  collaborators/subscribers concept, wired into the existing
+  communication/dispatch engine) from what the original ask implied.
+- **The Timeline (Gantt) view has no drag-to-reschedule or resize** -
+  bars are click-to-open-drawer only; rescheduling happens through the
+  drawer's own date fields. Cross-project Gantt view isn't offered -
+  Timeline, like Board, requires a project to be selected.
+- Not tested in a real browser against a live Supabase project or a real
+  device/EAS build - this sandbox has neither. Verified: `tsc --noEmit`
+  clean across `apps/desktop`, `apps/mobile`, `packages/shared`; a
+  production `vite build` clean for `apps/desktop`; and the new
+  migration applied and empirically sanity-tested (inserts, constraints,
+  the activity-log trigger's exact row counts, the milestone special
+  case) against a real local Postgres 16 instance, same bar as every
+  other migration in this repo.

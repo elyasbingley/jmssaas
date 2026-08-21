@@ -370,6 +370,105 @@ export interface Task {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Asana-style project engine (see the asana_task_engine migration).
+  // section_id is a purely organisational Kanban-column position within
+  // project_id - independent of `status` above, which still drives
+  // completion everywhere it always has (see the migration's own comment).
+  project_id: string | null;
+  section_id: string | null;
+  // Subtasks are ordinary tasks rows with parent_task_id set - no separate
+  // subtask table.
+  parent_task_id: string | null;
+  priority: TaskPriority;
+  is_milestone: boolean;
+  start_date: string | null;
+  position_order: number;
+  estimated_hours: number | null;
+  actual_hours: number | null;
+  // JMS entity links - job linking reuses job_card_id above, these two are
+  // the new ones.
+  client_id: string | null;
+  property_id: string | null;
+}
+
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+export type TaskProjectViewType = "BOARD" | "LIST" | "CALENDAR" | "TIMELINE";
+
+export interface TaskProject {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  color_hex: string;
+  icon: string;
+  view_type: TaskProjectViewType;
+  is_archived: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskSection {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  position_order: number;
+  created_at: string;
+}
+
+// A directed edge: blocking_task_id blocks dependent_task_id.
+export interface TaskDependency {
+  id: string;
+  tenant_id: string;
+  blocking_task_id: string;
+  dependent_task_id: string;
+  created_at: string;
+}
+
+export type TaskCustomFieldType = "text" | "number" | "dropdown" | "date";
+
+export interface TaskCustomField {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  field_type: TaskCustomFieldType;
+  // Option strings, DROPDOWN fields only - e.g. ["Roof", "Gutters"]. Null
+  // for every other field_type.
+  options: string[] | null;
+  position_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// One row per task+custom_field pair - only the column matching the
+// field's own field_type is populated, the other two stay null.
+export interface TaskCustomFieldValue {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  custom_field_id: string;
+  value_text: string | null;
+  value_number: number | null;
+  value_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// System-generated field-change history - populated by the
+// log_task_activity trigger, never inserted directly from the client. See
+// TaskNote for the human-authored comment half of the activity feed.
+export interface TaskActivityLog {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  actor_id: string | null;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
 }
 
 export interface TaskNote {

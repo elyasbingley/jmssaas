@@ -388,8 +388,101 @@ const tasks = new Table(
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
+    // Asana-style project engine (see the asana_task_engine migration) -
+    // section_id is a purely organisational Kanban-column position within
+    // project_id, independent of `status` above which still drives
+    // completion everywhere it always has.
+    project_id: column.text,
+    section_id: column.text,
+    parent_task_id: column.text,
+    priority: column.text,
+    is_milestone: column.integer,
+    start_date: column.text,
+    position_order: column.integer,
+    estimated_hours: column.real,
+    actual_hours: column.real,
+    client_id: column.text,
+    property_id: column.text,
   },
-  { indexes: { job: ["job_card_id"], assignee: ["assigned_to"] } }
+  {
+    indexes: {
+      job: ["job_card_id"],
+      assignee: ["assigned_to"],
+      project: ["project_id"],
+      section: ["section_id"],
+      parent: ["parent_task_id"],
+    },
+  }
+);
+
+// Admin-managed project setup data, tenant-wide read like service_categories/
+// job_lifecycle_stages above - see the asana_task_engine migration.
+const task_projects = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    description: column.text,
+    color_hex: column.text,
+    icon: column.text,
+    view_type: column.text,
+    is_archived: column.integer,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const task_sections = new Table(
+  {
+    tenant_id: column.text,
+    project_id: column.text,
+    name: column.text,
+    position_order: column.integer,
+    created_at: column.text,
+  },
+  { indexes: { project: ["project_id"] } }
+);
+
+// A directed edge - blocking_task_id blocks dependent_task_id.
+const task_dependencies = new Table(
+  {
+    tenant_id: column.text,
+    blocking_task_id: column.text,
+    dependent_task_id: column.text,
+    created_at: column.text,
+  },
+  { indexes: { blocking: ["blocking_task_id"], dependent: ["dependent_task_id"] } }
+);
+
+const task_custom_fields = new Table(
+  {
+    tenant_id: column.text,
+    project_id: column.text,
+    name: column.text,
+    field_type: column.text,
+    // JSON-encoded array of option strings, DROPDOWN fields only - see
+    // job_measurements.facets above for the same jsonb-as-text convention.
+    options: column.text,
+    position_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { project: ["project_id"] } }
+);
+
+const task_custom_field_values = new Table(
+  {
+    tenant_id: column.text,
+    task_id: column.text,
+    custom_field_id: column.text,
+    value_text: column.text,
+    value_number: column.real,
+    value_date: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { task: ["task_id"], field: ["custom_field_id"] } }
 );
 
 // Notes/files attached to a task - same shape as job_notes/job_files,
@@ -438,6 +531,11 @@ export const AppSchema = new Schema({
   tasks,
   task_notes,
   task_files,
+  task_projects,
+  task_sections,
+  task_dependencies,
+  task_custom_fields,
+  task_custom_field_values,
   service_categories,
   job_lifecycle_stages,
   inventory_locations,

@@ -106,14 +106,82 @@ export const createTaskNoteSchema = z.object({
 });
 export type CreateTaskNoteInput = z.infer<typeof createTaskNoteSchema>;
 
+export const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   job_card_id: z.string().uuid().optional(),
   assigned_to: z.string().uuid().optional(),
   due_date: z.string().date().optional(),
+  // Asana-style project engine (see the asana_task_engine migration).
+  project_id: z.string().uuid().optional(),
+  section_id: z.string().uuid().optional(),
+  parent_task_id: z.string().uuid().optional(),
+  priority: taskPrioritySchema.default("medium"),
+  is_milestone: z.boolean().default(false),
+  start_date: z.string().date().optional(),
+  estimated_hours: z.number().nonnegative().optional(),
+  actual_hours: z.number().nonnegative().optional(),
+  client_id: z.string().uuid().optional(),
+  property_id: z.string().uuid().optional(),
 });
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+
+// ---------------------------------------------------------------------------
+// Asana-style project management engine
+// ---------------------------------------------------------------------------
+
+export const taskProjectViewTypeSchema = z.enum(["BOARD", "LIST", "CALENDAR", "TIMELINE"]);
+
+export const createTaskProjectSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  color_hex: z.string().default("#3B82F6"),
+  icon: z.string().default("folder"),
+  view_type: taskProjectViewTypeSchema.default("BOARD"),
+});
+export type CreateTaskProjectInput = z.infer<typeof createTaskProjectSchema>;
+
+export const createTaskSectionSchema = z.object({
+  project_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  position_order: z.number().int().default(0),
+});
+export type CreateTaskSectionInput = z.infer<typeof createTaskSectionSchema>;
+
+export const createTaskDependencySchema = z.object({
+  blocking_task_id: z.string().uuid(),
+  dependent_task_id: z.string().uuid(),
+}).refine((data) => data.blocking_task_id !== data.dependent_task_id, {
+  message: "A task can't depend on itself",
+  path: ["dependent_task_id"],
+});
+export type CreateTaskDependencyInput = z.infer<typeof createTaskDependencySchema>;
+
+export const taskCustomFieldTypeSchema = z.enum(["text", "number", "dropdown", "date"]);
+
+export const createTaskCustomFieldSchema = z.object({
+  project_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  field_type: taskCustomFieldTypeSchema.default("text"),
+  // DROPDOWN fields only - ignored for every other field_type.
+  options: z.array(z.string().min(1)).optional(),
+  position_order: z.number().int().default(0),
+});
+export type CreateTaskCustomFieldInput = z.infer<typeof createTaskCustomFieldSchema>;
+
+// Only the one field matching the parent custom field's own field_type is
+// meant to be set - the UI picks which, this schema just accepts whichever
+// arrives.
+export const setTaskCustomFieldValueSchema = z.object({
+  task_id: z.string().uuid(),
+  custom_field_id: z.string().uuid(),
+  value_text: z.string().optional(),
+  value_number: z.number().optional(),
+  value_date: z.string().date().optional(),
+});
+export type SetTaskCustomFieldValueInput = z.infer<typeof setTaskCustomFieldValueSchema>;
 
 // Shared by a line item, a price book item, and a price book item variation
 // - all three price the same underlying thing (labour rate/hours, material

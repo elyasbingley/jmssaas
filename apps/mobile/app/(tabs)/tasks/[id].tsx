@@ -1,15 +1,24 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createTaskNoteSchema, createTaskSchema, type Task, type TaskNote, type TaskStatus } from "@jmssaas/shared";
+import {
+  createTaskNoteSchema,
+  createTaskSchema,
+  type Profile,
+  type Task,
+  type TaskNote,
+  type TaskPriority,
+  type TaskStatus,
+} from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { addTaskPhoto } from "../../../lib/powersync";
 import { CenteredModal } from "../../../components/CenteredModal";
 import { FormField } from "../../../components/FormField";
 import { DateField } from "../../../components/DateField";
+import { PickerModal } from "../../../components/PickerModal";
 import { PhotoAttachments } from "../../../components/PhotoAttachments";
 
 function parseDate(s: string): Date | null {
@@ -29,6 +38,8 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: "In progress",
   done: "Done",
 };
+const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
+const PRIORITY_LABELS: Record<TaskPriority, string> = { low: "Low", medium: "Medium", high: "High", urgent: "Urgent" };
 
 interface TaskFileWithLocalUri {
   id: string;
@@ -60,6 +71,10 @@ export default function TaskDetailScreen() {
     [id]
   );
 
+  const { data: subtasks } = useQuery<Task>("SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY position_order", [id]);
+  const { data: profiles } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
+  const assignedProfile = profiles.find((p) => p.id === task?.assigned_to) ?? null;
+
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -68,11 +83,21 @@ export default function TaskDetailScreen() {
     await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [status, id]);
   };
 
-  // --- Edit task title/description/due date ---
+  const [assigneePickerVisible, setAssigneePickerVisible] = useState(false);
+  const handleAssigneeChange = async (p: Profile | null) => {
+    await powersync.execute("UPDATE tasks SET assigned_to = ? WHERE id = ?", [p?.id ?? null, id]);
+  };
+
+  const handlePriorityChange = async (priority: TaskPriority) => {
+    await powersync.execute("UPDATE tasks SET priority = ? WHERE id = ?", [priority, id]);
+  };
+
+  // --- Edit task title/description/dates ---
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editDueDate, setEditDueDate] = useState<Date | null>(null);
+  const [editStartDate, setEditStartDate] = useState<Date | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
 
   const openEditModal = () => {
@@ -80,6 +105,7 @@ export default function TaskDetailScreen() {
     setEditTitle(task.title);
     setEditDescription(task.description ?? "");
     setEditDueDate(parseDate(task.due_date ?? ""));
+    setEditStartDate(parseDate(task.start_date ?? ""));
     setEditError(null);
     setEditModalVisible(true);
   };
@@ -91,6 +117,7 @@ export default function TaskDetailScreen() {
       job_card_id: task?.job_card_id ?? undefined,
       assigned_to: task?.assigned_to ?? undefined,
       due_date: toDateInput(editDueDate) || undefined,
+      start_date: toDateInput(editStartDate) || undefined,
     });
     if (!result.success) {
       setEditError(result.error.issues[0]?.message ?? "Invalid task");
@@ -98,8 +125,8 @@ export default function TaskDetailScreen() {
     }
 
     await powersync.execute(
-      "UPDATE tasks SET title = ?, description = ?, due_date = ?, updated_at = ? WHERE id = ?",
-      [result.data.title, result.data.description || null, result.data.due_date || null, new Date().toISOString(), id]
+      "UPDATE tasks SET title = ?, description = ?, due_date = ?, start_date = ?, updated_at = ? WHERE id = ?",
+      [result.data.title, result.data.description || null, result.data.due_date || null, result.data.start_date || null, new Date().toISOString(), id]
     );
     setEditModalVisible(false);
   };
@@ -132,6 +159,21 @@ export default function TaskDetailScreen() {
     );
     setNoteText("");
     setNoteError(null);
+  };
+
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+  const handleAddSubtask = async () => {
+    if (!subtaskTitle.trim() || !profile || !task) return;
+    const now = new Date().toISOString();
+    await powersync.execute(
+      `INSERT INTO tasks (id, tenant_id, title, status, parent_task_id, project_id, section_id, position_order, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?)`,
+      [uuidv4(), profile.tenant_id, subtaskTitle.trim(), id, task.project_id, task.section_id, subtasks.length, profile.id, now, now]
+    );
+    setSubtaskTitle("");
+  };
+  const handleToggleSubtask = async (subtaskId: string, done: boolean) => {
+    await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [done ? "done" : "todo", subtaskId]);
   };
 
   const handleUploadPhoto = async (photo: { base64: string; mimeType: string; fileExtension: string }) => {
@@ -169,8 +211,12 @@ export default function TaskDetailScreen() {
             <Text style={styles.link}>Edit</Text>
           </Pressable>
         </View>
-        <Text style={styles.title}>{task.title}</Text>
+        <Text style={styles.title}>
+          {task.is_milestone ? "🔶 " : ""}
+          {task.title}
+        </Text>
         {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
+        {task.start_date ? <Text style={styles.meta}>Starts {task.start_date}</Text> : null}
         {task.due_date ? <Text style={styles.meta}>Due {task.due_date}</Text> : null}
       </View>
 
@@ -191,6 +237,24 @@ export default function TaskDetailScreen() {
         </View>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Priority</Text>
+        <View style={styles.statusRow}>
+          {PRIORITIES.map((p) => (
+            <Pressable key={p} style={[styles.statusChip, task.priority === p && styles.statusChipActive]} onPress={() => handlePriorityChange(p)}>
+              <Text style={[styles.statusChipText, task.priority === p && styles.statusChipTextActive]}>{PRIORITY_LABELS[p]}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Pressable style={styles.assigneeRow} onPress={() => setAssigneePickerVisible(true)}>
+          <Text style={styles.sectionTitle}>Assignee</Text>
+          <Text style={styles.link}>{assignedProfile?.full_name ?? "Unassigned"}</Text>
+        </Pressable>
+      </View>
+
       {task.job_card_id ? (
         <View style={styles.section}>
           <Pressable onPress={() => router.push(`/sales/jobs/${task.job_card_id}`)}>
@@ -198,6 +262,43 @@ export default function TaskDetailScreen() {
           </Pressable>
         </View>
       ) : null}
+
+      <View style={styles.section}>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>Subtasks</Text>
+          {subtasks.length > 0 ? (
+            <Text style={styles.meta}>
+              {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
+            </Text>
+          ) : null}
+        </View>
+        {subtasks.map((sub) => (
+          <Pressable key={sub.id} style={styles.subtaskRow} onPress={() => router.push(`/tasks/${sub.id}`)}>
+            <Pressable
+              style={[styles.checkbox, sub.status === "done" && styles.checkboxChecked]}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleToggleSubtask(sub.id, sub.status !== "done");
+              }}
+            >
+              {sub.status === "done" ? <Text style={styles.checkboxMark}>✓</Text> : null}
+            </Pressable>
+            <Text style={[styles.subtaskTitle, sub.status === "done" && styles.subtaskTitleDone]}>{sub.title}</Text>
+          </Pressable>
+        ))}
+        <View style={styles.addSubtaskRow}>
+          <TextInput
+            style={styles.subtaskInput}
+            placeholder="+ Add subtask"
+            value={subtaskTitle}
+            onChangeText={setSubtaskTitle}
+            onSubmitEditing={handleAddSubtask}
+          />
+          <Pressable style={styles.button} onPress={handleAddSubtask}>
+            <Text style={styles.buttonText}>Add</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Photos</Text>
@@ -241,6 +342,9 @@ export default function TaskDetailScreen() {
         style={styles.multiline}
       />
       <View style={styles.fieldSpacing}>
+        <DateField label="Start date (optional)" value={editStartDate} onChange={setEditStartDate} mode="date" />
+      </View>
+      <View style={styles.fieldSpacing}>
         <DateField label="Due date (optional)" value={editDueDate} onChange={setEditDueDate} mode="date" />
       </View>
       {editError ? <Text style={styles.error}>{editError}</Text> : null}
@@ -253,6 +357,16 @@ export default function TaskDetailScreen() {
         </Pressable>
       </View>
     </CenteredModal>
+
+    <PickerModal
+      visible={assigneePickerVisible}
+      title="Select assignee"
+      items={[null, ...profiles]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => p?.full_name ?? "Unassigned"}
+      onSelect={handleAssigneeChange}
+      onClose={() => setAssigneePickerVisible(false)}
+    />
     </>
   );
 }
@@ -286,4 +400,21 @@ const styles = StyleSheet.create({
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
   deleteButton: { borderRadius: 8, padding: 14, alignItems: "center", backgroundColor: "#fef2f2" },
   deleteButtonText: { color: "#dc2626", fontWeight: "700" },
+  assigneeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  subtaskRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "#d1d5db",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: { backgroundColor: "#16a34a", borderColor: "#16a34a" },
+  checkboxMark: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  subtaskTitle: { fontSize: 15, color: "#111827", flex: 1 },
+  subtaskTitleDone: { color: "#9ca3af", textDecorationLine: "line-through" },
+  addSubtaskRow: { flexDirection: "row", gap: 8, marginTop: 10, alignItems: "center" },
+  subtaskInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15 },
 });

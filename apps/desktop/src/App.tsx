@@ -50,8 +50,9 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/dispatch" replace />} />
                 <Route path="/dispatch" element={<DispatchPage />} />
-                <Route path="/tasks" element={<TasksPage />} />
-                <Route path="/tasks/:id" element={<TaskDetailPage />} />
+                <Route path="/tasks" element={<TasksPage />}>
+                  <Route path=":id" element={<TaskDetailPage />} />
+                </Route>
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/jobs/:id" element={<JobDetailPage />} />
                 <Route path="/jobs/:id/measure" element={<JobMeasurePage />} />
