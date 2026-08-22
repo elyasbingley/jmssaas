@@ -2,7 +2,13 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
 
-const navSections = [
+interface NavItem {
+  to: string;
+  label: string;
+  end?: boolean;
+}
+
+const navSections: { heading: string | null; items: NavItem[] }[] = [
   {
     heading: null,
     items: [
@@ -39,7 +45,11 @@ const navSections = [
   {
     heading: "Settings",
     items: [
-      { to: "/settings", label: "Company Details" },
+      // `end` so this doesn't also light up for its own nested routes
+      // (/settings/automation, /settings/job-setup, /settings/inventory-setup)
+      // - without it, NavLink's default prefix match treats "/settings" as
+      // active on any path that starts with it.
+      { to: "/settings", label: "Company Details", end: true },
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
       { to: "/settings/inventory-setup", label: "Inventory Setup" },
@@ -71,7 +81,7 @@ export function Layout({ children }: { children: ReactNode }) {
               ) : null}
               <div className="space-y-1">
                 {section.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} className={linkClasses}>
+                  <NavLink key={item.to} to={item.to} end={item.end} className={linkClasses}>
                     {item.label}
                   </NavLink>
                 ))}

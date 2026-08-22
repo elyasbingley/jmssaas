@@ -128,7 +128,19 @@ export default function NewCalendarEventScreen() {
       // resolves the assignee's fresh (not stale) technician.
       await pushCalendarEventUpsert(data.id);
 
-      router.replace(`/calendar/${data.id}`);
+      // Not router.replace() - this screen can be reached from two
+      // different places (Schedule's "tap an unassigned job" flow, which
+      // lives outside this tab's own Calendar stack, and the Calendar
+      // tab's own "+ New event" FAB). replace() only swaps this screen
+      // for the event detail *within the Calendar tab's nested stack*, so
+      // arriving from Schedule left the detail screen with nothing left
+      // to pop back to (no back arrow, no way out - the reported "stuck
+      // on the event card" bug). Popping this form first, then pushing
+      // the new event's detail on top of whatever screen is actually
+      // still underneath, keeps a real, working back step regardless of
+      // where the flow started.
+      if (router.canGoBack()) router.back();
+      router.push(`/calendar/${data.id}`);
     } catch (e) {
       // Log the full error object, not just its message - PostgrestError's
       // most useful field is often `hint` (the actionable fix), which
