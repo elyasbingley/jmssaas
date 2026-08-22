@@ -7379,3 +7379,270 @@ from a prior build.
   the activity-log trigger's exact row counts, the milestone special
   case) against a real local Postgres 16 instance, same bar as every
   other migration in this repo.
+
+## 59. Bug-fix batch: task drawer close/header color, nav highlighting, clipping fixes, calendar dead end
+
+A round of small fixes reported after the Asana task engine shipped:
+
+- **Task drawer had no way to close it** - no X button, no
+  click-outside backdrop. Added both (either navigates back to
+  `/tasks`), and gave the drawer's header band its own blue background
+  so it stands out from the white properties/activity area below it.
+- **Desktop Settings sidebar**: "Company Details" (`/settings`) stayed
+  highlighted on every nested settings route, since `NavLink`'s default
+  match is a prefix match, not exact - added `end` so it only lights up
+  on its own route.
+- **Mobile Inventory screen**: the top nav was a cramped stack of
+  scrolling chip rows. Collapsed the location chip row into a header
+  picker button, shortened the "Out of Stock / Need to Order" tab label
+  to "Low Stock", and pinned "Manage categories" as a fixed gear icon
+  beside the category chip scroll instead of inside it (so it doesn't
+  get pushed further away as more categories are added). Also wrapped
+  the screen in `SafeAreaView` (`edges=["top"]`) - unlike Home/Sales/
+  Settings, which already did this, Inventory's custom header had never
+  been wrapped and sat right under the status bar/notch with a guessed
+  flat `paddingTop`, making the location button hard to tap on some
+  devices. And the subcategory chip row's `ScrollView` had never been
+  given an explicit `style` (only `contentContainerStyle`, unlike the
+  category row above it, which needed one for its own pinned-gear-icon
+  layout) - without it, the row could size its own frame wrong before
+  content was measured, clipping the top of tall-ascender letters
+  (visible on "Roof"/"Blocking", invisible on short words like "All").
+- **Mobile Jobs list filter bar**: the "All categories"/"All stages"/
+  Clear row had no `flexWrap`, so a long lifecycle stage name pushed the
+  row past the screen edge instead of wrapping.
+- **Mobile Job Detail's Category/Stage picker fields**: these are the
+  only picker fields in the app that lay a color swatch and the label
+  out side-by-side in a row - every other picker field just puts the
+  label alone in a plain column, which sizes correctly on its own. In a
+  row, a `Text` next to a fixed-width sibling needs `flexShrink` to be
+  properly constrained by Yoga; without it, a name just over one line's
+  width (e.g. "Scheduled", "Enquiry") silently lost its last character
+  or two instead of wrapping onto a second line - visible as e.g.
+  "Schedule"/"Enquir" with room still left in the box, not a hard clip
+  at the border (which is what made this one hard to spot from the
+  bug report alone - screenshots were what nailed the exact cause).
+- **Mobile Job Setup's category/stage rows**: crammed a name, two tags
+  (Default/Closed), and four action links (Up/Down/Edit/Delete) into one
+  unwrapped horizontal row, squeezing long stage names down to nothing.
+  Split into a label row and an actions row, both wrapping.
+- **Mobile calendar "stuck on event card"**: creating an event from
+  Schedule's "tap an unassigned job" flow (or the Calendar tab's own
+  FAB) used `router.replace()` to swap the "new event" form for the
+  created event's detail screen. Since `replace()` only rewrites history
+  *within the Calendar tab's own nested stack*, this left the detail
+  screen with nothing to pop back to at all - no back arrow, a genuine
+  dead end, regardless of which screen the flow started from. Popping
+  the form first, then pushing the detail on top, restores a real back
+  step.
+
+Two other reports turned out not to be code bugs: the "Job is done in
+this stage" toggle reverting, and mobile calendar missing colors, were
+both already fixed in earlier commits (the boolean-write connector fix
+and the per-category tile coloring, respectively) - if either is still
+showing up, the device is running a build from before those commits,
+not hitting a live bug. EAS preview builds don't auto-update; the
+specific new APK has to be downloaded and reinstalled each time.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx vercel --prod
+```
+```powershell
+cd apps\mobile
+eas build --platform android --profile preview
+```
+No Supabase migration in this batch - every fix here is UI-only.
+
+## 60. Job Card Quote Tools module
+
+A "Quote Tools" hub added to the Job Card, alongside the existing Roof
+Area Tool (job_measurements/JobMeasure.tsx, unchanged, just linked from
+the new hub rather than duplicated): a linear distance measurer, an
+on-site material tally counter, a photo markup/annotation editor, a
+concrete volume calculator, and a material order form.
+
+### Scope decisions (read this before touching these tables)
+
+- **All four new tables reference `job_cards`, not a `jobs` table** -
+  same spec-writer assumption the Asana task engine's own migration
+  comment already corrected once this session.
+- **No new `communication_logs` table.** Every tool's "Save to Job
+  Notes" action inserts into the existing `job_notes` table directly -
+  same table job_measurements' own "Save & Append to Job Card" flow
+  already uses, no duplicate table needed.
+- **The desktop Job Card has no tab system today** - it's one long
+  scrolling page of bordered sections (Photos, Job Costing, Notes, ...),
+  not tabs, so "add a Quote Tools tab" became a new section
+  (`QuoteToolsSection`) with its own internal sub-tab bar for the 6
+  tools, matching how the page actually works rather than introducing a
+  page-wide tab system for one section for it.
+- **`job_material_orders.order_number` is server-assigned** via the
+  existing generic `next_reference_number()` helper (same mechanism as
+  job/quote/invoice numbers) - "MAT-001", "MAT-002", ... - never set by
+  the client.
+- **`job_material_orders.pdf_url` stays unpopulated for now.** Desktop's
+  own PDF "export" everywhere else (e.g. the Inventory shopping list) is
+  a browser print dialog, not a stored file - the Material Order PDF
+  follows that same pattern (`buildMaterialOrderPdfHtml` +
+  `lib/print.ts`'s `exportPdf`), so there's no file to point `pdf_url`
+  at. "Email Order to Supplier" reuses the existing `EmailComposeModal`
+  + `queueAndSendEmail` plumbing (the same free-form-email pattern the
+  job card's own "Email" button already uses) with the order details in
+  the message body - not a real PDF-generation-and-storage-and-attach
+  pipeline, which would be a separate feature in its own right.
+- **`job_concrete_calculations` has no `updated_at`/update policy** -
+  matches the spec's own column list; a recalculation is a new row, not
+  an edit-in-place, same append-style-history reasoning as
+  job_measurements' own facets.
+- **Photo Markup's annotated filename doesn't literally get the
+  `_annotated` suffix as the displayed `file_name`** on desktop -
+  `uploadJobPhoto` (shared, used by every photo upload in this app)
+  always assigns a UUID-based storage filename regardless of the
+  `File` object's own name; touching that shared helper for one caller's
+  cosmetic naming wasn't worth it. The annotated photo does show up as
+  a distinct new photo in the gallery either way.
+
+### Database (`supabase/migrations/20260910000100_quote_tools.sql`)
+
+`job_linear_measurements` (named sets of straight-line runs, each a
+jsonb array of `{id, label, coordinates, length_meters}` segments),
+`job_material_tallies` (jsonb array of `{id, name, count, category}`
+items), `job_concrete_calculations` (one-shot calculation records), and
+`job_material_orders` (jsonb array of `{item_name, quantity, unit_type,
+notes}` line items, `material_order_status` enum). RLS mirrors
+`job_measurements` exactly on all four: visible/writable via the parent
+`job_cards` row's own admin-or-assigned-technician rule, admin-only
+delete.
+
+Empirically tested against a local Postgres 16 instance before being
+considered done: a minimal mirrored schema plus the existing
+`next_reference_number()`/`tenant_counters` machinery this migration's
+order-number trigger depends on, the real migration applied on top,
+then real inserts covering all four tables, confirming the
+`assign_material_order_number` trigger assigns "MAT-001" then "MAT-002"
+sequentially, the per-tenant unique constraint rejects a duplicate
+order number, and the `updated_at` trigger fires on the tables that have
+one.
+
+### Shared (`packages/shared/src`)
+
+New `LinearMeasurementSegment`/`JobLinearMeasurement`,
+`MaterialTallyItem`/`JobMaterialTally`, `JobConcreteCalculation`, and
+`MaterialOrderLineItem`/`JobMaterialOrder`/`MaterialOrderStatus` types
+in `types.ts`; matching Zod schemas in `schemas.ts`. Not added to
+PowerSync - see the mobile section below.
+
+### Desktop (`apps/desktop/src`)
+
+`components/quote-tools/QuoteToolsSection.tsx` renders the sub-tab bar
+(Roof Area links out to the existing `/jobs/:id/measure` route; the
+other 5 are inline panels) and owns the one piece of state shared
+between two sibling tools - `transferredTallyItems`, populated by
+Material Tally's "Transfer to Material Order Form" button and consumed
+by the Material Order form, a pure in-memory handoff since both tools
+are mounted at once. `LinearMeasurer.tsx` is modeled directly on
+`JobMeasure.tsx`'s map/click/overlay pattern (polygons there, polylines
+here), using the same `loadGoogleMaps()` helper - now also loading the
+`geometry` library for `google.maps.geometry.spherical.computeLength()`.
+`MaterialTally.tsx` is a walkthrough counter with 44px +/- steppers and
+`truncate` on item names. `PhotoMarkup.tsx` is a plain HTML5 `<canvas>`
+editor (pen/line/arrow/rect/circle/text, 5-color palette, stroke
+thickness, undo/redo/clear) - no external drawing library, the shape set
+is small enough that hand-rolled redraw-from-shape-list is simpler than
+pulling one in. `ConcreteCalculator.tsx` computes volume/bags live as
+you type. `MaterialOrderForm.tsx` builds line items manually or via the
+tally transfer, and exports/emails via `lib/material-order-pdf.ts` +
+`lib/print.ts` / `EmailComposeModal`.
+
+### Mobile (`apps/mobile`)
+
+Per the spec's own explicit mobile scope (native touch support for the
+Material Counter and Photo Markup tool only, not the full desktop
+suite): the Job Card screen gained a third tab, "Quote Tools", visible
+to every role (unlike "Job Costing", which stays admin-only) -
+`components/MaterialTallyCounter.tsx` (same counter idea, native
+44px steppers) and `components/PhotoMarkupEditor.tsx`. There's no
+`<canvas>` in React Native, so the markup editor uses `react-native-svg`
+for live shape rendering (the same approach `SignaturePad.tsx` already
+uses for a single freehand path, extended to five more shape types) over
+an `Image` background, then rasterizes the whole Image+Svg overlay to a
+PNG via `react-native-view-shot`'s `ViewShot.capture()` - both libraries
+were already installed and already used elsewhere in this app for
+exactly this "flatten a touch-drawn overlay to a real image" step, nothing
+new pulled in. No Redo on mobile (Undo only) - a deliberate trim to keep
+the touch toolbar to one row, not an oversight. Text annotations use a
+small custom modal (`CenteredModal` + `FormField`) rather than
+`Alert.prompt`, which is iOS-only in React Native.
+
+Both tools are Supabase-direct (not PowerSync) - same "occasional site
+tool, needs connectivity" treatment as Reports & Safety and Purchase
+Orders, not the "must always work offline" treatment tasks/jobs/notes
+get. Linear Measurer, Concrete Calculator, and Material Order Form were
+not built for mobile at all, per the spec's own scope.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+A new EAS build is needed for the mobile Quote Tools tab to reach
+devices already installed from a prior build.
+
+### Test it
+
+1. Open a job -> "Quote Tools" section -> "Linear Measurer" -> "+ New
+   Measurement Set" -> name it -> "+ New Run" -> click the map a few
+   times -> "Finish run" -> add a second run -> confirm the total length
+   sums both -> Save -> confirm it lists below with "Copy Summary to Job
+   Notes" -> click it -> confirm a note appears on the job.
+2. "Material Tally" -> type a few material names, adjust counts with
+   +/- -> "Save Tally to Job Notes" -> confirm a formatted note appears
+   -> add another tally -> "Transfer to Material Order Form" -> confirm
+   it switches tabs with those items pre-filled as line items.
+3. "Photo Markup" -> pick an existing job photo -> draw with each tool
+   (pen, line, arrow, rectangle, circle, text) in a couple of colors ->
+   Undo one -> Save -> confirm a new `..._annotated.png` photo appears in
+   the job's Photos section.
+4. "Concrete Calculator" -> enter length/width/depth -> confirm the m³
+   and bag count update live -> Save -> confirm it appears in "Past
+   calculations" and a note appears on the job.
+5. "Material Order" -> add a couple of line items manually -> Save ->
+   confirm it shows an auto-assigned "MAT-001" number -> "Export
+   Material Order PDF" -> confirm the browser print dialog opens with
+   the order details -> "Email Order to Supplier" -> confirm the
+   composer pre-fills the order details -> send.
+6. Mobile: open a job -> "Quote Tools" tab (visible to both admin and
+   technician logins) -> Material Tally counter works with large touch
+   steppers -> Photo Markup: pick a downloaded photo, draw a couple of
+   shapes plus a text annotation, Save -> confirm the annotated photo
+   appears in Photos.
+
+### Known gaps / judgment calls
+
+- **No admin UI restricting who can delete a tool's records beyond the
+  existing admin-only RLS** - matches job_measurements' own existing
+  behavior, not a new gap introduced here.
+- **`job_material_orders.pdf_url`/real PDF attachment on the emailed
+  order** - see the scope decision above; the PDF export and the email
+  are two independent actions (print-dialog PDF vs. a text-body email),
+  not one "attach the exported PDF to the email" flow.
+- **Mobile doesn't get the Linear Measurer, Concrete Calculator, or
+  Material Order Form** - per the spec's own explicit mobile scope
+  (Material Counter + Photo Markup only). Revisit if a technician-facing
+  need for the others shows up.
+- **No Redo on mobile's Photo Markup** (Undo only) - see the mobile
+  section above.
+- Not tested in a real browser against a live Supabase project, live
+  Google Maps key, or a real device/EAS build - this sandbox has none of
+  those. Verified: `tsc --noEmit` clean across `apps/desktop`,
+  `apps/mobile`, `packages/shared`; a production `vite build` clean for
+  `apps/desktop`; and the new migration applied and empirically
+  sanity-tested (inserts, constraints, the order-number trigger's exact
+  sequence, the unique-order-number rejection) against a real local
+  Postgres 16 instance, same bar as every other migration in this repo.

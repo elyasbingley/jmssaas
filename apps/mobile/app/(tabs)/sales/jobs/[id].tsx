@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
@@ -52,6 +52,8 @@ import { EmailComposeModal } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
+import { MaterialTallyCounter } from "../../../../components/MaterialTallyCounter";
+import { PhotoMarkupEditor } from "../../../../components/PhotoMarkupEditor";
 import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 import { partnerDisplayName } from "../../../b2b-referrals/index";
@@ -396,7 +398,8 @@ export default function JobDetailScreen() {
     refetchKeyLog();
   };
 
-  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
+  const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
   const isAdmin = profile?.role === "admin";
 
   // Only fetched once the person actually opens Job Costing (not needed for
@@ -1006,20 +1009,61 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
-      {isAdmin ? (
-        <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("details")}
-          >
-            <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
-          </Pressable>
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("details")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
+        </Pressable>
+        {isAdmin ? (
           <Pressable
             style={[styles.tabButton, activeTab === "costing" && styles.tabButtonActive]}
             onPress={() => setActiveTab("costing")}
           >
             <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
           </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.tabButton, activeTab === "tools" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("tools")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "tools" && styles.tabButtonTextActive]}>Quote Tools</Text>
+        </Pressable>
+      </View>
+
+      {activeTab === "tools" ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Material Tally</Text>
+          <MaterialTallyCounter jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Photo Markup</Text>
+          {markupPhoto ? (
+            <PhotoMarkupEditor
+              jobCardId={id}
+              photoUri={markupPhoto.local_uri!}
+              photoFileName={markupPhoto.file_name ?? "photo.jpg"}
+              onSaved={() => setMarkupPhoto(null)}
+              onCancel={() => setMarkupPhoto(null)}
+            />
+          ) : (
+            <>
+              <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
+              <View style={styles.markupGrid}>
+                {files.filter((f) => f.local_uri).length === 0 ? (
+                  <Text style={styles.empty}>No downloaded photos yet - add or open one from Photos below first.</Text>
+                ) : (
+                  files
+                    .filter((f) => f.local_uri)
+                    .map((f) => (
+                      <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
+                        <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
+                      </Pressable>
+                    ))
+                )}
+              </View>
+            </>
+          )}
         </View>
       ) : null}
 
@@ -1703,6 +1747,10 @@ const styles = StyleSheet.create({
   reportTemplateRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   reportTemplateRowText: { fontSize: 15, color: "#111827" },
   swmsTag: { fontSize: 10, fontWeight: "700", color: "#9a3412", backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  subtitle: { color: "#6b7280", fontSize: 13, marginBottom: 10 },
+  markupGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  markupThumbWrap: { width: "23%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: "#f3f4f6" },
+  markupThumb: { width: "100%", height: "100%" },
   holdNotice: { color: "#b91c1c", fontSize: 12, marginTop: 4, marginBottom: 8 },
   tradeFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
   tradeFilterChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },

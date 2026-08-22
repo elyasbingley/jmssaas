@@ -955,6 +955,100 @@ export interface JobMeasurement {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Job Card Quote Tools - mirrors the quote_tools migration. Alongside the
+// existing roof measurement tool (JobMeasurement above): a linear-distance
+// measurer, an on-site material tally counter, a concrete volume
+// calculator, and a material order form.
+// ---------------------------------------------------------------------------
+
+// A single drawn run (e.g. one gutter length) within a named measurement
+// set - no independent lifecycle of its own, see the migration's comment.
+export interface LinearMeasurementSegment {
+  id: string;
+  label: string;
+  coordinates: Coordinate[];
+  length_meters: number;
+}
+
+export interface JobLinearMeasurement {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  title: string;
+  segments: LinearMeasurementSegment[];
+  total_length_meters: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialTallyItem {
+  id: string;
+  name: string;
+  count: number;
+  category: string;
+}
+
+export interface JobMaterialTally {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  tally_name: string | null;
+  items: MaterialTallyItem[];
+  saved_to_notes: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// No updated_at - a recalculation is a new row, not an edit-in-place, see
+// the migration's own comment.
+export interface JobConcreteCalculation {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  calculation_name: string;
+  length_meters: number;
+  width_meters: number;
+  depth_meters: number;
+  waste_percentage: number;
+  total_cubic_meters: number;
+  estimated_bags_20kg: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type MaterialOrderStatus = "DRAFT" | "ORDERED" | "DELIVERED" | "CANCELLED";
+
+export interface MaterialOrderLineItem {
+  item_name: string;
+  quantity: number;
+  unit_type: string;
+  notes: string;
+}
+
+export interface JobMaterialOrder {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  // Server-assigned on insert ("MAT-001", "MAT-002", ...) - see the
+  // migration's assign_material_order_number trigger.
+  order_number: string;
+  supplier_name: string | null;
+  delivery_date: string | null;
+  line_items: MaterialOrderLineItem[];
+  status: MaterialOrderStatus;
+  // Populated only if/when a real PDF-generation-and-storage pipeline is
+  // wired up for material orders - see the migration's own comment on why
+  // that's out of scope for now (desktop's PDF "export" elsewhere is a
+  // browser print dialog, not a stored file).
+  pdf_url: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Mirrors supabase/migrations/20260804000100_communication_engine.sql.
 export type CommunicationDelayUnit = "hours" | "days";
 export type CommunicationDelayDirection = "before" | "after";

@@ -387,6 +387,78 @@ export const createJobMeasurementSchema = z.object({
 });
 export type CreateJobMeasurementInput = z.infer<typeof createJobMeasurementSchema>;
 
+// ---------------------------------------------------------------------------
+// Job Card Quote Tools
+// ---------------------------------------------------------------------------
+
+export const linearMeasurementSegmentSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1, "Label is required"),
+  coordinates: z.array(coordinateSchema).min(2, "A run needs at least 2 points"),
+  length_meters: z.number().nonnegative(),
+});
+export type LinearMeasurementSegmentInput = z.infer<typeof linearMeasurementSegmentSchema>;
+
+export const createJobLinearMeasurementSchema = z.object({
+  job_card_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  segments: z.array(linearMeasurementSegmentSchema).min(1, "Add at least one run"),
+  total_length_meters: z.number().nonnegative(),
+});
+export type CreateJobLinearMeasurementInput = z.infer<typeof createJobLinearMeasurementSchema>;
+
+export const materialTallyItemSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, "Name is required"),
+  count: z.number().int().nonnegative(),
+  category: z.string().default(""),
+});
+export type MaterialTallyItemInput = z.infer<typeof materialTallyItemSchema>;
+
+export const createJobMaterialTallySchema = z.object({
+  job_card_id: z.string().uuid(),
+  tally_name: z.string().optional(),
+  items: z.array(materialTallyItemSchema).min(1, "Add at least one item"),
+});
+export type CreateJobMaterialTallyInput = z.infer<typeof createJobMaterialTallySchema>;
+
+// total_cubic_meters/estimated_bags_20kg are derived from the other
+// fields (see money.ts-style computeLineItemUnitPriceCents precedent) but
+// still validated here since they're what actually gets persisted.
+export const createJobConcreteCalculationSchema = z.object({
+  job_card_id: z.string().uuid(),
+  calculation_name: z.string().min(1, "Name is required"),
+  length_meters: z.number().positive(),
+  width_meters: z.number().positive(),
+  depth_meters: z.number().positive(),
+  waste_percentage: z.number().nonnegative().default(10),
+  total_cubic_meters: z.number().nonnegative(),
+  estimated_bags_20kg: z.number().int().nonnegative(),
+});
+export type CreateJobConcreteCalculationInput = z.infer<typeof createJobConcreteCalculationSchema>;
+
+export const materialOrderStatusSchema = z.enum(["DRAFT", "ORDERED", "DELIVERED", "CANCELLED"]);
+
+export const materialOrderLineItemSchema = z.object({
+  item_name: z.string().min(1, "Item name is required"),
+  quantity: z.number().positive(),
+  unit_type: z.string().default("ea"),
+  notes: z.string().default(""),
+});
+export type MaterialOrderLineItemInput = z.infer<typeof materialOrderLineItemSchema>;
+
+// order_number is deliberately absent - server-assigned on insert (see
+// the migration's assign_material_order_number trigger), same as
+// quote_number/invoice_number.
+export const createJobMaterialOrderSchema = z.object({
+  job_card_id: z.string().uuid(),
+  supplier_name: z.string().optional(),
+  delivery_date: z.string().date().optional(),
+  line_items: z.array(materialOrderLineItemSchema).min(1, "Add at least one line item"),
+  status: materialOrderStatusSchema.default("DRAFT"),
+});
+export type CreateJobMaterialOrderInput = z.infer<typeof createJobMaterialOrderSchema>;
+
 export const communicationDelayUnitSchema = z.enum(["hours", "days"]);
 export const communicationDelayDirectionSchema = z.enum(["before", "after"]);
 export const communicationChannelSchema = z.enum(["sms", "email", "both"]);
