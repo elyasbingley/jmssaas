@@ -1661,8 +1661,12 @@ const styles = StyleSheet.create({
   costingSummaryValueBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
   pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   pickerFieldRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
+  // flexShrink so the text is actually width-constrained by the row
+  // (next to the fixed-width swatch dot) and wraps onto a second line
+  // for a long category/stage name, instead of Yoga letting it overflow
+  // its measured width and silently clipping the last character or two.
+  pickerFieldText: { fontSize: 15, color: "#111827", flexShrink: 1 },
+  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af", flexShrink: 1 },
   swatch: { width: 12, height: 12, borderRadius: 6 },
   clearLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6, alignSelf: "flex-start" },
   linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
