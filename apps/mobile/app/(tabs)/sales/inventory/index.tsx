@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, FlatList, Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
@@ -359,7 +360,7 @@ export default function InventoryScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Inventory</Text>
         {activeTab === "stock" && locations.length > 0 ? (
@@ -450,7 +451,7 @@ export default function InventoryScreen() {
               ) : null}
 
               {subcategoriesForSelectedCategory.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.subcategoryScroll} contentContainerStyle={styles.chipRow}>
                   <Pressable
                     style={[styles.subChip, selectedSubcategoryId === null && styles.chipActive]}
                     onPress={() => setSelectedSubcategoryId(null)}
@@ -790,7 +791,7 @@ export default function InventoryScreen() {
         onSelect={setNewItemSupplier}
         onClose={() => setItemSupplierPickerVisible(false)}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -802,7 +803,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 20,
+    // SafeAreaView (edges=["top"]) already clears the status bar/notch -
+    // this is just breathing room below that, not a substitute for it
+    // (a flat paddingTop here previously stood in for the safe-area inset
+    // entirely, which is wrong on any device with a taller status bar/
+    // notch than whatever px value was guessed).
+    paddingTop: 12,
     paddingBottom: 12,
     gap: 12,
   },
@@ -832,9 +838,17 @@ const styles = StyleSheet.create({
   tabButtonTextActive: { color: "#fff" },
   tabBadge: { backgroundColor: "#dc2626", borderRadius: 10, paddingHorizontal: 6, minWidth: 18, alignItems: "center" },
   tabBadgeText: { color: "#fff", fontWeight: "700", fontSize: 11 },
-  chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: "center" },
   categoryRow: { flexDirection: "row", alignItems: "center" },
   categoryScroll: { flex: 1 },
+  // The category row's own ScrollView got an explicit style (flexGrow via
+  // categoryScroll's flex:1, needed to share the row with the pinned gear
+  // button) and renders correctly; this row never got one - a horizontal
+  // ScrollView with only contentContainerStyle set can size its own frame
+  // wrong before content is measured, clipping the top of taller glyphs
+  // (only visible on names with tall ascenders, e.g. "Roof"/"Blocking",
+  // not short ones like "All"). An explicit style fixes it the same way.
+  subcategoryScroll: { flexGrow: 0 },
   manageButton: {
     width: 34,
     height: 34,
