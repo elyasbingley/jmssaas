@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Outlet, useMatch } from "react-router-dom";
+import { Outlet, useMatch, useNavigate } from "react-router-dom";
 import {
   createTaskProjectSchema,
   createTaskSchema,
@@ -71,6 +71,7 @@ async function fetchDependencies(): Promise<TaskDependency[]> {
 }
 
 export default function TasksPage() {
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const queryClient = useQueryClient();
   const drawerMatch = useMatch("/tasks/:id");
@@ -380,8 +381,13 @@ export default function TasksPage() {
       </div>
 
       {drawerMatch ? (
-        <div className="fixed inset-y-0 right-0 z-40 w-full max-w-lg overflow-y-auto border-l border-gray-300 bg-white shadow-2xl">
-          <Outlet />
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={() => navigate("/tasks")}>
+          <div
+            className="h-full w-full max-w-lg overflow-y-auto border-l border-gray-300 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Outlet />
+          </div>
         </div>
       ) : null}
 

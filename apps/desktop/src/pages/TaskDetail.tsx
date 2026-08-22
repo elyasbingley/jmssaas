@@ -381,22 +381,32 @@ export default function TaskDetailPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-gray-200 p-5">
-        <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-gray-400">
-          <Link to="/tasks" className="hover:underline">
-            Tasks
-          </Link>
-          {project ? <span> / {project.name}</span> : null}
-          {section ? <span> / {section.name}</span> : null}
-          {parentTask ? (
-            <span>
-              {" "}
-              /{" "}
-              <Link to={`/tasks/${parentTask.id}`} className="text-blue-700 hover:underline">
-                {parentTask.title}
-              </Link>
-            </span>
-          ) : null}
+      <div className="bg-blue-700 p-5">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
+          <div className="flex flex-wrap items-center gap-1 text-xs text-blue-100">
+            <Link to="/tasks" className="hover:underline">
+              Tasks
+            </Link>
+            {project ? <span> / {project.name}</span> : null}
+            {section ? <span> / {section.name}</span> : null}
+            {parentTask ? (
+              <span>
+                {" "}
+                /{" "}
+                <Link to={`/tasks/${parentTask.id}`} className="text-white hover:underline">
+                  {parentTask.title}
+                </Link>
+              </span>
+            ) : null}
+          </div>
+          <button
+            onClick={() => navigate("/tasks")}
+            title="Close"
+            aria-label="Close"
+            className="rounded-md p-1 text-xl leading-none text-blue-100 hover:bg-blue-800 hover:text-white"
+          >
+            &times;
+          </button>
         </div>
 
         <div className="mb-3 flex items-start gap-2">
@@ -404,7 +414,7 @@ export default function TaskDetailPage() {
             onClick={handleComplete}
             title={task.status === "done" ? "Mark incomplete" : "Mark complete"}
             className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold ${
-              task.status === "done" ? "border-green-600 bg-green-600 text-white" : "border-gray-300 text-transparent hover:border-green-500"
+              task.status === "done" ? "border-green-400 bg-green-500 text-white" : "border-blue-200 text-transparent hover:border-green-300"
             }`}
           >
             &#10003;
@@ -416,17 +426,17 @@ export default function TaskDetailPage() {
               onChange={(e) => setTitleDraft(e.target.value)}
               onBlur={commitTitle}
               onKeyDown={(e) => e.key === "Enter" && commitTitle()}
-              className="flex-1 rounded border border-blue-400 px-2 py-1 text-lg font-bold"
+              className="flex-1 rounded border border-blue-300 px-2 py-1 text-lg font-bold"
             />
           ) : (
             <h1
               onClick={() => setEditingTitle(true)}
-              className={`flex-1 cursor-text text-lg font-bold ${task.status === "done" ? "text-gray-400 line-through" : "text-gray-900"}`}
+              className={`flex-1 cursor-text text-lg font-bold ${task.status === "done" ? "text-blue-200 line-through" : "text-white"}`}
             >
               {task.title}
             </h1>
           )}
-          <button onClick={handleDelete} title="Delete task" className="text-gray-400 hover:text-red-600">
+          <button onClick={handleDelete} title="Delete task" className="text-blue-100 hover:text-red-200">
             &#128465;
           </button>
         </div>
@@ -443,23 +453,22 @@ export default function TaskDetailPage() {
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-blue-50">
             <input type="checkbox" checked={task.is_milestone} onChange={(e) => updateTask.mutate({ is_milestone: e.target.checked })} />
             Milestone
           </label>
         </div>
+      </div>
 
+      <div className="flex-1 space-y-6 overflow-y-auto p-5">
         <TextAreaField
           label="Description"
           rows={2}
           value={descriptionDraft}
           onChange={(e) => setDescriptionDraft(e.target.value)}
           onBlur={commitDescription}
-          className="mt-3"
         />
-      </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto p-5">
         <section>
           <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Properties</h2>
           <div className="grid grid-cols-2 gap-3">
