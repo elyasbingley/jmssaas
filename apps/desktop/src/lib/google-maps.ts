@@ -7,13 +7,19 @@ let loadPromise: Promise<typeof google> | null = null;
 
 // "maps" pulls in Map/Marker/Polygon/Polyline (via google.maps.SymbolPath
 // too); "geocoding" pulls in google.maps.Geocoder for the same address
-// resolution step mobile's expo-location does; "geometry" pulls in
-// google.maps.geometry.spherical (computeDistanceBetween/computeLength),
-// used by the Quote Tools linear distance measurer. importLibrary()
-// internally de-dupes concurrent calls for the same library, but this
-// module still only calls setOptions() once (it throws if called twice)
-// and caches the combined load promise so every caller shares one
-// in-flight load.
+// resolution step mobile's expo-location does. importLibrary() internally
+// de-dupes concurrent calls for the same library, but this module still
+// only calls setOptions() once (it throws if called twice) and caches the
+// combined load promise so every caller shares one in-flight load.
+//
+// Note: the Quote Tools linear distance measurer does NOT use Google's
+// own geometry.spherical.computeLength() (even though this loader could
+// pull that library in) - it uses packages/shared/src/geo.ts's
+// polylineLengthMeters() instead, the same equirectangular-projection
+// approach polygonFlatAreaSqm() already uses for roof facets, so desktop
+// and mobile (which has no such Google library available via
+// react-native-maps) compute identical totals from identical
+// coordinates, not two independently-rounded numbers.
 export function loadGoogleMaps(): Promise<typeof google> {
   if (!apiKey) {
     return Promise.reject(
@@ -27,10 +33,7 @@ export function loadGoogleMaps(): Promise<typeof google> {
     optionsSet = true;
   }
   if (!loadPromise) {
-    loadPromise = importLibrary("maps")
-      .then(() => importLibrary("geocoding"))
-      .then(() => importLibrary("geometry"))
-      .then(() => google);
+    loadPromise = importLibrary("maps").then(() => importLibrary("geocoding")).then(() => google);
   }
   return loadPromise;
 }

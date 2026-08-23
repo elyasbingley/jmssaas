@@ -17,7 +17,6 @@ import {
   type JobCard,
   type JobFile,
   type JobLifecycleStage,
-  type JobMeasurement,
   type JobNote,
   type Profile,
   type Property,
@@ -188,16 +187,6 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   return data as InvoiceLineItem[];
 }
 
-async function fetchMeasurements(jobId: string): Promise<JobMeasurement[]> {
-  const { data, error } = await supabase
-    .from("job_measurements")
-    .select("*")
-    .eq("job_card_id", jobId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data as JobMeasurement[];
-}
-
 async function fetchFiles(jobId: string): Promise<JobFile[]> {
   const { data, error } = await supabase
     .from("job_files")
@@ -330,11 +319,6 @@ export default function JobDetailPage() {
     queryKey: ["job-invoice-line-items", invoiceIds.join(",")],
     queryFn: () => fetchInvoiceLineItems(invoiceIds),
     enabled: !!linkedInvoices,
-  });
-  const { data: measurements } = useQuery({
-    queryKey: ["job-measurements", id],
-    queryFn: () => fetchMeasurements(id!),
-    enabled: !!id,
   });
   const { data: files } = useQuery({ queryKey: ["job-files", id], queryFn: () => fetchFiles(id!), enabled: !!id });
   const { data: fileUrls } = useQuery({
@@ -1029,38 +1013,6 @@ export default function JobDetailPage() {
                 </a>
               );
             })}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Roof Measurement</h2>
-          <Link
-            to={`/jobs/${id}/measure`}
-            className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            📐 Measure Roof
-          </Link>
-        </div>
-        {!measurements || measurements.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            Draw roof sections on a satellite map and save the total area to this job.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {measurements.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border-t border-gray-200 pt-2 text-sm first:border-0 first:pt-0">
-                <div>
-                  <p className="font-medium text-gray-900">{m.title}</p>
-                  <p className="text-xs text-gray-500">{new Date(m.created_at).toLocaleDateString("en-AU")}</p>
-                </div>
-                <p className="text-right text-gray-700">
-                  {m.total_true_area_sqm.toFixed(1)} m² true
-                  <span className="block text-xs text-gray-400">{m.total_flat_area_sqm.toFixed(1)} m² flat</span>
-                </p>
-              </div>
-            ))}
           </div>
         )}
       </div>

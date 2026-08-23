@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   createJobMeasurementSchema,
   polygonFlatAreaSqm,
@@ -10,19 +9,26 @@ import {
   type Coordinate,
   type Facet,
   type JobCard,
+  type JobMeasurement,
 } from "@jmssaas/shared";
-import { supabase } from "../lib/supabase";
-import { useAuth } from "../lib/auth-context";
-import { getErrorMessage } from "../lib/errors";
-import { formatClientAddress } from "../lib/format";
-import { loadGoogleMaps } from "../lib/google-maps";
-import { uploadJobPhoto } from "../lib/uploads";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../lib/auth-context";
+import { getErrorMessage } from "../../lib/errors";
+import { formatClientAddress } from "../../lib/format";
+import { loadGoogleMaps } from "../../lib/google-maps";
+import { uploadJobPhoto } from "../../lib/uploads";
+import { Modal } from "../Modal";
+import { FormField } from "../FormField";
 
-// A locally-drawn facet, before it's saved - port of apps/mobile's
-// measure.tsx DraftFacet. flat/true area are derived live (see facetAreas
-// below), not tracked here.
+// Roof Area Tool - folded into the Quote Tools hub (previously its own
+// full-page route, /jobs/:id/measure/JobMeasure.tsx) so it sits alongside
+// the other 5 site-estimating tools instead of being a separate
+// navigation away from the job card. Drawing logic is otherwise
+// unchanged from JobMeasure.tsx - same map/click/overlay pattern, same
+// loadGoogleMaps() helper, same "save, then push a summary into
+// job_notes" flow - just sized to run inside the Quote Tools panel
+// rather than a full page.
+
 interface DraftFacet {
   id: string;
   name: string;
@@ -50,6 +56,11 @@ async function fetchSite(id: string): Promise<ClientSite> {
   if (error) throw error;
   return data as ClientSite;
 }
+async function fetchMeasurements(jobCardId: string): Promise<JobMeasurement[]> {
+  const { data, error } = await supabase.from("job_measurements").select("*").eq("job_card_id", jobCardId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return data as JobMeasurement[];
+}
 
 function getCurrentPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
@@ -61,30 +72,20 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
   });
 }
 
-export default function JobMeasurePage() {
-  const { id: jobCardId } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+export function RoofAreaTool({ jobCardId }: { jobCardId: string }) {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: job } = useQuery({ queryKey: ["job", jobCardId], queryFn: () => fetchJob(jobCardId!), enabled: !!jobCardId });
-  const { data: client } = useQuery({
-    queryKey: ["client", job?.client_id],
-    queryFn: () => fetchClient(job!.client_id),
-    enabled: !!job,
-  });
-  const { data: site } = useQuery({
-    queryKey: ["client-site", job?.site_id],
-    queryFn: () => fetchSite(job!.site_id!),
-    enabled: !!job?.site_id,
-  });
+  const { data: job } = useQuery({ queryKey: ["job", jobCardId], queryFn: () => fetchJob(jobCardId) });
+  const { data: client } = useQuery({ queryKey: ["client", job?.client_id], queryFn: () => fetchClient(job!.client_id), enabled: !!job });
+  const { data: site } = useQuery({ queryKey: ["client-site", job?.site_id], queryFn: () => fetchSite(job!.site_id!), enabled: !!job?.site_id });
+  const { data: measurements } = useQuery({ queryKey: ["job-measurements", jobCardId], queryFn: () => fetchMeasurements(jobCardId) });
 
-  // The job's own site (if picked) is the more specific address, falling
-  // back to the client's address - same precedence as mobile.
   const address =
     (job?.site_id ? formatClientAddress(site ?? { address_line1: null, address_line2: null, suburb: null, state: null, postcode: null }) : null) ??
     (client ? formatClientAddress(client) : null);
 
+  const [drawing, setDrawing] = useState(false);
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const overlaysRef = useRef<Map<string, { polygon?: google.maps.Polygon; polyline?: google.maps.Polyline; markers: google.maps.Marker[] }>>(new Map());
@@ -94,12 +95,8 @@ export default function JobMeasurePage() {
   const [locating, setLocating] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
 
-  // Resolves a starting map center: geocode the job/site/client address via
-  // the Google Geocoding API, falling back to the browser's own geolocation,
-  // then a fixed Sydney default - same fallback chain as mobile's
-  // expo-location-based resolveRegion, just browser APIs instead of native.
   useEffect(() => {
-    if (!job) return;
+    if (!drawing || !job) return;
     let cancelled = false;
 
     async function resolveRegion() {
@@ -107,7 +104,7 @@ export default function JobMeasurePage() {
         try {
           const google = await loadGoogleMaps();
           const geocoder = new google.maps.Geocoder();
-          const { results } = await geocoder.geocode({ address });
+          const { results } = await geocoder.geocode({ address: address! });
           const first = results[0];
           if (first && !cancelled) {
             setRegion({ lat: first.geometry.location.lat(), lng: first.geometry.location.lng() });
@@ -115,10 +112,9 @@ export default function JobMeasurePage() {
             return;
           }
         } catch (e) {
-          console.error("[JobMeasure] Geocoding failed, falling back", e);
+          console.error("[RoofAreaTool] Geocoding failed, falling back", e);
         }
       }
-
       try {
         const position = await getCurrentPosition();
         if (!cancelled) {
@@ -127,9 +123,8 @@ export default function JobMeasurePage() {
           return;
         }
       } catch (e) {
-        console.error("[JobMeasure] Browser geolocation failed, falling back to default region", e);
+        console.error("[RoofAreaTool] Browser geolocation failed, falling back to default region", e);
       }
-
       if (!cancelled) {
         setRegion(DEFAULT_CENTER);
         setLocating(false);
@@ -140,7 +135,7 @@ export default function JobMeasurePage() {
     return () => {
       cancelled = true;
     };
-  }, [job, address]);
+  }, [drawing, job, address]);
 
   const [facets, setFacets] = useState<DraftFacet[]>([]);
   const [activeFacetId, setActiveFacetId] = useState<string | null>(null);
@@ -160,12 +155,8 @@ export default function JobMeasurePage() {
   const totalFlat = facets.reduce((sum, f) => sum + (facetAreas.get(f.id)?.flat ?? 0), 0);
   const totalTrue = facets.reduce((sum, f) => sum + (facetAreas.get(f.id)?.true ?? 0), 0);
 
-  // Creates the map once a region is resolved. A single click listener is
-  // attached once - it reads activeFacetIdRef (not the activeFacetId state
-  // directly) so it always sees the current active facet without needing
-  // to be torn down/recreated every time that changes.
   useEffect(() => {
-    if (!region || !mapDivRef.current) return;
+    if (!region || !mapDivRef.current || mapInstanceRef.current) return;
     let cancelled = false;
     let clickListener: google.maps.MapsEventListener | undefined;
 
@@ -197,11 +188,6 @@ export default function JobMeasurePage() {
     };
   }, [region]);
 
-  // Rebuilds every facet's map overlays (marker per vertex, plus a Polygon
-  // once it has 3+ points or a Polyline for 2) whenever the facet list
-  // changes. Rebuilding from scratch each time (rather than diffing) is
-  // simple and cheap at the scale involved here (a handful of facets, each
-  // a few dozen vertices at most).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -215,9 +201,6 @@ export default function JobMeasurePage() {
       }
     }
 
-    // `google` here is the ambient global @types/google.maps provides - by
-    // this point it's guaranteed loaded, since mapInstanceRef.current is
-    // only ever set inside loadGoogleMaps()'s own .then() above.
     facets.forEach((facet, index) => {
       const color = FACET_COLORS[index % FACET_COLORS.length]!;
       let overlay = overlaysRef.current.get(facet.id);
@@ -242,41 +225,38 @@ export default function JobMeasurePage() {
       overlay.polyline = undefined;
 
       if (facet.coordinates.length >= 3) {
-        overlay.polygon = new google.maps.Polygon({
-          paths: facet.coordinates,
-          strokeColor: color,
-          strokeWeight: 2,
-          fillColor: color,
-          fillOpacity: 0.35,
-          map,
-        });
+        overlay.polygon = new google.maps.Polygon({ paths: facet.coordinates, strokeColor: color, strokeWeight: 2, fillColor: color, fillOpacity: 0.35, map });
       } else if (facet.coordinates.length === 2) {
         overlay.polyline = new google.maps.Polyline({ path: facet.coordinates, strokeColor: color, strokeWeight: 2, map });
       }
     });
   }, [facets]);
 
+  const resetDraft = () => {
+    setDrawing(false);
+    setFacets([]);
+    setActiveFacetId(null);
+    mapInstanceRef.current = null;
+    overlaysRef.current.clear();
+  };
+
   const handleNewFacet = () => {
     const id = crypto.randomUUID();
     setFacets((prev) => [...prev, { id, name: `Facet ${prev.length + 1}`, pitch_degrees: 22.5, coordinates: [], finished: false }]);
     setActiveFacetId(id);
   };
-
   const handleUndoPoint = () => {
     if (!activeFacetId) return;
     setFacets((prev) => prev.map((f) => (f.id === activeFacetId ? { ...f, coordinates: f.coordinates.slice(0, -1) } : f)));
   };
-
   const handleFinishFacet = () => {
     setFacets((prev) => prev.map((f) => (f.id === activeFacetId ? { ...f, finished: true } : f)));
     setActiveFacetId(null);
   };
-
   const handleDeleteFacet = (facetId: string) => {
     setFacets((prev) => prev.filter((f) => f.id !== facetId));
     if (activeFacetId === facetId) setActiveFacetId(null);
   };
-
   const handlePitchChange = (facetId: string, delta: number) => {
     setFacets((prev) => prev.map((f) => (f.id === facetId ? { ...f, pitch_degrees: Math.max(0, Math.min(60, f.pitch_degrees + delta)) } : f)));
   };
@@ -294,11 +274,6 @@ export default function JobMeasurePage() {
 
   const savableFacets = facets.filter((f) => f.coordinates.length >= 3);
 
-  // Builds a satellite snapshot via the Maps Static API (a plain,
-  // CORS-enabled image URL - no separate map-canvas screenshot library
-  // needed) with each facet drawn as a `path` parameter. Static Maps
-  // auto-fits center/zoom to the supplied paths when neither is given, so
-  // there's no need to compute bounds by hand.
   function buildSnapshotUrl(): string {
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
     const url = new URL("https://maps.googleapis.com/maps/api/staticmap");
@@ -341,9 +316,6 @@ export default function JobMeasurePage() {
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid measurement");
 
-      // A failed snapshot shouldn't block saving the measurement itself -
-      // the numbers are what actually matter, the map image is a bonus -
-      // same reasoning as mobile's own try/catch around takeSnapshot.
       let snapshotPath: string | null = null;
       try {
         const response = await fetch(buildSnapshotUrl());
@@ -353,7 +325,7 @@ export default function JobMeasurePage() {
           snapshotPath = await uploadJobPhoto({ tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id, file });
         }
       } catch (e) {
-        console.error("[JobMeasure] Snapshot capture failed, saving measurement without one", e);
+        console.error("[RoofAreaTool] Snapshot capture failed, saving measurement without one", e);
       }
 
       const { error: insertError } = await supabase.from("job_measurements").insert({
@@ -372,9 +344,7 @@ export default function JobMeasurePage() {
         `Roof Measurement - ${new Date().toLocaleDateString("en-AU")}`,
         `Total: ${result.data.total_true_area_sqm.toFixed(1)} m² (true surface area)`,
         "",
-        ...result.data.facets.map(
-          (f) => `${f.name}: ${f.pitch_degrees}° pitch, ${f.flat_area_sqm.toFixed(1)} m² flat -> ${f.true_area_sqm.toFixed(1)} m² true`
-        ),
+        ...result.data.facets.map((f) => `${f.name}: ${f.pitch_degrees}° pitch, ${f.flat_area_sqm.toFixed(1)} m² flat -> ${f.true_area_sqm.toFixed(1)} m² true`),
       ];
       const { error: noteError } = await supabase.from("job_notes").insert({
         tenant_id: profile.tenant_id,
@@ -387,23 +357,44 @@ export default function JobMeasurePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job-measurements", jobCardId] });
       queryClient.invalidateQueries({ queryKey: ["job-notes", jobCardId] });
-      navigate(`/jobs/${jobCardId}`);
+      resetDraft();
+      setSaveError(null);
     },
     onError: (e) => setSaveError(getErrorMessage(e, "Failed to save measurement")),
   });
 
-  if (!job) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+  if (!drawing) {
+    return (
+      <div>
+        <button onClick={() => setDrawing(true)} className="mb-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+          📐 Measure Roof
+        </button>
+        {!measurements || measurements.length === 0 ? (
+          <p className="text-sm text-gray-500">Draw roof sections on a satellite map and save the total area to this job.</p>
+        ) : (
+          <div className="space-y-2">
+            {measurements.map((m) => (
+              <div key={m.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3 text-sm">
+                <div>
+                  <p className="font-medium text-gray-900">{m.title}</p>
+                  <p className="text-xs text-gray-500">{new Date(m.created_at).toLocaleDateString("en-AU")}</p>
+                </div>
+                <p className="text-right text-gray-700">
+                  {m.total_true_area_sqm.toFixed(1)} m² true
+                  <span className="block text-xs text-gray-400">{m.total_flat_area_sqm.toFixed(1)} m² flat</span>
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className="p-8">
-      <Link to={`/jobs/${jobCardId}`} className="mb-4 inline-block text-sm text-blue-700 hover:underline">
-        &larr; Back to Job
-      </Link>
-
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Measure Roof - {job.title}</h1>
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm text-gray-500">Draw one or more roof facets, set each one's pitch.</p>
         <div className="flex gap-6 text-right">
           <div>
             <p className="text-xs text-gray-500">Total flat area</p>
@@ -417,7 +408,7 @@ export default function JobMeasurePage() {
       </div>
 
       <div className="flex gap-4">
-        <div className="h-[600px] flex-1 overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
+        <div className="h-[420px] flex-1 overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
           {mapError ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-600">{mapError}</div>
           ) : locating || !region ? (
@@ -427,23 +418,21 @@ export default function JobMeasurePage() {
           )}
         </div>
 
-        <div className="flex h-[600px] w-96 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white">
-          <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex h-[420px] w-80 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white">
+          <div className="flex-1 overflow-y-auto p-3">
             {!activeFacetId && facets.length === 0 ? (
-              <p className="mb-3 text-xs text-gray-500">
-                Click "+ New Facet" below, then click the map to trace a roof section.
-              </p>
+              <p className="mb-3 text-xs text-gray-500">Click "+ New Facet" below, then click the map to trace a roof section.</p>
             ) : activeFacetId ? (
               <p className="mb-3 text-xs text-gray-500">Click the map to add points. Add at least 3, then click "Finish facet".</p>
             ) : null}
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {facets.map((facet, index) => {
                 const areas = facetAreas.get(facet.id) ?? { flat: 0, true: 0 };
                 const isActive = facet.id === activeFacetId;
                 return (
-                  <div key={facet.id} className={`rounded-lg p-3 ${isActive ? "bg-blue-50" : "bg-gray-50"}`}>
-                    <div className="mb-2 flex items-center justify-between">
+                  <div key={facet.id} className={`rounded-lg p-2 ${isActive ? "bg-blue-50" : "bg-gray-50"}`}>
+                    <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-full" style={{ backgroundColor: FACET_COLORS[index % FACET_COLORS.length] }} />
                         <button onClick={() => openRenameFacet(facet)} className="text-sm font-semibold text-gray-900 hover:underline">
@@ -456,20 +445,14 @@ export default function JobMeasurePage() {
                       </button>
                     </div>
 
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Pitch</span>
-                        <button
-                          onClick={() => handlePitchChange(facet.id, -5)}
-                          className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white"
-                        >
+                        <button onClick={() => handlePitchChange(facet.id, -5)} className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white">
                           -
                         </button>
                         <span className="w-10 text-center text-sm font-bold">{facet.pitch_degrees}°</span>
-                        <button
-                          onClick={() => handlePitchChange(facet.id, 5)}
-                          className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white"
-                        >
+                        <button onClick={() => handlePitchChange(facet.id, 5)} className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white">
                           +
                         </button>
                       </div>
@@ -500,15 +483,20 @@ export default function JobMeasurePage() {
             ) : null}
           </div>
 
-          <div className="border-t border-gray-300 p-4">
-            {saveError ? <p className="mb-2 text-sm text-red-600">{saveError}</p> : null}
-            <button
-              onClick={() => save.mutate()}
-              disabled={save.isPending || savableFacets.length === 0}
-              className="w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
-              {save.isPending ? "Saving..." : "Save & Append to Job Card"}
-            </button>
+          <div className="border-t border-gray-300 p-3">
+            {saveError ? <p className="mb-2 text-xs text-red-600">{saveError}</p> : null}
+            <div className="flex gap-2">
+              <button onClick={resetDraft} className="flex-1 rounded-md border border-gray-300 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={() => save.mutate()}
+                disabled={save.isPending || savableFacets.length === 0}
+                className="flex-1 rounded-md bg-blue-700 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              >
+                {save.isPending ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

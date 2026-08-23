@@ -24,6 +24,7 @@ import {
   type JobLifecycleStage,
   type JobNote,
   type KeyLog,
+  type MaterialTallyItem,
   type Property,
   type PropertyManager,
   type PurchaseOrder,
@@ -52,8 +53,12 @@ import { EmailComposeModal } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
+import { MeasureRoofTool } from "../../../../components/MeasureRoofTool";
+import { LinearMeasurerTool } from "../../../../components/LinearMeasurerTool";
 import { MaterialTallyCounter } from "../../../../components/MaterialTallyCounter";
 import { PhotoMarkupEditor } from "../../../../components/PhotoMarkupEditor";
+import { ConcreteCalculatorTool } from "../../../../components/ConcreteCalculatorTool";
+import { MaterialOrderFormTool } from "../../../../components/MaterialOrderFormTool";
 import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
 import { partnerDisplayName } from "../../../b2b-referrals/index";
@@ -400,6 +405,7 @@ export default function JobDetailScreen() {
 
   const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
   const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
+  const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
   const isAdmin = profile?.role === "admin";
 
   // Only fetched once the person actually opens Job Costing (not needed for
@@ -1034,8 +1040,27 @@ export default function JobDetailScreen() {
 
       {activeTab === "tools" ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Material Tally</Text>
-          <MaterialTallyCounter jobCardId={id} />
+          <Text style={styles.sectionTitle}>Roof Area</Text>
+          <MeasureRoofTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Linear Measurer</Text>
+          <LinearMeasurerTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Tally</Text>
+          <MaterialTallyCounter
+            jobCardId={id}
+            onTransferToOrder={(items) => setTransferredTallyItems(items)}
+          />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Concrete Calculator</Text>
+          <ConcreteCalculatorTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Order</Text>
+          <MaterialOrderFormTool
+            jobCardId={id}
+            prefillItems={transferredTallyItems}
+            onConsumedPrefill={() => setTransferredTallyItems(null)}
+          />
 
           <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Photo Markup</Text>
           {markupPhoto ? (
@@ -1310,19 +1335,6 @@ export default function JobDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Photos</Text>
         <PhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Roof Measurement</Text>
-        <Pressable
-          style={styles.measureButton}
-          onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
-        >
-          <Text style={styles.measureButtonText}>📐 Measure Roof</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>
-          Draw roof sections on a satellite map and save the total area to this job's notes.
-        </Text>
       </View>
 
       <View style={styles.section}>
@@ -1732,8 +1744,6 @@ const styles = StyleSheet.create({
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   buttonText: { color: "#fff", fontWeight: "600" },
   addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
-  measureButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
-  measureButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   measureHint: { color: "#6b7280", fontSize: 12, marginTop: 8 },
   onTheWayButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
   onTheWayButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },

@@ -13,7 +13,13 @@ import { FormField } from "./FormField";
 // site. Supabase-direct (not PowerSync) - same "occasional site tool,
 // requires connectivity" treatment as Reports/Purchase Orders, not the
 // "always needs to work offline" treatment tasks/jobs/notes get.
-export function MaterialTallyCounter({ jobCardId }: { jobCardId: string }) {
+export function MaterialTallyCounter({
+  jobCardId,
+  onTransferToOrder,
+}: {
+  jobCardId: string;
+  onTransferToOrder?: (items: MaterialTallyItem[]) => void;
+}) {
   const { profile } = useAuth();
   const [tallyName, setTallyName] = useState("");
   const [items, setItems] = useState<MaterialTallyItem[]>([]);
@@ -119,6 +125,15 @@ export function MaterialTallyCounter({ jobCardId }: { jobCardId: string }) {
       <Pressable style={[styles.saveButton, (saving || items.length === 0) && styles.saveButtonDisabled]} onPress={handleSaveToNotes} disabled={saving || items.length === 0}>
         <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save Tally to Job Notes"}</Text>
       </Pressable>
+      {onTransferToOrder ? (
+        <Pressable
+          style={[styles.transferButton, items.length === 0 && styles.saveButtonDisabled]}
+          onPress={() => onTransferToOrder(items)}
+          disabled={items.length === 0}
+        >
+          <Text style={styles.transferButtonText}>Transfer to Material Order Form</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -143,4 +158,6 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16 },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  transferButton: { borderWidth: 1, borderColor: "#1d4ed8", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 10 },
+  transferButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 15 },
 });

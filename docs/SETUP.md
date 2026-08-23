@@ -7458,11 +7458,11 @@ No Supabase migration in this batch - every fix here is UI-only.
 
 ## 60. Job Card Quote Tools module
 
-A "Quote Tools" hub added to the Job Card, alongside the existing Roof
-Area Tool (job_measurements/JobMeasure.tsx, unchanged, just linked from
-the new hub rather than duplicated): a linear distance measurer, an
-on-site material tally counter, a photo markup/annotation editor, a
-concrete volume calculator, and a material order form.
+A "Quote Tools" hub added to the Job Card: the Roof Area Tool, a linear
+distance measurer, an on-site material tally counter, a photo markup/
+annotation editor, a concrete volume calculator, and a material order
+form - all six tools, on both desktop and mobile (see "60a" below for
+the v2 pass that merged Roof Area in and closed the mobile gap).
 
 ### Scope decisions (read this before touching these tables)
 
@@ -7646,3 +7646,80 @@ devices already installed from a prior build.
   sanity-tested (inserts, constraints, the order-number trigger's exact
   sequence, the unique-order-number rejection) against a real local
   Postgres 16 instance, same bar as every other migration in this repo.
+
+## 60a. Quote Tools v2 - Roof Area merged in, full mobile parity
+
+Follow-up to section 60, prompted by feedback that the Roof Area Tool
+still felt bolted-on next to the other five, and that mobile was missing
+three of the six tools entirely. No new tables or migration - this is a
+UI consolidation on top of the existing `job_measurements` /
+`job_linear_measurements` / `job_concrete_calculations` /
+`job_material_orders` schema.
+
+- **Roof Area is now one of the six Quote Tools sub-tabs, not a separate
+  page, on both platforms.** Desktop: `JobMeasure.tsx` and its
+  `/jobs/:id/measure` route are gone; its logic now lives in
+  `components/quote-tools/RoofAreaTool.tsx`, an embeddable version that
+  toggles a local `drawing` flag instead of navigating (a `resetDraft()`
+  after save instead of `navigate()`). `JobDetail.tsx`'s old standalone
+  "Roof Measurement" card is removed - `QuoteToolsSection` is the only
+  place it renders now. Mobile: `sales/jobs/measure.tsx` and its route are
+  gone; `components/MeasureRoofTool.tsx` is the embeddable equivalent
+  (same PowerSync-backed `job_measurements`/`job_notes` writes,
+  `react-native-maps` drawing), wired into the Job Card's "Quote Tools"
+  tab alongside the others. `job_measurements` stays the one Quote Tools
+  table that's PowerSync-synced (pre-dates the other five, which are
+  plain-Supabase) - that split is unchanged, just no longer split across
+  two different screens per platform.
+- **`packages/shared/src/geo.ts` gained `polylineLengthMeters()`** - same
+  equirectangular-projection approach as the existing
+  `polygonFlatAreaSqm()`/`trueAreaSqm()` (one shared reference latitude,
+  planar distance between consecutive points), added so the Linear
+  Measurer's distance total is computed identically on both platforms.
+  Desktop's `LinearMeasurer.tsx` switched from
+  `google.maps.geometry.spherical.computeLength()` to this shared
+  function (dropping the `geometry` library from `lib/google-maps.ts`'s
+  `loadGoogleMaps()` load chain, since nothing needs it anymore); mobile
+  has no Google geometry library available via `react-native-maps` at
+  all, so this was the only way to get matching totals rather than two
+  independently-rounded numbers from two different formulas.
+- **Mobile now has all six tools**, closing the gap from section 60's
+  "Mobile doesn't get the Linear Measurer, Concrete Calculator, or
+  Material Order Form" known gap - that scope-down was the original
+  spec's own explicit call, superseded here:
+  - `components/LinearMeasurerTool.tsx` - `react-native-maps` `Polyline`
+    drawing, same named-runs/segments model as desktop, Supabase-direct
+    (`job_linear_measurements` isn't a PowerSync table).
+  - `components/ConcreteCalculatorTool.tsx` - same
+    volume = L×W×D×(1+waste%), bags = volume×108 formula, live as you
+    type.
+  - `components/MaterialOrderFormTool.tsx` - line items manual or
+    transferred from Material Tally, a `DateField` for delivery date
+    (converted to a plain `YYYY-MM-DD` string on save) instead of
+    desktop's `<input type="date">`, a status-chip row (the same
+    "row of pressable pills" pattern purchase orders already use on
+    mobile, not desktop's `<select>`) instead of `SelectField` (mobile
+    has no such component), PDF export via `lib/material-order-pdf.ts` +
+    `lib/print.ts`'s `exportPdf` (expo-print + the native share sheet,
+    not a browser print dialog), and email send via the same inline
+    `scheduled_communications` insert + `triggerImmediateDispatch` +
+    `Alert.alert` pattern the job card's own free-form email button
+    already uses (mobile has no shared `queueAndSendEmail` helper).
+  - `MaterialTallyCounter.tsx` gained the same "Transfer to Material
+    Order Form" button desktop's `MaterialTally.tsx` has (an optional
+    `onTransferToOrder` prop), and `jobs/[id].tsx` gained the matching
+    `transferredTallyItems` in-memory handoff state.
+  - The Job Card's "Quote Tools" tab now lists all six tools in the same
+    order as desktop's sub-tab bar: Roof Area, Linear Measurer, Material
+    Tally, Concrete Calculator, Material Order, Photo Markup.
+- **Not done**: converting mobile's "Quote Tools" tab from one long
+  stacked list of sections into a sub-tab switcher matching desktop's
+  `QuoteToolsSection` (button row + one panel at a time) - all six tools
+  are present and functional, just laid out as sequential sections rather
+  than sub-tabs. Worth revisiting if the stacked list gets unwieldy on a
+  phone-sized screen.
+- Verified: `tsc --noEmit` clean across `apps/desktop` and `apps/mobile`;
+  a production `vite build` clean for `apps/desktop`. Not tested against
+  a live Google Maps key, a real device, or an EAS build - same sandbox
+  limitation as section 60. A new EAS build is needed for the mobile
+  changes here to reach devices already installed from a prior build.

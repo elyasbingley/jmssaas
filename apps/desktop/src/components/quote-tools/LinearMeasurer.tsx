@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createJobLinearMeasurementSchema,
+  polylineLengthMeters,
   type Coordinate,
   type JobLinearMeasurement,
 } from "@jmssaas/shared";
@@ -30,9 +31,7 @@ const DEFAULT_CENTER = { lat: -33.8688, lng: 151.2093 };
 const ZOOM = 20;
 
 function segmentLengthMeters(coordinates: Coordinate[]): number {
-  if (coordinates.length < 2 || typeof google === "undefined") return 0;
-  const path = coordinates.map((c) => new google.maps.LatLng(c.lat, c.lng));
-  return google.maps.geometry.spherical.computeLength(path);
+  return polylineLengthMeters(coordinates);
 }
 
 async function fetchMeasurements(jobCardId: string): Promise<JobLinearMeasurement[]> {
