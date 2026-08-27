@@ -19,6 +19,7 @@ import { formatClientAddress } from "../lib/format";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
+import { ClientMembershipSection } from "../components/ClientMembershipSection";
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -40,6 +41,20 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   const { data, error } = await supabase.from("job_lifecycle_stages").select("*").order("position");
   if (error) throw error;
   return data as JobLifecycleStage[];
+}
+
+// Just whether this client currently has an active membership - drives
+// the "same-day response" reminder banner on the New Job form.
+async function fetchIsActiveMember(clientId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("client_memberships")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
 }
 
 async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
@@ -90,6 +105,7 @@ export default function ClientDetailPage() {
   const stageById = new Map((stages ?? []).map((s) => [s.id, s]));
   const { data: contacts } = useQuery({ queryKey: ["client-contacts", id], queryFn: () => fetchClientContacts(id!), enabled: !!id });
   const { data: sites } = useQuery({ queryKey: ["client-sites", id], queryFn: () => fetchClientSites(id!), enabled: !!id });
+  const { data: isActiveMember } = useQuery({ queryKey: ["client-is-active-member", id], queryFn: () => fetchIsActiveMember(id!), enabled: !!id });
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -470,6 +486,8 @@ export default function ClientDetailPage() {
         )}
       </div>
 
+      <ClientMembershipSection clientId={id!} />
+
       <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog entities={(jobs ?? []).map((job) => ({ entityType: "job" as const, entityId: job.id }))} />
@@ -665,6 +683,11 @@ export default function ClientDetailPage() {
           <p className="font-semibold text-gray-900">{client.client_type === "company" && client.company_name ? client.company_name : client.name}</p>
           {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
         </div>
+        {isActiveMember ? (
+          <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+            This client is a Member - remember the same-day response guarantee.
+          </p>
+        ) : null}
         <FormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         <TextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
 

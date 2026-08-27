@@ -52,6 +52,16 @@ async function fetchJobCards(): Promise<JobCardRow[]> {
   if (error) throw error;
   return data as JobCardRow[];
 }
+// Just the set of client_ids with an active membership - a member's job
+// gets sorted above non-member jobs on the Unassigned shelf and a
+// "Member - Priority" badge, matching the priority_scheduling benefit
+// membership_plans promises. A plain Set of ids is all this board needs,
+// not the full client_memberships rows.
+async function fetchActiveMemberClientIds(): Promise<Set<string>> {
+  const { data, error } = await supabase.from("client_memberships").select("client_id").eq("status", "active");
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.client_id as string));
+}
 // Any profile can be dispatched a job - not just role='technician' - so
 // an admin who also does field work can assign jobs to themselves too.
 async function fetchTechnicians(): Promise<Profile[]> {
@@ -220,7 +230,7 @@ function TechnicianRow({
   );
 }
 
-function UnassignedJobPill({ job }: { job: JobCardRow }) {
+function UnassignedJobPill({ job, isMember }: { job: JobCardRow; isMember: boolean }) {
   const navigate = useNavigate();
   const data: DragData = { kind: "unassigned", jobId: job.id };
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `unassigned:${job.id}`, data });
@@ -232,11 +242,18 @@ function UnassignedJobPill({ job }: { job: JobCardRow }) {
       {...attributes}
       onClick={() => !isDragging && navigate(`/jobs/${job.id}`)}
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, zIndex: isDragging ? 20 : undefined }}
-      className={`flex-shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left shadow-sm hover:bg-gray-50 ${
-        isDragging ? "opacity-70" : ""
-      }`}
+      className={`flex-shrink-0 rounded-lg border bg-white px-3 py-2 text-left shadow-sm hover:bg-gray-50 ${
+        isMember ? "border-blue-300" : "border-gray-300"
+      } ${isDragging ? "opacity-70" : ""}`}
     >
-      <p className="text-sm font-semibold text-gray-900">{job.title}</p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-sm font-semibold text-gray-900">{job.title}</p>
+        {isMember ? (
+          <span className="flex-shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+            Member - Priority
+          </span>
+        ) : null}
+      </div>
       <p className="text-xs text-gray-500">{job.clients?.name ?? "Unknown client"}</p>
     </button>
   );
@@ -252,6 +269,7 @@ export default function DispatchPage() {
   const { data: events } = useQuery({ queryKey: ["dispatch-events"], queryFn: fetchEvents });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
+  const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
 
   const [dragError, setDragError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -280,11 +298,21 @@ export default function DispatchPage() {
     const scheduledJobIds = new Set(events.filter((e) => new Date(e.start_at) >= startOfToday).map((e) => e.job_card_id));
     const closedStageIds = new Set(stages.filter((s) => s.is_closed).map((s) => s.id));
     const filters = { search: trimmedSearch, categoryId: categoryFilter, stageId: stageFilter };
-    return jobCards.filter(
+    const filtered = jobCards.filter(
       (job) =>
         !scheduledJobIds.has(job.id) && !closedStageIds.has(job.lifecycle_stage_id ?? "") && jobMatchesFilters(job, filters)
     );
-  }, [jobCards, events, stages, trimmedSearch, categoryFilter, stageFilter]);
+    // Member clients get priority_scheduling - jobs for an active member
+    // sort above non-member jobs on this shelf, secondary to (i.e. not
+    // disturbing) fetchJobCards' own created_at ordering within each group,
+    // since Array.prototype.sort is stable.
+    if (!memberClientIds || memberClientIds.size === 0) return filtered;
+    return [...filtered].sort((a, b) => {
+      const aMember = memberClientIds.has(a.client_id) ? 1 : 0;
+      const bMember = memberClientIds.has(b.client_id) ? 1 : 0;
+      return bMember - aMember;
+    });
+  }, [jobCards, events, stages, trimmedSearch, categoryFilter, stageFilter, memberClientIds]);
 
   const eventsByTechnician = useMemo(() => {
     const map = new Map<string, CalendarEventRow[]>();
@@ -531,7 +559,7 @@ export default function DispatchPage() {
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {unassignedJobs.map((job) => (
-                <UnassignedJobPill key={job.id} job={job} />
+                <UnassignedJobPill key={job.id} job={job} isMember={memberClientIds?.has(job.client_id) ?? false} />
               ))}
             </div>
           )}

@@ -7723,3 +7723,300 @@ UI consolidation on top of the existing `job_measurements` /
   a live Google Maps key, a real device, or an EAS build - same sandbox
   limitation as section 60. A new EAS build is needed for the mobile
   changes here to reach devices already installed from a prior build.
+
+## 61. Membership Module (Munus)
+
+A "Membership" offer layered on top of the existing client/job/quote/
+invoice schema, not a replacement for any of it - same shape as the Real
+Estate & Strata module. Clients pay an annual fee (tenant-configurable,
+one plan per tenant for now) for: no call-out fee, a discount on repairs/
+installations, priority scheduling, an included annual roof inspection,
+an included annual plumbing check, and a same-day response guarantee.
+Built as four migration batches (mirroring Real Estate & Strata's own
+phased-migration style) plus Edge Functions and desktop/mobile UI.
+
+### Corrections to the original brief, found during research
+
+- **This codebase already had Stripe integration** (`supabase/functions/
+  approve` + `stripe-webhook`, a single platform-level `STRIPE_SECRET_KEY`
+  used for invoice payment links) - contrary to the initial assumption of
+  no existing Stripe usage. Membership's Stripe Connect flow is a
+  genuinely new, parallel mechanism (per-tenant connected accounts, not
+  one shared platform account), matching the existing code's *style* (raw
+  `fetch`, hand-verified webhook signatures, no stripe-node SDK) but not
+  reusing its functions - different auth model, different webhook
+  endpoint/secret entirely.
+- **Quote/invoice totals are never trusted from the client** -
+  `subtotal_cents`/`gst_cents`/`total_cents` are always recomputed
+  server-side from stored line items (`calculate_line_item_totals`,
+  confirmed by `atomic_line_item_rpcs.sql`'s own header comment). This
+  meant the membership discount couldn't be a client-side calculation
+  like the Quote Tools' Concrete Calculator - it had to be threaded into
+  that same server-side totals machinery, recomputed on every line-item
+  save.
+- The `communication_templates` "duplicate seed rows -> duplicate sends"
+  bug some earlier migrations' own comments describe as still-unfixed was
+  actually fixed by `fix_duplicate_communication_templates.sql` (a real
+  unique constraint + `ON CONFLICT` guard) before this module was built -
+  confirmed by reading the actual latest state rather than an out-of-date
+  comment, since building on the wrong assumption would have meant either
+  silently dropping the fix or re-introducing the duplicate-send bug.
+
+### Batch 1 - `20260911000100_membership_plans_and_clients.sql`
+
+`membership_plans` (tenant-wide read, admin-only write - same shape as
+`price_book_items`; one active plan per tenant enforced by a partial
+unique index, deliberately the *only* thing standing between this and
+multi-tier support later), `client_memberships` (tenant-wide read so a
+technician can see "this client is a Member" for job context, admin-only
+write since enrollment goes through Stripe Checkout / the webhook),
+`membership_benefit_usage` (tenant-wide read+insert - a technician logs a
+benefit's use from the field, same shape as `scheduled_communications`).
+`price_book_items.is_callout_fee` and `tenants.stripe_connect_account_id`/
+`stripe_connect_onboarded` added. The `(client_membership_id, benefit_type,
+period_start)` unique constraint on `membership_benefit_usage` is the
+actual mechanism preventing a client using the same included benefit
+twice in one billing year.
+
+Empirically tested against a local Postgres 16 instance (14 checks): the
+partial unique indexes correctly reject a second active row while
+allowing a second inactive/cancelled one, the benefit-usage anti-double-
+use constraint, and RLS (cross-tenant isolation, non-admin read-only,
+admin write).
+
+### Batch 2 - `20260912000100_membership_discount_engine.sql`
+
+`quotes`/`invoices` gain `client_membership_id`, `membership_discount_
+percent`, `membership_discount_cents`, `membership_discount_overridden`;
+their line items gain `is_callout_fee` and `waived_amount_cents`. A
+waiver is never a lossy price overwrite - `unit_price_cents` stays the
+catalogue price forever, `waived_amount_cents` is what's actually
+subtracted at totals time, so turning an admin override back off fully
+and correctly re-derives the auto figures from scratch. `calculate_line_
+item_totals`/`replace_quote_line_items`/`replace_invoice_line_items`/
+`convert_quote_to_invoice` all route through a new `apply_membership_
+adjustments` helper. The override is a sticky flag (mirroring
+`nte_exceeded_approved`'s shape) that survives further line-item edits;
+`set_quote_membership_discount_override`/`set_invoice_membership_
+discount_override` toggle it. `convert_quote_to_invoice` re-checks
+membership status live rather than trusting the quote's cached figures.
+
+GST is computed on the net (post-waiver) amount per line; the percentage
+discount is a lump-sum reduction to the GST-inclusive total rather than a
+tax-recalculation - a judgment call worth revisiting if the person wants
+the discount itself to reduce the taxable amount.
+
+Empirically tested (6 scenarios): the discount/waiver math exactly as
+designed, override persistence across line-item edits and full reversal
+when turned off, and a client enrolling in a membership *between* quoting
+and invoice conversion correctly getting the waiver on the invoice (not
+the quote's stale unmembered state).
+
+### Batch 3 - `20260913000100_membership_communications.sql`
+
+Five new `trigger_key`s (`membership_welcome`, `membership_renewal_
+upcoming`, `membership_payment_failed`, `membership_cancelled`,
+`membership_annual_benefit_reminder`), seeded via the same full-
+cumulative redefinition every trigger_key in this schema uses.
+`membership_welcome` fires on a `client_memberships` `INSERT` (status
+active at creation); `membership_payment_failed`/`membership_cancelled`
+fire on `UPDATE` watching status transitions - deliberately not
+deduplicated against a prior send, since a membership can flap active ->
+past_due -> active -> past_due again and each transition is real news.
+`membership_renewal_upcoming`/`membership_annual_benefit_reminder` have
+no natural row-change event, so a new daily cron-swept Edge Function
+(`process-membership-reminders`, same shape as `process-real-estate-
+maintenance`) detects and queues them. The benefit reminder sends ONE
+combined message per membership per period (not one per unused benefit) -
+`{membership_benefit_type}` resolves to a joined label at send time,
+computed live against `membership_benefit_usage`, sidestepping a need for
+a benefit-type-specific idempotency column. `process-scheduled-comms` and
+`packages/shared/src/placeholders.ts` both gained a `client_membership`
+context/token set.
+
+Empirically tested (8 scenarios): a pre-existing tenant's backfill adds
+exactly the 5 new rows (31 total, not duplicated even run twice), each
+trigger fires exactly once per real status transition, unrelated column
+updates don't double-fire anything, and a disabled rule correctly
+suppresses the message.
+
+### Batch 4 - Stripe Connect Edge Functions (no migration)
+
+- **`stripe-connect-onboard`** - starts/resumes Express Connect onboarding
+  for a tenant (admin-only), storing `stripe_connect_account_id`/
+  `onboarded`. Express, not Standard - keeps onboarding embedded in this
+  app's own Settings page rather than handing the tenant an independent
+  Stripe dashboard.
+- **`create-membership-checkout`** - admin-only; creates (or reuses) a
+  Stripe Checkout Session in subscription mode *on the tenant's connected
+  account* (every call carries the `Stripe-Account` header), given a
+  `client_id`. Lazily creates the plan's Stripe Product/Price the first
+  time it's needed (persisting `membership_plans.stripe_price_id`),
+  reuses an existing Stripe customer for the client if one already
+  exists from a past enrollment.
+- **`membership-stripe-webhook`** - a *separate* webhook endpoint and
+  signing secret from the existing `stripe-webhook` (Connect events, not
+  platform events - new env var `STRIPE_CONNECT_WEBHOOK_SECRET`). Handles
+  `checkout.session.completed` (inserts the `client_memberships` row -
+  this is what fires `membership_welcome`), `customer.subscription.
+  updated`/`deleted`, and `invoice.paid`/`invoice.payment_failed` - keeps
+  `status`/`current_period_start`/`current_period_end` in sync. No
+  communication-sending logic lives in this file at all; every status
+  transition it produces fires the right message automatically via
+  Batch 3's triggers.
+
+### Shared (`packages/shared/src`)
+
+New `MembershipStatus`/`MembershipBenefitType`/`MembershipPlan`/
+`MembershipBenefitsSnapshot`/`ClientMembership`/`MembershipBenefitUsage`
+types and `membershipPlanFormSchema`/`recordMembershipBenefitUsageSchema`
+schemas. `Quote`/`Invoice`/`Tenant`/`PriceBookItem` gained their new
+columns; `LineItemInput.is_callout_fee`/`waived_amount_cents` and
+`PriceBookItem.is_callout_fee` are optional (not required, even though
+the DB columns are NOT NULL) so the existing line-item-editor and
+price-book-editor call sites across desktop/mobile that build these
+objects without them still compile - not yet surfaced as editable toggles
+anywhere in the UI (see Known gaps below). Also fixed two pieces of
+pre-existing drift found while touching this area: `ScheduledCommunication
+EntityType`/`scheduledCommunicationEntityTypeSchema` were missing four
+entity types several later migrations had already added (`referral_
+partner`/`report`/`purchase_order`/`subcontractor`), and `communication
+TemplateCategorySchema` was missing `'partner'`.
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Membership.tsx` (new sidebar link, same structural pattern as
+`RealEstate.tsx`) - manage the tenant's one plan (price, benefit toggles,
+active flag) and a read-only list of current/past members. `components/
+ClientMembershipSection.tsx` on the client detail page - enrol (creates a
+Checkout link via `create-membership-checkout` for the admin to copy/send
+to the client, mirroring how invoice payment links already work), current
+benefit-usage-this-period list, cancel, past-membership history.
+`Settings.tsx` gained a "Membership - Stripe Connect" block (same
+bearer-token-POST-to-an-Edge-Function shape as the existing Xero/Google
+Calendar connect buttons) - unlike those OAuth flows, Stripe's own Express
+onboarding just drops the tenant back at `return_url` with no status
+attached, so the return leg re-calls the same `stripe-connect-onboard`
+function, which already has an "account exists, check its current state"
+branch. `Dispatch.tsx`'s Unassigned shelf shows a "Member - Priority"
+badge and sorts member-client jobs above non-member jobs (stable
+secondary sort, `priority_scheduling`'s tangible effect). `Jobs.tsx`'s and
+`ClientDetail.tsx`'s "New Job" modals show a same-day-response reminder
+banner when the selected/current client is an active member.
+
+### Mobile (`apps/mobile`)
+
+`components/MembershipStatusCard.tsx` - Supabase-direct (not PowerSync,
+same "occasional, needs connectivity" treatment as `MaterialTallyCounter`
+- membership status changes happen through the office + Stripe, not from
+the field), renders nothing for a non-member client. Shows the status
+badge, the benefit chips derived from `benefits_snapshot` ("No call-out
+fee", "X% off repairs", "Priority scheduling", "Same-day response"), and
+a used/not-yet-used line per included benefit type this period - exactly
+the "this client is a Member, no call-out fee, hasn't used their annual
+roof inspection yet" field visibility the brief asked for. Dropped into
+both the client detail screen (FlatList header, own horizontal margin)
+and the job detail screen (already-padded section, no extra margin - the
+component itself takes no horizontal margin so it composes correctly in
+either container).
+
+### Deploy
+
+New Stripe Dashboard step beyond what already existed for invoice
+payments: enable Connect (Express) and create a *separate* Connect
+webhook endpoint (Developers -> Webhooks -> the **Connect** tab, not the
+main platform tab) pointed at the deployed `membership-stripe-webhook`
+URL, subscribed to `checkout.session.completed`, `customer.subscription.
+updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.
+payment_failed`. Set its signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET`
+(distinct from the existing `STRIPE_WEBHOOK_SECRET`) - `STRIPE_SECRET_KEY`
+itself is reused unchanged for all Connect management calls (Stripe's own
+design: the platform manages connected accounts with its own key).
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx supabase functions deploy stripe-connect-onboard
+npx supabase functions deploy create-membership-checkout
+npx supabase functions deploy membership-stripe-webhook --no-verify-jwt
+npx supabase functions deploy process-membership-reminders --no-verify-jwt
+npx vercel --prod
+```
+
+`process-membership-reminders` needs its own daily `pg_cron` schedule
+(separate from `process-scheduled-comms`'s 5-minute sweep), same one-time
+SQL-editor step every other cron-swept function in this repo needed:
+
+```sql
+select cron.schedule(
+  'process-membership-reminders-daily',
+  '0 6 * * *',
+  $$
+  select net.http_post(
+    url := 'https://<project-ref>.supabase.co/functions/v1/process-membership-reminders',
+    headers := jsonb_build_object('Authorization', 'Bearer <service-role-key>')
+  );
+  $$
+);
+```
+
+A new EAS build is needed for the mobile changes here to reach devices
+already installed from a prior build.
+
+### Test it
+
+1. Settings -> "Membership - Stripe Connect" -> Connect Stripe -> confirm
+   redirect to Stripe's Express onboarding, then back to Settings showing
+   "Connected".
+2. Membership page -> set a plan (price, discount %, toggles, included
+   benefits) -> Save -> confirm it persists.
+3. A client's detail page -> Membership section -> Enrol in Membership ->
+   confirm a Checkout link is generated -> complete payment as the client
+   -> confirm `membership_welcome` fires and the client's card now shows
+   Active with the plan's benefits.
+4. Create a quote/invoice for that member client including a call-out-fee
+   line item -> confirm it's waived ("Waived - Membership" reflected in
+   `waived_amount_cents`) and the discount is applied to the rest,
+   `membership_discount_cents` stored on the document.
+5. Dispatch board -> confirm the member's unassigned job shows "Member -
+   Priority" and sorts above non-member jobs.
+6. Mobile -> open that client or one of their jobs -> confirm the
+   Membership card shows Active, the right benefit chips, and correct
+   used/not-yet-used benefit lines.
+7. Cancel the Stripe subscription (or the client detail page's own Cancel
+   button) -> confirm `membership_cancelled` fires and status updates
+   everywhere.
+
+### Known gaps / judgment calls
+
+- **No UI yet to flag a price_book_items row as `is_callout_fee`** - the
+  column and discount-engine logic are fully wired, but nothing in
+  Settings/Price Book lets an admin toggle it, and quote/invoice line
+  item editors don't yet show a per-line "Waived - Membership" label or
+  let an admin manually flag a freeform line as the call-out fee. The
+  server-side engine already handles whatever the client sends (defaulting
+  to `false`/`0` when omitted) - this is a UI gap, not a backend one.
+  `set_quote_membership_discount_override`/`set_invoice_membership_
+  discount_override` (the manual override RPCs) also have no UI control
+  yet for the same reason.
+- **GST is not recalculated as reduced by the percentage discount** - see
+  Batch 2's own note; the discount is a lump-sum reduction to the
+  GST-inclusive total, not a taxable-amount recalculation.
+- **No admin UI for `membership_benefit_usage`** - there's no "mark this
+  job as using the client's included roof inspection" button anywhere yet
+  (desktop or mobile); the table/RLS/anti-double-use constraint exist, but
+  nothing writes to it. Worth a follow-up once the field workflow for
+  redeeming a benefit is settled (from the job screen? the membership
+  card? a office-side gesture reading the technician's own job note?).
+- Not tested against a live Stripe account (real or test-mode Connect
+  account, a real webhook delivery, or a real Checkout completion) or a
+  real device/EAS build - this sandbox has none of those. Verified:
+  `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
+  `apps/mobile`; a production `vite build` clean for `apps/desktop`; all
+  four migrations empirically tested (28 total sanity checks across
+  Batches 1-3) against a real local Postgres 16 instance, same bar as
+  every other migration in this repo. The three Stripe Connect Edge
+  Functions have no Deno runtime available in this sandbox to typecheck -
+  verified by careful review and structural brace/paren balance checks
+  instead, same limitation as every other Edge Function added this
+  session.

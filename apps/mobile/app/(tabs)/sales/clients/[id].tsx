@@ -20,6 +20,7 @@ import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { FormField } from "../../../../components/FormField";
+import { MembershipStatusCard } from "../../../../components/MembershipStatusCard";
 
 export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -423,6 +424,10 @@ export default function ClientDetailScreen() {
                   </Pressable>
                 ))
               )}
+            </View>
+
+            <View style={{ marginHorizontal: 16 }}>
+              <MembershipStatusCard clientId={id} />
             </View>
 
             <Text style={styles.sectionTitle}>Jobs</Text>

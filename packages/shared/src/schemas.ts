@@ -463,8 +463,20 @@ export const communicationDelayUnitSchema = z.enum(["hours", "days"]);
 export const communicationDelayDirectionSchema = z.enum(["before", "after"]);
 export const communicationChannelSchema = z.enum(["sms", "email", "both"]);
 export const communicationMessageChannelSchema = z.enum(["sms", "email"]);
-export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field"]);
-export const scheduledCommunicationEntityTypeSchema = z.enum(["quote", "invoice", "job", "calendar_event", "client"]);
+export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field", "partner"]);
+export const scheduledCommunicationEntityTypeSchema = z.enum([
+  "quote",
+  "invoice",
+  "job",
+  "calendar_event",
+  "client",
+  "property_asset",
+  "referral_partner",
+  "report",
+  "purchase_order",
+  "subcontractor",
+  "client_membership",
+]);
 
 // HH:MM or HH:MM:SS - matches the <input type="time">-style pickers used by
 // the quiet hours fields on the Automation & Messaging Settings screen.
@@ -807,3 +819,40 @@ export const createPurchaseOrderSchema = z.object({
   billed_to_client_cents: z.number().int().nonnegative().optional(),
 });
 export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;
+
+// ---------------------------------------------------------------------------
+// Membership Module (Munus) - mirrors membership_plans_and_clients.sql.
+// ---------------------------------------------------------------------------
+
+export const membershipStatusSchema = z.enum(["active", "past_due", "cancelled", "expired"]);
+export const membershipBenefitTypeSchema = z.enum(["annual_roof_inspection", "annual_plumbing_check"]);
+
+// One row per tenant for now (see the migration's own comment on the
+// partial unique index this reflects) - used for both the first-time
+// setup form and every later edit of the tenant's single plan.
+export const membershipPlanFormSchema = z.object({
+  name: z.string().min(1, "Name is required").default("Membership"),
+  annual_price_cents: z.number().int().nonnegative(),
+  discount_percent: z.number().min(0).max(100).default(0),
+  waive_callout_fee: z.boolean().default(true),
+  priority_scheduling: z.boolean().default(true),
+  same_day_response: z.boolean().default(false),
+  annual_roof_inspections_included: z.number().int().nonnegative().default(1),
+  annual_plumbing_checks_included: z.number().int().nonnegative().default(1),
+  is_active: z.boolean().default(true),
+});
+export type MembershipPlanFormInput = z.infer<typeof membershipPlanFormSchema>;
+
+// Client enrollment itself is never form-driven (it happens via Stripe
+// Checkout, and the client_memberships row is created by the
+// membership-stripe-webhook function on checkout.session.completed) - no
+// create schema needed for it here.
+
+export const recordMembershipBenefitUsageSchema = z.object({
+  client_membership_id: z.string().uuid(),
+  benefit_type: membershipBenefitTypeSchema,
+  job_card_id: z.string().uuid().optional(),
+  period_start: z.string().date(),
+  period_end: z.string().date(),
+});
+export type RecordMembershipBenefitUsageInput = z.infer<typeof recordMembershipBenefitUsageSchema>;

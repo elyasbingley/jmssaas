@@ -24,6 +24,15 @@ async function fetchJobs(): Promise<JobCard[]> {
   return data as JobCard[];
 }
 
+// Just the set of client_ids with an active membership - drives the
+// "same-day response" reminder banner on the New Job form (see
+// membership_plans.same_day_response) once a member client is picked.
+async function fetchActiveMemberClientIds(): Promise<Set<string>> {
+  const { data, error } = await supabase.from("client_memberships").select("client_id").eq("status", "active");
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.client_id as string));
+}
+
 async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
   if (error) throw error;
@@ -77,6 +86,7 @@ export default function JobsPage() {
   const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
   const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
   const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
+  const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
@@ -354,6 +364,11 @@ export default function JobsPage() {
           options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
           placeholder="Select a client"
         />
+        {clientId && memberClientIds?.has(clientId) ? (
+          <p className="-mt-2 mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+            This client is a Member - remember the same-day response guarantee.
+          </p>
+        ) : null}
         <FormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         <TextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">

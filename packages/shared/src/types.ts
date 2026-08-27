@@ -56,6 +56,13 @@ export interface Tenant {
   // migration's own comment on why this is a single jsonb column rather
   // than one column per category.
   calendar_category_colors: CalendarCategoryColors;
+  // Stripe Connect (Express) - see the membership_plans_and_clients
+  // migration. Null/false until the tenant completes onboarding via
+  // stripe-connect-onboard; membership payments settle directly into this
+  // connected account, entirely separate from the platform-level
+  // STRIPE_SECRET_KEY the existing invoice-payment Stripe code uses.
+  stripe_connect_account_id: string | null;
+  stripe_connect_onboarded: boolean;
   created_at: string;
 }
 
@@ -520,6 +527,20 @@ export interface LineItemInput {
   unit_price_cents: number;
   gst_applicable: boolean;
   sort_order: number;
+  // Membership discount engine (see the membership_discount_engine
+  // migration) - is_callout_fee is a flag copied at add-time (from a
+  // price_book_items row, or set manually), waived_amount_cents is
+  // server-computed at save time, never client-set for a non-overridden
+  // document. unit_price_cents itself never changes because of a waiver -
+  // see calculate_line_item_totals's own comment on why waiving subtracts
+  // rather than zeroes. Both optional here (rather than required, even
+  // though the DB columns are NOT NULL) so every existing line-item-editor
+  // call site across desktop/mobile that builds one of these objects
+  // without them still compiles - the server defaults a missing
+  // is_callout_fee to false and waived_amount_cents to 0 either way (see
+  // replace_quote_line_items/replace_invoice_line_items's own coalesce).
+  is_callout_fee?: boolean;
+  waived_amount_cents?: number;
 }
 
 export interface Quote {
@@ -562,6 +583,16 @@ export interface Quote {
   // (not the real-estate/strata-only job_cards.work_order_number). Shown
   // on the PDF only when set.
   po_number: string | null;
+  // Membership discount engine (see the membership_discount_engine
+  // migration) - client_membership_id/membership_discount_percent/cents
+  // are auto-set from the client's active membership on every line-item
+  // save, UNLESS membership_discount_overridden is true, in which case an
+  // admin has taken manual control and these stay exactly as they last
+  // set them (see set_quote_membership_discount_override).
+  client_membership_id: string | null;
+  membership_discount_percent: number;
+  membership_discount_cents: number;
+  membership_discount_overridden: boolean;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -628,6 +659,11 @@ export interface Invoice {
   // (not the real-estate/strata-only job_cards.work_order_number). Shown
   // on the PDF only when set.
   po_number: string | null;
+  // Membership discount engine - see Quote's own identical fields.
+  client_membership_id: string | null;
+  membership_discount_percent: number;
+  membership_discount_cents: number;
+  membership_discount_overridden: boolean;
 }
 
 export interface InvoiceLineItem extends LineItemInput {
@@ -664,6 +700,15 @@ export interface PriceBookItem {
   // Shown as the tile's background image (name overlaid at the bottom)
   // instead of the plain color swatch, when set.
   image_url: string | null;
+  // Marks which catalogue item(s) represent a call-out fee, so the
+  // membership discount engine can zero-price it for a member client
+  // separately from the percentage discount - see the
+  // membership_plans_and_clients migration. Optional here (the DB column
+  // is NOT NULL default false) so existing price-book editor call sites
+  // that build this object without it still compile - not yet surfaced as
+  // an editable toggle anywhere in the UI (see docs/SETUP.md's own
+  // write-up on this gap).
+  is_callout_fee?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1058,7 +1103,18 @@ export type CommunicationDelayDirection = "before" | "after";
 export type CommunicationChannel = "sms" | "email" | "both";
 export type CommunicationMessageChannel = "sms" | "email";
 export type CommunicationTemplateCategory = "quote" | "invoice" | "booking" | "field";
-export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset";
+export type ScheduledCommunicationEntityType =
+  | "quote"
+  | "invoice"
+  | "job"
+  | "calendar_event"
+  | "client"
+  | "property_asset"
+  | "referral_partner"
+  | "report"
+  | "purchase_order"
+  | "subcontractor"
+  | "client_membership";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,
@@ -1377,4 +1433,81 @@ export interface PurchaseOrder {
   paid_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Membership Module (Munus) - mirrors membership_plans_and_clients.sql,
+// membership_discount_engine.sql, and membership_communications.sql. A
+// layer on top of the existing client/job/quote/invoice schema, same shape
+// as the Real Estate & Strata module - see those migrations' own header
+// comments for the RLS reasoning behind each table.
+// ---------------------------------------------------------------------------
+
+export type MembershipStatus = "active" | "past_due" | "cancelled" | "expired";
+export type MembershipBenefitType = "annual_roof_inspection" | "annual_plumbing_check";
+
+// One row per tenant for now - is_active is enforced unique per tenant by
+// a partial index (see the migration's own comment on how trivial it'd be
+// to relax that into multi-tier support later).
+export interface MembershipPlan {
+  id: string;
+  tenant_id: string;
+  name: string;
+  annual_price_cents: number;
+  stripe_price_id: string | null;
+  discount_percent: number;
+  waive_callout_fee: boolean;
+  priority_scheduling: boolean;
+  same_day_response: boolean;
+  annual_roof_inspections_included: number;
+  annual_plumbing_checks_included: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Point-in-time copy of the plan's benefit values at signup, stored on
+// client_memberships.benefits_snapshot - see that column's own comment on
+// why a later plan change shouldn't retroactively alter an existing
+// member's terms mid-period.
+export interface MembershipBenefitsSnapshot {
+  discount_percent: number;
+  waive_callout_fee: boolean;
+  priority_scheduling: boolean;
+  same_day_response: boolean;
+  annual_roof_inspections_included: number;
+  annual_plumbing_checks_included: number;
+}
+
+export interface ClientMembership {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  membership_plan_id: string;
+  status: MembershipStatus;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  price_paid_cents: number;
+  benefits_snapshot: MembershipBenefitsSnapshot;
+  started_at: string;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The unique (client_membership_id, benefit_type, period_start) constraint
+// is what actually prevents a client using the same included benefit
+// twice in one billing year - see the migration's own comment.
+export interface MembershipBenefitUsage {
+  id: string;
+  tenant_id: string;
+  client_membership_id: string;
+  benefit_type: MembershipBenefitType;
+  job_card_id: string | null;
+  period_start: string;
+  period_end: string;
+  used_at: string;
+  created_by: string | null;
 }

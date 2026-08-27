@@ -54,6 +54,7 @@ import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
 import { MeasureRoofTool } from "../../../../components/MeasureRoofTool";
+import { MembershipStatusCard } from "../../../../components/MembershipStatusCard";
 import { LinearMeasurerTool } from "../../../../components/LinearMeasurerTool";
 import { MaterialTallyCounter } from "../../../../components/MaterialTallyCounter";
 import { PhotoMarkupEditor } from "../../../../components/PhotoMarkupEditor";
@@ -946,6 +947,8 @@ export default function JobDetailScreen() {
             ) : null}
           </Pressable>
         ) : null}
+
+        {client ? <MembershipStatusCard clientId={client.id} /> : null}
 
         {!job.is_real_estate_job ? (
           <Pressable onPress={openRaModal}>

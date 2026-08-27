@@ -163,6 +163,57 @@ export default function SettingsPage() {
     onError: (e) => setXeroConnectError(getErrorMessage(e, "Failed to disconnect")),
   });
 
+  // Membership Stripe Connect - unlike Xero/Google's OAuth redirect (a
+  // code exchange the callback function completes server-side before
+  // redirecting back here), Stripe's own Express onboarding flow just
+  // drops the tenant back at return_url once they're done, with no
+  // account status attached - so the return leg here re-calls the SAME
+  // stripe-connect-onboard function, which already has an "account
+  // exists, check its current state" branch (see that function's own
+  // comment) rather than needing a second, separate function just to
+  // re-check status.
+  const [stripeConnectError, setStripeConnectError] = useState<string | null>(null);
+  const [stripeConnecting, setStripeConnecting] = useState(false);
+
+  const connectStripeMembership = async () => {
+    setStripeConnecting(true);
+    setStripeConnectError(null);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const returnUrl = `${window.location.origin}${window.location.pathname}?stripe_connect=return`;
+      const res = await fetch(`${supabaseUrl}/functions/v1/stripe-connect-onboard`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ return_url: returnUrl, refresh_url: returnUrl }),
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error) throw new Error(resBody.detail || resBody.error || "Failed to start Stripe connection");
+      if (resBody.already_onboarded) {
+        invalidateTenant();
+        setStripeConnecting(false);
+        return;
+      }
+      if (!resBody.onboarding_url) throw new Error("Failed to start Stripe connection");
+      window.location.href = resBody.onboarding_url as string;
+    } catch (e) {
+      setStripeConnectError(getErrorMessage(e, "Failed to start Stripe connection"));
+      setStripeConnecting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("stripe_connect") !== "return") return;
+    setSearchParams((params) => {
+      params.delete("stripe_connect");
+      return params;
+    });
+    connectStripeMembership();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Google Calendar connect/disconnect - every profile connects their own
   // account (not admin-gated, unlike Xero), same bearer-token-POST shape
   // as Xero's flow since the authorize URL/CSRF state also has to be built
@@ -451,6 +502,39 @@ export default function SettingsPage() {
           </p>
         </div>
       ) : null}
+
+      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Membership - Stripe Connect</h2>
+      <div className="rounded-lg border border-gray-300 bg-white p-4">
+        {tenant?.stripe_connect_onboarded ? (
+          <p className="text-sm font-semibold text-gray-900">
+            Connected
+            <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">Ready to accept payments</span>
+          </p>
+        ) : (
+          <div>
+            <p className="mb-3 text-sm text-gray-600">
+              Connect Stripe to accept membership payments - each membership payment settles directly into your own bank account, not a
+              shared account. Required before you can enrol any client in the Membership page.
+            </p>
+            {isAdmin ? (
+              <button
+                onClick={connectStripeMembership}
+                disabled={stripeConnecting}
+                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              >
+                {stripeConnecting
+                  ? "Redirecting to Stripe..."
+                  : tenant?.stripe_connect_account_id
+                    ? "Finish Stripe setup"
+                    : "Connect Stripe"}
+              </button>
+            ) : (
+              <p className="text-sm text-gray-400">Only an admin can connect Stripe.</p>
+            )}
+          </div>
+        )}
+        {stripeConnectError ? <p className="mt-3 text-sm text-red-600">{stripeConnectError}</p> : null}
+      </div>
 
       <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Google Calendar</h2>
       <div className="rounded-lg border border-gray-300 bg-white p-4">
