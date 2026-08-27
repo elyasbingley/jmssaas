@@ -561,7 +561,11 @@ export default function QuoteDetailScreen() {
             This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
           </Text>
         ) : null}
-        {isAdmin && !isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+        {isAdmin && !isLocked ? (
+          <LineItemEditor items={lineItems} onChange={setLineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+        ) : (
+          <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+        )}
 
         <View style={styles.fieldSpacing}>
           <FormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />

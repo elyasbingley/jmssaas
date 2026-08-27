@@ -6,6 +6,7 @@ import { AddLineItemBar } from "./AddLineItemBar";
 interface LineItemEditorProps {
   items: LineItemFormInput[];
   onChange: (items: LineItemFormInput[]) => void;
+  membershipDiscountCents?: number;
 }
 
 function parseNumber(text: string): number {
@@ -54,7 +55,7 @@ function DecimalInput({
 // This is admin-only: the breakdown fields (rate/hours/material/markup) are
 // margin-revealing figures the client (and, per the person's brief, anyone
 // non-admin) should never see - see LineItemSummary below for that view.
-export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
+export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }: LineItemEditorProps) {
   const totals = calculateDocumentTotals(items);
 
   const updateItem = (index: number, patch: Partial<LineItemFormInput>) => {
@@ -76,7 +77,19 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
       {items.map((item, index) => (
         <View key={index} style={styles.row}>
           <View style={styles.rowHeader}>
-            <Text style={styles.rowNumber}>#{index + 1}</Text>
+            <View style={styles.rowBadges}>
+              <Text style={styles.rowNumber}>#{index + 1}</Text>
+              {item.is_callout_fee ? (
+                <View style={styles.calloutBadge}>
+                  <Text style={styles.calloutBadgeText}>Call-out fee</Text>
+                </View>
+              ) : null}
+              {item.waived_amount_cents > 0 ? (
+                <View style={styles.waivedBadge}>
+                  <Text style={styles.waivedBadgeText}>Waived - Membership</Text>
+                </View>
+              ) : null}
+            </View>
             <Pressable onPress={() => removeItem(index)} style={styles.removeButton}>
               <Text style={styles.removeButtonText}>Remove</Text>
             </Pressable>
@@ -151,7 +164,14 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
 
           <View style={styles.lineTotalRow}>
             <Text style={styles.lineTotalLabel}>Line total</Text>
-            <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
+            {item.waived_amount_cents > 0 ? (
+              <View style={styles.lineTotalWaivedRow}>
+                <Text style={styles.lineTotalStrikethrough}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
+                <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}</Text>
+              </View>
+            ) : (
+              <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
+            )}
           </View>
         </View>
       ))}
@@ -167,9 +187,15 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
           <Text style={styles.totalsLabel}>GST</Text>
           <Text style={styles.totalsValue}>{formatCentsAsAud(totals.gst_cents)}</Text>
         </View>
+        {membershipDiscountCents > 0 ? (
+          <View style={styles.totalsRow}>
+            <Text style={styles.membershipDiscountLabel}>Membership discount</Text>
+            <Text style={styles.membershipDiscountValue}>-{formatCentsAsAud(membershipDiscountCents)}</Text>
+          </View>
+        ) : null}
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabelBold}>Total</Text>
-          <Text style={styles.totalsValueBold}>{formatCentsAsAud(totals.total_cents)}</Text>
+          <Text style={styles.totalsValueBold}>{formatCentsAsAud(totals.total_cents - membershipDiscountCents)}</Text>
         </View>
       </View>
     </View>
@@ -180,7 +206,13 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
 // labour rate, hours, material cost, or markup that fed into the rate. Used
 // wherever a non-admin views a quote/invoice in-app, and reused as-is for
 // the itemised table in the PDF export (Phase 5) so the two never drift.
-export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
+export function LineItemSummary({
+  items,
+  membershipDiscountCents = 0,
+}: {
+  items: LineItemFormInput[];
+  membershipDiscountCents?: number;
+}) {
   const totals = calculateDocumentTotals(items);
 
   return (
@@ -193,12 +225,15 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
       </View>
       {items.map((item, index) => (
         <View key={index} style={styles.summaryRow}>
-          <Text style={[styles.summaryCell, styles.summaryDescCell]}>{item.description}</Text>
-          <Text style={[styles.summaryCell, styles.summaryNumCell]}>{item.quantity}</Text>
-          <Text style={[styles.summaryCell, styles.summaryNumCell]}>{formatCentsAsAud(item.unit_price_cents)}</Text>
-          <Text style={[styles.summaryCell, styles.summaryNumCell]}>
-            {formatCentsAsAud(item.quantity * item.unit_price_cents)}
-          </Text>
+          <View style={styles.summaryRowMain}>
+            <Text style={[styles.summaryCell, styles.summaryDescCell]}>{item.description}</Text>
+            <Text style={[styles.summaryCell, styles.summaryNumCell]}>{item.quantity}</Text>
+            <Text style={[styles.summaryCell, styles.summaryNumCell]}>{formatCentsAsAud(item.unit_price_cents)}</Text>
+            <Text style={[styles.summaryCell, styles.summaryNumCell]}>
+              {formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
+            </Text>
+          </View>
+          {item.waived_amount_cents > 0 ? <Text style={styles.summaryWaivedLabel}>Waived - Membership</Text> : null}
         </View>
       ))}
 
@@ -211,9 +246,15 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
           <Text style={styles.totalsLabel}>GST</Text>
           <Text style={styles.totalsValue}>{formatCentsAsAud(totals.gst_cents)}</Text>
         </View>
+        {membershipDiscountCents > 0 ? (
+          <View style={styles.totalsRow}>
+            <Text style={styles.membershipDiscountLabel}>Membership discount</Text>
+            <Text style={styles.membershipDiscountValue}>-{formatCentsAsAud(membershipDiscountCents)}</Text>
+          </View>
+        ) : null}
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabelBold}>Total</Text>
-          <Text style={styles.totalsValueBold}>{formatCentsAsAud(totals.total_cents)}</Text>
+          <Text style={styles.totalsValueBold}>{formatCentsAsAud(totals.total_cents - membershipDiscountCents)}</Text>
         </View>
       </View>
     </View>
@@ -223,7 +264,12 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
 const styles = StyleSheet.create({
   row: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
   rowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  rowBadges: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, flexWrap: "wrap" },
   rowNumber: { color: "#9ca3af", fontWeight: "700", fontSize: 12 },
+  calloutBadge: { backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  calloutBadgeText: { fontSize: 11, fontWeight: "700", color: "#4b5563" },
+  waivedBadge: { backgroundColor: "#dbeafe", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  waivedBadgeText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
   removeButton: { marginLeft: "auto" },
   removeButtonText: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, fontSize: 15 },
@@ -238,6 +284,10 @@ const styles = StyleSheet.create({
   lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
   lineTotalLabel: { color: "#6b7280", fontSize: 13, flex: 1 },
   lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },
+  lineTotalWaivedRow: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
+  lineTotalStrikethrough: { fontSize: 12, color: "#9ca3af", textDecorationLine: "line-through" },
+  membershipDiscountLabel: { color: "#1d4ed8", flex: 1 },
+  membershipDiscountValue: { color: "#1d4ed8", flexShrink: 0, textAlign: "right" },
   totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", gap: 4 },
   // Deliberately not justifyContent: "space-between" with two auto-width
   // Text children - that layout gives Yoga a tight target width to hit,
@@ -257,8 +307,10 @@ const styles = StyleSheet.create({
   totalsValueBold: { fontWeight: "700", flexShrink: 0, textAlign: "right" },
   summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
-  summaryRow: { flexDirection: "row", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
+  summaryRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
+  summaryRowMain: { flexDirection: "row" },
   summaryCell: { fontSize: 14, color: "#111827" },
   summaryDescCell: { flex: 3 },
   summaryNumCell: { flex: 1, textAlign: "right" },
+  summaryWaivedLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: "#1d4ed8", textAlign: "right" },
 });

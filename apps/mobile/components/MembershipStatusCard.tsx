@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import type { ClientMembership, MembershipBenefitType, MembershipBenefitUsage, MembershipStatus } from "@jmssaas/shared";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { recordMembershipBenefitUsageSchema, type ClientMembership, type MembershipBenefitType, type MembershipBenefitUsage, type MembershipStatus } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth-context";
+import { getErrorMessage } from "../lib/errors";
 
 // Membership status summary for the field - so a technician on a client/
 // job screen can see "this client is a Member, no call-out fee, hasn't
@@ -11,6 +13,15 @@ import { supabase } from "../lib/supabase";
 // changes happen through the office + Stripe, not from the field. Renders
 // nothing at all for a non-member client - no need to show a "not a
 // member" card on every single client screen.
+//
+// jobCardId is optional - when a call site supplies it (the job detail
+// screen), each not-yet-used included benefit gets a "Mark as used"
+// action that records membership_benefit_usage against that job. The
+// proactive re-check in handleMarkUsed happens before the insert (per the
+// original spec), not just as a fallback for the constraint violation, so
+// a technician gets a clear "already used this period" message and can
+// bill the visit as billable instead. The client detail screen (no
+// jobCardId) stays read-only, same as before this action existed.
 
 const STATUS_LABELS: Record<MembershipStatus, string> = {
   active: "Active",
@@ -54,10 +65,23 @@ async function fetchBenefitUsage(clientMembershipId: string, periodStart: string
   return data as MembershipBenefitUsage[];
 }
 
-export function MembershipStatusCard({ clientId }: { clientId: string }) {
+export function MembershipStatusCard({ clientId, jobCardId }: { clientId: string; jobCardId?: string }) {
+  const { profile } = useAuth();
   const [membership, setMembership] = useState<ClientMembership | null>(null);
   const [usedBenefits, setUsedBenefits] = useState<Set<MembershipBenefitType>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  const [recording, setRecording] = useState<MembershipBenefitType | null>(null);
+  const [alreadyUsedType, setAlreadyUsedType] = useState<MembershipBenefitType | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+
+  const reload = async () => {
+    const m = await fetchActiveMembership(clientId);
+    setMembership(m);
+    if (m?.current_period_start) {
+      const usage = await fetchBenefitUsage(m.id, m.current_period_start);
+      setUsedBenefits(new Set(usage.map((u) => u.benefit_type)));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +103,48 @@ export function MembershipStatusCard({ clientId }: { clientId: string }) {
       cancelled = true;
     };
   }, [clientId]);
+
+  const handleMarkUsed = async (benefitType: MembershipBenefitType) => {
+    if (!membership || !membership.current_period_start || !membership.current_period_end || !profile) return;
+    setRecording(benefitType);
+    setRecordError(null);
+    setAlreadyUsedType(null);
+    try {
+      // Proactive check first (per spec), not just a fallback for the
+      // constraint violation below.
+      const existing = await fetchBenefitUsage(membership.id, membership.current_period_start);
+      if (existing.some((u) => u.benefit_type === benefitType)) {
+        setAlreadyUsedType(benefitType);
+        return;
+      }
+
+      const result = recordMembershipBenefitUsageSchema.safeParse({
+        client_membership_id: membership.id,
+        benefit_type: benefitType,
+        job_card_id: jobCardId,
+        period_start: membership.current_period_start,
+        period_end: membership.current_period_end,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
+
+      const { error } = await supabase
+        .from("membership_benefit_usage")
+        .insert({ ...result.data, tenant_id: profile.tenant_id, created_by: profile.id });
+      if (error) {
+        if ((error as { code?: string }).code === "23505") {
+          setAlreadyUsedType(benefitType);
+          return;
+        }
+        throw error;
+      }
+      await reload();
+    } catch (e) {
+      console.error("[MembershipStatusCard] Failed to record benefit usage", e);
+      setRecordError(getErrorMessage(e, "Failed to record benefit usage"));
+    } finally {
+      setRecording(null);
+    }
+  };
 
   if (!loaded || !membership) return null;
 
@@ -115,11 +181,28 @@ export function MembershipStatusCard({ clientId }: { clientId: string }) {
           {includedBenefits.map((benefit) => {
             const used = usedBenefits.has(benefit);
             return (
-              <Text key={benefit} style={styles.benefitRow}>
-                {used ? "✓" : "○"} {BENEFIT_LABELS[benefit]} {used ? "used this period" : "not yet used"}
-              </Text>
+              <View key={benefit}>
+                <View style={styles.benefitRowWithAction}>
+                  <Text style={styles.benefitRow}>
+                    {used ? "✓" : "○"} {BENEFIT_LABELS[benefit]} {used ? "used this period" : "not yet used"}
+                  </Text>
+                  {jobCardId && !used ? (
+                    <Pressable
+                      style={styles.markUsedButton}
+                      onPress={() => handleMarkUsed(benefit)}
+                      disabled={recording === benefit}
+                    >
+                      <Text style={styles.markUsedButtonText}>{recording === benefit ? "Recording..." : "Mark as used"}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                {alreadyUsedType === benefit ? (
+                  <Text style={styles.alreadyUsedText}>Already used this period - bill this visit as billable instead.</Text>
+                ) : null}
+              </View>
             );
           })}
+          {recordError ? <Text style={styles.recordErrorText}>{recordError}</Text> : null}
         </View>
       ) : null}
     </View>
@@ -139,6 +222,11 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { backgroundColor: "#dbeafe", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
   chipText: { fontSize: 11, fontWeight: "600", color: "#1e40af" },
-  benefitsList: { gap: 2 },
-  benefitRow: { fontSize: 12, color: "#374151" },
+  benefitsList: { gap: 6 },
+  benefitRow: { fontSize: 12, color: "#374151", flexShrink: 1 },
+  benefitRowWithAction: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  markUsedButton: { backgroundColor: "#1d4ed8", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, flexShrink: 0 },
+  markUsedButtonText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  alreadyUsedText: { fontSize: 11, color: "#b45309", marginTop: 2 },
+  recordErrorText: { fontSize: 11, color: "#dc2626", marginTop: 2 },
 });

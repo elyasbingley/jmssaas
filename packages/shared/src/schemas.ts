@@ -204,6 +204,17 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   unit_price_cents: z.number().int().nonnegative(),
   gst_applicable: z.boolean().default(true),
   sort_order: z.number().int().default(0),
+  // Copied from the source price_book_items row when a line is added from
+  // the catalogue (see AddLineItemBar) - not user-editable per line, just
+  // carried through so replace_quote_line_items/replace_invoice_line_items
+  // know which lines a membership's call-out-fee waiver can apply to.
+  is_callout_fee: z.boolean().default(false),
+  // Always server-derived (apply_membership_adjustments) - never actually
+  // submitted as a meaningful value by the client, but needed on the type so
+  // a persisted line item fetched back from quote_line_items/
+  // invoice_line_items can be read and displayed (see LineItemEditor's
+  // "Waived - Membership" label).
+  waived_amount_cents: z.number().int().nonnegative().default(0),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 
@@ -217,6 +228,10 @@ export const createPriceBookItemSchema = priceBreakdownSchema.extend({
   category_id: z.string().uuid(),
   description: z.string().min(1, "Description is required"),
   sort_order: z.number().int().default(0),
+  // Flags this catalogue item as the tenant's call-out/service fee, so a
+  // membership plan's waive_callout_fee benefit knows which line item to
+  // waive once it's added to a quote/invoice (see AddLineItemBar).
+  is_callout_fee: z.boolean().default(false),
 });
 export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
 

@@ -5,6 +5,7 @@ import { AddLineItemBar } from "./AddLineItemBar";
 interface LineItemEditorProps {
   items: LineItemFormInput[];
   onChange: (items: LineItemFormInput[]) => void;
+  membershipDiscountCents?: number;
 }
 
 function parseNumber(text: string): number {
@@ -53,7 +54,7 @@ function DecimalField({
 // same LineItemSummary client-facing view below it, same
 // calculateDocumentTotals totals box. Reimplemented in HTML/Tailwind
 // instead of React Native views, logic unchanged.
-export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
+export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }: LineItemEditorProps) {
   const totals = calculateDocumentTotals(items);
 
   const updateItem = (index: number, patch: Partial<LineItemFormInput>) => {
@@ -75,7 +76,15 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
       {items.map((item, index) => (
         <div key={index} className="mb-3 rounded-lg border border-gray-300 p-4">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
+              {item.is_callout_fee ? (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600">Call-out fee</span>
+              ) : null}
+              {item.waived_amount_cents > 0 ? (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Waived - Membership</span>
+              ) : null}
+            </div>
             <button onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600">
               Remove
             </button>
@@ -136,21 +145,30 @@ export function LineItemEditor({ items, onChange }: LineItemEditorProps) {
 
           <div className="flex justify-between border-t border-gray-200 pt-2 text-sm">
             <span className="text-gray-500">Line total</span>
-            <span className="font-bold">{formatCentsAsAud(item.quantity * item.unit_price_cents)}</span>
+            <span className="font-bold">
+              {item.waived_amount_cents > 0 ? (
+                <>
+                  <span className="mr-2 text-gray-400 line-through">{formatCentsAsAud(item.quantity * item.unit_price_cents)}</span>
+                  {formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
+                </>
+              ) : (
+                formatCentsAsAud(item.quantity * item.unit_price_cents)
+              )}
+            </span>
           </div>
         </div>
       ))}
 
       <AddLineItemBar itemCount={items.length} onAdd={(item) => onChange([...items, item])} />
 
-      <TotalsBox totals={totals} />
+      <TotalsBox totals={totals} membershipDiscountCents={membershipDiscountCents} />
     </div>
   );
 }
 
 // Client-facing summary: description / qty / rate / amount only - never the
 // labour/material/markup breakdown, matching LineItemSummary on mobile.
-export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
+export function LineItemSummary({ items, membershipDiscountCents = 0 }: { items: LineItemFormInput[]; membershipDiscountCents?: number }) {
   const totals = calculateDocumentTotals(items);
 
   return (
@@ -162,19 +180,30 @@ export function LineItemSummary({ items }: { items: LineItemFormInput[] }) {
         <span className="flex-1 text-right">Amount</span>
       </div>
       {items.map((item, index) => (
-        <div key={index} className="flex border-b border-gray-200 py-2 text-sm">
-          <span className="flex-[3]">{item.description}</span>
-          <span className="flex-1 text-right">{item.quantity}</span>
-          <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
-          <span className="flex-1 text-right">{formatCentsAsAud(item.quantity * item.unit_price_cents)}</span>
+        <div key={index} className="border-b border-gray-200 py-2 text-sm">
+          <div className="flex">
+            <span className="flex-[3]">{item.description}</span>
+            <span className="flex-1 text-right">{item.quantity}</span>
+            <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
+            <span className="flex-1 text-right">{formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}</span>
+          </div>
+          {item.waived_amount_cents > 0 ? (
+            <div className="mt-1 text-right text-xs font-semibold text-blue-700">Waived - Membership</div>
+          ) : null}
         </div>
       ))}
-      <TotalsBox totals={totals} />
+      <TotalsBox totals={totals} membershipDiscountCents={membershipDiscountCents} />
     </div>
   );
 }
 
-function TotalsBox({ totals }: { totals: { subtotal_cents: number; gst_cents: number; total_cents: number } }) {
+function TotalsBox({
+  totals,
+  membershipDiscountCents = 0,
+}: {
+  totals: { subtotal_cents: number; gst_cents: number; total_cents: number };
+  membershipDiscountCents?: number;
+}) {
   return (
     <div className="mt-3 space-y-1 border-t border-gray-300 pt-3">
       <div className="flex justify-between text-sm text-gray-600">
@@ -185,9 +214,15 @@ function TotalsBox({ totals }: { totals: { subtotal_cents: number; gst_cents: nu
         <span>GST</span>
         <span>{formatCentsAsAud(totals.gst_cents)}</span>
       </div>
+      {membershipDiscountCents > 0 ? (
+        <div className="flex justify-between text-sm text-blue-700">
+          <span>Membership discount</span>
+          <span>-{formatCentsAsAud(membershipDiscountCents)}</span>
+        </div>
+      ) : null}
       <div className="flex justify-between text-sm font-bold text-gray-900">
         <span>Total</span>
-        <span>{formatCentsAsAud(totals.total_cents)}</span>
+        <span>{formatCentsAsAud(totals.total_cents - membershipDiscountCents)}</span>
       </div>
     </div>
   );

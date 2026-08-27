@@ -7986,28 +7986,53 @@ already installed from a prior build.
 7. Cancel the Stripe subscription (or the client detail page's own Cancel
    button) -> confirm `membership_cancelled` fires and status updates
    everywhere.
+8. Price Book -> open an item -> toggle "This is the call-out / service
+   fee" -> Save -> reopen -> confirm it stuck. Add that item to a member
+   client's quote/invoice via the price book search -> Save -> confirm the
+   line shows "Waived - Membership" and the Total matches the persisted
+   `total_cents` (subtotal + GST - `membership_discount_cents`).
+9. Open a job for a member client with included benefits (desktop
+   `JobDetail.tsx` or mobile `jobs/[id].tsx`) -> "Mark as used" on an
+   unused benefit -> confirm it now shows "Used this period" and a second
+   click on the same benefit (or another job) surfaces "Already used this
+   period" instead of erroring.
 
 ### Known gaps / judgment calls
 
-- **No UI yet to flag a price_book_items row as `is_callout_fee`** - the
-  column and discount-engine logic are fully wired, but nothing in
-  Settings/Price Book lets an admin toggle it, and quote/invoice line
-  item editors don't yet show a per-line "Waived - Membership" label or
-  let an admin manually flag a freeform line as the call-out fee. The
-  server-side engine already handles whatever the client sends (defaulting
-  to `false`/`0` when omitted) - this is a UI gap, not a backend one.
-  `set_quote_membership_discount_override`/`set_invoice_membership_
-  discount_override` (the manual override RPCs) also have no UI control
-  yet for the same reason.
+- ~~No UI yet to flag a price_book_items row as `is_callout_fee`~~ **Closed.**
+  The Price Book item editor (desktop `PriceBookItem.tsx`, mobile
+  `price-book/items/[id].tsx` and `new.tsx`) now has a "This is the
+  call-out / service fee" toggle, persisted via `createPriceBookItemSchema`'s
+  new `is_callout_fee` field. `AddLineItemBar` (both apps) carries the flag
+  onto the line item when it's added to a quote/invoice from the catalogue.
+  Quote/invoice line item editors and the client-facing summary now show a
+  per-line "Waived - Membership" label (and a "Call-out fee" badge) wherever
+  `waived_amount_cents > 0`, on-screen and on the generated PDF (both apps'
+  PDF builders). `money.ts`'s `lineItemSubtotalCents` now also subtracts
+  `waived_amount_cents` before summing a document's subtotal/GST, and every
+  totals display (`TotalsBox`/`LineItemSummary`, both PDF builders) shows a
+  "Membership discount" row and folds `membership_discount_cents` into the
+  displayed Total - previously these all silently disagreed with the
+  persisted `total_cents` the moment a membership discount applied, since
+  neither the per-line waiver nor the document-level percentage discount was
+  reflected client-side. `set_quote_membership_discount_override`/
+  `set_invoice_membership_discount_override` (the manual override RPCs)
+  still have no UI control - out of scope for this pass, since nothing in
+  the original ask named them specifically.
 - **GST is not recalculated as reduced by the percentage discount** - see
   Batch 2's own note; the discount is a lump-sum reduction to the
   GST-inclusive total, not a taxable-amount recalculation.
-- **No admin UI for `membership_benefit_usage`** - there's no "mark this
-  job as using the client's included roof inspection" button anywhere yet
-  (desktop or mobile); the table/RLS/anti-double-use constraint exist, but
-  nothing writes to it. Worth a follow-up once the field workflow for
-  redeeming a benefit is settled (from the job screen? the membership
-  card? a office-side gesture reading the technician's own job note?).
+- ~~No admin UI for `membership_benefit_usage`~~ **Closed.** Desktop's
+  `JobDetail.tsx` gained a `JobMembershipBenefitSection` (new component)
+  and mobile's `MembershipStatusCard` gained an optional `jobCardId` prop -
+  when supplied (from `jobs/[id].tsx`), each not-yet-used included benefit
+  gets a "Mark as used" action. Both platforms proactively re-query
+  `membership_benefit_usage` for the current period before inserting (per
+  the original spec) and show "Already used this period - bill this visit
+  as billable instead" if a record already exists, falling back to the same
+  message on a `23505` unique-violation for the rare race. Records
+  `job_card_id`/`client_membership_id`/`benefit_type`/`period_start`/
+  `period_end`/`created_by` via the existing `recordMembershipBenefitUsageSchema`.
 - Not tested against a live Stripe account (real or test-mode Connect
   account, a real webhook delivery, or a real Checkout completion) or a
   real device/EAS build - this sandbox has none of those. Verified:

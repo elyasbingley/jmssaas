@@ -59,6 +59,7 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
           labour_hours: variation.labour_hours,
           material_cost_cents: variation.material_cost_cents,
           markup_percent: variation.markup_percent,
+          is_callout_fee: item.is_callout_fee ?? false,
         }
       : {
           description: item.description,
@@ -66,6 +67,7 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
           labour_hours: item.labour_hours,
           material_cost_cents: item.material_cost_cents,
           markup_percent: item.markup_percent,
+          is_callout_fee: item.is_callout_fee ?? false,
         };
     onAdd(normalizeLineItem(source, itemCount));
     setQuery("");

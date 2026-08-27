@@ -211,7 +211,7 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
       (item, index) => `
       <tr>
         <td>${index + 1}</td>
-        <td class="desc">${escapeHtml(item.description)}</td>
+        <td class="desc">${escapeHtml(item.description)}${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}</td>
         <td class="num">${item.quantity}</td>
         <td class="num">${formatCentsPlain(item.unit_price_cents)}</td>
         <td class="num">${formatCentsPlain(lineItemSubtotalCents(item))}</td>
@@ -234,13 +234,18 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
   `;
 }
 
-function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null): string {
+function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0): string {
   const totals = calculateDocumentTotals(lineItems);
   return `
     <div class="totals">
       <div class="totals-row"><span>Sub Total</span><span>${formatCentsPlain(totals.subtotal_cents)}</span></div>
       <div class="totals-row"><span>GST</span><span>${formatCentsPlain(totals.gst_cents)}</span></div>
-      <div class="totals-row total"><span>Total</span><span>${formatCentsPlain(totals.total_cents)}</span></div>
+      ${
+        membershipDiscountCents > 0
+          ? `<div class="totals-row"><span>Membership discount</span><span>-${formatCentsPlain(membershipDiscountCents)}</span></div>`
+          : ""
+      }
+      <div class="totals-row total"><span>Total</span><span>${formatCentsPlain(totals.total_cents - membershipDiscountCents)}</span></div>
       ${
         balanceDueCents !== null
           ? `<div class="totals-row total"><span>Balance Due</span><span>${formatCentsAsAud(balanceDueCents)}</span></div>`
@@ -298,7 +303,7 @@ export function buildQuotePdfHtml(params: {
     </div>
 
     ${renderItemsTable("quote", lineItems)}
-    ${renderTotals(lineItems, null)}
+    ${renderTotals(lineItems, null, quote.membership_discount_cents)}
     ${renderNotes(quote.notes)}
     ${renderAcceptanceSignature("quote", quote)}
   </body>
@@ -342,7 +347,7 @@ export function buildInvoicePdfHtml(params: {
     </div>
 
     ${renderItemsTable("invoice", lineItems)}
-    ${renderTotals(lineItems, balanceDueCents)}
+    ${renderTotals(lineItems, balanceDueCents, invoice.membership_discount_cents)}
     ${renderNotes(invoice.notes)}
     ${renderAcceptanceSignature("invoice", invoice)}
     ${renderBankDetails(tenant)}

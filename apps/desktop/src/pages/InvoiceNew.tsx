@@ -108,6 +108,7 @@ export default function InvoiceNewPage() {
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
+          is_callout_fee: item.is_callout_fee ?? false,
         }))
       );
       if (lineItemsError) throw lineItemsError;

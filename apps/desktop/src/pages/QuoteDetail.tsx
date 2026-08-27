@@ -590,7 +590,11 @@ export default function QuoteDetailPage() {
           This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
-      {!isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+      {!isLocked ? (
+        <LineItemEditor items={lineItems} onChange={setLineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+      ) : (
+        <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+      )}
 
       <div className="mt-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
@@ -625,7 +629,7 @@ export default function QuoteDetailPage() {
 
       <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to invoice">
         <p className="mb-4 text-2xl font-extrabold text-gray-900">
-          {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents)}
+          {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents - data.quote.membership_discount_cents)}
         </p>
         <div className="mb-4">
           <label className="mb-1 block text-sm font-semibold text-gray-700">Due date (optional)</label>

@@ -43,6 +43,7 @@ import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
+import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
@@ -1018,6 +1019,10 @@ export default function JobDetailPage() {
       </div>
 
       <QuoteToolsSection jobCardId={id!} />
+
+      <div className="mb-6">
+        <JobMembershipBenefitSection jobCardId={id!} clientId={job.client_id} />
+      </div>
 
       <div className="rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Notes</h2>

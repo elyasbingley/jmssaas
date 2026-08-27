@@ -65,6 +65,7 @@ export default function PriceBookItemPage() {
   const [labourHours, setLabourHours] = useState("0");
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
+  const [isCalloutFee, setIsCalloutFee] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -75,6 +76,7 @@ export default function PriceBookItemPage() {
       setLabourHours(item.labour_hours.toString());
       setMaterialCost((item.material_cost_cents / 100).toString());
       setMarkupPercent(item.markup_percent.toString());
+      setIsCalloutFee(item.is_callout_fee ?? false);
     }
   }, [item]);
 
@@ -100,6 +102,7 @@ export default function PriceBookItemPage() {
         labour_hours: parseNumber(labourHours),
         material_cost_cents: Math.round(parseNumber(materialCost) * 100),
         markup_percent: parseNumber(markupPercent),
+        is_callout_fee: isCalloutFee,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
 
@@ -274,6 +277,14 @@ export default function PriceBookItemPage() {
         <FormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
         <FormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
       </div>
+
+      <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={isCalloutFee} onChange={(e) => setIsCalloutFee(e.target.checked)} />
+        This is the call-out / service fee
+      </label>
+      <p className="mb-4 -mt-3 text-xs text-gray-500">
+        A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
+      </p>
 
       <div className="mb-4 rounded-md bg-gray-50 p-3">
         <p className="text-xs font-bold text-gray-500">Computed price</p>

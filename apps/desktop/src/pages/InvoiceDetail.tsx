@@ -786,7 +786,11 @@ export default function InvoiceDetailPage() {
           This invoice has been {data.invoice.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
-      {!isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+      {!isLocked ? (
+        <LineItemEditor items={lineItems} onChange={setLineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
+      ) : (
+        <LineItemSummary items={lineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
+      )}
 
       <div className="mt-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>

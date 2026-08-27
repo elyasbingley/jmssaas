@@ -948,7 +948,7 @@ export default function JobDetailScreen() {
           </Pressable>
         ) : null}
 
-        {client ? <MembershipStatusCard clientId={client.id} /> : null}
+        {client ? <MembershipStatusCard clientId={client.id} jobCardId={job.id} /> : null}
 
         {!job.is_real_estate_job ? (
           <Pressable onPress={openRaModal}>

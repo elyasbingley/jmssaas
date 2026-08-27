@@ -21,11 +21,19 @@ export function computeLineItemUnitPriceCents(
   return Math.round(preMarkupCents * (1 + item.markup_percent / 100));
 }
 
-export function lineItemSubtotalCents(item: Pick<LineItemInput, "quantity" | "unit_price_cents">): number {
-  return Math.round(item.quantity * item.unit_price_cents);
+// Subtracts waived_amount_cents (0 for any line not flagged is_callout_fee
+// by an active membership that waives it - see membership_discount_engine.sql's
+// apply_membership_adjustments) before quantity*rate becomes a line's
+// contribution to the document subtotal - mirrors calculate_line_item_totals'
+// server-side math exactly, so this never disagrees with the persisted
+// subtotal_cents/gst_cents once a membership waiver is in play.
+export function lineItemSubtotalCents(item: Pick<LineItemInput, "quantity" | "unit_price_cents" | "waived_amount_cents">): number {
+  return Math.round(item.quantity * item.unit_price_cents) - (item.waived_amount_cents ?? 0);
 }
 
-export function lineItemGstCents(item: Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable">): number {
+export function lineItemGstCents(
+  item: Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable" | "waived_amount_cents">
+): number {
   if (!item.gst_applicable) return 0;
   return Math.round(lineItemSubtotalCents(item) * AU_GST_RATE);
 }
@@ -37,7 +45,7 @@ export interface DocumentTotals {
 }
 
 export function calculateDocumentTotals(
-  lineItems: Array<Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable">>
+  lineItems: Array<Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable" | "waived_amount_cents">>
 ): DocumentTotals {
   const subtotal_cents = lineItems.reduce((sum, item) => sum + lineItemSubtotalCents(item), 0);
   const gst_cents = lineItems.reduce((sum, item) => sum + lineItemGstCents(item), 0);

@@ -220,28 +220,36 @@ function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], 
 
   for (const item of lineItems) {
     const descLines = cursor.doc.splitTextToSize(item.description || "-", COL_QTY_X - COL_DESC_X - 40) as string[];
-    cursor.ensureSpace(descLines.length * 4.5 + 4);
+    const showWaived = item.waived_amount_cents > 0;
+    const waivedLineCount = showWaived ? 1 : 0;
+    cursor.ensureSpace((descLines.length + waivedLineCount) * 4.5 + 4);
     const rowTop = cursor.y;
     cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(55, 65, 81);
     descLines.forEach((line, i) => cursor.doc.text(line, COL_DESC_X, rowTop + i * 4.5));
+    if (showWaived) {
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(29, 78, 216);
+      cursor.doc.text("Waived - Membership", COL_DESC_X, rowTop + descLines.length * 4.5);
+    }
+    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(55, 65, 81);
     cursor.doc.text(String(item.quantity), COL_QTY_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(item.unit_price_cents), COL_RATE_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
-    cursor.y = rowTop + Math.max(descLines.length * 4.5, 4.5) + 2;
+    cursor.y = rowTop + Math.max((descLines.length + waivedLineCount) * 4.5, 4.5) + 2;
     cursor.doc.setDrawColor(229, 231, 235);
     cursor.doc.line(MARGIN, cursor.y - 1, PAGE_WIDTH - MARGIN, cursor.y - 1);
   }
   cursor.y += 4;
 }
 
-function renderTotals(cursor: Cursor, lineItems: LineItemFormInput[], balanceDueCents: number | null) {
+function renderTotals(cursor: Cursor, lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0) {
   const totals = calculateDocumentTotals(lineItems);
   cursor.ensureSpace(24);
   const rows: [string, string, boolean][] = [
     ["Sub Total", formatCentsAsAud(totals.subtotal_cents), false],
     ["GST", formatCentsAsAud(totals.gst_cents), false],
-    ["Total", formatCentsAsAud(totals.total_cents), true],
   ];
+  if (membershipDiscountCents > 0) rows.push(["Membership discount", `-${formatCentsAsAud(membershipDiscountCents)}`, false]);
+  rows.push(["Total", formatCentsAsAud(totals.total_cents - membershipDiscountCents), true]);
   if (balanceDueCents !== null) rows.push(["Balance Due", formatCentsAsAud(balanceDueCents), true]);
   for (const [label, value, bold] of rows) {
     if (bold) {
@@ -321,7 +329,7 @@ export async function buildQuotePdfBytes(params: {
     { label: "Expiry date", value: formatDate(quote.expiry_date) },
   ]);
   renderLineItemsTable(cursor, ACCENT.quote, lineItems);
-  renderTotals(cursor, lineItems, null);
+  renderTotals(cursor, lineItems, null, quote.membership_discount_cents);
   renderNotes(cursor, quote.notes);
   await renderSignature(cursor, quote.accepted_by_name, quote.accepted_at, quote.accepted_signature_svg);
 
@@ -364,7 +372,7 @@ export async function buildInvoicePdfBytes(params: {
     billToContact
   );
   renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
-  renderTotals(cursor, lineItems, balanceDueCents);
+  renderTotals(cursor, lineItems, balanceDueCents, invoice.membership_discount_cents);
   renderNotes(cursor, invoice.notes);
   await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);
   renderBankDetails(cursor, tenant);
