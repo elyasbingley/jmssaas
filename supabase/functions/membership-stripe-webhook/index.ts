@@ -23,7 +23,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+// Same platform-side Connect secret stripe-connect-onboard/
+// create-membership-checkout use, not the invoice-payment feature's
+// STRIPE_SECRET_KEY - needed here to read back the subscription object
+// (via Stripe-Account) when a webhook event doesn't carry every field.
+const STRIPE_CONNECT_SECRET_KEY = Deno.env.get("STRIPE_CONNECT_SECRET_KEY") ?? "";
 const STRIPE_CONNECT_WEBHOOK_SECRET = Deno.env.get("STRIPE_CONNECT_WEBHOOK_SECRET") ?? "";
 
 const TOLERANCE_SECONDS = 300;
@@ -66,7 +70,7 @@ async function verifyStripeSignature(payload: string, signatureHeader: string, s
 
 async function stripeGet(path: string, stripeAccount: string): Promise<{ ok: boolean; body: any }> {
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
-    headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Stripe-Account": stripeAccount },
+    headers: { Authorization: `Bearer ${STRIPE_CONNECT_SECRET_KEY}`, "Stripe-Account": stripeAccount },
   });
   return { ok: res.ok, body: await res.json() };
 }

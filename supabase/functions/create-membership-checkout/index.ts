@@ -25,7 +25,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+// Same platform-side Connect secret stripe-connect-onboard uses (that
+// function's own comment explains why this can't just be STRIPE_SECRET_KEY
+// - Stripe requires a separate account/key for the Connect platform role).
+const STRIPE_CONNECT_SECRET_KEY = Deno.env.get("STRIPE_CONNECT_SECRET_KEY") ?? "";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -44,7 +47,7 @@ async function stripePost(path: string, form: URLSearchParams, stripeAccount: st
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      Authorization: `Bearer ${STRIPE_CONNECT_SECRET_KEY}`,
       "Stripe-Account": stripeAccount,
       "Content-Type": "application/x-www-form-urlencoded",
     },
@@ -56,7 +59,7 @@ async function stripePost(path: string, form: URLSearchParams, stripeAccount: st
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: new Headers(CORS_HEADERS) });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-  if (!STRIPE_SECRET_KEY) return json({ error: "stripe_not_configured" }, 400);
+  if (!STRIPE_CONNECT_SECRET_KEY) return json({ error: "stripe_not_configured" }, 400);
   if (!SUPABASE_SERVICE_ROLE_KEY) return json({ error: "server_error" }, 500);
 
   let body: { client_id?: string; success_url?: string; cancel_url?: string };

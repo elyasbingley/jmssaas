@@ -7923,19 +7923,34 @@ either container).
 ### Deploy
 
 New Stripe Dashboard step beyond what already existed for invoice
-payments: enable Connect (Express) and create a *separate* Connect
-webhook endpoint (Developers -> Webhooks -> the **Connect** tab, not the
-main platform tab) pointed at the deployed `membership-stripe-webhook`
-URL, subscribed to `checkout.session.completed`, `customer.subscription.
-updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.
-payment_failed`. Set its signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET`
-(distinct from the existing `STRIPE_WEBHOOK_SECRET`) - `STRIPE_SECRET_KEY`
-itself is reused unchanged for all Connect management calls (Stripe's own
-design: the platform manages connected accounts with its own key).
+payments: enable Connect and create a *separate* Connect webhook endpoint
+(Developers -> Webhooks -> the **Connect** tab, not the main platform
+tab) pointed at the deployed `membership-stripe-webhook` URL, subscribed
+to `checkout.session.completed`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
+Set its signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET` (distinct from
+the existing `STRIPE_WEBHOOK_SECRET`).
+
+**Important, confirmed against a real account**: Stripe does NOT allow an
+existing merchant account (one already accepting payments for its own
+business - which is exactly what the invoice-payment feature's account
+is) to also become a Connect platform. Attempting to enable Connect on
+that account instead shows "Connect is not available for this account -
+please create a new account to build a Connect integration. The new
+account will be automatically linked to you." Click through that flow to
+create the new (linked, same login) platform account, then generate an
+API key from THAT account specifically (Developers -> API keys, while
+that new account is the one selected in the account switcher, not the
+original merchant account) and set it as its own secret -
+`STRIPE_CONNECT_SECRET_KEY`, deliberately distinct from the existing
+`STRIPE_SECRET_KEY` the invoice-payment feature already uses, since they
+are now provably two different Stripe accounts with two different keys,
+not one shared platform key as originally assumed:
 
 ```powershell
 git pull origin claude/template-risk-client-updates-7ljk6t
 npx supabase db push
+npx supabase secrets set STRIPE_CONNECT_SECRET_KEY=sk_test_or_live_new_platform_account_key_here
 npx supabase functions deploy stripe-connect-onboard
 npx supabase functions deploy create-membership-checkout
 npx supabase functions deploy membership-stripe-webhook --no-verify-jwt
