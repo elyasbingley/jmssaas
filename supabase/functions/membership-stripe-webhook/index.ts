@@ -79,6 +79,23 @@ function unixToDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
 }
 
+// Newer Stripe API versions (this account is pinned to one) moved
+// current_period_start/end off the top-level Subscription object onto
+// each subscription item instead - reading only the old top-level fields
+// silently produced `undefined`, which unixToDate then turned into an
+// uncaught "Invalid time value" crash (a RangeError from
+// `new Date(NaN).toISOString()`) before this fix, since a webhook event's
+// subscription object never went through any schema validation. Falls
+// back to the first subscription item's period so this works on either
+// API version rather than assuming one.
+function subscriptionPeriod(sub: Record<string, any>): { start: number; end: number } {
+  const item = sub.items?.data?.[0];
+  return {
+    start: sub.current_period_start ?? item?.current_period_start,
+    end: sub.current_period_end ?? item?.current_period_end,
+  };
+}
+
 // Stripe's own subscription.status values ('trialing', 'active',
 // 'past_due', 'unpaid', 'canceled', 'incomplete', 'incomplete_expired',
 // 'paused') collapsed onto this schema's four-value membership_status enum
@@ -139,6 +156,12 @@ Deno.serve(async (req: Request) => {
       const { data: plan } = await admin.from("membership_plans").select("*").eq("id", membershipPlanId).single();
       if (!plan) return json({ ok: true, skipped: "plan_not_found" });
 
+      const period = subscriptionPeriod(sub.body);
+      if (period.start == null || period.end == null) {
+        console.error("[membership-stripe-webhook] Subscription has no current_period_start/end", sub.body);
+        return json({ error: "server_error" }, 500);
+      }
+
       const { error: insertError } = await admin.from("client_memberships").insert({
         tenant_id: tenantId,
         client_id: clientId,
@@ -146,8 +169,8 @@ Deno.serve(async (req: Request) => {
         status: mapSubscriptionStatus(sub.body.status),
         stripe_customer_id: customerId,
         stripe_subscription_id: subscriptionId,
-        current_period_start: unixToDate(sub.body.current_period_start),
-        current_period_end: unixToDate(sub.body.current_period_end),
+        current_period_start: unixToDate(period.start),
+        current_period_end: unixToDate(period.end),
         price_paid_cents: plan.annual_price_cents,
         benefits_snapshot: {
           discount_percent: plan.discount_percent,
@@ -173,8 +196,9 @@ Deno.serve(async (req: Request) => {
       const status = event.type === "customer.subscription.deleted" ? "cancelled" : mapSubscriptionStatus(object.status as string);
 
       const update: Record<string, unknown> = { status };
-      if (object.current_period_start) update.current_period_start = unixToDate(object.current_period_start);
-      if (object.current_period_end) update.current_period_end = unixToDate(object.current_period_end);
+      const period = subscriptionPeriod(object);
+      if (period.start != null) update.current_period_start = unixToDate(period.start);
+      if (period.end != null) update.current_period_end = unixToDate(period.end);
       if (status === "cancelled") update.cancelled_at = new Date().toISOString();
 
       const { error } = await admin.from("client_memberships").update(update).eq("stripe_subscription_id", subscriptionId);
@@ -204,12 +228,17 @@ Deno.serve(async (req: Request) => {
           console.error("[membership-stripe-webhook] Failed to fetch subscription for invoice.paid", sub.body);
           return json({ error: "server_error" }, 500);
         }
+        const period = subscriptionPeriod(sub.body);
+        if (period.start == null || period.end == null) {
+          console.error("[membership-stripe-webhook] Subscription has no current_period_start/end", sub.body);
+          return json({ error: "server_error" }, 500);
+        }
         const { error } = await admin
           .from("client_memberships")
           .update({
             status: "active",
-            current_period_start: unixToDate(sub.body.current_period_start),
-            current_period_end: unixToDate(sub.body.current_period_end),
+            current_period_start: unixToDate(period.start),
+            current_period_end: unixToDate(period.end),
           })
           .eq("stripe_subscription_id", subscriptionId);
         if (error) {
