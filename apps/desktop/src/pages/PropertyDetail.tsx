@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  createJobCardSchema,
   createPropertyAssetSchema,
+  createPropertyTenantSchema,
   formatCentsAsAud,
   updatePropertyContactSchema,
   updatePropertyDetailsSchema,
   type Agency,
+  type Client,
   type Invoice,
   type JobCard,
   type Property,
@@ -14,6 +17,7 @@ import {
   type PropertyAssetAttributes,
   type PropertyAssetCategory,
   type PropertyManager,
+  type PropertyTenant,
   type PropertyType,
   type Quote,
 } from "@jmssaas/shared";
@@ -47,6 +51,16 @@ async function fetchAllPropertyManagers(): Promise<PropertyManager[]> {
   const { data, error } = await supabase.from("property_managers").select("*").order("first_name");
   if (error) throw error;
   return data as PropertyManager[];
+}
+async function fetchAllClients(): Promise<Client[]> {
+  const { data, error } = await supabase.from("clients").select("*").order("name");
+  if (error) throw error;
+  return data as Client[];
+}
+async function fetchPropertyTenants(propertyId: string): Promise<PropertyTenant[]> {
+  const { data, error } = await supabase.from("property_tenants").select("*").eq("property_id", propertyId).order("name");
+  if (error) throw error;
+  return data as PropertyTenant[];
 }
 async function fetchAssets(propertyId: string): Promise<PropertyAsset[]> {
   const { data, error } = await supabase.from("property_assets").select("*").eq("property_id", propertyId).order("category").order("asset_name");
@@ -105,6 +119,7 @@ type ProfileTab = "access" | "assets" | "history";
 
 export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
@@ -121,7 +136,13 @@ export default function PropertyDetailPage() {
   });
   const { data: allAgencies } = useQuery({ queryKey: ["agencies"], queryFn: fetchAllAgencies });
   const { data: allPropertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchAllPropertyManagers });
+  const { data: allClients } = useQuery({ queryKey: ["clients"], queryFn: fetchAllClients });
   const { data: assets } = useQuery({ queryKey: ["property-assets", id], queryFn: () => fetchAssets(id!), enabled: !!id });
+  const { data: additionalTenants } = useQuery({
+    queryKey: ["property-tenants", id],
+    queryFn: () => fetchPropertyTenants(id!),
+    enabled: !!id,
+  });
   const { data: jobs } = useQuery({ queryKey: ["property-jobs", id], queryFn: () => fetchJobs(id!), enabled: !!id });
   const jobIds = (jobs ?? []).map((j) => j.id);
   const { data: quotes } = useQuery({
@@ -197,6 +218,56 @@ export default function PropertyDetailPage() {
       setContactModalOpen(false);
     },
     onError: (e) => setContactError(getErrorMessage(e, "Failed to save details")),
+  });
+
+  // --- Additional tenants (beyond the single tenant_name/phone/email above -
+  // for share houses / multi-occupant properties) ---
+  const [tenantModalOpen, setTenantModalOpen] = useState(false);
+  const [editingTenantId, setEditingTenantId] = useState<string | null>(null);
+  const [tenantForm, setTenantForm] = useState({ name: "", phone: "", email: "" });
+  const [tenantError, setTenantError] = useState<string | null>(null);
+
+  const openNewTenant = () => {
+    setEditingTenantId(null);
+    setTenantForm({ name: "", phone: "", email: "" });
+    setTenantError(null);
+    setTenantModalOpen(true);
+  };
+  const openEditTenant = (tenant: PropertyTenant) => {
+    setEditingTenantId(tenant.id);
+    setTenantForm({ name: tenant.name, phone: tenant.phone ?? "", email: tenant.email ?? "" });
+    setTenantError(null);
+    setTenantModalOpen(true);
+  };
+
+  const saveTenant = useMutation({
+    mutationFn: async () => {
+      const result = createPropertyTenantSchema.safeParse({ ...tenantForm, property_id: id });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid tenant");
+      if (!profile) throw new Error("Not signed in");
+      const payload = { name: result.data.name, phone: result.data.phone || null, email: result.data.email || null };
+      if (editingTenantId) {
+        const { error } = await supabase.from("property_tenants").update(payload).eq("id", editingTenantId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("property_tenants").insert({ tenant_id: profile.tenant_id, property_id: id, ...payload });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property-tenants", id] });
+      setTenantModalOpen(false);
+      setEditingTenantId(null);
+    },
+    onError: (e) => setTenantError(getErrorMessage(e, "Failed to save tenant")),
+  });
+
+  const deleteTenant = useMutation({
+    mutationFn: async (tenantId: string) => {
+      const { error } = await supabase.from("property_tenants").delete().eq("id", tenantId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["property-tenants", id] }),
   });
 
   // --- Edit Property Details (address/agency/PM/type) - previously only
@@ -328,6 +399,72 @@ export default function PropertyDetailPage() {
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["property-assets", id] }),
+  });
+
+  // --- New job, started from the property itself instead of Jobs.tsx -
+  // property/agency/PM are locked to this property, and client_id is
+  // derived from the agency's linked billing client automatically (falling
+  // back to a manual pick only if that agency has no linked client yet).
+  // This is the other half of removing the "create a client card, then
+  // separately create the same thing again in Real Estate" double handling.
+  const [newJobModalOpen, setNewJobModalOpen] = useState(false);
+  const [jobTitle, setJobTitle] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobWorkOrderNumber, setJobWorkOrderNumber] = useState("");
+  const [jobManualClientId, setJobManualClientId] = useState("");
+  const [jobError, setJobError] = useState<string | null>(null);
+
+  const openNewJob = () => {
+    setJobTitle("");
+    setJobDescription("");
+    setJobWorkOrderNumber("");
+    setJobManualClientId("");
+    setJobError(null);
+    setNewJobModalOpen(true);
+  };
+
+  const createJob = useMutation({
+    mutationFn: async () => {
+      if (!property) throw new Error("Property not loaded");
+      const clientId = agency?.client_id || jobManualClientId;
+      if (!clientId) throw new Error("Pick a client to bill this job against");
+      const result = createJobCardSchema.safeParse({
+        client_id: clientId,
+        title: jobTitle,
+        description: jobDescription,
+        is_real_estate_job: true,
+        agency_id: property.agency_id,
+        property_manager_id: property.property_manager_id ?? undefined,
+        property_id: property.id,
+        work_order_number: jobWorkOrderNumber || undefined,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid job");
+      if (!profile) throw new Error("Not signed in");
+
+      const { data, error } = await supabase
+        .from("job_cards")
+        .insert({
+          tenant_id: profile.tenant_id,
+          client_id: result.data.client_id,
+          title: result.data.title,
+          description: result.data.description || null,
+          is_real_estate_job: true,
+          agency_id: result.data.agency_id,
+          property_manager_id: result.data.property_manager_id ?? null,
+          property_id: result.data.property_id,
+          work_order_number: result.data.work_order_number ?? null,
+          created_by: profile.id,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as JobCard;
+    },
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ["property-jobs", id] });
+      navigate(`/jobs/${job.id}`);
+    },
+    onError: (e) => setJobError(getErrorMessage(e, "Failed to create job")),
   });
 
   if (!property) {
@@ -471,6 +608,37 @@ export default function PropertyDetailPage() {
               </div>
             </div>
             <div className="col-span-2 rounded-lg border border-gray-300 bg-white p-6">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Additional Tenants</h2>
+                <button onClick={openNewTenant} className="text-xs font-semibold text-blue-700 hover:underline">
+                  + Add tenant
+                </button>
+              </div>
+              {!additionalTenants || additionalTenants.length === 0 ? (
+                <p className="text-sm text-gray-500">No additional tenants on file.</p>
+              ) : (
+                <div className="space-y-2">
+                  {additionalTenants.map((tenant) => (
+                    <div key={tenant.id} className="flex items-start justify-between rounded-md bg-gray-50 p-2">
+                      <div className="text-sm">
+                        <p className="font-semibold text-gray-900">{tenant.name}</p>
+                        {tenant.phone ? <p className="text-xs text-gray-600">{tenant.phone}</p> : null}
+                        {tenant.email ? <p className="text-xs text-gray-600">{tenant.email}</p> : null}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button onClick={() => openEditTenant(tenant)} className="text-xs font-semibold text-blue-700 hover:underline">
+                          Edit
+                        </button>
+                        <button onClick={() => deleteTenant.mutate(tenant.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="col-span-2 rounded-lg border border-gray-300 bg-white p-6">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Access Notes</h2>
               <p className="whitespace-pre-wrap text-sm text-gray-700">{property.access_notes || "No access notes on file."}</p>
             </div>
@@ -539,6 +707,14 @@ export default function PropertyDetailPage() {
 
       {tab === "history" ? (
         <div>
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={openNewJob}
+              className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
+            >
+              + New Job
+            </button>
+          </div>
           {!jobs || jobs.length === 0 ? (
             <p className="text-sm text-gray-500">No jobs recorded for this property yet.</p>
           ) : (
@@ -755,6 +931,82 @@ export default function PropertyDetailPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {saveContact.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={newJobModalOpen} onClose={() => setNewJobModalOpen(false)} title="New job for this property">
+        <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
+          <p className="font-semibold text-gray-900">{property.address_line1}</p>
+          <p className="text-gray-600">
+            {agency?.name}
+            {propertyManager ? ` - ${propertyManager.first_name} ${propertyManager.last_name}` : ""}
+          </p>
+        </div>
+        {agency?.client_id ? (
+          <p className="-mt-2 mb-4 text-xs text-gray-500">This job will bill against {agency.name}'s linked client automatically.</p>
+        ) : (
+          <SelectField
+            label="Client to bill (this agency has no linked client yet)"
+            value={jobManualClientId}
+            onChange={setJobManualClientId}
+            options={(allClients ?? []).map((c) => ({ value: c.id, label: c.company_name || c.name }))}
+            placeholder="Select a client"
+          />
+        )}
+        <FormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        <TextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
+        {agency?.require_work_order_num ? (
+          <FormField label="Work order number" value={jobWorkOrderNumber} onChange={(e) => setJobWorkOrderNumber(e.target.value)} />
+        ) : null}
+        {jobError ? <p className="mb-4 text-sm text-red-600">{jobError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setNewJobModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => createJob.mutate()}
+            disabled={createJob.isPending || !jobTitle.trim() || (!agency?.client_id && !jobManualClientId)}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {createJob.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={tenantModalOpen}
+        onClose={() => {
+          setTenantModalOpen(false);
+          setEditingTenantId(null);
+        }}
+        title={editingTenantId ? "Edit tenant" : "Add tenant"}
+      >
+        <FormField label="Name" value={tenantForm.name} onChange={(e) => setTenantForm({ ...tenantForm, name: e.target.value })} />
+        <FormField label="Phone" value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value })} />
+        <FormField
+          label="Email"
+          type="email"
+          value={tenantForm.email}
+          onChange={(e) => setTenantForm({ ...tenantForm, email: e.target.value })}
+        />
+        {tenantError ? <p className="mb-4 text-sm text-red-600">{tenantError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={() => {
+              setTenantModalOpen(false);
+              setEditingTenantId(null);
+            }}
+            className="px-4 py-2 text-sm font-semibold text-gray-600"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => saveTenant.mutate()}
+            disabled={saveTenant.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveTenant.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

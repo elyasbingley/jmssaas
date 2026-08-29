@@ -436,6 +436,12 @@ export default function JobsPage() {
           options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
           placeholder="Select a client"
         />
+        {isRealEstateJob && agencyId && (agencies ?? []).find((a) => a.id === agencyId)?.client_id === clientId && clientId ? (
+          <p className="-mt-2 mb-4 text-xs text-gray-500">
+            Auto-filled from {(agencies ?? []).find((a) => a.id === agencyId)?.name}'s linked client - change if this job bills
+            differently.
+          </p>
+        ) : null}
         {clientId && memberClientIds?.has(clientId) ? (
           <p className="-mt-2 mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
             This client is a Member - remember the same-day response guarantee.
@@ -472,6 +478,12 @@ export default function JobsPage() {
                 setAgencyId(v);
                 setPropertyManagerId("");
                 setPropertyId("");
+                // Auto-derive the client from the agency's linked billing
+                // client, same as PropertyDetail.tsx's property-first job
+                // creation - removes the need to separately pick a client
+                // that's really just this agency again.
+                const picked = (agencies ?? []).find((a) => a.id === v);
+                if (picked?.client_id) setClientId(picked.client_id);
               }}
               options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
               placeholder="Select agency"

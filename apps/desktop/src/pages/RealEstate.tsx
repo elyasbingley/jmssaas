@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   createAgencySchema,
+  createClientSchema,
   createPropertyManagerSchema,
   createPropertySchema,
   type Agency,
   type AgencyType,
+  type Client,
   type Property,
   type PropertyManager,
   type PropertyType,
@@ -42,6 +44,16 @@ async function fetchProperties(): Promise<Property[]> {
   if (error) throw error;
   return data as Property[];
 }
+async function fetchClients(): Promise<Client[]> {
+  const { data, error } = await supabase.from("clients").select("*").order("name");
+  if (error) throw error;
+  return data as Client[];
+}
+
+// Sentinel for the agency's "billing client" picker - not a real client id,
+// it means "create a new client automatically from this agency's name/
+// billing email" rather than linking to one that already exists.
+const AUTO_CREATE_CLIENT = "__auto__";
 
 const AGENCY_TYPE_OPTIONS: { value: AgencyType; label: string }[] = [
   { value: "real_estate", label: "Real Estate" },
@@ -97,6 +109,8 @@ function DirectoryTab() {
   const { data: agencies } = useQuery({ queryKey: ["agencies"], queryFn: fetchAgencies });
   const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
   const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
+  const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
+  const clientById = new Map((clients ?? []).map((c) => [c.id, c]));
 
   const [expandedAgencyIds, setExpandedAgencyIds] = useState<Set<string>>(new Set());
   const [selectedPmId, setSelectedPmId] = useState<string | null>(null);
@@ -109,49 +123,101 @@ function DirectoryTab() {
     });
   };
 
-  // --- Add Agency ---
-  // Deliberately no email/phone fields here - those are always specific to
-  // a particular property manager at the agency (see property_managers),
-  // not the agency as a whole, so this form only collects what an agency
-  // actually is: a name, a type, and its work-order policy.
+  // --- Add / Edit Agency ---
+  // Deliberately no contact email/phone fields here - those are always
+  // specific to a particular property manager at the agency (see
+  // property_managers), not the agency as a whole. billing_email is the
+  // exception: it's what an auto-created billing client (below) gets as its
+  // email, so it lives on the agency itself.
   const [agencyModalOpen, setAgencyModalOpen] = useState(false);
+  const [agencyEditId, setAgencyEditId] = useState<string | null>(null);
   const [agencyName, setAgencyName] = useState("");
   const [agencyType, setAgencyType] = useState<AgencyType | "">("real_estate");
+  const [agencyBillingEmail, setAgencyBillingEmail] = useState("");
   const [agencyRequireWorkOrder, setAgencyRequireWorkOrder] = useState(true);
+  const [agencyClientId, setAgencyClientId] = useState<string>(AUTO_CREATE_CLIENT);
   const [agencyError, setAgencyError] = useState<string | null>(null);
 
   const openNewAgency = () => {
+    setAgencyEditId(null);
     setAgencyName("");
     setAgencyType("real_estate");
+    setAgencyBillingEmail("");
     setAgencyRequireWorkOrder(true);
+    setAgencyClientId(AUTO_CREATE_CLIENT);
     setAgencyError(null);
     setAgencyModalOpen(true);
   };
 
-  const createAgency = useMutation({
+  const openEditAgency = (agency: Agency) => {
+    setAgencyEditId(agency.id);
+    setAgencyName(agency.name);
+    setAgencyType(agency.type);
+    setAgencyBillingEmail(agency.billing_email ?? "");
+    setAgencyRequireWorkOrder(agency.require_work_order_num);
+    setAgencyClientId(agency.client_id ?? AUTO_CREATE_CLIENT);
+    setAgencyError(null);
+    setAgencyModalOpen(true);
+  };
+
+  const saveAgency = useMutation({
     mutationFn: async () => {
       const result = createAgencySchema.safeParse({
         name: agencyName,
         type: agencyType || "real_estate",
+        billing_email: agencyBillingEmail,
         require_work_order_num: agencyRequireWorkOrder,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid agency");
       if (!profile) throw new Error("Not signed in");
 
-      const { error } = await supabase.from("agencies").insert({
-        tenant_id: profile.tenant_id,
+      // A linked client is created once per agency, the moment one doesn't
+      // already exist to pick from - closes the "double handling" gap where
+      // an agency and its billing client used to be two unrelated records
+      // the user had to create separately.
+      let clientId = agencyClientId;
+      if (clientId === AUTO_CREATE_CLIENT) {
+        const clientResult = createClientSchema.safeParse({
+          client_type: "company",
+          company_name: result.data.name,
+          name: result.data.name,
+          email: result.data.billing_email || "",
+        });
+        if (!clientResult.success) throw new Error(clientResult.error.issues[0]?.message ?? "Invalid client");
+        const { data: newClient, error: clientError } = await supabase
+          .from("clients")
+          .insert({
+            tenant_id: profile.tenant_id,
+            client_type: clientResult.data.client_type,
+            company_name: clientResult.data.company_name,
+            name: clientResult.data.name,
+            email: clientResult.data.email || null,
+          })
+          .select("id")
+          .single();
+        if (clientError) throw clientError;
+        clientId = newClient.id as string;
+      }
+
+      const values = {
         name: result.data.name,
         type: result.data.type,
-        payment_terms_days: result.data.payment_terms_days,
+        billing_email: result.data.billing_email || null,
         require_work_order_num: result.data.require_work_order_num,
-      });
+        client_id: clientId,
+      };
+
+      const { error } = agencyEditId
+        ? await supabase.from("agencies").update(values).eq("id", agencyEditId)
+        : await supabase.from("agencies").insert({ tenant_id: profile.tenant_id, ...values, payment_terms_days: result.data.payment_terms_days });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agencies"] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
       setAgencyModalOpen(false);
     },
-    onError: (e) => setAgencyError(getErrorMessage(e, "Failed to create agency")),
+    onError: (e) => setAgencyError(getErrorMessage(e, agencyEditId ? "Failed to save agency" : "Failed to create agency")),
   });
 
   // --- Add / Edit Property Manager ---
@@ -343,21 +409,32 @@ function DirectoryTab() {
             const pms = pmsByAgency(agency.id);
             return (
               <div key={agency.id} className="rounded-lg border border-gray-300 bg-white">
-                <button
-                  onClick={() => toggleAgency(agency.id)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left"
-                >
-                  <div className="flex items-center gap-3">
+                <div className="flex w-full items-center justify-between px-4 py-3">
+                  <button onClick={() => toggleAgency(agency.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                     <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
                     <span className="font-bold text-gray-900">{agency.name}</span>
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
                       {agency.type === "strata" ? "Strata" : "Real Estate"}
                     </span>
+                    {agency.client_id && clientById.get(agency.client_id) ? (
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                        Bills to: {clientById.get(agency.client_id)!.company_name || clientById.get(agency.client_id)!.name}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
+                        No billing client linked
+                      </span>
+                    )}
+                  </button>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <span className="text-xs text-gray-400">
+                      {pms.length} PM{pms.length === 1 ? "" : "s"}
+                    </span>
+                    <button onClick={() => openEditAgency(agency)} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Edit
+                    </button>
                   </div>
-                  <span className="text-xs text-gray-400">
-                    {pms.length} PM{pms.length === 1 ? "" : "s"}
-                  </span>
-                </button>
+                </div>
                 {expanded ? (
                   <div className="border-t border-gray-200 px-4 py-3">
                     {pms.length === 0 ? (
@@ -429,9 +506,15 @@ function DirectoryTab() {
         </div>
       )}
 
-      <Modal open={agencyModalOpen} onClose={() => setAgencyModalOpen(false)} title="New agency">
+      <Modal open={agencyModalOpen} onClose={() => setAgencyModalOpen(false)} title={agencyEditId ? "Edit agency" : "New agency"}>
         <FormField label="Name" value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="e.g. McGrath Estate Agents" />
         <SelectField label="Type" value={agencyType} onChange={setAgencyType} options={AGENCY_TYPE_OPTIONS} placeholder="Select type" />
+        <FormField
+          label="Billing email (optional)"
+          type="email"
+          value={agencyBillingEmail}
+          onChange={(e) => setAgencyBillingEmail(e.target.value)}
+        />
         <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
           <input
             type="checkbox"
@@ -440,17 +523,30 @@ function DirectoryTab() {
           />
           Require a work order number on every invoice
         </label>
+        <SelectField
+          label="Billing client"
+          value={agencyClientId}
+          onChange={setAgencyClientId}
+          options={[
+            { value: AUTO_CREATE_CLIENT, label: "+ Create a new client automatically" },
+            ...(clients ?? []).map((c) => ({ value: c.id, label: c.company_name || c.name })),
+          ]}
+        />
+        <p className="-mt-2 mb-4 text-xs text-gray-500">
+          Jobs created for this agency will bill against this client automatically - no need to create a matching client card
+          separately.
+        </p>
         {agencyError ? <p className="mb-4 text-sm text-red-600">{agencyError}</p> : null}
         <div className="flex justify-end gap-3">
           <button onClick={() => setAgencyModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
             Cancel
           </button>
           <button
-            onClick={() => createAgency.mutate()}
-            disabled={createAgency.isPending}
+            onClick={() => saveAgency.mutate()}
+            disabled={saveAgency.isPending || !agencyName.trim()}
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
-            {createAgency.isPending ? "Saving..." : "Save"}
+            {saveAgency.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

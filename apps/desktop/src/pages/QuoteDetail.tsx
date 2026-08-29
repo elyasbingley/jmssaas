@@ -282,12 +282,16 @@ export default function QuoteDetailPage() {
   const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
   const [openingEmail, setOpeningEmail] = useState(false);
 
+  // No longer hard-blocked on the client's own primary email - a real-estate
+  // client often has that field blank (agency name as primary contact, no
+  // email) with the real address living on a client_contacts row instead, or
+  // the sender may just want to type an ad-hoc address on the spot.
+  // recipientOptions (below) already merges client email + contact emails +
+  // job-note-scraped addresses, and EmailComposeModal's own "To" field is a
+  // plain editable input regardless of what's prefilled, so there's nothing
+  // left to gate on here.
   const openSendEmail = async () => {
-    if (!data || !profile || !tenant) return;
-    if (!data.quote.clients?.email) {
-      setSendEmailError("This client has no email address on file - add one on the Clients screen.");
-      return;
-    }
+    if (!data || !profile || !tenant || !data.quote.clients) return;
     setOpeningEmail(true);
     setSendEmailError(null);
     try {
@@ -736,7 +740,7 @@ export default function QuoteDetailPage() {
         open={emailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         title="Send quote"
-        defaultTo={data.quote.clients?.email ?? ""}
+        defaultTo={data.quote.clients?.email || recipientOptions[0] || ""}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
         defaultAttachments={emailDefaultAttachments}

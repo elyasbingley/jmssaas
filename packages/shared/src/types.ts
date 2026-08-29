@@ -214,6 +214,11 @@ export interface Agency {
   phone: string | null;
   payment_terms_days: number;
   require_work_order_num: boolean;
+  // The client record this agency bills jobs against - set once per agency
+  // (linked to an existing client, or a new one auto-created alongside the
+  // agency) so job creation can derive client_id automatically instead of
+  // requiring it to be picked separately every time.
+  client_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -255,6 +260,20 @@ export interface Property {
   key_tag_number: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Additional occupants beyond the single tenant_name/phone/email on
+// Property itself (which stays as-is - it's read from PDFs, the public
+// approval page, mobile, and invoicing). This covers share-house /
+// multi-occupant properties.
+export interface PropertyTenant {
+  id: string;
+  tenant_id: string;
+  property_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  created_at: string;
 }
 
 export type PropertyAssetCategory = "plumbing" | "roofing" | "hvac" | "general";

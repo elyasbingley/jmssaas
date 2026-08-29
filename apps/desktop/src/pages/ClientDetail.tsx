@@ -178,28 +178,47 @@ export default function ClientDetailPage() {
 
   // --- Contacts ---
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", role: "", email: "", phone: "", is_primary: false });
   const [contactError, setContactError] = useState<string | null>(null);
+
+  const openEditContact = (contact: ClientContact) => {
+    setEditingContactId(contact.id);
+    setContactForm({
+      name: contact.name,
+      role: contact.role ?? "",
+      email: contact.email ?? "",
+      phone: contact.phone ?? "",
+      is_primary: contact.is_primary,
+    });
+    setContactError(null);
+    setContactModalOpen(true);
+  };
 
   const saveContact = useMutation({
     mutationFn: async () => {
       const result = createClientContactSchema.safeParse({ ...contactForm, client_id: id });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid contact");
       if (!profile) throw new Error("Not signed in");
-      const { error } = await supabase.from("client_contacts").insert({
-        tenant_id: profile.tenant_id,
-        client_id: id,
+      const payload = {
         name: result.data.name,
         role: result.data.role || null,
         email: result.data.email || null,
         phone: result.data.phone || null,
         is_primary: result.data.is_primary,
-      });
-      if (error) throw error;
+      };
+      if (editingContactId) {
+        const { error } = await supabase.from("client_contacts").update(payload).eq("id", editingContactId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("client_contacts").insert({ tenant_id: profile.tenant_id, client_id: id, ...payload });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-contacts", id] });
       setContactModalOpen(false);
+      setEditingContactId(null);
       setContactForm({ name: "", role: "", email: "", phone: "", is_primary: false });
       setContactError(null);
     },
@@ -373,7 +392,15 @@ export default function ClientDetailPage() {
         <div className="rounded-lg border border-gray-300 bg-white p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Contacts</h2>
-            <button onClick={() => setContactModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            <button
+              onClick={() => {
+                setEditingContactId(null);
+                setContactForm({ name: "", role: "", email: "", phone: "", is_primary: false });
+                setContactError(null);
+                setContactModalOpen(true);
+              }}
+              className="text-xs font-semibold text-blue-700 hover:underline"
+            >
               + Add contact
             </button>
           </div>
@@ -392,9 +419,14 @@ export default function ClientDetailPage() {
                     {contact.email ? <p className="text-xs text-gray-600">{contact.email}</p> : null}
                     {contact.phone ? <p className="text-xs text-gray-600">{contact.phone}</p> : null}
                   </div>
-                  <button onClick={() => deleteContact.mutate(contact.id)} className="text-xs font-semibold text-red-600 hover:underline">
-                    Remove
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button onClick={() => openEditContact(contact)} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Edit
+                    </button>
+                    <button onClick={() => deleteContact.mutate(contact.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -591,7 +623,14 @@ export default function ClientDetailPage() {
         </div>
       </Modal>
 
-      <Modal open={contactModalOpen} onClose={() => setContactModalOpen(false)} title="Add contact">
+      <Modal
+        open={contactModalOpen}
+        onClose={() => {
+          setContactModalOpen(false);
+          setEditingContactId(null);
+        }}
+        title={editingContactId ? "Edit contact" : "Add contact"}
+      >
         <FormField label="Name" value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} />
         <FormField
           label="Role (optional)"
@@ -616,7 +655,13 @@ export default function ClientDetailPage() {
         </label>
         {contactError ? <p className="mb-4 text-sm text-red-600">{contactError}</p> : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setContactModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => {
+              setContactModalOpen(false);
+              setEditingContactId(null);
+            }}
+            className="px-4 py-2 text-sm font-semibold text-gray-600"
+          >
             Cancel
           </button>
           <button

@@ -545,6 +545,7 @@ export const createAgencySchema = z.object({
   phone: z.string().optional(),
   payment_terms_days: z.number().int().positive().default(30),
   require_work_order_num: z.boolean().default(true),
+  client_id: z.string().uuid().optional().or(z.literal("")),
 });
 export type CreateAgencyInput = z.infer<typeof createAgencySchema>;
 
@@ -622,6 +623,14 @@ export const createPropertyAssetSchema = z.object({
   attributes: z.record(z.string(), z.unknown()).default({}),
 });
 export type CreatePropertyAssetInput = z.infer<typeof createPropertyAssetSchema>;
+
+export const createPropertyTenantSchema = z.object({
+  property_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+});
+export type CreatePropertyTenantInput = z.infer<typeof createPropertyTenantSchema>;
 
 export const createKeyLogSchema = z.object({
   property_id: z.string().uuid(),

@@ -272,14 +272,11 @@ export default function InvoiceDetailPage() {
       setSendEmailError(agencyComplianceError);
       return;
     }
-    if (!invoiceRecipientEmail) {
-      setSendEmailError(
-        data.invoice.bill_to_landlord
-          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab, or switch 'Bill to' back to the agency."
-          : "This client has no email address on file - add one on the Clients screen."
-      );
-      return;
-    }
+    // No longer hard-blocked on invoiceRecipientEmail being blank - see
+    // QuoteDetail.tsx's identical fix. recipientOptions (below) already
+    // merges client email + contacts + landlord/tenant emails + job-note
+    // scraped addresses, and EmailComposeModal's "To" field is freely
+    // editable regardless of what's prefilled.
     setOpeningEmail(true);
     setSendEmailError(null);
     try {
@@ -945,7 +942,7 @@ export default function InvoiceDetailPage() {
         open={emailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         title="Send invoice"
-        defaultTo={invoiceRecipientEmail}
+        defaultTo={invoiceRecipientEmail || recipientOptions[0] || ""}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
         defaultAttachments={emailDefaultAttachments}
