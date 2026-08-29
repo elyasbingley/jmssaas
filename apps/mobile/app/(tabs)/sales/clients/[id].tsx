@@ -648,9 +648,12 @@ const styles = StyleSheet.create({
   commLogSection: { paddingHorizontal: 16, paddingBottom: 24 },
   row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db", flexDirection: "row", alignItems: "center" },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
-  rowSubtitle: { color: "#6b7280", marginTop: 2 },
+  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
+  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
+  // flexShrink so a long lifecycle stage name (free text, admin-defined,
+  // no length cap) can't overflow past the row's edge next to the
+  // flex:1 title block - same fix shape as jobs/index.tsx's stageBadgeText.
+  rowSubtitle: { color: "#6b7280", marginTop: 2, flexShrink: 1, maxWidth: "40%", textAlign: "right" },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
   link: { color: "#1d4ed8", fontWeight: "600" },

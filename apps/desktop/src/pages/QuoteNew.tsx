@@ -37,6 +37,7 @@ export default function QuoteNewPage() {
   const [searchParams] = useSearchParams();
   const jobCardIdParam = searchParams.get("jobCardId");
   const clientIdParam = searchParams.get("clientId");
+  const referralPartnerIdParam = searchParams.get("referralPartnerId");
   const lockedFromJob = !!jobCardIdParam;
 
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
@@ -72,6 +73,13 @@ export default function QuoteNewPage() {
   useEffect(() => {
     if (jobCardIdParam && !jobCardId) setJobCardId(jobCardIdParam);
   }, [jobCardIdParam, jobCardId]);
+  // Carries the job's own referral_partner_id through to the quote it's
+  // created for - previously a "+ New quote for this job" click silently
+  // dropped it, forcing the admin to look the referrer up again from
+  // scratch even though the job already recorded who sent the client in.
+  useEffect(() => {
+    if (referralPartnerIdParam && !referralPartnerId) setReferralPartnerId(referralPartnerIdParam);
+  }, [referralPartnerIdParam, referralPartnerId]);
 
   const createQuote = useMutation({
     mutationFn: async () => {

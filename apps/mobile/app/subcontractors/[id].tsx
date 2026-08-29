@@ -584,7 +584,7 @@ const styles = StyleSheet.create({
   poRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginTop: 10 },
   poNumber: { fontSize: 14, fontWeight: "700", color: "#1d4ed8" },
   poMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  poCost: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  poCost: { fontSize: 14, fontWeight: "700", color: "#111827", flexShrink: 0 },
 
   uploadCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 16, gap: 8 },
   uploadCardTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 4 },

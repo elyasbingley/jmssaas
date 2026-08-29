@@ -154,8 +154,9 @@ function DirectoryTab() {
     onError: (e) => setAgencyError(getErrorMessage(e, "Failed to create agency")),
   });
 
-  // --- Add Property Manager ---
+  // --- Add / Edit Property Manager ---
   const [pmModalOpen, setPmModalOpen] = useState(false);
+  const [pmEditId, setPmEditId] = useState<string | null>(null);
   const [pmAgencyId, setPmAgencyId] = useState("");
   const [pmFirstName, setPmFirstName] = useState("");
   const [pmLastName, setPmLastName] = useState("");
@@ -164,6 +165,7 @@ function DirectoryTab() {
   const [pmError, setPmError] = useState<string | null>(null);
 
   const openNewPm = (agencyId?: string) => {
+    setPmEditId(null);
     setPmAgencyId(agencyId ?? "");
     setPmFirstName("");
     setPmLastName("");
@@ -173,7 +175,18 @@ function DirectoryTab() {
     setPmModalOpen(true);
   };
 
-  const createPm = useMutation({
+  const openEditPm = (pm: PropertyManager) => {
+    setPmEditId(pm.id);
+    setPmAgencyId(pm.agency_id);
+    setPmFirstName(pm.first_name);
+    setPmLastName(pm.last_name);
+    setPmEmail(pm.email ?? "");
+    setPmMobile(pm.mobile ?? "");
+    setPmError(null);
+    setPmModalOpen(true);
+  };
+
+  const savePm = useMutation({
     mutationFn: async () => {
       const result = createPropertyManagerSchema.safeParse({
         agency_id: pmAgencyId,
@@ -185,23 +198,29 @@ function DirectoryTab() {
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid property manager");
       if (!profile) throw new Error("Not signed in");
 
-      const { error } = await supabase.from("property_managers").insert({
-        tenant_id: profile.tenant_id,
+      const values = {
         agency_id: result.data.agency_id,
         first_name: result.data.first_name,
         last_name: result.data.last_name,
         email: result.data.email || null,
         mobile: result.data.mobile || null,
-        work_phone: result.data.work_phone || null,
-        notes: result.data.notes || null,
-      });
+      };
+
+      const { error } = pmEditId
+        ? await supabase.from("property_managers").update(values).eq("id", pmEditId)
+        : await supabase.from("property_managers").insert({
+            tenant_id: profile.tenant_id,
+            ...values,
+            work_phone: result.data.work_phone || null,
+            notes: result.data.notes || null,
+          });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["property-managers"] });
       setPmModalOpen(false);
     },
-    onError: (e) => setPmError(getErrorMessage(e, "Failed to create property manager")),
+    onError: (e) => setPmError(getErrorMessage(e, pmEditId ? "Failed to save property manager" : "Failed to create property manager")),
   });
 
   // --- Add Managed Property ---
@@ -347,17 +366,27 @@ function DirectoryTab() {
                       <div className="space-y-1">
                         {pms.map((pm) => (
                           <div key={pm.id}>
-                            <button
-                              onClick={() => setSelectedPmId(selectedPmId === pm.id ? null : pm.id)}
+                            <div
                               className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${
                                 selectedPmId === pm.id ? "bg-blue-50" : "hover:bg-gray-50"
                               }`}
                             >
-                              <span className="font-medium text-gray-900">
-                                {pm.first_name} {pm.last_name}
-                              </span>
-                              <span className="text-xs text-gray-500">{pm.email ?? pm.mobile ?? ""}</span>
-                            </button>
+                              <button
+                                onClick={() => setSelectedPmId(selectedPmId === pm.id ? null : pm.id)}
+                                className="flex min-w-0 flex-1 items-center justify-between text-left"
+                              >
+                                <span className="font-medium text-gray-900">
+                                  {pm.first_name} {pm.last_name}
+                                </span>
+                                <span className="text-xs text-gray-500">{pm.email ?? pm.mobile ?? ""}</span>
+                              </button>
+                              <button
+                                onClick={() => openEditPm(pm)}
+                                className="ml-3 flex-shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                              >
+                                Edit
+                              </button>
+                            </div>
                             {selectedPmId === pm.id ? (
                               <div className="ml-6 mb-2 mt-1 space-y-1 border-l border-gray-200 pl-4">
                                 {propertiesByPm(pm.id).length === 0 ? (
@@ -426,7 +455,7 @@ function DirectoryTab() {
         </div>
       </Modal>
 
-      <Modal open={pmModalOpen} onClose={() => setPmModalOpen(false)} title="New property manager">
+      <Modal open={pmModalOpen} onClose={() => setPmModalOpen(false)} title={pmEditId ? "Edit property manager" : "New property manager"}>
         <SelectField
           label="Agency"
           value={pmAgencyId}
@@ -444,11 +473,11 @@ function DirectoryTab() {
             Cancel
           </button>
           <button
-            onClick={() => createPm.mutate()}
-            disabled={createPm.isPending || !pmAgencyId}
+            onClick={() => savePm.mutate()}
+            disabled={savePm.isPending || !pmAgencyId}
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
-            {createPm.isPending ? "Saving..." : "Save"}
+            {savePm.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

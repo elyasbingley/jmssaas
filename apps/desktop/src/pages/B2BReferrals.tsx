@@ -283,8 +283,9 @@ function DirectoryTab({
     onError: (e) => setGroupError(getErrorMessage(e, "Failed to create group")),
   });
 
-  // --- Add Partner ---
+  // --- Add / Edit Partner ---
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
+  const [pEditId, setPEditId] = useState<string | null>(null);
   const [pGroupId, setPGroupId] = useState("");
   const [pCompanyName, setPCompanyName] = useState("");
   const [pFirstName, setPFirstName] = useState("");
@@ -299,6 +300,7 @@ function DirectoryTab({
   const [partnerError, setPartnerError] = useState<string | null>(null);
 
   const openNewPartner = (groupId?: string) => {
+    setPEditId(null);
     setPGroupId(groupId ?? "");
     setPCompanyName("");
     setPFirstName("");
@@ -314,7 +316,24 @@ function DirectoryTab({
     setPartnerModalOpen(true);
   };
 
-  const createPartner = useMutation({
+  const openEditPartner = (partner: ReferralPartner) => {
+    setPEditId(partner.id);
+    setPGroupId(partner.group_id ?? "");
+    setPCompanyName(partner.company_name ?? "");
+    setPFirstName(partner.contact_first_name);
+    setPLastName(partner.contact_last_name ?? "");
+    setPEmail(partner.email ?? "");
+    setPMobile(partner.mobile ?? "");
+    setPPartnerType(partner.partner_type);
+    setPTier(partner.tier);
+    setPRewardType(partner.reward_type);
+    setPRewardPercent(partner.reward_percent != null ? String(partner.reward_percent) : "");
+    setPRewardFlat(partner.reward_flat_cents != null ? String(partner.reward_flat_cents / 100) : "");
+    setPartnerError(null);
+    setPartnerModalOpen(true);
+  };
+
+  const savePartner = useMutation({
     mutationFn: async () => {
       const result = createReferralPartnerSchema.safeParse({
         group_id: pGroupId || undefined,
@@ -332,8 +351,7 @@ function DirectoryTab({
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid partner");
       if (!profile) throw new Error("Not signed in");
 
-      const { error } = await supabase.from("referral_partners").insert({
-        tenant_id: profile.tenant_id,
+      const values = {
         group_id: result.data.group_id || null,
         company_name: result.data.company_name || null,
         contact_first_name: result.data.contact_first_name,
@@ -345,14 +363,18 @@ function DirectoryTab({
         reward_type: result.data.reward_type,
         reward_percent: result.data.reward_percent ?? null,
         reward_flat_cents: result.data.reward_flat_cents ?? null,
-      });
+      };
+
+      const { error } = pEditId
+        ? await supabase.from("referral_partners").update(values).eq("id", pEditId)
+        : await supabase.from("referral_partners").insert({ tenant_id: profile.tenant_id, ...values });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["referral-partners"] });
       setPartnerModalOpen(false);
     },
-    onError: (e) => setPartnerError(getErrorMessage(e, "Failed to create partner")),
+    onError: (e) => setPartnerError(getErrorMessage(e, pEditId ? "Failed to save partner" : "Failed to create partner")),
   });
 
   // --- Log Referral Passed Out ---
@@ -447,12 +469,17 @@ function DirectoryTab({
             </p>
           </div>
         </div>
-        <button
-          onClick={() => openLogReferral(partner.id)}
-          className="mt-3 text-xs font-semibold text-blue-700 hover:underline"
-        >
-          + Log referral passed out to {partner.contact_first_name}
-        </button>
+        <div className="mt-3 flex items-center justify-between">
+          <button
+            onClick={() => openLogReferral(partner.id)}
+            className="text-xs font-semibold text-blue-700 hover:underline"
+          >
+            + Log referral passed out to {partner.contact_first_name}
+          </button>
+          <button onClick={() => openEditPartner(partner)} className="flex-shrink-0 text-xs font-semibold text-gray-600 hover:underline">
+            Edit
+          </button>
+        </div>
       </div>
     );
   };
@@ -568,7 +595,7 @@ function DirectoryTab({
         </div>
       </Modal>
 
-      <Modal open={partnerModalOpen} onClose={() => setPartnerModalOpen(false)} title="New referral partner">
+      <Modal open={partnerModalOpen} onClose={() => setPartnerModalOpen(false)} title={pEditId ? "Edit referral partner" : "New referral partner"}>
         <SelectField label="Group (optional)" value={pGroupId} onChange={setPGroupId} options={groups.map((g) => ({ value: g.id, label: g.name }))} placeholder="No group" />
         <FormField label="Company name (optional)" value={pCompanyName} onChange={(e) => setPCompanyName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
@@ -610,11 +637,11 @@ function DirectoryTab({
             Cancel
           </button>
           <button
-            onClick={() => createPartner.mutate()}
-            disabled={createPartner.isPending}
+            onClick={() => savePartner.mutate()}
+            disabled={savePartner.isPending}
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
-            {createPartner.isPending ? "Saving..." : "Save"}
+            {savePartner.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

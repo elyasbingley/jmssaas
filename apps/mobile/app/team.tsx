@@ -249,11 +249,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#d1d5db",
   },
-  techRowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  techName: { fontSize: 16, fontWeight: "600", color: "#111827" },
+  // Not justifyContent: "space-between" with two auto-width children - see
+  // LineItemEditor.tsx's totalsRow comment for why that silently clips a
+  // long name with no ellipsis on some devices. techName gets flex: 1 (it
+  // absorbs the row's leftover width after the badge's own natural size)
+  // and roleBadge stays flexShrink: 0 at its fixed intrinsic width.
+  techRowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  techName: { fontSize: 16, fontWeight: "600", color: "#111827", flex: 1 },
   techJobTitle: { fontSize: 13, color: "#374151", marginTop: 2 },
   techEmail: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  roleBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#e5e7eb" },
+  roleBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#e5e7eb", flexShrink: 0 },
   roleBadgeAdmin: { backgroundColor: "#dbeafe" },
   roleBadgeText: { fontSize: 11, fontWeight: "700", color: "#374151" },
   roleBadgeTextAdmin: { color: "#1e40af" },

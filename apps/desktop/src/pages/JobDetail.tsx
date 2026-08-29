@@ -251,7 +251,7 @@ async function fetchSubcontractors(): Promise<SubcontractorCompany[]> {
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: job } = useQuery({ queryKey: ["job", id], queryFn: () => fetchJob(id!), enabled: !!id });
@@ -509,6 +509,25 @@ export default function JobDetailPage() {
     onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload file")),
   });
 
+  // Admin-only, matching the RLS delete policies on both the storage
+  // object ("job-files: admin deletes") and the job_files row ("job_files:
+  // admin deletes") - a non-admin's delete would just fail RLS, so the
+  // button itself is admin-gated below rather than showing a control that
+  // silently errors for everyone else.
+  const deleteFile = useMutation({
+    mutationFn: async (file: JobFile) => {
+      const { error: storageError } = await supabase.storage.from("job-files").remove([file.storage_path]);
+      if (storageError) throw storageError;
+      const { error: rowError } = await supabase.from("job_files").delete().eq("id", file.id);
+      if (rowError) throw rowError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+      setPhotoError(null);
+    },
+    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to delete file")),
+  });
+
   const [noteBody, setNoteBody] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
 
@@ -532,6 +551,31 @@ export default function JobDetailPage() {
       setNoteError(null);
     },
     onError: (e) => setNoteError(getErrorMessage(e, "Failed to add note")),
+  });
+
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteBody, setEditingNoteBody] = useState("");
+  const [editNoteError, setEditNoteError] = useState<string | null>(null);
+
+  const startEditNote = (note: JobNote) => {
+    setEditingNoteId(note.id);
+    setEditingNoteBody(note.body);
+    setEditNoteError(null);
+  };
+
+  const updateNote = useMutation({
+    mutationFn: async () => {
+      if (!editingNoteId) return;
+      const result = createJobNoteSchema.safeParse({ job_card_id: id, body: editingNoteBody });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid note");
+      const { error } = await supabase.from("job_notes").update({ body: result.data.body }).eq("id", editingNoteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-notes", id] });
+      setEditingNoteId(null);
+    },
+    onError: (e) => setEditNoteError(getErrorMessage(e, "Failed to save note")),
   });
 
   // --- Job address (client_sites.site_id) + WorkDrive link ---
@@ -892,7 +936,10 @@ export default function JobDetailPage() {
         <div className="rounded-lg border border-gray-300 bg-white p-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quotes</h2>
-            <Link to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
+            <Link
+              to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}${job.referral_partner_id ? `&referralPartnerId=${job.referral_partner_id}` : ""}`}
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
               + New quote
             </Link>
           </div>
@@ -993,25 +1040,38 @@ export default function JobDetailPage() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
             {files.map((f) => {
-              const isImage = (f.mime_type ?? "").startsWith("image/");
+              // mime_type isn't reliably populated for every upload (some
+              // browsers/file pickers hand back an empty File.type for a
+              // perfectly normal .jpg) - falling back to the extension
+              // means a real photo still renders as a thumbnail instead of
+              // the generic file icon just because its mime_type is blank.
+              const isImage = (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
               return (
-                <a
-                  key={f.id}
-                  href={fileUrls?.[f.id] || undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100"
-                  title={f.file_name}
-                >
-                  {isImage && fileUrls?.[f.id] ? (
-                    <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
-                      <span className="text-2xl">📄</span>
-                      <span className="line-clamp-2 break-all text-xs text-gray-600">{f.file_name}</span>
-                    </div>
-                  )}
-                </a>
+                <div key={f.id} className="group relative aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100">
+                  <a href={fileUrls?.[f.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title={f.file_name}>
+                    {isImage && fileUrls?.[f.id] ? (
+                      <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                        <span className="text-2xl">📄</span>
+                        <span className="line-clamp-2 break-all text-xs text-gray-600">{f.file_name}</span>
+                      </div>
+                    )}
+                  </a>
+                  {isAdmin ? (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (window.confirm(`Delete ${f.file_name}?`)) deleteFile.mutate(f);
+                      }}
+                      disabled={deleteFile.isPending}
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white opacity-0 transition-opacity hover:bg-red-600 disabled:opacity-100 group-hover:opacity-100"
+                      title="Delete file"
+                    >
+                      &times;
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -1038,12 +1098,39 @@ export default function JobDetailPage() {
           </button>
         </div>
         <div className="space-y-3">
-          {(notes ?? []).map((note) => (
-            <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
-              <p className="text-gray-800">{note.body}</p>
-              <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
-            </div>
-          ))}
+          {(notes ?? []).map((note) =>
+            editingNoteId === note.id ? (
+              <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
+                <TextAreaField label="Note" labelHidden rows={2} value={editingNoteBody} onChange={(e) => setEditingNoteBody(e.target.value)} />
+                {editNoteError ? <p className="mb-2 text-sm text-red-600">{editNoteError}</p> : null}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateNote.mutate()}
+                    disabled={updateNote.isPending || !editingNoteBody.trim()}
+                    className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                  >
+                    {updateNote.isPending ? "Saving..." : "Save"}
+                  </button>
+                  <button onClick={() => setEditingNoteId(null)} className="px-3 py-1.5 text-xs font-semibold text-gray-600">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div key={note.id} className="group border-t border-gray-200 pt-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="whitespace-pre-wrap text-gray-800">{note.body}</p>
+                  <button
+                    onClick={() => startEditNote(note)}
+                    className="flex-shrink-0 text-xs font-semibold text-blue-700 opacity-0 hover:underline group-hover:opacity-100"
+                  >
+                    Edit
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
+              </div>
+            )
+          )}
           {notes && notes.length === 0 ? <p className="text-sm text-gray-500">No notes yet.</p> : null}
         </div>
       </div>

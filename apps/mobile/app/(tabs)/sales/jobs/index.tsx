@@ -410,16 +410,22 @@ const styles = StyleSheet.create({
     borderBottomColor: "#d1d5db",
   },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
+  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
+  // flex: 1 (not just flexShrink) so a long title is width-constrained by
+  // the row itself - job_lifecycle_stages/categories are admin-defined
+  // free text with no length cap (see JobDetail.tsx's own stage select),
+  // so an unprotected Text next to a fixed sibling can silently overflow
+  // or clip its last character with no ellipsis, same class of bug
+  // LineItemEditor.tsx's totalsRow comment documents at length.
+  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
   rowSubtitle: { color: "#6b7280", marginTop: 2 },
   tagRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 },
-  categoryTag: { flexDirection: "row", alignItems: "center", gap: 4 },
-  swatch: { width: 8, height: 8, borderRadius: 4 },
+  categoryTag: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "100%" },
+  swatch: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   swatchEmpty: { backgroundColor: "#d1d5db" },
-  categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
-  stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700" },
+  categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600", flexShrink: 1 },
+  stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, flexShrink: 1, maxWidth: "100%" },
+  stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700", flexShrink: 1 },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
   link: { color: "#1d4ed8", fontWeight: "600" },
