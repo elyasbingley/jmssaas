@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
+import { GlobalSearch } from "./GlobalSearch";
 
 interface NavItem {
   to: string;
@@ -100,7 +101,12 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex flex-shrink-0 items-center justify-between border-b border-gray-300 bg-white px-4 py-2">
+          <GlobalSearch />
+        </header>
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
     </div>
   );
 }
