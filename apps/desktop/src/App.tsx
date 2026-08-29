@@ -24,6 +24,7 @@ import InventorySetupPage from "./pages/InventorySetup";
 import DispatchPage from "./pages/Dispatch";
 import TeamPage from "./pages/Team";
 import JobCostingPage from "./pages/JobCosting";
+import AnalyticsPage from "./pages/Analytics";
 import TasksPage from "./pages/Tasks";
 import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
@@ -67,6 +68,7 @@ export default function App() {
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
                 <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
                 <Route path="/job-costing" element={<JobCostingPage />} />
+                <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/team" element={<TeamPage />} />

@@ -27,6 +27,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/clients", label: "Clients" },
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },
+      { to: "/analytics", label: "Analytics" },
       { to: "/inventory", label: "Inventory" },
       { to: "/real-estate", label: "Real Estate & Strata" },
       { to: "/membership", label: "Membership" },
