@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -92,15 +92,20 @@ export default function JobsPage() {
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
   const stageById = useMemo(() => new Map((stages ?? []).map((s) => [s.id, s])), [stages]);
 
+  const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStage, setFilterStage] = useState("");
   const [sortBy, setSortBy] = useState<"created_at" | "scheduled_at" | "category" | "stage">("created_at");
 
-  const filteredJobs = (jobs ?? []).filter(
-    (job) =>
-      (!filterCategory || job.service_category_id === filterCategory) &&
-      (!filterStage || job.lifecycle_stage_id === filterStage)
-  );
+  const filteredJobs = (jobs ?? []).filter((job) => {
+    if (filterCategory && job.service_category_id !== filterCategory) return false;
+    if (filterStage && job.lifecycle_stage_id !== filterStage) return false;
+    if (search.trim()) {
+      const haystack = `${job.number ?? ""} ${job.title} ${clientById.get(job.client_id)?.name ?? ""}`.toLowerCase();
+      if (!haystack.includes(search.trim().toLowerCase())) return false;
+    }
+    return true;
+  });
 
   const sortedJobs = [...filteredJobs].sort((a, b) => {
     switch (sortBy) {
@@ -120,6 +125,22 @@ export default function JobsPage() {
         return b.created_at.localeCompare(a.created_at);
     }
   });
+
+  // ServiceM8-style pagination over the already-filtered/sorted list -
+  // this codebase has never used Supabase's server-side .range() anywhere
+  // (Jobs.tsx already fetches every job and filters/sorts in memory), so
+  // paging the in-memory array keeps that same simple pattern rather than
+  // introducing a first, one-off server-side-pagination code path.
+  const [pageSize, setPageSize] = useState(30);
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(sortedJobs.length / pageSize));
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterCategory, filterStage, pageSize]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+  const pagedJobs = sortedJobs.slice((page - 1) * pageSize, page * pageSize);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [clientId, setClientId] = useState("");
@@ -218,7 +239,9 @@ export default function JobsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Jobs</h1>
-          <p className="text-sm text-gray-500">{jobs?.length ?? 0} jobs</p>
+          <p className="text-sm text-gray-500">
+            {sortedJobs.length !== (jobs ?? []).length ? `${sortedJobs.length} of ${jobs?.length ?? 0} jobs` : `${jobs?.length ?? 0} jobs`}
+          </p>
         </div>
         <button
           onClick={() => setModalOpen(true)}
@@ -229,6 +252,13 @@ export default function JobsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search job #, title, or client..."
+          className="w-64 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+        />
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
@@ -253,9 +283,10 @@ export default function JobsPage() {
             </option>
           ))}
         </select>
-        {filterCategory || filterStage ? (
+        {search || filterCategory || filterStage ? (
           <button
             onClick={() => {
+              setSearch("");
               setFilterCategory("");
               setFilterStage("");
             }}
@@ -304,7 +335,7 @@ export default function JobsPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedJobs.map((job) => {
+              {pagedJobs.map((job) => {
                 const category = categoryById.get(job.service_category_id ?? "");
                 const stage = stageById.get(job.lifecycle_stage_id ?? "");
                 return (
@@ -348,6 +379,47 @@ export default function JobsPage() {
           </table>
         )}
       </div>
+
+      {sortedJobs.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-2 text-gray-500">
+            <span>Show</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1"
+            >
+              {[30, 60, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>
+              per page - {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, sortedJobs.length)} of {sortedJobs.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-gray-500">
+              Page {page} of {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={page >= pageCount}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         open={modalOpen}

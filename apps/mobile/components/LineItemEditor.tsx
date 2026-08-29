@@ -72,6 +72,19 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
     onChange(items.filter((_, i) => i !== index));
   };
 
+  // Renumbers every item's sort_order to match its new array position on
+  // every move - see the desktop port of this file for why: the RPC that
+  // persists a reorder on an EXISTING quote/invoice prefers each item's
+  // own carried sort_order field over its array position, so array order
+  // alone isn't enough once an item has already been saved once.
+  const moveItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next.map((item, i) => ({ ...item, sort_order: i })));
+  };
+
   return (
     <View>
       {items.map((item, index) => (
@@ -90,9 +103,17 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
                 </View>
               ) : null}
             </View>
-            <Pressable onPress={() => removeItem(index)} style={styles.removeButton}>
-              <Text style={styles.removeButtonText}>Remove</Text>
-            </Pressable>
+            <View style={styles.rowMoveButtons}>
+              <Pressable onPress={() => moveItem(index, -1)} disabled={index === 0} style={styles.moveButton}>
+                <Text style={[styles.moveButtonText, index === 0 && styles.moveButtonTextDisabled]}>&uarr;</Text>
+              </Pressable>
+              <Pressable onPress={() => moveItem(index, 1)} disabled={index === items.length - 1} style={styles.moveButton}>
+                <Text style={[styles.moveButtonText, index === items.length - 1 && styles.moveButtonTextDisabled]}>&darr;</Text>
+              </Pressable>
+              <Pressable onPress={() => removeItem(index)} style={styles.removeButton}>
+                <Text style={styles.removeButtonText}>Remove</Text>
+              </Pressable>
+            </View>
           </View>
 
           <TextInput
@@ -270,7 +291,11 @@ const styles = StyleSheet.create({
   calloutBadgeText: { fontSize: 11, fontWeight: "700", color: "#4b5563" },
   waivedBadge: { backgroundColor: "#dbeafe", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   waivedBadgeText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  removeButton: { marginLeft: "auto" },
+  rowMoveButtons: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 12 },
+  moveButton: { paddingHorizontal: 2 },
+  moveButtonText: { fontSize: 14, fontWeight: "700", color: "#6b7280" },
+  moveButtonTextDisabled: { opacity: 0.3 },
+  removeButton: {},
   removeButtonText: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, fontSize: 15 },
   descriptionInput: { minHeight: 90, textAlignVertical: "top" },

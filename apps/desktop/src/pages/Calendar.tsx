@@ -28,14 +28,22 @@ const MONTH_LABELS = [
 ];
 
 type CalendarEventRow = CalendarEvent & {
-  job_cards: { id: string; title: string; assigned_technician_id: string | null } | null;
+  job_cards:
+    | { id: string; title: string; number: string | null; assigned_technician_id: string | null; clients: { name: string; company_name: string | null } | null }
+    | null;
   tasks: { id: string; title: string } | null;
 };
+
+// Widened job shape for the "Linked job" picker (CalendarEventEditor) -
+// previously only id/title, so the dropdown showed nothing but the job
+// title and an admin had to remember which job that was; now it can show
+// the job number and client name too.
+export type JobCardWithClient = JobCard & { clients: { name: string; company_name: string | null } | null };
 
 async function fetchEvents(): Promise<CalendarEventRow[]> {
   const { data, error } = await supabase
     .from("calendar_events")
-    .select("*, job_cards(id, title, assigned_technician_id), tasks(id, title)")
+    .select("*, job_cards(id, title, number, assigned_technician_id, clients(name, company_name)), tasks(id, title)")
     .order("start_at", { ascending: true });
   if (error) throw error;
   const events = data as CalendarEventRow[];
@@ -64,10 +72,10 @@ async function fetchEvents(): Promise<CalendarEventRow[]> {
 
   return events;
 }
-async function fetchJobCards(): Promise<JobCard[]> {
-  const { data, error } = await supabase.from("job_cards").select("*").order("title");
+async function fetchJobCards(): Promise<JobCardWithClient[]> {
+  const { data, error } = await supabase.from("job_cards").select("*, clients(name, company_name)").order("title");
   if (error) throw error;
-  return data as JobCard[];
+  return data as JobCardWithClient[];
 }
 async function fetchTasks(): Promise<Task[]> {
   const { data, error } = await supabase.from("tasks").select("*").order("title");

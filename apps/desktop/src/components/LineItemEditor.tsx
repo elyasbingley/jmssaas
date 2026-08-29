@@ -71,6 +71,25 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
     onChange(items.filter((_, i) => i !== index));
   };
 
+  // Renumbers every item's sort_order to match its new array position on
+  // every move, not just swapping the two moved rows' own sort_order -
+  // QuoteDetail.tsx/InvoiceDetail.tsx's save path sends this array
+  // straight to replace_quote_line_items/replace_invoice_line_items,
+  // whose own sort_order handling prefers each item's carried sort_order
+  // field over its array position (see atomic_line_item_rpcs.sql), so the
+  // array order alone isn't enough to persist a reorder on an existing
+  // quote/invoice - only QuoteNew.tsx/InvoiceNew.tsx re-derive sort_order
+  // from index at insert time. Renumbering here keeps both paths correct.
+  const moveItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    const moved = next[index]!;
+    next[index] = next[target]!;
+    next[target] = moved;
+    onChange(next.map((item, i) => ({ ...item, sort_order: i })));
+  };
+
   return (
     <div>
       {items.map((item, index) => (
@@ -85,9 +104,29 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Waived - Membership</span>
               ) : null}
             </div>
-            <button onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600">
-              Remove
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => moveItem(index, -1)}
+                disabled={index === 0}
+                title="Move up"
+                aria-label="Move up"
+                className="text-xs font-bold text-gray-500 hover:text-gray-900 disabled:opacity-30"
+              >
+                &uarr;
+              </button>
+              <button
+                onClick={() => moveItem(index, 1)}
+                disabled={index === items.length - 1}
+                title="Move down"
+                aria-label="Move down"
+                className="text-xs font-bold text-gray-500 hover:text-gray-900 disabled:opacity-30"
+              >
+                &darr;
+              </button>
+              <button onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600">
+                Remove
+              </button>
+            </div>
           </div>
 
           <textarea

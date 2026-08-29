@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { describeRecurrence, type CalendarEvent } from "@jmssaas/shared";
 
 type CalendarEventRow = CalendarEvent & {
-  job_cards: { id: string; title: string } | null;
+  job_cards:
+    | { id: string; title: string; number: string | null; clients: { name: string; company_name: string | null } | null }
+    | null;
   tasks: { id: string; title: string } | null;
 };
 
@@ -122,7 +124,8 @@ export function CalendarEventPopover({
 
       {event.job_cards ? (
         <button onClick={() => navigate(`/jobs/${event.job_cards!.id}`)} className="mt-1 pl-5 text-sm text-blue-700 hover:underline">
-          Linked job: {event.job_cards.title}
+          Linked job: {event.job_cards.number ?? "Pending"} - {event.job_cards.title}
+          {event.job_cards.clients ? ` (${event.job_cards.clients.company_name || event.job_cards.clients.name})` : ""}
         </button>
       ) : null}
       {event.tasks ? <p className="mt-1 pl-5 text-sm text-blue-700">Linked task: {event.tasks.title}</p> : null}

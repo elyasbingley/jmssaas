@@ -38,6 +38,7 @@ import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { queueAndSendEmail } from "../lib/send-email";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
+import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
@@ -337,6 +338,73 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["job", id] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
+  });
+
+  // "+ Add to calendar" - previously the only way to get a job onto the
+  // calendar was dragging its Dispatch board card onto a technician's
+  // timeline slot (see Dispatch.tsx's own scheduleJob mutation, which
+  // this mirrors); there was no way to do it from the job's own page at
+  // all. Deliberately a minimal date/time/technician form rather than
+  // reusing the full CalendarEventEditor (recurrence, guests, location,
+  // category override) - "quickly schedule this job" doesn't need any of
+  // that, and this job already has its own separate Category/Stage/
+  // Technician card above for everything else.
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleStartTime, setScheduleStartTime] = useState("09:00");
+  const [scheduleEndTime, setScheduleEndTime] = useState("10:00");
+  const [scheduleTechnicianId, setScheduleTechnicianId] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  const openScheduleModal = () => {
+    const today = new Date();
+    setScheduleDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+    setScheduleStartTime("09:00");
+    setScheduleEndTime("10:00");
+    setScheduleTechnicianId(job?.assigned_technician_id ?? "");
+    setScheduleError(null);
+    setScheduleModalOpen(true);
+  };
+
+  const scheduleToCalendar = useMutation({
+    mutationFn: async () => {
+      if (!job || !profile) throw new Error("Not signed in");
+      if (!scheduleDate || !scheduleStartTime || !scheduleEndTime) throw new Error("Pick a date and time");
+      const start = new Date(`${scheduleDate}T${scheduleStartTime}:00`);
+      const end = new Date(`${scheduleDate}T${scheduleEndTime}:00`);
+      if (end <= start) throw new Error("End time must be after start time");
+
+      const { data: insertedEvent, error: eventError } = await supabase
+        .from("calendar_events")
+        .insert({
+          tenant_id: job.tenant_id,
+          title: job.title,
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          all_day: false,
+          job_card_id: job.id,
+          created_by: profile.id,
+        })
+        .select("id")
+        .single();
+      if (eventError) throw eventError;
+
+      if (scheduleTechnicianId && scheduleTechnicianId !== job.assigned_technician_id) {
+        const { error: jobError } = await supabase.from("job_cards").update({ assigned_technician_id: scheduleTechnicianId }).eq("id", job.id);
+        if (jobError) throw jobError;
+      }
+
+      // Must come after the job_cards write above lands, same ordering
+      // Dispatch.tsx's own scheduleJob mutation relies on, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(insertedEvent.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      setScheduleModalOpen(false);
+    },
+    onError: (e) => setScheduleError(getErrorMessage(e, "Failed to add to calendar")),
   });
 
   const [reviewRequestResult, setReviewRequestResult] = useState<string | null>(null);
@@ -928,9 +996,51 @@ export default function JobDetailPage() {
             </select>
           </div>
         </div>
+        <button
+          onClick={openScheduleModal}
+          className="mt-3 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          + Add to calendar
+        </button>
         {reviewRequestError ? <p className="mt-3 text-sm text-red-600">{reviewRequestError}</p> : null}
         {reviewRequestResult ? <p className="mt-3 text-sm text-green-700">{reviewRequestResult}</p> : null}
       </div>
+
+      <Modal open={scheduleModalOpen} onClose={() => setScheduleModalOpen(false)} title="Add to calendar">
+        <FormField label="Date" type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Start time" type="time" value={scheduleStartTime} onChange={(e) => setScheduleStartTime(e.target.value)} />
+          <FormField label="End time" type="time" value={scheduleEndTime} onChange={(e) => setScheduleEndTime(e.target.value)} />
+        </div>
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Technician</label>
+          <select
+            value={scheduleTechnicianId}
+            onChange={(e) => setScheduleTechnicianId(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {(technicians ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {scheduleError ? <p className="mb-4 text-sm text-red-600">{scheduleError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setScheduleModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => scheduleToCalendar.mutate()}
+            disabled={scheduleToCalendar.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {scheduleToCalendar.isPending ? "Adding..." : "Add to calendar"}
+          </button>
+        </div>
+      </Modal>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
         <div className="rounded-lg border border-gray-300 bg-white p-6">

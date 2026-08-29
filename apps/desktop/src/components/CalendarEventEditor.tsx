@@ -5,16 +5,26 @@ import {
   type CalendarCategoryColors,
   type CalendarEvent,
   type CalendarEventCategory,
-  type JobCard,
   type Profile,
   type RecurrenceRule,
   type Task,
 } from "@jmssaas/shared";
 import { FormField, SelectField, TextAreaField } from "./FormField";
 import { RecurrenceScopeDialog, type RecurrenceEditScope } from "./RecurrenceScopeDialog";
+import type { JobCardWithClient } from "../pages/Calendar";
+
+// "JobNumber - Title (Client)" instead of just the title - previously an
+// admin picking a job here had nothing but the free-text title to go on
+// and had to remember which job that actually was.
+function jobOptionLabel(job: JobCardWithClient): string {
+  const client = job.clients ? job.clients.company_name || job.clients.name : null;
+  return [job.number ?? "Pending", job.title].join(" - ") + (client ? ` (${client})` : "");
+}
 
 type CalendarEventRow = CalendarEvent & {
-  job_cards: { id: string; title: string; assigned_technician_id: string | null } | null;
+  job_cards:
+    | { id: string; title: string; number: string | null; assigned_technician_id: string | null; clients: { name: string; company_name: string | null } | null }
+    | null;
   tasks: { id: string; title: string } | null;
 };
 
@@ -90,7 +100,7 @@ export function CalendarEventEditor({
   mode: "new" | "edit";
   event?: CalendarEventRow;
   initialDate?: Date;
-  jobCards: JobCard[];
+  jobCards: JobCardWithClient[];
   tasks: Task[];
   technicians: Profile[];
   categoryColors: CalendarCategoryColors;
@@ -434,7 +444,7 @@ export function CalendarEventEditor({
               label="Linked job"
               value={jobCardId}
               onChange={setJobCardId}
-              options={jobCards.map((j) => ({ value: j.id, label: j.title }))}
+              options={jobCards.map((j) => ({ value: j.id, label: jobOptionLabel(j) }))}
             />
             {jobCardId ? (
               <SelectField
