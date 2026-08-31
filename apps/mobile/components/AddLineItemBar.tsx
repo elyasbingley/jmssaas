@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { LineItemFormInput, PriceBookItem, PriceBookItemVariation } from "@jmssaas/shared";
+import {
+  calculateCostOfOperations,
+  calculateLabour,
+  calculateOperatingExpenses,
+  computeLineItemUnitPriceCents,
+  type CostOfOpsSettings,
+  type LabourCostEntry,
+  type LineItemFormInput,
+  type OperatingExpense,
+  type PriceBookItem,
+  type PriceBookItemVariation,
+} from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { emptyLineItem, normalizeLineItem } from "../lib/line-items";
 import { CenteredModal } from "./CenteredModal";
@@ -23,6 +34,38 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
   const [searching, setSearching] = useState(false);
   const [variationTarget, setVariationTarget] = useState<PriceBookItem | null>(null);
   const [variations, setVariations] = useState<PriceBookItemVariation[]>([]);
+
+  // Cost of Ops's (Team) Hourly COO, adjusted for estimated efficiency - the
+  // business's actual blended labour cost per hour, once that module has
+  // been filled out. Suggested as the starting Labour Rate on a brand new
+  // custom line item only (a price-book-linked item keeps its own catalog
+  // rate, untouched). Silently stays 0 (blank, same as before this existed)
+  // whenever cost_of_ops_settings isn't there yet - including for a
+  // technician's session, since that table's RLS is admin-only and simply
+  // returns no rows rather than an error.
+  const [suggestedLabourRateCents, setSuggestedLabourRateCents] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: settings } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+      if (!settings || cancelled) return;
+      const [{ data: expenses }, { data: labourEntries }] = await Promise.all([
+        supabase.from("operating_expenses").select("*"),
+        supabase.from("labour_cost_entries").select("*"),
+      ]);
+      if (cancelled) return;
+      const opex = calculateOperatingExpenses((expenses ?? []) as OperatingExpense[], settings as CostOfOpsSettings);
+      const labour = calculateLabour((labourEntries ?? []) as LabourCostEntry[], settings as CostOfOpsSettings);
+      const coo = calculateCostOfOperations(opex, labour, settings as CostOfOpsSettings);
+      if (Number.isFinite(coo.hourlyCooAdjustedCents) && coo.hourlyCooAdjustedCents > 0) {
+        setSuggestedLabourRateCents(Math.round(coo.hourlyCooAdjustedCents));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -92,7 +135,9 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
   };
 
   const addCustomItem = () => {
-    onAdd(emptyLineItem(itemCount));
+    const base = emptyLineItem(itemCount);
+    const item = suggestedLabourRateCents > 0 ? { ...base, labour_rate_cents: suggestedLabourRateCents } : base;
+    onAdd({ ...item, unit_price_cents: computeLineItemUnitPriceCents(item) });
     setQuery("");
     setResults([]);
   };

@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
-import type { LineItemFormInput, PriceBookItem, PriceBookItemVariation } from "@jmssaas/shared";
+import { useQuery } from "@tanstack/react-query";
+import {
+  calculateCostOfOperations,
+  calculateLabour,
+  calculateOperatingExpenses,
+  computeLineItemUnitPriceCents,
+  type CostOfOpsSettings,
+  type LabourCostEntry,
+  type LineItemFormInput,
+  type OperatingExpense,
+  type PriceBookItem,
+  type PriceBookItemVariation,
+} from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { emptyLineItem, normalizeLineItem } from "../lib/line-items";
 import { Modal } from "./Modal";
@@ -9,10 +21,53 @@ interface AddLineItemBarProps {
   onAdd: (item: LineItemFormInput) => void;
 }
 
+async function fetchCostOfOpsSettings(): Promise<CostOfOpsSettings | null> {
+  const { data } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+  return data as CostOfOpsSettings | null;
+}
+async function fetchOperatingExpenses(): Promise<OperatingExpense[]> {
+  const { data } = await supabase.from("operating_expenses").select("*");
+  return (data ?? []) as OperatingExpense[];
+}
+async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
+  const { data } = await supabase.from("labour_cost_entries").select("*");
+  return (data ?? []) as LabourCostEntry[];
+}
+
 // Port of apps/mobile/components/AddLineItemBar.tsx - same debounced
 // price_book_items search (3+ characters, ilike on description),
 // variation picker, and "add as custom item" fallback.
 export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
+  // Cost of Ops's (Team) Hourly COO, adjusted for estimated efficiency - the
+  // business's actual blended labour cost per hour, once that module has
+  // been filled out. Suggested as the starting Labour Rate on a brand new
+  // custom line item only (a price-book-linked item keeps its own catalog
+  // rate, untouched). Silently stays 0 (blank, same as before this existed)
+  // whenever cost_of_ops_settings isn't there yet - including for a
+  // technician's session, since that table's RLS is admin-only and simply
+  // returns no rows rather than an error.
+  const { data: costOfOpsSettings } = useQuery({ queryKey: ["cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
+  const { data: operatingExpenses } = useQuery({
+    queryKey: ["operating-expenses"],
+    queryFn: fetchOperatingExpenses,
+    enabled: !!costOfOpsSettings,
+  });
+  const { data: labourCostEntries } = useQuery({
+    queryKey: ["labour-cost-entries"],
+    queryFn: fetchLabourCostEntries,
+    enabled: !!costOfOpsSettings,
+  });
+
+  let suggestedLabourRateCents = 0;
+  if (costOfOpsSettings && operatingExpenses && labourCostEntries) {
+    const opex = calculateOperatingExpenses(operatingExpenses, costOfOpsSettings);
+    const labour = calculateLabour(labourCostEntries, costOfOpsSettings);
+    const coo = calculateCostOfOperations(opex, labour, costOfOpsSettings);
+    if (Number.isFinite(coo.hourlyCooAdjustedCents) && coo.hourlyCooAdjustedCents > 0) {
+      suggestedLabourRateCents = Math.round(coo.hourlyCooAdjustedCents);
+    }
+  }
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PriceBookItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -87,7 +142,9 @@ export function AddLineItemBar({ itemCount, onAdd }: AddLineItemBarProps) {
   };
 
   const addCustomItem = () => {
-    onAdd(emptyLineItem(itemCount));
+    const base = emptyLineItem(itemCount);
+    const item = suggestedLabourRateCents > 0 ? { ...base, labour_rate_cents: suggestedLabourRateCents } : base;
+    onAdd({ ...item, unit_price_cents: computeLineItemUnitPriceCents(item) });
     setQuery("");
     setResults([]);
   };
