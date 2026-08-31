@@ -30,6 +30,7 @@ import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
 import PropertyDetailPage from "./pages/PropertyDetail";
 import MembershipPage from "./pages/Membership";
+import GoogleReviewsPage from "./pages/GoogleReviews";
 import B2BReferralsPage from "./pages/B2BReferrals";
 import ReportsPage from "./pages/Reports";
 import ReportTemplateEditorPage from "./pages/ReportTemplateEditor";
@@ -81,6 +82,7 @@ export default function App() {
                 <Route path="/real-estate" element={<RealEstatePage />} />
                 <Route path="/real-estate/properties/:id" element={<PropertyDetailPage />} />
                 <Route path="/membership" element={<MembershipPage />} />
+                <Route path="/google-reviews" element={<GoogleReviewsPage />} />
                 <Route path="/b2b-referrals" element={<B2BReferralsPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/templates/new" element={<ReportTemplateEditorPage />} />

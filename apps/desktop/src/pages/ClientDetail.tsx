@@ -107,6 +107,22 @@ export default function ClientDetailPage() {
   const { data: sites } = useQuery({ queryKey: ["client-sites", id], queryFn: () => fetchClientSites(id!), enabled: !!id });
   const { data: isActiveMember } = useQuery({ queryKey: ["client-is-active-member", id], queryFn: () => fetchIsActiveMember(id!), enabled: !!id });
 
+  // Manual tick - no public API to detect an actual Google review being
+  // left, so this is purely office-driven (see the Google Reviews module's
+  // own comment). Invalidating "google-review-clients" too so ticking it
+  // here immediately drops this client off that module's worklist.
+  const toggleReviewed = useMutation({
+    mutationFn: async (nextValue: boolean) => {
+      if (!id) return;
+      const { error } = await supabase.from("clients").update({ left_google_review: nextValue }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client", id] });
+      queryClient.invalidateQueries({ queryKey: ["google-review-clients"] });
+    },
+  });
+
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     client_type: "individual" as "individual" | "company",
@@ -382,6 +398,14 @@ export default function ClientDetailPage() {
               Open WorkDrive folder &rarr;
             </a>
           ) : null}
+          <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={client.left_google_review}
+              onChange={(e) => toggleReviewed.mutate(e.target.checked)}
+            />
+            Left a Google review
+          </label>
         </div>
         <button onClick={openEdit} className="text-sm font-semibold text-blue-700 hover:underline">
           Edit

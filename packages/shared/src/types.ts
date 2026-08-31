@@ -111,6 +111,12 @@ export interface Client {
   // an invoice sync - reused on every later sync instead of creating a
   // duplicate Xero Contact each time.
   xero_contact_id: string | null;
+  // Manually ticked from the client card once someone confirms (by asking,
+  // or by finding the review itself) that this client has left a Google
+  // review - there's no public API to detect this automatically, so it's a
+  // plain office-driven flag, not derived from anything. Drives the Google
+  // Reviews module's "hasn't reviewed yet" list.
+  left_google_review: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -31,6 +31,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/inventory", label: "Inventory" },
       { to: "/real-estate", label: "Real Estate & Strata" },
       { to: "/membership", label: "Membership" },
+      { to: "/google-reviews", label: "Google Reviews" },
       { to: "/b2b-referrals", label: "B2B & Referrals" },
     ],
   },
