@@ -44,11 +44,21 @@ export interface DocumentTotals {
   total_cents: number;
 }
 
+// An optional line item not currently included (is_optional && !is_included -
+// an upsell the client/office hasn't opted into yet) is excluded from the
+// document total here, same filter replace_quote_line_items and
+// accept_quote_by_token apply server-side - so what the office sees while
+// editing always matches what actually gets saved/quoted. Each line's own
+// row still shows its own price via lineItemSubtotalCents/lineItemGstCents
+// regardless - only the aggregate here skips it.
 export function calculateDocumentTotals(
-  lineItems: Array<Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable" | "waived_amount_cents">>
+  lineItems: Array<
+    Pick<LineItemInput, "quantity" | "unit_price_cents" | "gst_applicable" | "waived_amount_cents" | "is_optional" | "is_included">
+  >
 ): DocumentTotals {
-  const subtotal_cents = lineItems.reduce((sum, item) => sum + lineItemSubtotalCents(item), 0);
-  const gst_cents = lineItems.reduce((sum, item) => sum + lineItemGstCents(item), 0);
+  const includedItems = lineItems.filter((item) => !item.is_optional || item.is_included);
+  const subtotal_cents = includedItems.reduce((sum, item) => sum + lineItemSubtotalCents(item), 0);
+  const gst_cents = includedItems.reduce((sum, item) => sum + lineItemGstCents(item), 0);
   return { subtotal_cents, gst_cents, total_cents: subtotal_cents + gst_cents };
 }
 

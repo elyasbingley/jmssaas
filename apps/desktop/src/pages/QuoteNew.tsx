@@ -200,7 +200,7 @@ export default function QuoteNewPage() {
       ) : null}
 
       <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Line items</h2>
-      <LineItemEditor items={lineItems} onChange={setLineItems} />
+      <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
       <div className="mt-4">
         <TextAreaField label="Notes (optional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />

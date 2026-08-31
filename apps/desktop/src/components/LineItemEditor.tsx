@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
+import { uploadLineItemImage } from "../lib/uploads";
 
 interface LineItemEditorProps {
   items: LineItemFormInput[];
   onChange: (items: LineItemFormInput[]) => void;
   membershipDiscountCents?: number;
+  tenantId: string;
 }
 
 function parseNumber(text: string): number {
@@ -54,8 +56,10 @@ function DecimalField({
 // same LineItemSummary client-facing view below it, same
 // calculateDocumentTotals totals box. Reimplemented in HTML/Tailwind
 // instead of React Native views, logic unchanged.
-export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }: LineItemEditorProps) {
+export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, tenantId }: LineItemEditorProps) {
   const totals = calculateDocumentTotals(items);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const updateItem = (index: number, patch: Partial<LineItemFormInput>) => {
     onChange(
@@ -65,6 +69,19 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
         return { ...next, unit_price_cents: computeLineItemUnitPriceCents(next) };
       })
     );
+  };
+
+  const uploadImage = async (index: number, file: File) => {
+    setImageError(null);
+    setUploadingIndex(index);
+    try {
+      const url = await uploadLineItemImage({ tenantId, file });
+      updateItem(index, { image_url: url });
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : "Failed to upload image");
+    } finally {
+      setUploadingIndex(null);
+    }
   };
 
   const removeItem = (index: number) => {
@@ -105,6 +122,12 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
               ) : null}
               {item.is_subcontracted ? (
                 <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-700">Subcontracted</span>
+              ) : null}
+              {item.is_optional ? (
+                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">Optional</span>
+              ) : null}
+              {item.bundle_name ? (
+                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700">Bundle: {item.bundle_name}</span>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
@@ -205,6 +228,56 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
             </div>
           ) : null}
 
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Bundle name (optional grouping)</label>
+              <input
+                type="text"
+                placeholder="e.g. Gutter guard package"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                value={item.bundle_name ?? ""}
+                onChange={(e) => updateItem(index, { bundle_name: e.target.value })}
+              />
+            </div>
+            <label className="flex items-end pb-2 gap-2 text-xs font-semibold text-gray-700">
+              <input
+                type="checkbox"
+                checked={item.is_optional ?? false}
+                onChange={(e) => updateItem(index, { is_optional: e.target.checked, is_included: !e.target.checked })}
+              />
+              Optional (client ticks on to include)
+            </label>
+          </div>
+
+          <div className="mb-3">
+            <label className="mb-1 block text-xs font-semibold text-gray-500">Image (shown on the quote/invoice PDF)</label>
+            {item.image_url ? (
+              <img src={item.image_url} alt="" className="mb-2 h-24 w-full max-w-xs rounded-md bg-gray-50 object-cover" />
+            ) : null}
+            <label className="inline-block cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+              {uploadingIndex === index ? "Uploading..." : item.image_url ? "Change image" : "Add image"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={uploadingIndex === index}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadImage(index, file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {item.image_url ? (
+              <button
+                onClick={() => updateItem(index, { image_url: "" })}
+                className="ml-2 text-xs font-semibold text-red-600"
+              >
+                Remove image
+              </button>
+            ) : null}
+          </div>
+
           <div className="flex justify-between border-t border-gray-200 pt-2 text-sm">
             <span className="text-gray-500">Line total</span>
             <span className="font-bold">
@@ -220,6 +293,8 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
           </div>
         </div>
       ))}
+
+      {imageError ? <p className="mb-3 text-sm text-red-600">{imageError}</p> : null}
 
       <AddLineItemBar itemCount={items.length} onAdd={(item) => onChange([...items, item])} />
 
@@ -241,19 +316,40 @@ export function LineItemSummary({ items, membershipDiscountCents = 0 }: { items:
         <span className="flex-1 text-right">Rate</span>
         <span className="flex-1 text-right">Amount</span>
       </div>
-      {items.map((item, index) => (
-        <div key={index} className="border-b border-gray-200 py-2 text-sm">
-          <div className="flex">
-            <span className="flex-[3]">{item.description}</span>
-            <span className="flex-1 text-right">{item.quantity}</span>
-            <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
-            <span className="flex-1 text-right">{formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}</span>
+      {items.map((item, index) => {
+        const excluded = item.is_optional && !item.is_included;
+        const showBundleHeading = item.bundle_name && item.bundle_name !== items[index - 1]?.bundle_name;
+        return (
+          <div key={index}>
+            {showBundleHeading ? (
+              <div className="mt-3 border-b border-gray-300 pb-1 text-xs font-bold uppercase tracking-wide text-gray-500">
+                {item.bundle_name}
+              </div>
+            ) : null}
+            <div className={`border-b border-gray-200 py-2 text-sm ${excluded ? "opacity-50" : ""}`}>
+              {item.image_url ? <img src={item.image_url} alt="" className="mb-2 h-20 w-32 rounded-md object-cover" /> : null}
+              <div className="flex">
+                <span className="flex-[3]">
+                  {item.description}
+                  {item.is_optional ? (
+                    <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">
+                      {excluded ? "Not selected" : "Optional - included"}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex-1 text-right">{item.quantity}</span>
+                <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
+                <span className="flex-1 text-right">
+                  {excluded ? "—" : formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
+                </span>
+              </div>
+              {item.waived_amount_cents > 0 ? (
+                <div className="mt-1 text-right text-xs font-semibold text-blue-700">Waived - Membership</div>
+              ) : null}
+            </div>
           </div>
-          {item.waived_amount_cents > 0 ? (
-            <div className="mt-1 text-right text-xs font-semibold text-blue-700">Waived - Membership</div>
-          ) : null}
-        </div>
-      ))}
+        );
+      })}
       <TotalsBox totals={totals} membershipDiscountCents={membershipDiscountCents} />
     </div>
   );

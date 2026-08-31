@@ -207,7 +207,7 @@ export default function NewQuoteScreen() {
         ) : null}
 
         <Text style={styles.sectionTitle}>Line items</Text>
-        <LineItemEditor items={lineItems} onChange={setLineItems} />
+        <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
         <View style={styles.fieldSpacing}>
           <FormField

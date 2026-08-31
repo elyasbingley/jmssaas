@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { decode as decodeBase64 } from "base64-arraybuffer";
 import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
+import { supabase } from "../lib/supabase";
+
+const LINE_ITEM_IMAGE_BUCKET = "line-item-images";
 
 interface LineItemEditorProps {
   items: LineItemFormInput[];
   onChange: (items: LineItemFormInput[]) => void;
   membershipDiscountCents?: number;
+  tenantId: string;
 }
 
 function parseNumber(text: string): number {
@@ -55,8 +61,9 @@ function DecimalInput({
 // This is admin-only: the breakdown fields (rate/hours/material/markup) are
 // margin-revealing figures the client (and, per the person's brief, anyone
 // non-admin) should never see - see LineItemSummary below for that view.
-export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }: LineItemEditorProps) {
+export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, tenantId }: LineItemEditorProps) {
   const totals = calculateDocumentTotals(items);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
 
   const updateItem = (index: number, patch: Partial<LineItemFormInput>) => {
     onChange(
@@ -66,6 +73,34 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
         return { ...next, unit_price_cents: computeLineItemUnitPriceCents(next) };
       })
     );
+  };
+
+  const pickImage = async (index: number) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Enable photo access in Settings to attach a photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.7, allowsEditing: true });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset?.base64) return;
+
+    setUploadingIndex(index);
+    try {
+      const extension = (asset.mimeType ?? "image/jpeg").includes("png") ? "png" : "jpg";
+      const path = `${tenantId}/${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from(LINE_ITEM_IMAGE_BUCKET)
+        .upload(path, decodeBase64(asset.base64), { contentType: asset.mimeType ?? "image/jpeg" });
+      if (uploadError) throw uploadError;
+      const imageUrl = supabase.storage.from(LINE_ITEM_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+      updateItem(index, { image_url: imageUrl });
+    } catch (e) {
+      Alert.alert("Upload failed", e instanceof Error ? e.message : "Failed to upload image");
+    } finally {
+      setUploadingIndex(null);
+    }
   };
 
   const removeItem = (index: number) => {
@@ -105,6 +140,16 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
               {item.is_subcontracted ? (
                 <View style={styles.subcontractedBadge}>
                   <Text style={styles.subcontractedBadgeText}>Subcontracted</Text>
+                </View>
+              ) : null}
+              {item.is_optional ? (
+                <View style={styles.optionalBadge}>
+                  <Text style={styles.optionalBadgeText}>Optional</Text>
+                </View>
+              ) : null}
+              {item.bundle_name ? (
+                <View style={styles.bundleBadge}>
+                  <Text style={styles.bundleBadgeText}>Bundle: {item.bundle_name}</Text>
                 </View>
               ) : null}
             </View>
@@ -216,6 +261,44 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
             ) : null}
           </View>
 
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Bundle name (optional grouping)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Gutter guard package"
+                value={item.bundle_name ?? ""}
+                onChangeText={(text) => updateItem(index, { bundle_name: text })}
+              />
+            </View>
+          </View>
+
+          <Pressable
+            style={[styles.optionalToggle, item.is_optional && styles.optionalToggleActive]}
+            onPress={() => updateItem(index, { is_optional: !item.is_optional, is_included: item.is_optional })}
+          >
+            <Text style={[styles.optionalToggleText, item.is_optional && styles.optionalToggleTextActive]}>
+              {item.is_optional ? "Optional (client ticks on to include)" : "Not optional - always included"}
+            </Text>
+          </Pressable>
+
+          <View style={styles.imageSection}>
+            <Text style={styles.fieldLabel}>Image (shown on the quote/invoice PDF)</Text>
+            {item.image_url ? <Image source={{ uri: item.image_url }} style={styles.itemImagePreview} /> : null}
+            <View style={styles.imageButtonsRow}>
+              <Pressable onPress={() => pickImage(index)} disabled={uploadingIndex === index}>
+                <Text style={styles.link}>
+                  {uploadingIndex === index ? "Uploading..." : item.image_url ? "Change image" : "+ Add image"}
+                </Text>
+              </Pressable>
+              {item.image_url ? (
+                <Pressable onPress={() => updateItem(index, { image_url: "" })}>
+                  <Text style={styles.removeButtonText}>Remove image</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
           <View style={styles.lineTotalRow}>
             <Text style={styles.lineTotalLabel}>Line total</Text>
             {item.waived_amount_cents > 0 ? (
@@ -277,19 +360,36 @@ export function LineItemSummary({
         <Text style={[styles.summaryHeaderCell, styles.summaryNumCell]}>Rate</Text>
         <Text style={[styles.summaryHeaderCell, styles.summaryNumCell]}>Amount</Text>
       </View>
-      {items.map((item, index) => (
-        <View key={index} style={styles.summaryRow}>
-          <View style={styles.summaryRowMain}>
-            <Text style={[styles.summaryCell, styles.summaryDescCell]}>{item.description}</Text>
-            <Text style={[styles.summaryCell, styles.summaryNumCell]}>{item.quantity}</Text>
-            <Text style={[styles.summaryCell, styles.summaryNumCell]}>{formatCentsAsAud(item.unit_price_cents)}</Text>
-            <Text style={[styles.summaryCell, styles.summaryNumCell]}>
-              {formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
-            </Text>
+      {items.map((item, index) => {
+        const excluded = item.is_optional && !item.is_included;
+        const showBundleHeading = item.bundle_name && item.bundle_name !== items[index - 1]?.bundle_name;
+        return (
+          <View key={index}>
+            {showBundleHeading ? (
+              <View style={styles.summaryBundleHeading}>
+                <Text style={styles.summaryBundleHeadingText}>{item.bundle_name}</Text>
+              </View>
+            ) : null}
+            <View style={[styles.summaryRow, excluded && styles.summaryRowExcluded]}>
+              {item.image_url ? <Image source={{ uri: item.image_url }} style={styles.summaryItemImage} /> : null}
+              <View style={styles.summaryRowMain}>
+                <View style={styles.summaryDescCell}>
+                  <Text style={styles.summaryCell}>{item.description}</Text>
+                  {item.is_optional ? (
+                    <Text style={styles.summaryOptionalLabel}>{excluded ? "Not selected" : "Optional - included"}</Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.summaryCell, styles.summaryNumCell]}>{item.quantity}</Text>
+                <Text style={[styles.summaryCell, styles.summaryNumCell]}>{formatCentsAsAud(item.unit_price_cents)}</Text>
+                <Text style={[styles.summaryCell, styles.summaryNumCell]}>
+                  {excluded ? "—" : formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
+                </Text>
+              </View>
+              {item.waived_amount_cents > 0 ? <Text style={styles.summaryWaivedLabel}>Waived - Membership</Text> : null}
+            </View>
           </View>
-          {item.waived_amount_cents > 0 ? <Text style={styles.summaryWaivedLabel}>Waived - Membership</Text> : null}
-        </View>
-      ))}
+        );
+      })}
 
       <View style={styles.totalsBox}>
         <View style={styles.totalsRow}>
@@ -326,6 +426,18 @@ const styles = StyleSheet.create({
   waivedBadgeText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
   subcontractedBadge: { backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   subcontractedBadgeText: { fontSize: 11, fontWeight: "700", color: "#c2410c" },
+  optionalBadge: { backgroundColor: "#f3e8ff", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  optionalBadgeText: { fontSize: 11, fontWeight: "700", color: "#7e22ce" },
+  bundleBadge: { backgroundColor: "#ccfbf1", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  bundleBadgeText: { fontSize: 11, fontWeight: "700", color: "#0f766e" },
+  optionalToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
+  optionalToggleActive: { backgroundColor: "#7e22ce" },
+  optionalToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
+  optionalToggleTextActive: { color: "#fff" },
+  imageSection: { gap: 6 },
+  imageButtonsRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  itemImagePreview: { width: 140, height: 90, borderRadius: 8, backgroundColor: "#f3f4f6" },
+  link: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
   rowMoveButtons: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 12 },
   moveButton: { paddingHorizontal: 2 },
   moveButtonText: { fontSize: 14, fontWeight: "700", color: "#6b7280" },
@@ -371,10 +483,15 @@ const styles = StyleSheet.create({
   totalsValueBold: { fontWeight: "700", flexShrink: 0, textAlign: "right" },
   summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
+  summaryBundleHeading: { marginTop: 10, paddingBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
+  summaryBundleHeadingText: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 },
   summaryRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
+  summaryRowExcluded: { opacity: 0.5 },
+  summaryItemImage: { width: 120, height: 80, borderRadius: 8, marginBottom: 6, backgroundColor: "#f3f4f6" },
   summaryRowMain: { flexDirection: "row" },
   summaryCell: { fontSize: 14, color: "#111827" },
   summaryDescCell: { flex: 3 },
   summaryNumCell: { flex: 1, textAlign: "right" },
+  summaryOptionalLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: "#7e22ce" },
   summaryWaivedLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: "#1d4ed8", textAlign: "right" },
 });

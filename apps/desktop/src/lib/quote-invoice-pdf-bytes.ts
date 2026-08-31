@@ -207,7 +207,7 @@ const COL_QTY_X = PAGE_WIDTH - MARGIN - 55;
 const COL_RATE_X = PAGE_WIDTH - MARGIN - 32;
 const COL_AMOUNT_X = PAGE_WIDTH - MARGIN;
 
-function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], lineItems: LineItemFormInput[]) {
+async function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], lineItems: LineItemFormInput[]) {
   cursor.ensureSpace(12);
   cursor.doc.setFillColor(...accent);
   cursor.doc.rect(MARGIN, cursor.y - 4, CONTENT_WIDTH, 7, "F");
@@ -218,23 +218,64 @@ function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], 
   cursor.doc.text("Amount", COL_AMOUNT_X, cursor.y, { align: "right" });
   cursor.y += 6;
 
+  let lastBundleName: string | null = null;
   for (const item of lineItems) {
+    // A bundle is purely a presentation grouping (see the migration's own
+    // comment) - a heading band, same shape as the column header above but
+    // muted, whenever the bundle changes. Consecutive items sharing a
+    // bundle_name only get one heading, matching the desktop/mobile
+    // LineItemSummary views.
+    if (item.bundle_name && item.bundle_name !== lastBundleName) {
+      cursor.ensureSpace(8);
+      cursor.doc.setFillColor(243, 244, 246);
+      cursor.doc.rect(MARGIN, cursor.y - 4, CONTENT_WIDTH, 6, "F");
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(107, 114, 128);
+      cursor.doc.text(item.bundle_name.toUpperCase(), COL_DESC_X + 1, cursor.y);
+      cursor.y += 6;
+    }
+    lastBundleName = item.bundle_name || null;
+
+    const excluded = !!item.is_optional && !item.is_included;
+    const rowColor: [number, number, number] = excluded ? [156, 163, 175] : [55, 65, 81];
     const descLines = cursor.doc.splitTextToSize(item.description || "-", COL_QTY_X - COL_DESC_X - 40) as string[];
     const showWaived = item.waived_amount_cents > 0;
     const waivedLineCount = showWaived ? 1 : 0;
-    cursor.ensureSpace((descLines.length + waivedLineCount) * 4.5 + 4);
+    const optionalTagLineCount = item.is_optional ? 1 : 0;
+
+    let imageDataUrl: string | null = null;
+    const IMAGE_H = 22;
+    if (item.image_url) imageDataUrl = await fetchImageDataUrl(item.image_url);
+
+    cursor.ensureSpace((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0) + 4);
     const rowTop = cursor.y;
-    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(55, 65, 81);
+    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
     descLines.forEach((line, i) => cursor.doc.text(line, COL_DESC_X, rowTop + i * 4.5));
+    let textY = rowTop + descLines.length * 4.5;
+    if (item.is_optional) {
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(126, 34, 206);
+      cursor.doc.text(excluded ? "Optional - not selected" : "Optional - included", COL_DESC_X, textY);
+      textY += 4.5;
+    }
     if (showWaived) {
       cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(29, 78, 216);
-      cursor.doc.text("Waived - Membership", COL_DESC_X, rowTop + descLines.length * 4.5);
+      cursor.doc.text("Waived - Membership", COL_DESC_X, textY);
+      textY += 4.5;
     }
-    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(55, 65, 81);
+    if (imageDataUrl) {
+      try {
+        cursor.doc.addImage(imageDataUrl, "PNG", COL_DESC_X, textY, 32, IMAGE_H, undefined, "MEDIUM");
+      } catch {
+        // Skip an unembeddable image rather than fail the whole PDF.
+      }
+    }
+    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
     cursor.doc.text(String(item.quantity), COL_QTY_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(item.unit_price_cents), COL_RATE_X, rowTop, { align: "right" });
-    cursor.doc.text(formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
-    cursor.y = rowTop + Math.max((descLines.length + waivedLineCount) * 4.5, 4.5) + 2;
+    cursor.doc.text(excluded ? "-" : formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
+    cursor.y =
+      rowTop +
+      Math.max((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5) +
+      2;
     cursor.doc.setDrawColor(229, 231, 235);
     cursor.doc.line(MARGIN, cursor.y - 1, PAGE_WIDTH - MARGIN, cursor.y - 1);
   }
@@ -328,7 +369,7 @@ export async function buildQuotePdfBytes(params: {
     { label: "Quote date", value: formatDate(quote.issue_date) },
     { label: "Expiry date", value: formatDate(quote.expiry_date) },
   ]);
-  renderLineItemsTable(cursor, ACCENT.quote, lineItems);
+  await renderLineItemsTable(cursor, ACCENT.quote, lineItems);
   renderTotals(cursor, lineItems, null, quote.membership_discount_cents);
   renderNotes(cursor, quote.notes);
   await renderSignature(cursor, quote.accepted_by_name, quote.accepted_at, quote.accepted_signature_svg);
@@ -371,7 +412,7 @@ export async function buildInvoicePdfBytes(params: {
     ],
     billToContact
   );
-  renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
+  await renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
   renderTotals(cursor, lineItems, balanceDueCents, invoice.membership_discount_cents);
   renderNotes(cursor, invoice.notes);
   await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);

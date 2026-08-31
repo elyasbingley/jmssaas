@@ -784,7 +784,12 @@ export default function InvoiceDetailPage() {
         </p>
       ) : null}
       {!isLocked ? (
-        <LineItemEditor items={lineItems} onChange={setLineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
+        <LineItemEditor
+          items={lineItems}
+          onChange={setLineItems}
+          membershipDiscountCents={data.invoice.membership_discount_cents}
+          tenantId={profile?.tenant_id ?? ""}
+        />
       ) : (
         <LineItemSummary items={lineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
       )}

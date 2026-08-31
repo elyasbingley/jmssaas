@@ -595,7 +595,12 @@ export default function QuoteDetailPage() {
         </p>
       ) : null}
       {!isLocked ? (
-        <LineItemEditor items={lineItems} onChange={setLineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+        <LineItemEditor
+          items={lineItems}
+          onChange={setLineItems}
+          membershipDiscountCents={data.quote.membership_discount_cents}
+          tenantId={profile?.tenant_id ?? ""}
+        />
       ) : (
         <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
       )}

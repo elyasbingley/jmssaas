@@ -94,6 +94,10 @@ const BASE_STYLES = `
   th.num, td.num { text-align: right; }
   td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; vertical-align: top; }
   td.desc { white-space: pre-wrap; }
+  tr.excluded-item td { color: #9ca3af; }
+  tr.bundle-heading td { background: #f9fafb; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+  .optional-tag { color: #7e22ce; font-size: 10px; font-weight: 700; }
+  .item-image { max-width: 140px; max-height: 90px; border-radius: 4px; display: block; margin-top: 6px; }
   .totals { width: 260px; margin-left: auto; margin-bottom: 28px; }
   .totals-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; }
   .totals-row.total { border-top: 2px solid #111827; font-weight: 700; font-size: 14px; padding-top: 8px; margin-top: 4px; }
@@ -190,17 +194,29 @@ function renderBillTo(
 
 function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormInput[]): string {
   const accent = ACCENT[docType];
+  let lastBundleName: string | null = null;
   const rows = lineItems
-    .map(
-      (item, index) => `
-      <tr>
+    .map((item, index) => {
+      const excluded = !!item.is_optional && !item.is_included;
+      const heading =
+        item.bundle_name && item.bundle_name !== lastBundleName
+          ? `<tr class="bundle-heading"><td colspan="5">${escapeHtml(item.bundle_name)}</td></tr>`
+          : "";
+      lastBundleName = item.bundle_name || null;
+      return `
+      ${heading}
+      <tr class="${excluded ? "excluded-item" : ""}">
         <td>${index + 1}</td>
-        <td class="desc">${escapeHtml(item.description)}${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}</td>
+        <td class="desc">${escapeHtml(item.description)}
+          ${item.is_optional ? `<br/><span class="optional-tag">${excluded ? "Optional - not selected" : "Optional - included"}</span>` : ""}
+          ${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}
+          ${item.image_url ? `<img class="item-image" src="${escapeHtml(item.image_url)}" />` : ""}
+        </td>
         <td class="num">${item.quantity}</td>
         <td class="num">${formatCentsPlain(item.unit_price_cents)}</td>
-        <td class="num">${formatCentsPlain(lineItemSubtotalCents(item))}</td>
-      </tr>`
-    )
+        <td class="num">${excluded ? "-" : formatCentsPlain(lineItemSubtotalCents(item))}</td>
+      </tr>`;
+    })
     .join("");
   return `
     <table>

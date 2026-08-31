@@ -224,6 +224,11 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   // computeLineItemUnitPriceCents' pre-markup cost basis).
   is_subcontracted: z.boolean().default(false),
   subcontractor_cost_cents: z.number().int().nonnegative().default(0),
+  // Optional/bundled line items - see types.ts's LineItemInput comment.
+  is_optional: z.boolean().default(false),
+  is_included: z.boolean().default(true),
+  bundle_name: z.string().nullable().optional(),
+  image_url: z.string().nullable().optional(),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 

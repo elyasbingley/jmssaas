@@ -587,6 +587,19 @@ export interface LineItemInput {
   // existing line-item-editor call site still compiles without them.
   is_subcontracted?: boolean;
   subcontractor_cost_cents?: number;
+  // Optional/bundled line items - is_optional/is_included only meaningfully
+  // apply to quote_line_items (an invoice's items are already resolved by
+  // the time they exist - see the optional_bundled_line_items migration).
+  // is_included is the client's live selection once a quote's been sent -
+  // starts false for a newly-marked-optional item (an upsell they opt into,
+  // not a default-included item to remove), always true otherwise.
+  // bundle_name groups related items under one heading (presentation only -
+  // a bundle's price is just the sum of its items, no separate bundle
+  // price); image_url is a per-item photo shown alongside it.
+  is_optional?: boolean;
+  is_included?: boolean;
+  bundle_name?: string | null;
+  image_url?: string | null;
 }
 
 export interface Quote {

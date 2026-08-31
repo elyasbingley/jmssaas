@@ -19,6 +19,10 @@ export function emptyLineItem(sortOrder: number): LineItemFormInput {
     waived_amount_cents: 0,
     is_subcontracted: false,
     subcontractor_cost_cents: 0,
+    is_optional: false,
+    is_included: true,
+    bundle_name: "",
+    image_url: "",
   };
 }
 
