@@ -1530,3 +1530,72 @@ export interface MembershipBenefitUsage {
   used_at: string;
   created_by: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Cost of Ops module - modelled on the "Cost of Operations Calculator"
+// spreadsheet. Every number here is a raw input; the actual COO/labour-cost/
+// profitability math is computed live in cost-of-ops.ts, never stored.
+// ---------------------------------------------------------------------------
+
+export type CostOfOpsRoleType = "owner" | "field_staff" | "apprentice" | "admin" | "subcontractor";
+export type CostOfOpsPayType = "salary" | "hourly";
+
+export interface CostOfOpsSettings {
+  id: string;
+  tenant_id: string;
+  ordinary_hours_per_week: number;
+  weekend_days_per_year: number;
+  public_holidays_per_year: number;
+  annual_leave_days: number;
+  sick_days: number;
+  rain_shutdown_days: number;
+  estimated_efficiency_rate: number;
+  target_labour_profit_margin: number;
+  // "Actual Charge Rate (ex GST)" on the Profitability tab.
+  actual_charge_rate_cents: number;
+  materials_avg_monthly_spend_cents: number;
+  materials_avg_markup: number;
+  contractors_weekly_spend_cents: number;
+  contractors_weekly_hours: number;
+  vehicles_owned: number;
+  vehicle_holding_cost_cents: number;
+  buffer_percent: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperatingExpense {
+  id: string;
+  tenant_id: string;
+  account_name: string;
+  monthly_amount_cents: number;
+  budget_amount_cents: number | null;
+  is_default_category: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabourCostEntry {
+  id: string;
+  tenant_id: string;
+  role_type: CostOfOpsRoleType;
+  // Link to a real Munus user where one exists; name is used instead for
+  // entries without a linked profile (e.g. subcontractors).
+  profile_id: string | null;
+  name: string | null;
+  pay_type: CostOfOpsPayType;
+  annual_salary_cents: number | null;
+  superannuation_cents: number | null;
+  hourly_rate_cents: number | null;
+  superannuation_rate: number | null;
+  allowance_cents: number | null;
+  billable_hours_per_week: number;
+  non_billable_hours_per_week: number;
+  apprentice_utilisation: number | null;
+  subcontractor_charge_out_rate_cents: number | null;
+  subcontractor_travel_allow_cents: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}

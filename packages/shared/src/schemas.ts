@@ -880,3 +880,67 @@ export const recordMembershipBenefitUsageSchema = z.object({
   period_end: z.string().date(),
 });
 export type RecordMembershipBenefitUsageInput = z.infer<typeof recordMembershipBenefitUsageSchema>;
+
+// ---------------------------------------------------------------------------
+// Cost of Ops module
+// ---------------------------------------------------------------------------
+
+// One schema covering every settings field - each tab's "Edit assumptions"
+// action only ever changes the handful of fields it owns, but always
+// submits the full current settings object back (simpler than juggling a
+// separate schema per tab for what's ultimately one settings row).
+export const updateCostOfOpsSettingsSchema = z.object({
+  ordinary_hours_per_week: z.number().positive(),
+  weekend_days_per_year: z.number().int().nonnegative(),
+  public_holidays_per_year: z.number().int().nonnegative(),
+  annual_leave_days: z.number().int().nonnegative(),
+  sick_days: z.number().int().nonnegative(),
+  rain_shutdown_days: z.number().int().nonnegative(),
+  estimated_efficiency_rate: z.number().min(0).max(1),
+  target_labour_profit_margin: z.number().min(0).max(1),
+  actual_charge_rate_cents: z.number().int().nonnegative(),
+  materials_avg_monthly_spend_cents: z.number().int().nonnegative(),
+  materials_avg_markup: z.number().min(0),
+  contractors_weekly_spend_cents: z.number().int().nonnegative(),
+  contractors_weekly_hours: z.number().min(0),
+  vehicles_owned: z.number().int().nonnegative(),
+  vehicle_holding_cost_cents: z.number().int().nonnegative(),
+  buffer_percent: z.number().min(0),
+});
+export type UpdateCostOfOpsSettingsInput = z.infer<typeof updateCostOfOpsSettingsSchema>;
+
+export const createOperatingExpenseSchema = z.object({
+  account_name: z.string().min(1, "Account name is required"),
+  monthly_amount_cents: z.number().int().nonnegative().default(0),
+  budget_amount_cents: z.number().int().nonnegative().optional(),
+  is_default_category: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+});
+export type CreateOperatingExpenseInput = z.infer<typeof createOperatingExpenseSchema>;
+
+export const costOfOpsRoleTypeSchema = z.enum(["owner", "field_staff", "apprentice", "admin", "subcontractor"]);
+export const costOfOpsPayTypeSchema = z.enum(["salary", "hourly"]);
+
+export const createLabourCostEntrySchema = z
+  .object({
+    role_type: costOfOpsRoleTypeSchema,
+    profile_id: z.string().uuid().optional().or(z.literal("")),
+    name: z.string().optional(),
+    pay_type: costOfOpsPayTypeSchema.default("hourly"),
+    annual_salary_cents: z.number().int().nonnegative().optional(),
+    superannuation_cents: z.number().int().nonnegative().optional(),
+    hourly_rate_cents: z.number().int().nonnegative().optional(),
+    superannuation_rate: z.number().min(0).optional(),
+    allowance_cents: z.number().int().nonnegative().optional(),
+    billable_hours_per_week: z.number().min(0).default(0),
+    non_billable_hours_per_week: z.number().min(0).default(0),
+    apprentice_utilisation: z.number().min(0).max(1).optional(),
+    subcontractor_charge_out_rate_cents: z.number().int().nonnegative().optional(),
+    subcontractor_travel_allow_cents: z.number().int().nonnegative().optional(),
+    sort_order: z.number().int().default(0),
+  })
+  .refine((data) => data.role_type === "subcontractor" || !!data.profile_id || !!data.name?.trim(), {
+    message: "Pick a linked team member or enter a name",
+    path: ["name"],
+  });
+export type CreateLabourCostEntryInput = z.infer<typeof createLabourCostEntrySchema>;

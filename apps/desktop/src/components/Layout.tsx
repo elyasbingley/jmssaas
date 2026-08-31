@@ -56,6 +56,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
       { to: "/settings/inventory-setup", label: "Inventory Setup" },
+      { to: "/settings/cost-of-ops", label: "Cost of Ops" },
     ],
   },
 ];

@@ -38,6 +38,12 @@ import SubcontractorsPage from "./pages/Subcontractors";
 import SubcontractorDetailPage from "./pages/SubcontractorDetail";
 import PurchaseOrderNewPage from "./pages/PurchaseOrderNew";
 import PurchaseOrderDetailPage from "./pages/PurchaseOrderDetail";
+import CostOfOpsLayout from "./pages/cost-of-ops/CostOfOpsLayout";
+import OperatingExpensesPage from "./pages/cost-of-ops/OperatingExpenses";
+import LabourPage from "./pages/cost-of-ops/Labour";
+import CostOfOperationsPage from "./pages/cost-of-ops/CostOfOperations";
+import ProfitabilityPage from "./pages/cost-of-ops/Profitability";
+import QuoteCheckerPage from "./pages/cost-of-ops/QuoteChecker";
 
 export default function App() {
   return (
@@ -88,6 +94,14 @@ export default function App() {
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />
+                <Route path="/settings/cost-of-ops" element={<CostOfOpsLayout />}>
+                  <Route index element={<Navigate to="operating-expenses" replace />} />
+                  <Route path="operating-expenses" element={<OperatingExpensesPage />} />
+                  <Route path="labour" element={<LabourPage />} />
+                  <Route path="cost-of-operations" element={<CostOfOperationsPage />} />
+                  <Route path="profitability" element={<ProfitabilityPage />} />
+                  <Route path="quote-checker" element={<QuoteCheckerPage />} />
+                </Route>
                 <Route path="*" element={<Navigate to="/dispatch" replace />} />
               </Routes>
             </Layout>
