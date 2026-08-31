@@ -197,6 +197,11 @@ export interface JobCard {
   // Link to this job's WorkDrive folder, pasted in by hand - same idea as
   // clients.workdrive_url, just scoped to one job instead of the client.
   workdrive_url: string | null;
+  // Lead Source (see the lead_sources migration) - a tenant-customizable
+  // "how did this job come to us" tag. referral_partner_id is only ever
+  // meaningfully set when this points at a lead source flagged
+  // is_referral_source.
+  lead_source_id: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +362,21 @@ export interface JobLifecycleStage {
   // Invoiced stages, false for everything else including any custom stage
   // an admin adds, unless they flip this on for it too.
   is_closed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// An admin-configurable "how did this job come to us" tag (Referral,
+// Google Search, Repeat Customer, ...). is_referral_source flags whichever
+// entry represents a referral - the job form only reveals the referral-
+// partner picker once one of these is chosen, checked by this flag rather
+// than by name so a tenant can rename it freely.
+export interface LeadSource {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  is_referral_source: boolean;
   created_at: string;
   updated_at: string;
 }

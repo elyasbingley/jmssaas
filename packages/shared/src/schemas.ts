@@ -72,6 +72,10 @@ export const createJobCardSchema = z.object({
   // B2B & Referral Tracking module (see the b2b_referral_tracking
   // migration) - which partner sent this job, if any.
   referral_partner_id: z.string().uuid().optional(),
+  // Lead Source (see the lead_sources migration) - referral_partner_id
+  // above is only meaningful once this points at a lead source flagged
+  // is_referral_source.
+  lead_source_id: z.string().uuid().optional(),
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
 
@@ -339,6 +343,13 @@ export const createJobLifecycleStageSchema = z.object({
   is_closed: z.boolean().optional().default(false),
 });
 export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;
+
+export const createLeadSourceSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+  is_referral_source: z.boolean().optional().default(false),
+});
+export type CreateLeadSourceInput = z.infer<typeof createLeadSourceSchema>;
 
 export const createInventoryLocationSchema = z.object({
   name: z.string().min(1, "Name is required"),

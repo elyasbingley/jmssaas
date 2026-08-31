@@ -7,6 +7,7 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
+  type LeadSource,
   type Property,
   type PropertyManager,
   type ReferralPartner,
@@ -73,6 +74,12 @@ async function fetchReferralPartners(): Promise<ReferralPartner[]> {
   return data as ReferralPartner[];
 }
 
+async function fetchLeadSources(): Promise<LeadSource[]> {
+  const { data, error } = await supabase.from("lead_sources").select("*").order("sort_order");
+  if (error) throw error;
+  return data as LeadSource[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -86,6 +93,7 @@ export default function JobsPage() {
   const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
   const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
   const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
+  const { data: leadSources } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
   const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
@@ -155,7 +163,11 @@ export default function JobsPage() {
   const [workOrderNumber, setWorkOrderNumber] = useState("");
   const [nteLimit, setNteLimit] = useState("");
   const [referralPartnerId, setReferralPartnerId] = useState("");
+  const [leadSourceId, setLeadSourceId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+
+  const selectedLeadSource = (leadSources ?? []).find((s) => s.id === leadSourceId);
+  const isReferralLeadSource = selectedLeadSource?.is_referral_source ?? false;
 
   const resetForm = () => {
     setClientId("");
@@ -170,6 +182,7 @@ export default function JobsPage() {
     setWorkOrderNumber("");
     setNteLimit("");
     setReferralPartnerId("");
+    setLeadSourceId("");
     setFormError(null);
   };
 
@@ -195,7 +208,11 @@ export default function JobsPage() {
         property_id: isRealEstateJob ? propertyId || undefined : undefined,
         work_order_number: isRealEstateJob ? workOrderNumber || undefined : undefined,
         nte_limit_cents: isRealEstateJob && nteLimit ? Math.round(Number(nteLimit) * 100) : undefined,
-        referral_partner_id: referralPartnerId || undefined,
+        // Only actually persisted when the chosen lead source is the
+        // referral one - picking a different lead source after having
+        // linked a partner drops it rather than leaving it dangling.
+        referral_partner_id: isReferralLeadSource ? referralPartnerId || undefined : undefined,
+        lead_source_id: leadSourceId || undefined,
       });
       if (!result.success) {
         throw new Error(clientId ? result.error.issues[0]?.message ?? "Invalid job" : "Pick a client first");
@@ -218,6 +235,7 @@ export default function JobsPage() {
           work_order_number: result.data.work_order_number ?? null,
           nte_limit_cents: result.data.nte_limit_cents ?? null,
           referral_partner_id: result.data.referral_partner_id ?? null,
+          lead_source_id: result.data.lead_source_id ?? null,
           created_by: profile.id,
         })
         .select()
@@ -520,15 +538,27 @@ export default function JobsPage() {
         ) : null}
 
         <SelectField
-          label="Referral source (optional)"
-          value={referralPartnerId}
-          onChange={setReferralPartnerId}
-          options={(referralPartners ?? []).map((p) => ({
-            value: p.id,
-            label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
-          }))}
+          label="Lead source (optional)"
+          value={leadSourceId}
+          onChange={(v) => {
+            setLeadSourceId(v);
+            if (!(leadSources ?? []).find((s) => s.id === v)?.is_referral_source) setReferralPartnerId("");
+          }}
+          options={(leadSources ?? []).map((s) => ({ value: s.id, label: s.name }))}
           placeholder="None"
         />
+        {isReferralLeadSource ? (
+          <SelectField
+            label="Referral partner"
+            value={referralPartnerId}
+            onChange={setReferralPartnerId}
+            options={(referralPartners ?? []).map((p) => ({
+              value: p.id,
+              label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
+            }))}
+            placeholder="None"
+          />
+        ) : null}
 
         {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
         <div className="flex justify-end gap-3">

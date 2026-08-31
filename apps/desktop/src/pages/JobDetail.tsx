@@ -18,6 +18,7 @@ import {
   type JobFile,
   type JobLifecycleStage,
   type JobNote,
+  type LeadSource,
   type Profile,
   type Property,
   type PropertyManager,
@@ -47,7 +48,8 @@ import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
 import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
-import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { LeadSourceModal } from "../components/LeadSourceModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -130,6 +132,11 @@ async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
   const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
   if (error) throw error;
   return data as ReferralPartner;
+}
+async function fetchLeadSource(id: string): Promise<LeadSource> {
+  const { data, error } = await supabase.from("lead_sources").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as LeadSource;
 }
 
 async function fetchCategories(): Promise<ServiceCategory[]> {
@@ -295,6 +302,11 @@ export default function JobDetailPage() {
     queryKey: ["referral-partner", job?.referral_partner_id],
     queryFn: () => fetchReferralPartner(job!.referral_partner_id!),
     enabled: !!job?.referral_partner_id,
+  });
+  const { data: leadSource } = useQuery({
+    queryKey: ["lead-source", job?.lead_source_id],
+    queryFn: () => fetchLeadSource(job!.lead_source_id!),
+    enabled: !!job?.lead_source_id,
   });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
@@ -741,7 +753,7 @@ export default function JobDetailPage() {
 
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
   const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
-  const [referralModalOpen, setReferralModalOpen] = useState(false);
+  const [leadSourceModalOpen, setLeadSourceModalOpen] = useState(false);
 
   // Free-form job card email - similar to ServiceM8's per-job "Email"
   // button: pick a template (or write from scratch), review/edit the body,
@@ -894,10 +906,11 @@ export default function JobDetailPage() {
 
         <div className="mb-4 flex items-center justify-between rounded-md border border-gray-300 p-3 text-sm">
           <span className="text-gray-600">
-            Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}
+            Lead source: {leadSource?.name ?? "None"}
+            {leadSource?.is_referral_source ? ` - ${referralPartner ? referralPartnerLabel(referralPartner) : "no partner linked"}` : ""}
           </span>
-          <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
-            {job.referral_partner_id ? "Edit" : "+ Add"}
+          <button onClick={() => setLeadSourceModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {job.lead_source_id ? "Edit" : "+ Add"}
           </button>
         </div>
 
@@ -1593,12 +1606,12 @@ export default function JobDetailPage() {
         currentValue={job.work_order_number}
       />
 
-      <ReferralPartnerModal
-        open={referralModalOpen}
-        onClose={() => setReferralModalOpen(false)}
-        table="job_cards"
-        recordId={job.id}
-        currentValue={job.referral_partner_id}
+      <LeadSourceModal
+        open={leadSourceModalOpen}
+        onClose={() => setLeadSourceModalOpen(false)}
+        jobCardId={job.id}
+        currentLeadSourceId={job.lead_source_id}
+        currentReferralPartnerId={job.referral_partner_id}
       />
 
       <EmailComposeModal

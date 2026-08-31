@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createJobLifecycleStageSchema,
+  createLeadSourceSchema,
   createServiceCategorySchema,
   type JobLifecycleStage,
+  type LeadSource,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -28,6 +30,11 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   if (error) throw error;
   return data as JobLifecycleStage[];
 }
+async function fetchLeadSources(): Promise<LeadSource[]> {
+  const { data, error } = await supabase.from("lead_sources").select("*").order("sort_order");
+  if (error) throw error;
+  return data as LeadSource[];
+}
 
 export default function JobSetupPage() {
   const { profile } = useAuth();
@@ -35,9 +42,11 @@ export default function JobSetupPage() {
 
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
+  const { data: leadSources } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
 
   const invalidateCategories = () => queryClient.invalidateQueries({ queryKey: ["service-categories"] });
   const invalidateStages = () => queryClient.invalidateQueries({ queryKey: ["job-lifecycle-stages"] });
+  const invalidateLeadSources = () => queryClient.invalidateQueries({ queryKey: ["lead-sources"] });
 
   // --- Service categories ---
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
@@ -197,6 +206,101 @@ export default function JobSetupPage() {
     }
   };
 
+  // --- Lead sources ---
+  const [leadSourceModalOpen, setLeadSourceModalOpen] = useState(false);
+  const [editingLeadSource, setEditingLeadSource] = useState<LeadSource | null>(null);
+  const [leadSourceName, setLeadSourceName] = useState("");
+  const [leadSourceIsReferral, setLeadSourceIsReferral] = useState(false);
+  const [leadSourceError, setLeadSourceError] = useState<string | null>(null);
+
+  const openNewLeadSource = () => {
+    setEditingLeadSource(null);
+    setLeadSourceName("");
+    setLeadSourceIsReferral(false);
+    setLeadSourceError(null);
+    setLeadSourceModalOpen(true);
+  };
+  const openEditLeadSource = (source: LeadSource) => {
+    setEditingLeadSource(source);
+    setLeadSourceName(source.name);
+    setLeadSourceIsReferral(source.is_referral_source);
+    setLeadSourceError(null);
+    setLeadSourceModalOpen(true);
+  };
+
+  const saveLeadSource = useMutation({
+    mutationFn: async () => {
+      const list = leadSources ?? [];
+      const nextSortOrder = list.length > 0 ? Math.max(...list.map((s) => s.sort_order)) + 1 : 1;
+      const result = createLeadSourceSchema.safeParse({
+        name: leadSourceName,
+        sort_order: editingLeadSource?.sort_order ?? nextSortOrder,
+        is_referral_source: leadSourceIsReferral,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid lead source");
+      if (!profile) throw new Error("Not signed in");
+
+      if (editingLeadSource) {
+        const { error } = await supabase
+          .from("lead_sources")
+          .update({ name: result.data.name, is_referral_source: result.data.is_referral_source })
+          .eq("id", editingLeadSource.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("lead_sources").insert({
+          tenant_id: profile.tenant_id,
+          name: result.data.name,
+          sort_order: result.data.sort_order,
+          is_referral_source: result.data.is_referral_source,
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      invalidateLeadSources();
+      setLeadSourceModalOpen(false);
+    },
+    onError: (e) => setLeadSourceError(getErrorMessage(e, "Failed to save lead source")),
+  });
+
+  const deleteLeadSource = useMutation({
+    mutationFn: async (source: LeadSource) => {
+      const { error } = await supabase.from("lead_sources").delete().eq("id", source.id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateLeadSources,
+  });
+
+  const handleDeleteLeadSource = (source: LeadSource) => {
+    if (window.confirm(`Delete "${source.name}"? Jobs using it will just lose the tag.`)) {
+      deleteLeadSource.mutate(source);
+    }
+  };
+
+  // Tap-based reordering, same convention as job lifecycle stages.
+  const moveLeadSource = useMutation({
+    mutationFn: async ({ source, direction }: { source: LeadSource; direction: "up" | "down" }) => {
+      const list = leadSources ?? [];
+      const index = list.findIndex((s) => s.id === source.id);
+      const neighborIndex = direction === "up" ? index - 1 : index + 1;
+      if (index === -1 || neighborIndex < 0 || neighborIndex >= list.length) return;
+      const neighbor = list[neighborIndex];
+      if (!neighbor) return;
+
+      const { error: error1 } = await supabase
+        .from("lead_sources")
+        .update({ sort_order: neighbor.sort_order })
+        .eq("id", source.id);
+      if (error1) throw error1;
+      const { error: error2 } = await supabase
+        .from("lead_sources")
+        .update({ sort_order: source.sort_order })
+        .eq("id", neighbor.id);
+      if (error2) throw error2;
+    },
+    onSuccess: invalidateLeadSources,
+  });
+
   // Tap-based reordering (no drag-and-drop), matching mobile's own
   // convention - swap this stage's position with its neighbor's.
   const moveStage = useMutation({
@@ -322,6 +426,59 @@ export default function JobSetupPage() {
         + New stage
       </button>
 
+      <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Lead sources</h2>
+      <p className="mb-3 text-sm text-gray-500">
+        How a job came to you - shown as a dropdown on the New Job form. The one flagged "Referral" reveals the referral
+        partner picker when chosen.
+      </p>
+
+      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+        {(leadSources ?? []).length === 0 ? (
+          <p className="p-4 text-sm text-gray-500">No lead sources yet.</p>
+        ) : (
+          (leadSources ?? []).map((source, index) => (
+            <div key={source.id} className="flex items-center justify-between gap-3 p-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-semibold text-gray-900">{source.name}</span>
+                {source.is_referral_source ? (
+                  <span className="flex-shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700">
+                    Referral
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-3 text-sm">
+                <button
+                  onClick={() => moveLeadSource.mutate({ source, direction: "up" })}
+                  disabled={index === 0}
+                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                >
+                  Up
+                </button>
+                <button
+                  onClick={() => moveLeadSource.mutate({ source, direction: "down" })}
+                  disabled={index === (leadSources ?? []).length - 1}
+                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                >
+                  Down
+                </button>
+                <button onClick={() => openEditLeadSource(source)} className="font-semibold text-blue-700 hover:underline">
+                  Edit
+                </button>
+                <button onClick={() => handleDeleteLeadSource(source)} className="font-semibold text-red-600 hover:underline">
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <button
+        onClick={openNewLeadSource}
+        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+      >
+        + New lead source
+      </button>
+
       <Modal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title={editingCategory ? "Edit category" : "New category"}>
         <FormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. Roof Restoration" />
         <FormField
@@ -375,6 +532,35 @@ export default function JobSetupPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {saveStage.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={leadSourceModalOpen}
+        onClose={() => setLeadSourceModalOpen(false)}
+        title={editingLeadSource ? "Edit lead source" : "New lead source"}
+      >
+        <FormField label="Name" value={leadSourceName} onChange={(e) => setLeadSourceName(e.target.value)} placeholder="e.g. Google Search" />
+        <label className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-700">
+          <input
+            type="checkbox"
+            checked={leadSourceIsReferral}
+            onChange={(e) => setLeadSourceIsReferral(e.target.checked)}
+          />
+          This represents a referral (reveals the referral partner picker on the New Job form when chosen)
+        </label>
+        {leadSourceError ? <p className="mb-4 text-sm text-red-600">{leadSourceError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setLeadSourceModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveLeadSource.mutate()}
+            disabled={saveLeadSource.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveLeadSource.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>
