@@ -103,6 +103,9 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
               {item.waived_amount_cents > 0 ? (
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Waived - Membership</span>
               ) : null}
+              {item.is_subcontracted ? (
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-700">Subcontracted</span>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -181,6 +184,26 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
               </button>
             </div>
           </div>
+
+          <label className="mb-3 flex items-center gap-2 text-xs font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={item.is_subcontracted ?? false}
+              onChange={(e) =>
+                updateItem(index, { is_subcontracted: e.target.checked, subcontractor_cost_cents: e.target.checked ? item.subcontractor_cost_cents ?? 0 : 0 })
+              }
+            />
+            Subcontracted
+          </label>
+          {item.is_subcontracted ? (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Subcontractor cost ($, per unit)</label>
+              <DecimalField
+                value={(item.subcontractor_cost_cents ?? 0) / 100}
+                onChange={(n) => updateItem(index, { subcontractor_cost_cents: Math.round(n * 100) })}
+              />
+            </div>
+          ) : null}
 
           <div className="flex justify-between border-t border-gray-200 pt-2 text-sm">
             <span className="text-gray-500">Line total</span>

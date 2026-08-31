@@ -15,9 +15,9 @@ export const AU_GST_RATE = 0.1;
 // stays completely untouched: it still just does quantity * unit_price_cents,
 // exactly as before this line-item redesign.
 export function computeLineItemUnitPriceCents(
-  item: Pick<LineItemInput, "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent">
+  item: Pick<LineItemInput, "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent" | "subcontractor_cost_cents">
 ): number {
-  const preMarkupCents = item.labour_rate_cents * item.labour_hours + item.material_cost_cents;
+  const preMarkupCents = item.labour_rate_cents * item.labour_hours + item.material_cost_cents + (item.subcontractor_cost_cents ?? 0);
   return Math.round(preMarkupCents * (1 + item.markup_percent / 100));
 }
 

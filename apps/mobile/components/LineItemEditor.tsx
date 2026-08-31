@@ -102,6 +102,11 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
                   <Text style={styles.waivedBadgeText}>Waived - Membership</Text>
                 </View>
               ) : null}
+              {item.is_subcontracted ? (
+                <View style={styles.subcontractedBadge}>
+                  <Text style={styles.subcontractedBadgeText}>Subcontracted</Text>
+                </View>
+              ) : null}
             </View>
             <View style={styles.rowMoveButtons}>
               <Pressable onPress={() => moveItem(index, -1)} disabled={index === 0} style={styles.moveButton}>
@@ -181,6 +186,34 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0 }:
                 </Text>
               </Pressable>
             </View>
+          </View>
+
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Pressable
+                style={[styles.subcontractedToggle, item.is_subcontracted && styles.subcontractedToggleActive]}
+                onPress={() =>
+                  updateItem(index, {
+                    is_subcontracted: !item.is_subcontracted,
+                    subcontractor_cost_cents: !item.is_subcontracted ? item.subcontractor_cost_cents ?? 0 : 0,
+                  })
+                }
+              >
+                <Text style={[styles.subcontractedToggleText, item.is_subcontracted && styles.subcontractedToggleTextActive]}>
+                  {item.is_subcontracted ? "Subcontracted" : "Not subcontracted"}
+                </Text>
+              </Pressable>
+            </View>
+            {item.is_subcontracted ? (
+              <View style={styles.fieldCell}>
+                <Text style={styles.fieldLabel}>Subcontractor cost ($, per unit)</Text>
+                <DecimalInput
+                  placeholder="0"
+                  value={(item.subcontractor_cost_cents ?? 0) / 100}
+                  onChangeValue={(n) => updateItem(index, { subcontractor_cost_cents: Math.round(n * 100) })}
+                />
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.lineTotalRow}>
@@ -291,6 +324,8 @@ const styles = StyleSheet.create({
   calloutBadgeText: { fontSize: 11, fontWeight: "700", color: "#4b5563" },
   waivedBadge: { backgroundColor: "#dbeafe", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   waivedBadgeText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
+  subcontractedBadge: { backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  subcontractedBadgeText: { fontSize: 11, fontWeight: "700", color: "#c2410c" },
   rowMoveButtons: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 12 },
   moveButton: { paddingHorizontal: 2 },
   moveButtonText: { fontSize: 14, fontWeight: "700", color: "#6b7280" },
@@ -306,6 +341,10 @@ const styles = StyleSheet.create({
   gstToggleActive: { backgroundColor: "#111827" },
   gstToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
   gstToggleTextActive: { color: "#fff" },
+  subcontractedToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
+  subcontractedToggleActive: { backgroundColor: "#c2410c" },
+  subcontractedToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
+  subcontractedToggleTextActive: { color: "#fff" },
   lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
   lineTotalLabel: { color: "#6b7280", fontSize: 13, flex: 1 },
   lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },

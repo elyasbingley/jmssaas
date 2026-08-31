@@ -74,6 +74,10 @@ function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_
 function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
   return Math.round(item.quantity * item.material_cost_cents);
 }
+// "Subby box" - per-unit subcontractor cost, same treatment as material.
+function lineItemSubcontractorCostCents(item: Pick<QuoteLineItem, "quantity" | "subcontractor_cost_cents">): number {
+  return Math.round(item.quantity * (item.subcontractor_cost_cents ?? 0));
+}
 
 type DatePreset = "this_month" | "last_month" | "this_quarter" | "ytd" | "last_12_months" | "custom";
 
@@ -185,6 +189,7 @@ interface JobProfitRow {
   job: JobCardRow;
   labourCents: number;
   materialCents: number;
+  subcontractorCents: number;
   chargedCents: number;
   marginCents: number;
   marginPercent: number;
@@ -320,14 +325,15 @@ export default function AnalyticsPage() {
       ];
       const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+      const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       const chargedCents = [...jobQuotes, ...jobInvoices].reduce((sum, doc) => sum + doc.total_cents, 0);
       // Same basis/caveats as Job Costing: charged is GST-inclusive, cost is
       // GST-exclusive, and a quote converted to an invoice within the same
       // window is counted under both.
-      const marginCents = chargedCents - (labourCents + materialCents);
+      const marginCents = chargedCents - (labourCents + materialCents + subcontractorCents);
       const marginPercent = chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0;
 
-      result.push({ job, labourCents, materialCents, chargedCents, marginCents, marginPercent });
+      result.push({ job, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
     return result;
   }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, range.from, range.to]);
@@ -386,8 +392,9 @@ export default function AnalyticsPage() {
       ];
       const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+      const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       const chargedCents = [...jobQuotes, ...jobInvoices].reduce((sum, doc) => sum + doc.total_cents, 0);
-      const marginCents = chargedCents - (labourCents + materialCents);
+      const marginCents = chargedCents - (labourCents + materialCents + subcontractorCents);
       margins.push(chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0);
     }
     return margins.length > 0 ? margins.reduce((a, b) => a + b, 0) / margins.length : 0;
@@ -403,12 +410,12 @@ export default function AnalyticsPage() {
   const exportJobProfitCsv = () => {
     downloadCsv(
       `job-profitability-${range.from}-to-${range.to}.csv`,
-      "Job Number,Job Title,Client,Labour ($),Material ($),Charged ($),Margin ($),Margin (%)",
+      "Job Number,Job Title,Client,Labour ($),Material ($),Subcontractor ($),Charged ($),Margin ($),Margin (%)",
       sortedJobRows.map(
         (r) =>
           `${csvCell(r.job.number ?? "Pending")},${csvCell(r.job.title)},${csvCell(r.job.clients?.name ?? "Unknown")},${(
             r.labourCents / 100
-          ).toFixed(2)},${(r.materialCents / 100).toFixed(2)},${(r.chargedCents / 100).toFixed(2)},${(r.marginCents / 100).toFixed(2)},${r.marginPercent.toFixed(1)}`
+          ).toFixed(2)},${(r.materialCents / 100).toFixed(2)},${(r.subcontractorCents / 100).toFixed(2)},${(r.chargedCents / 100).toFixed(2)},${(r.marginCents / 100).toFixed(2)},${r.marginPercent.toFixed(1)}`
       )
     );
   };
@@ -636,6 +643,7 @@ export default function AnalyticsPage() {
                       <th className="px-4 py-2 font-semibold">Client</th>
                       <th className="px-4 py-2 text-right font-semibold">Labour</th>
                       <th className="px-4 py-2 text-right font-semibold">Material</th>
+                      <th className="px-4 py-2 text-right font-semibold">Subcontractor</th>
                       <th className="px-4 py-2 text-right font-semibold">Charged</th>
                       <th className="px-4 py-2 text-right font-semibold">Margin</th>
                       <th className="px-4 py-2 text-right font-semibold">Margin %</th>
@@ -652,6 +660,7 @@ export default function AnalyticsPage() {
                         <td className="px-4 py-3 text-gray-600">{row.job.clients?.name ?? "Unknown"}</td>
                         <td className="px-4 py-3 text-right">{formatCentsAsAud(row.labourCents)}</td>
                         <td className="px-4 py-3 text-right">{formatCentsAsAud(row.materialCents)}</td>
+                        <td className="px-4 py-3 text-right">{formatCentsAsAud(row.subcontractorCents)}</td>
                         <td className="px-4 py-3 text-right">{formatCentsAsAud(row.chargedCents)}</td>
                         <td className={`px-4 py-3 text-right font-semibold ${row.marginCents < 0 ? "text-red-600" : "text-gray-900"}`}>
                           {formatCentsAsAud(row.marginCents)}

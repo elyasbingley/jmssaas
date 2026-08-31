@@ -560,6 +560,13 @@ export interface LineItemInput {
   // replace_quote_line_items/replace_invoice_line_items's own coalesce).
   is_callout_fee?: boolean;
   waived_amount_cents?: number;
+  // "Subby box" - per-unit subcontractor cost on this line, same convention
+  // as material_cost_cents (multiplied by quantity, included in
+  // computeLineItemUnitPriceCents' pre-markup cost basis). Optional for the
+  // same reason as is_callout_fee/waived_amount_cents above - every
+  // existing line-item-editor call site still compiles without them.
+  is_subcontracted?: boolean;
+  subcontractor_cost_cents?: number;
 }
 
 export interface Quote {

@@ -215,6 +215,11 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   // invoice_line_items can be read and displayed (see LineItemEditor's
   // "Waived - Membership" label).
   waived_amount_cents: z.number().int().nonnegative().default(0),
+  // "Subby box" - per-unit subcontractor cost on this line, same convention
+  // as material_cost_cents (multiplied by quantity, folded into
+  // computeLineItemUnitPriceCents' pre-markup cost basis).
+  is_subcontracted: z.boolean().default(false),
+  subcontractor_cost_cents: z.number().int().nonnegative().default(0),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 

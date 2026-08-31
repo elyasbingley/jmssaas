@@ -141,6 +141,8 @@ export default function NewQuoteScreen() {
           gst_applicable: item.gst_applicable,
           sort_order: index,
           is_callout_fee: item.is_callout_fee ?? false,
+          is_subcontracted: item.is_subcontracted ?? false,
+          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
         }))
       );
       if (lineItemsError) throw lineItemsError;
