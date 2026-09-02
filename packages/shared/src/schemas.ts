@@ -256,6 +256,33 @@ export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
 });
 export type CreatePriceBookVariationInput = z.infer<typeof createPriceBookVariationSchema>;
 
+export const createLineItemBundleSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateLineItemBundleInput = z.infer<typeof createLineItemBundleSchema>;
+
+// Either price_book_item_id (catalogue-linked, own breakdown fields ignored)
+// or a standalone description + its own price breakdown - see
+// LineItemBundleItem's own comment in types.ts.
+export const createLineItemBundleItemSchema = z
+  .object({
+    bundle_id: z.string().uuid(),
+    price_book_item_id: z.string().uuid().optional(),
+    description: z.string().optional(),
+    labour_rate_cents: z.number().int().nonnegative().default(0),
+    labour_hours: z.number().nonnegative().default(0),
+    material_cost_cents: z.number().int().nonnegative().default(0),
+    markup_percent: z.number().nonnegative().default(0),
+    quantity: z.number().positive().default(1),
+    sort_order: z.number().int().default(0),
+  })
+  .refine((data) => !!data.price_book_item_id || !!data.description?.trim(), {
+    message: "Pick a price book item or enter a description",
+    path: ["description"],
+  });
+export type CreateLineItemBundleItemInput = z.infer<typeof createLineItemBundleItemSchema>;
+
 export const createQuoteSchema = z.object({
   client_id: z.string().uuid(),
   job_card_id: z.string().uuid().optional(),
@@ -348,6 +375,15 @@ export const createJobLifecycleStageSchema = z.object({
   is_closed: z.boolean().optional().default(false),
 });
 export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;
+
+export const createJobTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  service_category_id: z.string().uuid().optional(),
+  lifecycle_stage_id: z.string().uuid().optional(),
+  description: z.string().optional(),
+  sort_order: z.number().int().default(0),
+});
+export type CreateJobTemplateInput = z.infer<typeof createJobTemplateSchema>;
 
 export const createLeadSourceSchema = z.object({
   name: z.string().min(1, "Name is required"),

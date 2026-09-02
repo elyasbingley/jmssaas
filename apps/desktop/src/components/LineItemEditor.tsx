@@ -296,7 +296,11 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
 
       {imageError ? <p className="mb-3 text-sm text-red-600">{imageError}</p> : null}
 
-      <AddLineItemBar itemCount={items.length} onAdd={(item) => onChange([...items, item])} />
+      <AddLineItemBar
+        itemCount={items.length}
+        onAdd={(item) => onChange([...items, item])}
+        onAddMany={(newItems) => onChange([...items, ...newItems])}
+      />
 
       <TotalsBox totals={totals} membershipDiscountCents={membershipDiscountCents} />
     </div>

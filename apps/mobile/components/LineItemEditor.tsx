@@ -313,7 +313,11 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
         </View>
       ))}
 
-      <AddLineItemBar itemCount={items.length} onAdd={(item) => onChange([...items, item])} />
+      <AddLineItemBar
+        itemCount={items.length}
+        onAdd={(item) => onChange([...items, item])}
+        onAddMany={(newItems) => onChange([...items, ...newItems])}
+      />
 
       <View style={styles.totalsBox}>
         <View style={styles.totalsRow}>

@@ -56,6 +56,8 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/settings", label: "Company Details", end: true },
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
+      { to: "/settings/job-templates", label: "Job Templates" },
+      { to: "/settings/bundles", label: "Bundles" },
       { to: "/settings/inventory-setup", label: "Inventory Setup" },
       { to: "/settings/cost-of-ops", label: "Cost of Ops" },
     ],

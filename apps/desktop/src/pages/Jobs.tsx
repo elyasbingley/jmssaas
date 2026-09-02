@@ -7,6 +7,7 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
+  type JobTemplate,
   type LeadSource,
   type Property,
   type PropertyManager,
@@ -80,6 +81,12 @@ async function fetchLeadSources(): Promise<LeadSource[]> {
   return data as LeadSource[];
 }
 
+async function fetchJobTemplates(): Promise<JobTemplate[]> {
+  const { data, error } = await supabase.from("job_templates").select("*").order("sort_order").order("name");
+  if (error) throw error;
+  return data as JobTemplate[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -95,6 +102,7 @@ export default function JobsPage() {
   const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
   const { data: leadSources } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
   const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
+  const { data: jobTemplates } = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
@@ -151,6 +159,7 @@ export default function JobsPage() {
   const pagedJobs = sortedJobs.slice((page - 1) * pageSize, page * pageSize);
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [templateId, setTemplateId] = useState("");
   const [clientId, setClientId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [stageId, setStageId] = useState("");
@@ -170,6 +179,7 @@ export default function JobsPage() {
   const isReferralLeadSource = selectedLeadSource?.is_referral_source ?? false;
 
   const resetForm = () => {
+    setTemplateId("");
     setClientId("");
     setCategoryId("");
     setStageId("");
@@ -447,6 +457,24 @@ export default function JobsPage() {
         }}
         title="New job"
       >
+        {jobTemplates && jobTemplates.length > 0 ? (
+          <SelectField
+            label="Load from job template (optional)"
+            value={templateId}
+            onChange={(v) => {
+              setTemplateId(v);
+              const template = (jobTemplates ?? []).find((t) => t.id === v);
+              if (template) {
+                setTitle(template.name);
+                setDescription(template.description ?? "");
+                setCategoryId(template.service_category_id ?? "");
+                setStageId(template.lifecycle_stage_id ?? "");
+              }
+            }}
+            options={jobTemplates.map((t) => ({ value: t.id, label: t.name }))}
+            placeholder="Start from scratch"
+          />
+        ) : null}
         <SelectField
           label="Client"
           value={clientId}

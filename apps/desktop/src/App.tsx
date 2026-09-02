@@ -19,6 +19,9 @@ import CalendarPage from "./pages/Calendar";
 import SettingsPage from "./pages/Settings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
+import JobTemplatesPage from "./pages/JobTemplates";
+import BundlesPage from "./pages/Bundles";
+import BundleDetailPage from "./pages/BundleDetail";
 import InventoryPage from "./pages/Inventory";
 import InventorySetupPage from "./pages/InventorySetup";
 import DispatchPage from "./pages/Dispatch";
@@ -95,6 +98,9 @@ export default function App() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
+                <Route path="/settings/job-templates" element={<JobTemplatesPage />} />
+                <Route path="/settings/bundles" element={<BundlesPage />} />
+                <Route path="/settings/bundles/:id" element={<BundleDetailPage />} />
                 <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />
                 <Route path="/settings/cost-of-ops" element={<CostOfOpsLayout />}>
                   <Route index element={<Navigate to="operating-expenses" replace />} />

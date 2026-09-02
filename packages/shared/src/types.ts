@@ -376,6 +376,21 @@ export interface JobLifecycleStage {
   updated_at: string;
 }
 
+// A reusable starting point for a new job, picked from Jobs.tsx's "New Job"
+// modal - name doubles as the job's default title (still editable before
+// saving), no separate title field.
+export interface JobTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  service_category_id: string | null;
+  lifecycle_stage_id: string | null;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // An admin-configurable "how did this job come to us" tag (Referral,
 // Google Search, Repeat Customer, ...). is_referral_source flags whichever
 // entry represents a referral - the job form only reveals the referral-
@@ -791,6 +806,44 @@ export interface PriceBookItemVariation {
   labour_hours: number;
   material_cost_cents: number;
   markup_percent: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// A named, pre-built set of line items (e.g. everything a hot water system
+// replacement needs) - see line_item_bundle_items below for the member
+// lines. Inserted together into a quote/invoice from AddLineItemBar in one
+// click, with every inserted item's bundle_name set to this bundle's name
+// (see the optional_bundled_line_items migration) so they show grouped
+// under a heading automatically.
+export interface LineItemBundle {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// price_book_item_id set: a catalogue-linked item - description/
+// labour_rate_cents/labour_hours/material_cost_cents/markup_percent are
+// null and ignored, the CURRENT price_book_items row is used instead at
+// insertion time (never a frozen copy). price_book_item_id null: a
+// standalone custom item using those columns directly. quantity always
+// lives here regardless (price_book_items has no quantity concept of its
+// own - it's a unit template).
+export interface LineItemBundleItem {
+  id: string;
+  tenant_id: string;
+  bundle_id: string;
+  price_book_item_id: string | null;
+  description: string | null;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
+  quantity: number;
   sort_order: number;
   created_at: string;
   updated_at: string;
