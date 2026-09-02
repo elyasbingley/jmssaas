@@ -46,6 +46,7 @@ import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
 import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
+import { AssetsSection } from "../components/AssetsSection";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { referralPartnerLabel } from "../components/ReferralPartnerModal";
@@ -1200,6 +1201,11 @@ export default function JobDetailPage() {
           </div>
         )}
       </div>
+
+      <AssetsSection
+        owner={job.property_id ? { type: "property", id: job.property_id } : { type: "client", id: job.client_id }}
+        title={job.property_id ? "Property assets" : "Client assets"}
+      />
 
       <QuoteToolsSection jobCardId={id!} />
 

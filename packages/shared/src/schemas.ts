@@ -637,12 +637,18 @@ export type UpdatePropertyDetailsInput = z.infer<typeof updatePropertyDetailsSch
 // PropertyAssetAttributes in types.ts for the documented plumbing/roofing
 // fields this actually carries, none of which are required on any one
 // asset (a category's fields are all optional, shown/hidden by the UI).
-export const createPropertyAssetSchema = z.object({
-  property_id: z.string().uuid(),
-  category: z.enum(["plumbing", "roofing", "hvac", "general"]).default("general"),
-  asset_name: z.string().min(1, "Asset name is required"),
-  attributes: z.record(z.string(), z.unknown()).default({}),
-});
+export const createPropertyAssetSchema = z
+  .object({
+    property_id: z.string().uuid().optional(),
+    client_id: z.string().uuid().optional(),
+    category: z.enum(["plumbing", "roofing", "hvac", "general"]).default("general"),
+    asset_name: z.string().min(1, "Asset name is required"),
+    attributes: z.record(z.string(), z.unknown()).default({}),
+  })
+  .refine((data) => !!data.property_id !== !!data.client_id, {
+    message: "An asset must belong to either a property or a client, not both",
+    path: ["property_id"],
+  });
 export type CreatePropertyAssetInput = z.infer<typeof createPropertyAssetSchema>;
 
 export const createPropertyTenantSchema = z.object({

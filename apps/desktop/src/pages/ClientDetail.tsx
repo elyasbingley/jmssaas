@@ -20,6 +20,7 @@ import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { ClientMembershipSection } from "../components/ClientMembershipSection";
+import { AssetsSection } from "../components/AssetsSection";
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -543,6 +544,8 @@ export default function ClientDetailPage() {
       </div>
 
       <ClientMembershipSection clientId={id!} />
+
+      <AssetsSection owner={{ type: "client", id: id! }} />
 
       <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>

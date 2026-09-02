@@ -308,10 +308,14 @@ export interface PropertyAssetAttributes {
   ridge_condition?: string;
 }
 
+// Owned by exactly one of property_id/client_id, never both (see the
+// client_assets migration's check constraint) - property_id for an
+// agency-managed real estate job, client_id for a direct client.
 export interface PropertyAsset {
   id: string;
   tenant_id: string;
-  property_id: string;
+  property_id: string | null;
+  client_id: string | null;
   category: PropertyAssetCategory;
   asset_name: string;
   attributes: PropertyAssetAttributes;

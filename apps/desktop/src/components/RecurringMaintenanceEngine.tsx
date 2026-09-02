@@ -61,6 +61,10 @@ export function RecurringMaintenanceEngine() {
   const dueItems: DueItem[] = useMemo(() => {
     const items: DueItem[] = [];
     for (const asset of assets ?? []) {
+      // Client-owned assets (property_id null - see the client_assets
+      // migration) have no maintenance schedule to speak of here, only a
+      // managed property does.
+      if (!asset.property_id) continue;
       const dueDate = computeDueDate(asset);
       if (!dueDate) continue;
       const property = propertyById.get(asset.property_id);
