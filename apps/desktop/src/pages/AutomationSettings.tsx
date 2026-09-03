@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   ALL_PLACEHOLDER_TOKENS,
   updateCommunicationRuleSchema,
@@ -15,6 +16,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField } from "../components/FormField";
+import { InsertLinkButton } from "../components/InsertLinkButton";
 
 // Direct port of apps/mobile/app/automation-settings.tsx - same trigger
 // groups/labels/timing summaries, same six-trigger_key scope (not a fully
@@ -296,6 +298,9 @@ export default function AutomationSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Automation & Messaging</h1>
       <p className="mb-6 text-sm text-gray-500">Control when automated emails go out, and edit their wording.</p>
 
@@ -308,7 +313,7 @@ export default function AutomationSettingsPage() {
               const triggerTemplates = (templates ?? []).filter((t) => t.trigger_key === key);
               if (!rule) return null;
               return (
-                <div key={key} className="rounded-lg border border-gray-200 bg-white p-4">
+                <div key={key} className="rounded-lg border border-gray-300 bg-white p-4">
                   <div className="mb-1 flex items-center justify-between">
                     <p className="font-bold text-gray-900">{TRIGGER_LABELS[key] ?? key}</p>
                     <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -329,7 +334,7 @@ export default function AutomationSettingsPage() {
                   </button>
 
                   {triggerTemplates.map((template) => (
-                    <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
+                    <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2">
                       <div className="min-w-0 flex-1 pr-3">
                         <p className="text-sm font-semibold text-gray-900">
                           {template.name} ({template.type})
@@ -469,6 +474,7 @@ export default function AutomationSettingsPage() {
               {`{${token}}`}
             </button>
           ))}
+          <InsertLinkButton textareaRef={bodyRef} value={templateBody} onChange={setTemplateBody} />
         </div>
 
         <div className="mb-4">

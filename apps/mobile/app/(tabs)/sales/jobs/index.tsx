@@ -8,12 +8,17 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
+  type ReferralPartner,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
+import { useIsOnline } from "../../../../lib/connectivity";
+import { useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
+import { supabase } from "../../../../lib/supabase";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { FormField } from "../../../../components/FormField";
 import { PickerModal } from "../../../../components/PickerModal";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 type SortOption = "created_at" | "scheduled_at" | "category" | "stage";
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -32,6 +37,18 @@ export default function JobsScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const isOnline = useIsOnline();
+
+  // referral_partners isn't a PowerSync table (see app/b2b-referrals/
+  // index.tsx), so this picker's options only load while online - offline
+  // job creation still works, just without a referral source pick (settable
+  // later from the B2B & Referrals screen once back online).
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
 
   const { data: jobCards } = useQuery<JobCard>(
     isAdmin
@@ -88,6 +105,8 @@ export default function JobsScreen() {
   const [client, setClient] = useState<Client | null>(null);
   const [category, setCategory] = useState<ServiceCategory | null>(null);
   const [stage, setStage] = useState<JobLifecycleStage | null>(null);
+  const [referralPartner, setReferralPartner] = useState<ReferralPartner | null>(null);
+  const [referralPartnerPickerVisible, setReferralPartnerPickerVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -96,6 +115,7 @@ export default function JobsScreen() {
     setClient(null);
     setCategory(null);
     setStage(null);
+    setReferralPartner(null);
     setTitle("");
     setDescription("");
     setFormError(null);
@@ -108,6 +128,7 @@ export default function JobsScreen() {
       description,
       service_category_id: category?.id,
       lifecycle_stage_id: stage?.id,
+      referral_partner_id: referralPartner?.id,
     });
     if (!result.success) {
       setFormError(client ? (result.error.issues[0]?.message ?? "Invalid job") : "Pick a client first");
@@ -118,8 +139,8 @@ export default function JobsScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, referral_partner_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         profile.tenant_id,
@@ -128,6 +149,7 @@ export default function JobsScreen() {
         result.data.description || null,
         result.data.service_category_id ?? null,
         result.data.lifecycle_stage_id ?? null,
+        result.data.referral_partner_id ?? null,
         profile.id,
         now,
         now,
@@ -274,6 +296,13 @@ export default function JobsScreen() {
           </Pressable>
         </View>
 
+        <Pressable style={styles.pickerField} onPress={() => setReferralPartnerPickerVisible(true)}>
+          <Text style={styles.pickerFieldLabel}>Referral source (optional)</Text>
+          <Text style={referralPartner ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+            {referralPartner ? partnerDisplayName(referralPartner) : "None"}
+          </Text>
+        </Pressable>
+
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable
@@ -308,6 +337,16 @@ export default function JobsScreen() {
         getLabel={(c) => c.name}
         onSelect={setCategory}
         onClose={() => setCategoryPickerVisible(false)}
+      />
+
+      <PickerModal
+        visible={referralPartnerPickerVisible}
+        title="Select referral source"
+        items={referralPartners ?? []}
+        getKey={(p) => p.id}
+        getLabel={(p) => partnerDisplayName(p)}
+        onSelect={setReferralPartner}
+        onClose={() => setReferralPartnerPickerVisible(false)}
       />
 
       <PickerModal
@@ -347,12 +386,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   filterBar: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
-  filterChip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  filterChip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, flexShrink: 1 },
   filterChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
   filterClearText: { color: "#dc2626", fontWeight: "600", fontSize: 13 },
   sortBar: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
@@ -367,19 +407,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
+  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
+  // flex: 1 (not just flexShrink) so a long title is width-constrained by
+  // the row itself - job_lifecycle_stages/categories are admin-defined
+  // free text with no length cap (see JobDetail.tsx's own stage select),
+  // so an unprotected Text next to a fixed sibling can silently overflow
+  // or clip its last character with no ellipsis, same class of bug
+  // LineItemEditor.tsx's totalsRow comment documents at length.
+  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
   rowSubtitle: { color: "#6b7280", marginTop: 2 },
   tagRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 },
-  categoryTag: { flexDirection: "row", alignItems: "center", gap: 4 },
-  swatch: { width: 8, height: 8, borderRadius: 4 },
+  categoryTag: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "100%" },
+  swatch: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   swatchEmpty: { backgroundColor: "#d1d5db" },
-  categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
-  stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700" },
+  categoryTagText: { fontSize: 12, color: "#6b7280", fontWeight: "600", flexShrink: 1 },
+  stageBadge: { backgroundColor: "#e5e7eb", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, flexShrink: 1, maxWidth: "100%" },
+  stageBadgeText: { fontSize: 11, color: "#111827", fontWeight: "700", flexShrink: 1 },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
   link: { color: "#1d4ed8", fontWeight: "600" },

@@ -47,6 +47,22 @@ export interface Tenant {
   // Settings screen, not Company Details, since it's specifically a
   // messaging concern.
   google_review_link: string | null;
+  // Which Xero chart-of-accounts code sales line items post against - see
+  // the xero_integration migration's own comment on why this is
+  // configurable rather than a fixed guess.
+  xero_sales_account_code: string;
+  // Admin-customizable calendar event colors by category - see
+  // CalendarCategoryColors and the calendar_recurrence_and_colors
+  // migration's own comment on why this is a single jsonb column rather
+  // than one column per category.
+  calendar_category_colors: CalendarCategoryColors;
+  // Stripe Connect (Express) - see the membership_plans_and_clients
+  // migration. Null/false until the tenant completes onboarding via
+  // stripe-connect-onboard; membership payments settle directly into this
+  // connected account, entirely separate from the platform-level
+  // STRIPE_SECRET_KEY the existing invoice-payment Stripe code uses.
+  stripe_connect_account_id: string | null;
+  stripe_connect_onboarded: boolean;
   created_at: string;
 }
 
@@ -57,14 +73,27 @@ export interface Profile {
   full_name: string;
   email: string;
   phone: string | null;
+  // Free-text position/title (e.g. "Foreman", "Office Manager") - purely
+  // organisational, distinct from `role` which is the fixed admin/
+  // technician value every RLS policy and permission check keys off.
+  job_title: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export type ClientType = "individual" | "company";
+
 export interface Client {
   id: string;
   tenant_id: string;
+  // "Individual" clients (regular COD homeowners): this is the client's own
+  // full name. "Company" clients: this is the primary contact person's name
+  // - the company's own name lives in company_name instead, so a company
+  // client can never be created with just a person's name in the company
+  // slot (or vice versa).
   name: string;
+  client_type: ClientType;
+  company_name: string | null;
   email: string | null;
   phone: string | null;
   notes: string | null;
@@ -75,9 +104,42 @@ export interface Client {
   suburb: string | null;
   state: string | null;
   postcode: string | null;
+  // Link to that client's WorkDrive folder, pasted in by hand - this app
+  // never talks to WorkDrive itself, it's just a stored URL.
+  workdrive_url: string | null;
+  // Set the first time this client is pushed to Xero (as a Contact) via
+  // an invoice sync - reused on every later sync instead of creating a
+  // duplicate Xero Contact each time.
+  xero_contact_id: string | null;
+  // Manually ticked from the client card once someone confirms (by asking,
+  // or by finding the review itself) that this client has left a Google
+  // review - there's no public API to detect this automatically, so it's a
+  // plain office-driven flag, not derived from anything. Drives the Google
+  // Reviews module's "hasn't reviewed yet" list.
+  left_google_review: boolean;
+  // Set together with left_google_review (both null/cleared if unmarked) -
+  // feeds the Analytics page's Customer Feedback section. recorded_at is
+  // when the office ticked it, not when the client actually left the
+  // review on Google - there's no way to know that.
+  google_review_stars: number | null;
+  google_review_recorded_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// A client (especially a company client) can have several people you deal
+// with beyond the one name/email/phone on the clients row itself.
+export interface ClientContact {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+  is_primary: boolean;
+  created_at: string;
 }
 
 export interface ClientSite {
@@ -144,6 +206,14 @@ export interface JobCard {
   referral_partner_id: string | null;
   referral_fee_paid: boolean;
   referral_fee_amount_cents: number | null;
+  // Link to this job's WorkDrive folder, pasted in by hand - same idea as
+  // clients.workdrive_url, just scoped to one job instead of the client.
+  workdrive_url: string | null;
+  // Lead Source (see the lead_sources migration) - a tenant-customizable
+  // "how did this job come to us" tag. referral_partner_id is only ever
+  // meaningfully set when this points at a lead source flagged
+  // is_referral_source.
+  lead_source_id: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +231,11 @@ export interface Agency {
   phone: string | null;
   payment_terms_days: number;
   require_work_order_num: boolean;
+  // The client record this agency bills jobs against - set once per agency
+  // (linked to an existing client, or a new one auto-created alongside the
+  // agency) so job creation can derive client_id automatically instead of
+  // requiring it to be picked separately every time.
+  client_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -204,6 +279,20 @@ export interface Property {
   updated_at: string;
 }
 
+// Additional occupants beyond the single tenant_name/phone/email on
+// Property itself (which stays as-is - it's read from PDFs, the public
+// approval page, mobile, and invoicing). This covers share-house /
+// multi-occupant properties.
+export interface PropertyTenant {
+  id: string;
+  tenant_id: string;
+  property_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  created_at: string;
+}
+
 export type PropertyAssetCategory = "plumbing" | "roofing" | "hvac" | "general";
 
 // Deliberately schemaless per-category fields - see the migration's own
@@ -225,10 +314,14 @@ export interface PropertyAssetAttributes {
   ridge_condition?: string;
 }
 
+// Owned by exactly one of property_id/client_id, never both (see the
+// client_assets migration's check constraint) - property_id for an
+// agency-managed real estate job, client_id for a direct client.
 export interface PropertyAsset {
   id: string;
   tenant_id: string;
-  property_id: string;
+  property_id: string | null;
+  client_id: string | null;
   category: PropertyAssetCategory;
   asset_name: string;
   attributes: PropertyAssetAttributes;
@@ -289,6 +382,36 @@ export interface JobLifecycleStage {
   updated_at: string;
 }
 
+// A reusable starting point for a new job, picked from Jobs.tsx's "New Job"
+// modal - name doubles as the job's default title (still editable before
+// saving), no separate title field.
+export interface JobTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  service_category_id: string | null;
+  lifecycle_stage_id: string | null;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// An admin-configurable "how did this job come to us" tag (Referral,
+// Google Search, Repeat Customer, ...). is_referral_source flags whichever
+// entry represents a referral - the job form only reveals the referral-
+// partner picker once one of these is chosen, checked by this flag rather
+// than by name so a tenant can rename it freely.
+export interface LeadSource {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  is_referral_source: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface JobNote {
   id: string;
   tenant_id: string;
@@ -324,6 +447,105 @@ export interface Task {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Asana-style project engine (see the asana_task_engine migration).
+  // section_id is a purely organisational Kanban-column position within
+  // project_id - independent of `status` above, which still drives
+  // completion everywhere it always has (see the migration's own comment).
+  project_id: string | null;
+  section_id: string | null;
+  // Subtasks are ordinary tasks rows with parent_task_id set - no separate
+  // subtask table.
+  parent_task_id: string | null;
+  priority: TaskPriority;
+  is_milestone: boolean;
+  start_date: string | null;
+  position_order: number;
+  estimated_hours: number | null;
+  actual_hours: number | null;
+  // JMS entity links - job linking reuses job_card_id above, these two are
+  // the new ones.
+  client_id: string | null;
+  property_id: string | null;
+}
+
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+export type TaskProjectViewType = "BOARD" | "LIST" | "CALENDAR" | "TIMELINE";
+
+export interface TaskProject {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  color_hex: string;
+  icon: string;
+  view_type: TaskProjectViewType;
+  is_archived: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskSection {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  position_order: number;
+  created_at: string;
+}
+
+// A directed edge: blocking_task_id blocks dependent_task_id.
+export interface TaskDependency {
+  id: string;
+  tenant_id: string;
+  blocking_task_id: string;
+  dependent_task_id: string;
+  created_at: string;
+}
+
+export type TaskCustomFieldType = "text" | "number" | "dropdown" | "date";
+
+export interface TaskCustomField {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  field_type: TaskCustomFieldType;
+  // Option strings, DROPDOWN fields only - e.g. ["Roof", "Gutters"]. Null
+  // for every other field_type.
+  options: string[] | null;
+  position_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// One row per task+custom_field pair - only the column matching the
+// field's own field_type is populated, the other two stay null.
+export interface TaskCustomFieldValue {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  custom_field_id: string;
+  value_text: string | null;
+  value_number: number | null;
+  value_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// System-generated field-change history - populated by the
+// log_task_activity trigger, never inserted directly from the client. See
+// TaskNote for the human-authored comment half of the activity feed.
+export interface TaskActivityLog {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  actor_id: string | null;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
 }
 
 export interface TaskNote {
@@ -375,6 +597,40 @@ export interface LineItemInput {
   unit_price_cents: number;
   gst_applicable: boolean;
   sort_order: number;
+  // Membership discount engine (see the membership_discount_engine
+  // migration) - is_callout_fee is a flag copied at add-time (from a
+  // price_book_items row, or set manually), waived_amount_cents is
+  // server-computed at save time, never client-set for a non-overridden
+  // document. unit_price_cents itself never changes because of a waiver -
+  // see calculate_line_item_totals's own comment on why waiving subtracts
+  // rather than zeroes. Both optional here (rather than required, even
+  // though the DB columns are NOT NULL) so every existing line-item-editor
+  // call site across desktop/mobile that builds one of these objects
+  // without them still compiles - the server defaults a missing
+  // is_callout_fee to false and waived_amount_cents to 0 either way (see
+  // replace_quote_line_items/replace_invoice_line_items's own coalesce).
+  is_callout_fee?: boolean;
+  waived_amount_cents?: number;
+  // "Subby box" - per-unit subcontractor cost on this line, same convention
+  // as material_cost_cents (multiplied by quantity, included in
+  // computeLineItemUnitPriceCents' pre-markup cost basis). Optional for the
+  // same reason as is_callout_fee/waived_amount_cents above - every
+  // existing line-item-editor call site still compiles without them.
+  is_subcontracted?: boolean;
+  subcontractor_cost_cents?: number;
+  // Optional/bundled line items - is_optional/is_included only meaningfully
+  // apply to quote_line_items (an invoice's items are already resolved by
+  // the time they exist - see the optional_bundled_line_items migration).
+  // is_included is the client's live selection once a quote's been sent -
+  // starts false for a newly-marked-optional item (an upsell they opt into,
+  // not a default-included item to remove), always true otherwise.
+  // bundle_name groups related items under one heading (presentation only -
+  // a bundle's price is just the sum of its items, no separate bundle
+  // price); image_url is a per-item photo shown alongside it.
+  is_optional?: boolean;
+  is_included?: boolean;
+  bundle_name?: string | null;
+  image_url?: string | null;
 }
 
 export interface Quote {
@@ -382,6 +638,10 @@ export interface Quote {
   tenant_id: string;
   client_id: string;
   job_card_id: string | null;
+  // Which of the client's addresses (client_sites) this quote is for - null
+  // falls back to the client's own primary address, same as before this
+  // column existed.
+  site_id: string | null;
   template_id: string | null;
   quote_number: string;
   status: QuoteStatus;
@@ -400,11 +660,29 @@ export interface Quote {
   viewed_at: string | null;
   accepted_at: string | null;
   accepted_by_name: string | null;
+  // Proof of acceptance captured on the public approval page - a drawn
+  // signature stamped onto the document itself, not just a typed name (see
+  // the quote_invoice_signature migration).
+  accepted_signature_svg: string | null;
   declined_at: string | null;
   decline_reason: string | null;
   referral_partner_id: string | null;
   referral_fee_paid: boolean;
   referral_fee_amount_cents: number | null;
+  // Client-supplied purchase order reference - optional, any client type
+  // (not the real-estate/strata-only job_cards.work_order_number). Shown
+  // on the PDF only when set.
+  po_number: string | null;
+  // Membership discount engine (see the membership_discount_engine
+  // migration) - client_membership_id/membership_discount_percent/cents
+  // are auto-set from the client's active membership on every line-item
+  // save, UNLESS membership_discount_overridden is true, in which case an
+  // admin has taken manual control and these stay exactly as they last
+  // set them (see set_quote_membership_discount_override).
+  client_membership_id: string | null;
+  membership_discount_percent: number;
+  membership_discount_cents: number;
+  membership_discount_overridden: boolean;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -419,6 +697,9 @@ export interface Invoice {
   client_id: string;
   job_card_id: string | null;
   quote_id: string | null;
+  // Which of the client's addresses (client_sites) this invoice is for -
+  // null falls back to the client's own primary address.
+  site_id: string | null;
   invoice_number: string;
   status: InvoiceStatus;
   issue_date: string;
@@ -436,12 +717,43 @@ export interface Invoice {
   viewed_at: string | null;
   accepted_at: string | null;
   accepted_by_name: string | null;
+  accepted_signature_svg: string | null;
   declined_at: string | null;
   decline_reason: string | null;
+  // Stripe Checkout - see the stripe_payments migration. stripe_checkout_url
+  // is (re)generated by the approve Edge Function the first time an
+  // accepted, unpaid invoice's payment link is requested, and reused until
+  // it expires or the invoice is paid.
+  stripe_checkout_url: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_payment_intent_id: string | null;
   // Set once, the first time status transitions to 'paid' - see
   // set_invoice_paid_at in the b2b_referral_tracking migration. Not
   // cleared if status ever moves off 'paid' again.
   paid_at: string | null;
+  // Xero sync (Phase 1, one-way push - see the xero-sync Edge Function's
+  // own comment). xero_invoice_id is null until the first successful
+  // sync, then reused on every later sync (an update, not a duplicate).
+  // xero_sync_error holds the last failed sync's message, cleared back to
+  // null on the next successful one.
+  xero_invoice_id: string | null;
+  xero_synced_at: string | null;
+  xero_sync_error: string | null;
+  // Real-estate/strata jobs: redirects who this invoice is billed to (PDF
+  // Bill To name/contact + the email composer's default recipient) from
+  // the job's agency/PM client row to the property's owner_landlord_*
+  // contact fields instead - see InvoiceDetail.tsx's "Bill to" control.
+  // False (the default) is identical to this app's pre-existing behaviour.
+  bill_to_landlord: boolean;
+  // Client-supplied purchase order reference - optional, any client type
+  // (not the real-estate/strata-only job_cards.work_order_number). Shown
+  // on the PDF only when set.
+  po_number: string | null;
+  // Membership discount engine - see Quote's own identical fields.
+  client_membership_id: string | null;
+  membership_discount_percent: number;
+  membership_discount_cents: number;
+  membership_discount_overridden: boolean;
 }
 
 export interface InvoiceLineItem extends LineItemInput {
@@ -455,6 +767,9 @@ export interface PriceBookCategory {
   tenant_id: string;
   name: string;
   sort_order: number;
+  // Shown as the tile's background image (name overlaid at the bottom)
+  // instead of the plain color swatch, when set.
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -472,6 +787,18 @@ export interface PriceBookItem {
   material_cost_cents: number;
   markup_percent: number;
   sort_order: number;
+  // Shown as the tile's background image (name overlaid at the bottom)
+  // instead of the plain color swatch, when set.
+  image_url: string | null;
+  // Marks which catalogue item(s) represent a call-out fee, so the
+  // membership discount engine can zero-price it for a member client
+  // separately from the percentage discount - see the
+  // membership_plans_and_clients migration. Optional here (the DB column
+  // is NOT NULL default false) so existing price-book editor call sites
+  // that build this object without it still compile - not yet surfaced as
+  // an editable toggle anywhere in the UI (see docs/SETUP.md's own
+  // write-up on this gap).
+  is_callout_fee?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -490,6 +817,83 @@ export interface PriceBookItemVariation {
   updated_at: string;
 }
 
+// A named, pre-built set of line items (e.g. everything a hot water system
+// replacement needs) - see line_item_bundle_items below for the member
+// lines. Inserted together into a quote/invoice from AddLineItemBar in one
+// click, with every inserted item's bundle_name set to this bundle's name
+// (see the optional_bundled_line_items migration) so they show grouped
+// under a heading automatically.
+export interface LineItemBundle {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// price_book_item_id set: a catalogue-linked item - description/
+// labour_rate_cents/labour_hours/material_cost_cents/markup_percent are
+// null and ignored, the CURRENT price_book_items row is used instead at
+// insertion time (never a frozen copy). price_book_item_id null: a
+// standalone custom item using those columns directly. quantity always
+// lives here regardless (price_book_items has no quantity concept of its
+// own - it's a unit template).
+export interface LineItemBundleItem {
+  id: string;
+  tenant_id: string;
+  bundle_id: string;
+  price_book_item_id: string | null;
+  description: string | null;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
+  quantity: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CalendarEventSource = "app" | "google_personal";
+
+// The four categories the calendar UI actually distinguishes with color -
+// derived from an event's own fields (job_card_id -> "job", task_id ->
+// "task", source='google_personal' -> "personal", anything else ->
+// "general"), not a free-form field of its own. See
+// packages/shared/src/calendar-recurrence.ts's categoryForEvent().
+export type CalendarEventCategory = "job" | "task" | "personal" | "general";
+
+export type CalendarCategoryColors = Record<CalendarEventCategory, string>;
+
+export const DEFAULT_CALENDAR_CATEGORY_COLORS: CalendarCategoryColors = {
+  job: "#1d4ed8",
+  task: "#16a34a",
+  personal: "#f59e0b",
+  general: "#6b7280",
+};
+
+// Recurrence frequency + interval + how the series ends. Deliberately far
+// simpler than an RFC 5545 RRULE string - this app only ever needs to
+// generate a finite list of occurrence dates up front (see
+// generateRecurrenceOccurrences in calendar-recurrence.ts), never parse
+// an arbitrary externally-authored rule, so there's no value in the full
+// RRULE grammar's complexity.
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
+
+export interface RecurrenceRule {
+  freq: RecurrenceFrequency;
+  interval: number;
+  // Only meaningful for freq: 'weekly' - 0 (Sunday) through 6 (Saturday).
+  // Defaults to the start date's own weekday when omitted.
+  byWeekday?: number[];
+  endType: "never" | "on" | "after";
+  // ISO date (yyyy-mm-dd), required when endType is 'on'.
+  endDate?: string;
+  // Occurrence count including the first, required when endType is 'after'.
+  count?: number;
+}
+
 export interface CalendarEvent {
   id: string;
   tenant_id: string;
@@ -505,9 +909,68 @@ export interface CalendarEvent {
   google_calendar_id: string | null;
   google_event_id: string | null;
   last_synced_at: string | null;
+  // 'app': created in this app, two-way synced with Google when the
+  // resolved assignee has connected their calendar. 'google_personal':
+  // imported from a technician's own Google Calendar - title/description/
+  // location/guests on this row are always "Busy"/null regardless of
+  // source, since the real content only exists in
+  // CalendarEventPersonalDetails, which RLS restricts to the owning
+  // profile. See supabase/migrations/20260902000100_google_calendar_sync.sql.
+  source: CalendarEventSource;
+  owner_profile_id: string | null;
+  google_calendar_connection_id: string | null;
+  // Every occurrence of a recurring event is its own independent row with
+  // the same recurrence_rule/recurrence_group_id (denormalized, not a
+  // single "series master") - see the calendar_recurrence_and_colors
+  // migration's own comment on why. Both null for a non-recurring event.
+  recurrence_rule: RecurrenceRule | null;
+  recurrence_group_id: string | null;
+  // Directly overrides the derived category/color (see categoryForEvent
+  // in calendar-recurrence.ts) - null means "derive it as usual from
+  // job_card_id/task_id/source". Only 'job' | 'task' | 'general' are
+  // valid here, never 'personal' - see the calendar_category_override
+  // migration's own check constraint.
+  category_override: Exclude<CalendarEventCategory, "personal"> | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// The real title/description/location/guests of a 'google_personal'
+// CalendarEvent - only ever readable by its owner (RLS: owner_profile_id =
+// auth.uid()), so an unfiltered fetch of this table always safely returns
+// just the caller's own rows. The app merges these back onto the matching
+// CalendarEvent client-side for events the viewer owns; every other
+// google_personal row is displayed exactly as calendar_events itself has
+// it (the "Busy" placeholder), with no further redaction needed.
+export interface CalendarEventPersonalDetails {
+  calendar_event_id: string;
+  owner_profile_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  guests: string | null;
+  created_at: string;
+}
+
+// Status shape returned by get_google_calendar_connection_status() -
+// intentionally never includes tokens, only enough to drive a "Connect" vs
+// "Connected as {email}" UI.
+export interface GoogleCalendarConnectionStatus {
+  connected: boolean;
+  email?: string | null;
+  connected_at?: string | null;
+}
+
+// Row shape returned by the admin-only list_google_calendar_connections()
+// RPC - one row per tenant profile, connection fields null if not
+// connected.
+export interface GoogleCalendarConnectionListItem {
+  profile_id: string;
+  full_name: string;
+  email: string;
+  google_account_email: string | null;
+  connected_at: string | null;
 }
 
 // A physical place stock lives - "Ute 1", "Main Warehouse", a shelf.
@@ -583,6 +1046,9 @@ export interface InventoryItem {
   // distinct from reorder_threshold (the alert point) - see
   // suggestedReorderQuantity in apps/mobile/lib/pdf.ts.
   ideal_stock: number;
+  // Shown as the mobile inventory tile's background image (name overlaid
+  // at the bottom), same treatment as price book category/item tiles.
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -662,6 +1128,100 @@ export interface JobMeasurement {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Job Card Quote Tools - mirrors the quote_tools migration. Alongside the
+// existing roof measurement tool (JobMeasurement above): a linear-distance
+// measurer, an on-site material tally counter, a concrete volume
+// calculator, and a material order form.
+// ---------------------------------------------------------------------------
+
+// A single drawn run (e.g. one gutter length) within a named measurement
+// set - no independent lifecycle of its own, see the migration's comment.
+export interface LinearMeasurementSegment {
+  id: string;
+  label: string;
+  coordinates: Coordinate[];
+  length_meters: number;
+}
+
+export interface JobLinearMeasurement {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  title: string;
+  segments: LinearMeasurementSegment[];
+  total_length_meters: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialTallyItem {
+  id: string;
+  name: string;
+  count: number;
+  category: string;
+}
+
+export interface JobMaterialTally {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  tally_name: string | null;
+  items: MaterialTallyItem[];
+  saved_to_notes: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// No updated_at - a recalculation is a new row, not an edit-in-place, see
+// the migration's own comment.
+export interface JobConcreteCalculation {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  calculation_name: string;
+  length_meters: number;
+  width_meters: number;
+  depth_meters: number;
+  waste_percentage: number;
+  total_cubic_meters: number;
+  estimated_bags_20kg: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type MaterialOrderStatus = "DRAFT" | "ORDERED" | "DELIVERED" | "CANCELLED";
+
+export interface MaterialOrderLineItem {
+  item_name: string;
+  quantity: number;
+  unit_type: string;
+  notes: string;
+}
+
+export interface JobMaterialOrder {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  // Server-assigned on insert ("MAT-001", "MAT-002", ...) - see the
+  // migration's assign_material_order_number trigger.
+  order_number: string;
+  supplier_name: string | null;
+  delivery_date: string | null;
+  line_items: MaterialOrderLineItem[];
+  status: MaterialOrderStatus;
+  // Populated only if/when a real PDF-generation-and-storage pipeline is
+  // wired up for material orders - see the migration's own comment on why
+  // that's out of scope for now (desktop's PDF "export" elsewhere is a
+  // browser print dialog, not a stored file).
+  pdf_url: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Mirrors supabase/migrations/20260804000100_communication_engine.sql.
 export type CommunicationDelayUnit = "hours" | "days";
 export type CommunicationDelayDirection = "before" | "after";
@@ -671,7 +1231,18 @@ export type CommunicationDelayDirection = "before" | "after";
 export type CommunicationChannel = "sms" | "email" | "both";
 export type CommunicationMessageChannel = "sms" | "email";
 export type CommunicationTemplateCategory = "quote" | "invoice" | "booking" | "field";
-export type ScheduledCommunicationEntityType = "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset";
+export type ScheduledCommunicationEntityType =
+  | "quote"
+  | "invoice"
+  | "job"
+  | "calendar_event"
+  | "client"
+  | "property_asset"
+  | "referral_partner"
+  | "report"
+  | "purchase_order"
+  | "subcontractor"
+  | "client_membership";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,
@@ -707,6 +1278,17 @@ export interface CommunicationTemplate {
   updated_at: string;
 }
 
+// content is a base64 data URI (e.g. "data:application/pdf;base64,...")
+// exactly like accepted_signature_svg's convention, not raw base64 -
+// keeping the MIME type folded into the string itself means Resend's
+// `attachments[].content` field (which wants raw base64) needs a small
+// strip-the-prefix step at send time (see process-scheduled-comms),
+// rather than needing content_type carried as a second field here.
+export interface EmailAttachment {
+  filename: string;
+  content: string;
+}
+
 // A single outbound message, auto-scheduled by a Postgres trigger (quote
 // sent, invoice sent) or manually inserted from the mobile app ("On The
 // Way", review request) - dispatched by the process-scheduled-comms Edge
@@ -722,6 +1304,15 @@ export interface ScheduledCommunication {
   template_id: string | null;
   channel: CommunicationMessageChannel;
   recipient_phone_or_email: string;
+  // CC/BCC recipients for email sends - populated by EmailComposeModal
+  // (see apps/desktop/src/components/EmailComposeModal.tsx), empty arrays
+  // for anything scheduled the older way (automated triggers that never go
+  // through the composer).
+  cc_emails: string[];
+  bcc_emails: string[];
+  // Base64-encoded attachments (a quote/invoice PDF, or anything else
+  // picked in the composer) - see EmailAttachment.
+  attachments: EmailAttachment[];
   rendered_subject: string | null;
   rendered_body: string;
   scheduled_for: string;
@@ -968,6 +1559,152 @@ export interface PurchaseOrder {
   pdf_storage_path: string | null;
   issued_at: string | null;
   paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Membership Module (Munus) - mirrors membership_plans_and_clients.sql,
+// membership_discount_engine.sql, and membership_communications.sql. A
+// layer on top of the existing client/job/quote/invoice schema, same shape
+// as the Real Estate & Strata module - see those migrations' own header
+// comments for the RLS reasoning behind each table.
+// ---------------------------------------------------------------------------
+
+export type MembershipStatus = "active" | "past_due" | "cancelled" | "expired";
+export type MembershipBenefitType = "annual_roof_inspection" | "annual_plumbing_check";
+
+// One row per tenant for now - is_active is enforced unique per tenant by
+// a partial index (see the migration's own comment on how trivial it'd be
+// to relax that into multi-tier support later).
+export interface MembershipPlan {
+  id: string;
+  tenant_id: string;
+  name: string;
+  annual_price_cents: number;
+  stripe_price_id: string | null;
+  discount_percent: number;
+  waive_callout_fee: boolean;
+  priority_scheduling: boolean;
+  same_day_response: boolean;
+  annual_roof_inspections_included: number;
+  annual_plumbing_checks_included: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Point-in-time copy of the plan's benefit values at signup, stored on
+// client_memberships.benefits_snapshot - see that column's own comment on
+// why a later plan change shouldn't retroactively alter an existing
+// member's terms mid-period.
+export interface MembershipBenefitsSnapshot {
+  discount_percent: number;
+  waive_callout_fee: boolean;
+  priority_scheduling: boolean;
+  same_day_response: boolean;
+  annual_roof_inspections_included: number;
+  annual_plumbing_checks_included: number;
+}
+
+export interface ClientMembership {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  membership_plan_id: string;
+  status: MembershipStatus;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  price_paid_cents: number;
+  benefits_snapshot: MembershipBenefitsSnapshot;
+  started_at: string;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The unique (client_membership_id, benefit_type, period_start) constraint
+// is what actually prevents a client using the same included benefit
+// twice in one billing year - see the migration's own comment.
+export interface MembershipBenefitUsage {
+  id: string;
+  tenant_id: string;
+  client_membership_id: string;
+  benefit_type: MembershipBenefitType;
+  job_card_id: string | null;
+  period_start: string;
+  period_end: string;
+  used_at: string;
+  created_by: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Cost of Ops module - modelled on the "Cost of Operations Calculator"
+// spreadsheet. Every number here is a raw input; the actual COO/labour-cost/
+// profitability math is computed live in cost-of-ops.ts, never stored.
+// ---------------------------------------------------------------------------
+
+export type CostOfOpsRoleType = "owner" | "field_staff" | "apprentice" | "admin" | "subcontractor";
+export type CostOfOpsPayType = "salary" | "hourly";
+
+export interface CostOfOpsSettings {
+  id: string;
+  tenant_id: string;
+  ordinary_hours_per_week: number;
+  weekend_days_per_year: number;
+  public_holidays_per_year: number;
+  annual_leave_days: number;
+  sick_days: number;
+  rain_shutdown_days: number;
+  estimated_efficiency_rate: number;
+  target_labour_profit_margin: number;
+  // "Actual Charge Rate (ex GST)" on the Profitability tab.
+  actual_charge_rate_cents: number;
+  materials_avg_monthly_spend_cents: number;
+  materials_avg_markup: number;
+  contractors_weekly_spend_cents: number;
+  contractors_weekly_hours: number;
+  vehicles_owned: number;
+  vehicle_holding_cost_cents: number;
+  buffer_percent: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperatingExpense {
+  id: string;
+  tenant_id: string;
+  account_name: string;
+  monthly_amount_cents: number;
+  budget_amount_cents: number | null;
+  is_default_category: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabourCostEntry {
+  id: string;
+  tenant_id: string;
+  role_type: CostOfOpsRoleType;
+  // Link to a real Munus user where one exists; name is used instead for
+  // entries without a linked profile (e.g. subcontractors).
+  profile_id: string | null;
+  name: string | null;
+  pay_type: CostOfOpsPayType;
+  annual_salary_cents: number | null;
+  superannuation_cents: number | null;
+  hourly_rate_cents: number | null;
+  superannuation_rate: number | null;
+  allowance_cents: number | null;
+  billable_hours_per_week: number;
+  non_billable_hours_per_week: number;
+  apprentice_utilisation: number | null;
+  subcontractor_charge_out_rate_cents: number | null;
+  subcontractor_travel_allow_cents: number | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }

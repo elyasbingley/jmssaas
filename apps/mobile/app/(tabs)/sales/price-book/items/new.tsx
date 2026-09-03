@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   computeLineItemUnitPriceCents,
@@ -25,6 +25,7 @@ export default function NewPriceBookItemScreen() {
   const [labourHours, setLabourHours] = useState("0");
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
+  const [isCalloutFee, setIsCalloutFee] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,6 +44,7 @@ export default function NewPriceBookItemScreen() {
       labour_hours: parseNumber(labourHours),
       material_cost_cents: Math.round(parseNumber(materialCost) * 100),
       markup_percent: parseNumber(markupPercent),
+      is_callout_fee: isCalloutFee,
     });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -97,6 +99,16 @@ export default function NewPriceBookItemScreen() {
         </View>
       </View>
 
+      <View style={styles.switchRow}>
+        <View style={{ flexShrink: 1 }}>
+          <Text style={styles.switchLabel}>This is the call-out / service fee</Text>
+          <Text style={styles.switchHint}>
+            A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
+          </Text>
+        </View>
+        <Switch value={isCalloutFee} onValueChange={setIsCalloutFee} />
+      </View>
+
       <View style={styles.previewBox}>
         <Text style={styles.previewLabel}>Computed price</Text>
         <Text style={styles.previewValue}>{formatCentsAsAud(previewCents)}</Text>
@@ -116,6 +128,9 @@ const styles = StyleSheet.create({
   multilineInput: { minHeight: 90, textAlignVertical: "top" },
   fieldGrid: { flexDirection: "row", gap: 12, marginTop: 16 },
   fieldCell: { flex: 1 },
+  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 20 },
+  switchLabel: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  switchHint: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   previewBox: { marginTop: 20, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12 },
   previewLabel: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
   previewValue: { fontSize: 20, fontWeight: "800", color: "#111827", marginTop: 2 },

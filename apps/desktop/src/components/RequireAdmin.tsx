@@ -28,7 +28,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   if (!isAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-sm rounded-lg border border-gray-200 bg-white p-8 text-center shadow-sm">
+        <div className="max-w-sm rounded-lg border border-gray-300 bg-white p-8 text-center shadow-sm">
           <h1 className="mb-2 text-lg font-bold text-gray-900">Admin access only</h1>
           <p className="text-sm text-gray-500">
             {profile?.full_name ?? "This account"} doesn't have admin access to the

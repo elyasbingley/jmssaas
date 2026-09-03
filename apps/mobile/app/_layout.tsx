@@ -79,6 +79,11 @@ function RootNavigator() {
       <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />
       <Stack.Screen name="inventory-setup" options={{ headerShown: true, title: "Inventory Setup" }} />
       <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
+      <Stack.Screen name="google-calendar-settings" options={{ headerShown: true, title: "Google Calendar" }} />
+      <Stack.Screen name="real-estate" />
+      <Stack.Screen name="reports" />
+      <Stack.Screen name="subcontractors" />
+      <Stack.Screen name="b2b-referrals" />
     </Stack>
   );
 }

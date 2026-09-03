@@ -51,15 +51,15 @@ export function FinancialPerformanceTab({
   return (
     <div>
       <div className="mb-6 grid grid-cols-3 gap-4">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Total Paid To Subbies</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.paid)}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Total Revenue Generated</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.revenue)}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Total Margin Made</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.margin)}</p>
         </div>
@@ -68,9 +68,9 @@ export function FinancialPerformanceTab({
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500">No purchase orders yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Subcontractor</th>
                 <th className="px-4 py-2 text-right font-semibold">Total Paid To Subbie</th>
@@ -81,7 +81,7 @@ export function FinancialPerformanceTab({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.sub.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={r.sub.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/subcontractors/${r.sub.id}`} className="font-medium text-blue-700 hover:underline">
                       {r.sub.company_name}

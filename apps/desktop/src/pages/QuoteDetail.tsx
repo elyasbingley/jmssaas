@@ -3,22 +3,41 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   calculateDocumentTotals,
+  collectRecipientEmails,
   formatCentsAsAud,
+  renderTemplate,
+  type Agency,
   type ApprovalStatus,
   type Client,
+  type ClientContact,
+  type ClientSite,
+  type EmailAttachment,
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
+  type ReferralPartner,
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { queueAndSendEmail } from "../lib/send-email";
 import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
+import { blobToDataUrl, buildQuotePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { Modal } from "../components/Modal";
+import { EmailComposeModal } from "../components/EmailComposeModal";
+import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
+import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
+import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { PurchaseOrderNumberModal } from "../components/PurchaseOrderNumberModal";
+
+function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
+  return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+}
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 const STATUS_LABELS: Record<QuoteStatus, string> = {
@@ -35,11 +54,27 @@ const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   declined: "Declined by client",
 };
 
-type QuoteRow = Quote & { clients: Client | null; job_cards: { title: string } | null };
+type QuoteJobCard = {
+  id: string;
+  title: string;
+  is_real_estate_job: boolean;
+  agency_id: string | null;
+  property_manager_id: string | null;
+  property_id: string | null;
+  work_order_number: string | null;
+  nte_limit_cents: number | null;
+};
+type QuoteRow = Quote & { clients: Client | null; job_cards: QuoteJobCard | null };
 
 async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineItemFormInput[] }> {
   const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
-    supabase.from("quotes").select("*, clients(*), job_cards!quotes_job_card_id_fkey(title)").eq("id", id).single(),
+    supabase
+      .from("quotes")
+      .select(
+        "*, clients(*), job_cards!quotes_job_card_id_fkey(id, title, is_real_estate_job, agency_id, property_manager_id, property_id, work_order_number, nte_limit_cents)"
+      )
+      .eq("id", id)
+      .single(),
     supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
   ]);
   if (quoteError) throw quoteError;
@@ -53,6 +88,41 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
   return data as Tenant;
 }
 
+async function fetchAgency(agencyId: string): Promise<Agency> {
+  const { data, error } = await supabase.from("agencies").select("*").eq("id", agencyId).single();
+  if (error) throw error;
+  return data as Agency;
+}
+
+async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
+  const { data, error } = await supabase
+    .from("client_sites")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("is_primary", { ascending: false })
+    .order("label");
+  if (error) throw error;
+  return data as ClientSite[];
+}
+
+async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase.from("client_contacts").select("*").eq("client_id", clientId);
+  if (error) throw error;
+  return data as ClientContact[];
+}
+
+async function fetchJobNoteBodies(jobCardId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("job_notes").select("body").eq("job_card_id", jobCardId);
+  if (error) throw error;
+  return (data ?? []).map((n) => n.body as string);
+}
+
+async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as ReferralPartner;
+}
+
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -64,6 +134,32 @@ export default function QuoteDetailPage() {
     queryKey: ["tenant", profile?.tenant_id],
     queryFn: () => fetchTenant(profile!.tenant_id),
     enabled: !!profile,
+  });
+  const jobCard = data?.quote.job_cards;
+  const { data: agency } = useQuery({
+    queryKey: ["agency", jobCard?.agency_id],
+    queryFn: () => fetchAgency(jobCard!.agency_id!),
+    enabled: !!jobCard?.agency_id,
+  });
+  const { data: clientSites } = useQuery({
+    queryKey: ["client-sites", data?.quote.client_id],
+    queryFn: () => fetchClientSites(data!.quote.client_id),
+    enabled: !!data,
+  });
+  const { data: clientContacts } = useQuery({
+    queryKey: ["client-contacts", data?.quote.client_id],
+    queryFn: () => fetchClientContacts(data!.quote.client_id),
+    enabled: !!data,
+  });
+  const { data: jobNoteBodies } = useQuery({
+    queryKey: ["job-notes-text", data?.quote.job_card_id],
+    queryFn: () => fetchJobNoteBodies(data!.quote.job_card_id!),
+    enabled: !!data?.quote.job_card_id,
+  });
+  const { data: referralPartner } = useQuery({
+    queryKey: ["referral-partner", data?.quote.referral_partner_id],
+    queryFn: () => fetchReferralPartner(data!.quote.referral_partner_id!),
+    enabled: !!data?.quote.referral_partner_id,
   });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
@@ -174,16 +270,31 @@ export default function QuoteDetailPage() {
     onError: (e) => setLinkError(getErrorMessage(e, "Failed to generate approval link")),
   });
 
-  // Mirrors apps/mobile's handleSendQuoteEmail - looks up the tenant's
-  // quote_sent rule/template, queues a scheduled_communications row,
-  // dispatches immediately, and sets status to 'sent' in the same action
-  // (that transition is what starts the reminder ladder).
-  const sendEmail = useMutation({
-    mutationFn: async () => {
-      if (!data || !profile) throw new Error("Not signed in");
-      const email = data.quote.clients?.email;
-      if (!email) throw new Error("This client has no email address on file - add one on the Clients screen.");
+  // "Send Quote via Email" now pops the editable EmailComposeModal instead
+  // of firing the template straight off - openSendEmail below still looks
+  // up the tenant's quote_sent rule/template exactly as before, just to
+  // prefill the modal rather than to send immediately. The actual send
+  // (handleSendEmail) queues+dispatches via queueAndSendEmail and sets
+  // status to 'sent' in the same action (that transition is what starts
+  // the reminder ladder), same as the old direct-send mutation did.
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailDefaults, setEmailDefaults] = useState({ subject: "", body: "" });
+  const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
+  const [openingEmail, setOpeningEmail] = useState(false);
 
+  // No longer hard-blocked on the client's own primary email - a real-estate
+  // client often has that field blank (agency name as primary contact, no
+  // email) with the real address living on a client_contacts row instead, or
+  // the sender may just want to type an ad-hoc address on the spot.
+  // recipientOptions (below) already merges client email + contact emails +
+  // job-note-scraped addresses, and EmailComposeModal's own "To" field is a
+  // plain editable input regardless of what's prefilled, so there's nothing
+  // left to gate on here.
+  const openSendEmail = async () => {
+    if (!data || !profile || !tenant || !data.quote.clients) return;
+    setOpeningEmail(true);
+    setSendEmailError(null);
+    try {
       const { data: rule } = await supabase
         .from("communication_rules")
         .select("*")
@@ -193,7 +304,6 @@ export default function QuoteDetailPage() {
       if (!rule || !rule.is_enabled) {
         throw new Error("The 'Quote Delivery' email is turned off in Settings > Automation & Messaging");
       }
-
       const { data: templates } = await supabase
         .from("communication_templates")
         .select("*")
@@ -203,40 +313,107 @@ export default function QuoteDetailPage() {
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Quote Delivery' email template found");
 
-      const { data: row, error: insertError } = await supabase
-        .from("scheduled_communications")
-        .insert({
-          tenant_id: profile.tenant_id,
-          entity_type: "quote",
-          entity_id: id,
-          trigger_key: "quote_sent",
-          template_id: template.id,
-          channel: template.type,
-          recipient_phone_or_email: email,
-          rendered_subject: template.subject,
-          rendered_body: template.body,
-          scheduled_for: new Date().toISOString(),
-          status: "pending",
-        })
-        .select("id")
-        .single();
-      if (insertError) throw insertError;
+      // Render tags against this specific client/quote before showing the
+      // composer - previously it showed the raw template ({client_full_name},
+      // {company_name}, ...) verbatim, which the dispatcher (process-
+      // scheduled-comms) always re-renders correctly at actual send time
+      // regardless, but left the *editable preview* looking wrong and made
+      // it awkward to tell what still needed editing. Same approval-link
+      // construction generateLink's own mutation uses, so {quote_accept_link}/
+      // {quote_decline_link} in the preview are real, clickable links too.
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_quote_approval_link", { p_quote_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=quote&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.quote.clients?.name ?? "", phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
+        quote: {
+          quote_number: data.quote.quote_number,
+          total_cents: data.quote.total_cents,
+          issue_date: data.quote.issue_date,
+          expiry_date: data.quote.expiry_date,
+          approval_link: approvalLink,
+          accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+          decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
+        },
+      };
+      setEmailDefaults({
+        subject: template.subject ? renderTemplate(template.subject, renderContext) : "",
+        body: renderTemplate(template.body, renderContext),
+      });
+      // Best-effort - if PDF generation fails for any reason, the email
+      // still sends with just the view-online link, same as before this
+      // feature existed, rather than blocking the send entirely.
+      try {
+        const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
+        const pdfDataUrl = await blobToDataUrl(pdfBlob);
+        setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUrl }]);
+      } catch {
+        setEmailDefaultAttachments([]);
+      }
+      setEmailModalOpen(true);
+    } catch (e) {
+      setSendEmailError(getErrorMessage(e, "Failed to prepare email"));
+    } finally {
+      setOpeningEmail(false);
+    }
+  };
 
-      const wasSent = await triggerImmediateDispatch(row.id);
+  const handleSendEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile) throw new Error("Not signed in");
+    const wasSent = await queueAndSendEmail({
+      tenantId: profile.tenant_id,
+      entityType: "quote",
+      entityId: id!,
+      triggerKey: "quote_sent",
+      ...payload,
+    });
+    const { error } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
+    if (error) throw error;
+    invalidate();
+    setSendEmailError(null);
+    setSendResult(wasSent ? "The quote email has been sent." : "The quote is marked sent and the email is queued.");
+    setTimeout(() => setSendResult(null), 5000);
+  };
 
-      const { error: statusError } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
-      if (statusError) throw statusError;
-
-      return wasSent;
-    },
-    onSuccess: (wasSent) => {
-      invalidate();
-      setSendEmailError(null);
-      setSendResult(wasSent ? "The quote email has been sent." : "The quote is marked sent and the email is queued.");
-      setTimeout(() => setSendResult(null), 5000);
-    },
-    onError: (e) => setSendEmailError(getErrorMessage(e, "Failed to send")),
+  const recipientOptions = collectRecipientEmails({
+    clientEmail: data?.quote.clients?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+    freeText: jobNoteBodies ?? [],
   });
+
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [addressSiteChoice, setAddressSiteChoice] = useState("");
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
+  const [referralModalOpen, setReferralModalOpen] = useState(false);
+  const [poModalOpen, setPoModalOpen] = useState(false);
+
+  const updateSite = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("quotes").update({ site_id: addressSiteChoice || null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      setAddressModalOpen(false);
+    },
+    onError: (e) => setAddressError(getErrorMessage(e, "Failed to update address")),
+  });
+
+  const currentSite = (clientSites ?? []).find((s) => s.id === data?.quote.site_id) ?? null;
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -253,7 +430,7 @@ export default function QuoteDetailPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items });
+      const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
       exportPdf(html, `Quote ${data.quote.quote_number}`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
@@ -279,6 +456,60 @@ export default function QuoteDetailPage() {
           Job: {data.quote.job_cards.title}
         </Link>
       ) : null}
+      <p className="mt-1 text-sm text-gray-600">
+        {currentSite ? `${currentSite.label ? `${currentSite.label}: ` : ""}${formatSiteAddress(currentSite)}` : "Client's main address"}{" "}
+        <button
+          onClick={() => {
+            setAddressSiteChoice(data.quote.site_id ?? "");
+            setAddressError(null);
+            setAddressModalOpen(true);
+          }}
+          className="text-xs font-semibold text-blue-700 hover:underline"
+        >
+          Edit address
+        </button>
+      </p>
+
+      {jobCard ? (
+        jobCard.is_real_estate_job ? (
+          <p className="mt-1 text-sm text-gray-600">
+            Real estate / strata job{agency ? ` - ${agency.name}` : ""}{" "}
+            <button onClick={() => setRealEstateModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+              Edit
+            </button>
+          </p>
+        ) : (
+          <button
+            onClick={() => setRealEstateModalOpen(true)}
+            className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+          >
+            Mark as real estate / strata job
+          </button>
+        )
+      ) : null}
+
+      {jobCard?.is_real_estate_job ? (
+        <p className="mt-1 text-sm text-gray-600">
+          Work order #: {jobCard.work_order_number ?? "Not set"}{" "}
+          <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {jobCard.work_order_number ? "Edit" : "+ Add"}
+          </button>
+        </p>
+      ) : null}
+
+      <p className="mt-1 text-sm text-gray-600">
+        Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}{" "}
+        <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          {data.quote.referral_partner_id ? "Edit" : "+ Add"}
+        </button>
+      </p>
+
+      <p className="mt-1 text-sm text-gray-600">
+        PO number: {data.quote.po_number ?? "Not set"}{" "}
+        <button onClick={() => setPoModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          {data.quote.po_number ? "Edit" : "+ Add"}
+        </button>
+      </p>
 
       {data.quote.approval_status ? (
         <div
@@ -299,11 +530,11 @@ export default function QuoteDetailPage() {
 
       <div className="mt-4 flex flex-wrap gap-3">
         <button
-          onClick={() => sendEmail.mutate()}
-          disabled={sendEmail.isPending}
+          onClick={() => openSendEmail()}
+          disabled={openingEmail}
           className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
         >
-          {sendEmail.isPending ? "Sending..." : "Send Quote via Email"}
+          {openingEmail ? "Preparing..." : "Send Quote via Email"}
         </button>
         <button
           onClick={() => generateLink.mutate()}
@@ -363,7 +594,16 @@ export default function QuoteDetailPage() {
           This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
-      {!isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+      {!isLocked ? (
+        <LineItemEditor
+          items={lineItems}
+          onChange={setLineItems}
+          membershipDiscountCents={data.quote.membership_discount_cents}
+          tenantId={profile?.tenant_id ?? ""}
+        />
+      ) : (
+        <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
+      )}
 
       <div className="mt-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
@@ -398,7 +638,7 @@ export default function QuoteDetailPage() {
 
       <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to invoice">
         <p className="mb-4 text-2xl font-extrabold text-gray-900">
-          {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents)}
+          {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents - data.quote.membership_discount_cents)}
         </p>
         <div className="mb-4">
           <label className="mb-1 block text-sm font-semibold text-gray-700">Due date (optional)</label>
@@ -423,6 +663,96 @@ export default function QuoteDetailPage() {
           </button>
         </div>
       </Modal>
+
+      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit quote address">
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <select
+            value={addressSiteChoice}
+            onChange={(e) => setAddressSiteChoice(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">Client's main address</option>
+            {(clientSites ?? []).map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.label || "Site"} - {formatSiteAddress(site)}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-400">
+            To add a brand new address, add it on the client's card first (Clients &rarr; this client &rarr; Addresses).
+          </p>
+        </div>
+        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => updateSite.mutate()}
+            disabled={updateSite.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {updateSite.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      {jobCard ? (
+        <RealEstateAssignmentModal
+          open={realEstateModalOpen}
+          onClose={() => setRealEstateModalOpen(false)}
+          jobCardId={jobCard.id}
+          initial={{
+            is_real_estate_job: jobCard.is_real_estate_job,
+            agency_id: jobCard.agency_id,
+            property_manager_id: jobCard.property_manager_id,
+            property_id: jobCard.property_id,
+            work_order_number: jobCard.work_order_number,
+            nte_limit_cents: jobCard.nte_limit_cents,
+          }}
+          invalidateKeys={[["quote", id]]}
+        />
+      ) : null}
+
+      {jobCard ? (
+        <WorkOrderNumberModal
+          open={workOrderModalOpen}
+          onClose={() => setWorkOrderModalOpen(false)}
+          jobCardId={jobCard.id}
+          currentValue={jobCard.work_order_number}
+          invalidateKeys={[["quote", id]]}
+        />
+      ) : null}
+
+      <ReferralPartnerModal
+        open={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        table="quotes"
+        recordId={id!}
+        currentValue={data.quote.referral_partner_id}
+      />
+
+      <PurchaseOrderNumberModal
+        open={poModalOpen}
+        onClose={() => setPoModalOpen(false)}
+        table="quotes"
+        recordId={id!}
+        currentValue={data.quote.po_number}
+      />
+
+      <EmailComposeModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        title="Send quote"
+        defaultTo={data.quote.clients?.email || recipientOptions[0] || ""}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+        defaultAttachments={emailDefaultAttachments}
+        recipientOptions={recipientOptions}
+        onSend={handleSendEmail}
+        sendLabel="Send quote"
+      />
     </div>
   );
 }

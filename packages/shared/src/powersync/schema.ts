@@ -30,6 +30,14 @@ const clients = new Table(
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
+    // Company vs individual client + WorkDrive link (see the
+    // client_contacts_sites_workdrive migration) - added to the schema
+    // late, after the rest of this table, so were previously missing from
+    // mobile's offline copy entirely despite existing in Postgres since
+    // that migration.
+    client_type: column.text,
+    company_name: column.text,
+    workdrive_url: column.text,
   },
   { indexes: { tenant: ["tenant_id"] } }
 );
@@ -46,6 +54,25 @@ const client_sites = new Table(
     postcode: column.text,
     is_primary: column.integer,
     notes: column.text,
+    created_at: column.text,
+  },
+  { indexes: { client: ["client_id"] } }
+);
+
+// A named person at a client (especially a company client) beyond the
+// single name/email/phone on the clients row itself - see the
+// client_contacts_sites_workdrive migration. Same tenant-wide read/write
+// RLS shape as clients/client_sites, so it joins the same
+// tenant_reference_data PowerSync bucket.
+const client_contacts = new Table(
+  {
+    tenant_id: column.text,
+    client_id: column.text,
+    name: column.text,
+    role: column.text,
+    email: column.text,
+    phone: column.text,
+    is_primary: column.integer,
     created_at: column.text,
   },
   { indexes: { client: ["client_id"] } }
@@ -81,6 +108,18 @@ const job_cards = new Table(
     work_order_number: column.text,
     nte_limit_cents: column.integer,
     nte_exceeded_approved: column.integer,
+    // Link to the job's WorkDrive folder (see the workdrive_links
+    // migration) - a plain URL, offline-editable like the rest of this
+    // table since sync rules already select * from job_cards.
+    workdrive_url: column.text,
+    // B2B & Referrals attribution (see the b2b_referral_tracking
+    // migration) - null/0 for a job with no referral source.
+    // referral_fee_amount_cents is computed server-side by a Postgres
+    // trigger when the linked invoice is marked paid, not something this
+    // device ever writes; referral_fee_paid is a manual admin toggle.
+    referral_partner_id: column.text,
+    referral_fee_paid: column.integer,
+    referral_fee_amount_cents: column.integer,
   },
   { indexes: { client: ["client_id"], technician: ["assigned_technician_id"] } }
 );
@@ -194,6 +233,7 @@ const inventory_items = new Table(
     name: column.text,
     reorder_threshold: column.integer,
     ideal_stock: column.integer,
+    image_url: column.text,
     created_at: column.text,
     updated_at: column.text,
   },
@@ -348,8 +388,101 @@ const tasks = new Table(
     created_by: column.text,
     created_at: column.text,
     updated_at: column.text,
+    // Asana-style project engine (see the asana_task_engine migration) -
+    // section_id is a purely organisational Kanban-column position within
+    // project_id, independent of `status` above which still drives
+    // completion everywhere it always has.
+    project_id: column.text,
+    section_id: column.text,
+    parent_task_id: column.text,
+    priority: column.text,
+    is_milestone: column.integer,
+    start_date: column.text,
+    position_order: column.integer,
+    estimated_hours: column.real,
+    actual_hours: column.real,
+    client_id: column.text,
+    property_id: column.text,
   },
-  { indexes: { job: ["job_card_id"], assignee: ["assigned_to"] } }
+  {
+    indexes: {
+      job: ["job_card_id"],
+      assignee: ["assigned_to"],
+      project: ["project_id"],
+      section: ["section_id"],
+      parent: ["parent_task_id"],
+    },
+  }
+);
+
+// Admin-managed project setup data, tenant-wide read like service_categories/
+// job_lifecycle_stages above - see the asana_task_engine migration.
+const task_projects = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    description: column.text,
+    color_hex: column.text,
+    icon: column.text,
+    view_type: column.text,
+    is_archived: column.integer,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const task_sections = new Table(
+  {
+    tenant_id: column.text,
+    project_id: column.text,
+    name: column.text,
+    position_order: column.integer,
+    created_at: column.text,
+  },
+  { indexes: { project: ["project_id"] } }
+);
+
+// A directed edge - blocking_task_id blocks dependent_task_id.
+const task_dependencies = new Table(
+  {
+    tenant_id: column.text,
+    blocking_task_id: column.text,
+    dependent_task_id: column.text,
+    created_at: column.text,
+  },
+  { indexes: { blocking: ["blocking_task_id"], dependent: ["dependent_task_id"] } }
+);
+
+const task_custom_fields = new Table(
+  {
+    tenant_id: column.text,
+    project_id: column.text,
+    name: column.text,
+    field_type: column.text,
+    // JSON-encoded array of option strings, DROPDOWN fields only - see
+    // job_measurements.facets above for the same jsonb-as-text convention.
+    options: column.text,
+    position_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { project: ["project_id"] } }
+);
+
+const task_custom_field_values = new Table(
+  {
+    tenant_id: column.text,
+    task_id: column.text,
+    custom_field_id: column.text,
+    value_text: column.text,
+    value_number: column.real,
+    value_date: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { task: ["task_id"], field: ["custom_field_id"] } }
 );
 
 // Notes/files attached to a task - same shape as job_notes/job_files,
@@ -390,6 +523,7 @@ export const AppSchema = new Schema({
   profiles,
   clients,
   client_sites,
+  client_contacts,
   job_cards,
   job_notes,
   job_files,
@@ -397,6 +531,11 @@ export const AppSchema = new Schema({
   tasks,
   task_notes,
   task_files,
+  task_projects,
+  task_sections,
+  task_dependencies,
+  task_custom_fields,
+  task_custom_field_values,
   service_categories,
   job_lifecycle_stages,
   inventory_locations,

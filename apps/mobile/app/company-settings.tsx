@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { updateCompanySettingsSchema, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
-import { useSupabaseFetch } from "../lib/use-supabase-fetch";
+import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
 import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
 import { FormField } from "../components/FormField";
 
 const LOGO_BUCKET = "company-logos";
+
+interface XeroStatus {
+  connected: boolean;
+  org_name?: string;
+  connected_at?: string;
+}
 
 // Minimal, single-screen settings - just the fields the Phase 5 PDF export
 // needs (company name, ABN, business address, license number, bank
@@ -28,6 +34,28 @@ export default function CompanySettingsScreen() {
     if (error) throw error;
     return data as Tenant;
   }, [profile?.tenant_id, isOnline]);
+
+  // Xero connection status - RPC rather than a synced table (xero_
+  // connections has zero PowerSync grants by design, service-role only).
+  // Connecting opens the OAuth flow in the device browser (Linking,
+  // there's no in-app webview flow here) - the callback always redirects
+  // to the desktop app's own Settings page (server-side configured, not
+  // platform-aware - see xero-oauth-callback), so a mobile-initiated
+  // connect finishes visibly in the phone's browser on the web app, not
+  // back in this native screen. Since it's one Xero connection per
+  // tenant either way, refetching on focus (returning to this screen
+  // after finishing in the browser) is enough to pick up the result here
+  // too, without needing a custom URL scheme/deep link back into the app.
+  const { data: xeroStatus, refetch: refetchXeroStatus } = useSupabaseFetch<XeroStatus>(async () => {
+    const { data, error } = await supabase.rpc("get_xero_connection_status");
+    if (error) throw error;
+    return data as XeroStatus;
+  }, [profile?.tenant_id, isOnline]);
+  useRefetchOnFocus(refetchXeroStatus);
+  const [xeroConnecting, setXeroConnecting] = useState(false);
+  const [xeroDisconnecting, setXeroDisconnecting] = useState(false);
+  const [xeroConnectError, setXeroConnectError] = useState<string | null>(null);
+  const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
 
   const [name, setName] = useState("");
   const [abn, setAbn] = useState("");
@@ -64,8 +92,45 @@ export default function CompanySettingsScreen() {
       setBankAccountName(tenant.bank_account_name ?? "");
       setBankAccountNumber(tenant.bank_account_number ?? "");
       setBankBsb(tenant.bank_bsb ?? "");
+      setXeroSalesAccountCode(tenant.xero_sales_account_code ?? "200");
     }
   }, [tenant]);
+
+  const connectXero = async () => {
+    setXeroConnecting(true);
+    setXeroConnectError(null);
+    try {
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Xero connection");
+      await Linking.openURL(resBody.url as string);
+    } catch (e) {
+      setXeroConnectError(getErrorMessage(e, "Failed to start Xero connection"));
+    } finally {
+      setXeroConnecting(false);
+    }
+  };
+
+  const disconnectXero = async () => {
+    setXeroDisconnecting(true);
+    setXeroConnectError(null);
+    try {
+      const { error } = await supabase.rpc("disconnect_xero");
+      if (error) throw error;
+      refetchXeroStatus();
+    } catch (e) {
+      setXeroConnectError(getErrorMessage(e, "Failed to disconnect"));
+    } finally {
+      setXeroDisconnecting(false);
+    }
+  };
 
   // Logo upload is a separate, immediate write (not part of the Save
   // changes form below) - same pattern as job/task photo attachments:
@@ -146,6 +211,7 @@ export default function CompanySettingsScreen() {
       bank_account_name: bankAccountName,
       bank_account_number: bankAccountNumber,
       bank_bsb: bankBsb,
+      xero_sales_account_code: xeroSalesAccountCode,
     });
     if (!result.success) {
       setSaveError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -171,6 +237,7 @@ export default function CompanySettingsScreen() {
           bank_account_name: result.data.bank_account_name || null,
           bank_account_number: result.data.bank_account_number || null,
           bank_bsb: result.data.bank_bsb || null,
+          xero_sales_account_code: result.data.xero_sales_account_code || "200",
         })
         .eq("id", profile?.tenant_id);
       if (error) throw error;
@@ -274,6 +341,48 @@ export default function CompanySettingsScreen() {
       <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
       </Pressable>
+
+      <Text style={styles.sectionTitle}>Xero</Text>
+      <View style={styles.xeroCard}>
+        {xeroStatus?.connected ? (
+          <>
+            <Text style={styles.xeroConnectedText}>Connected to {xeroStatus.org_name || "Xero"}</Text>
+            {xeroStatus.connected_at ? (
+              <Text style={styles.xeroMeta}>Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</Text>
+            ) : null}
+            <Pressable onPress={disconnectXero} disabled={xeroDisconnecting} style={{ marginTop: 8 }}>
+              <Text style={styles.xeroDisconnectLink}>{xeroDisconnecting ? "Disconnecting..." : "Disconnect Xero"}</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.xeroMeta}>
+              Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
+              Xero" button once connected.
+            </Text>
+            <Pressable style={styles.xeroConnectButton} onPress={connectXero} disabled={xeroConnecting}>
+              <Text style={styles.xeroConnectButtonText}>{xeroConnecting ? "Opening Xero..." : "Connect to Xero"}</Text>
+            </Pressable>
+          </>
+        )}
+        {xeroConnectError ? <Text style={styles.error}>{xeroConnectError}</Text> : null}
+      </View>
+
+      {xeroStatus?.connected ? (
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Xero sales account code"
+            placeholder="200"
+            value={xeroSalesAccountCode}
+            onChangeText={setXeroSalesAccountCode}
+            keyboardType="number-pad"
+          />
+          <Text style={styles.xeroMeta}>
+            The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
+            default "Sales" code.
+          </Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -297,4 +406,10 @@ const styles = StyleSheet.create({
   logoButton: { backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   logoButtonText: { color: "#1d4ed8", fontWeight: "600" },
   link: { color: "#dc2626", fontWeight: "600" },
+  xeroCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 4 },
+  xeroConnectedText: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  xeroMeta: { fontSize: 13, color: "#6b7280" },
+  xeroDisconnectLink: { color: "#dc2626", fontWeight: "600" },
+  xeroConnectButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start", marginTop: 8 },
+  xeroConnectButtonText: { color: "#fff", fontWeight: "700" },
 });

@@ -145,25 +145,25 @@ export function ReferralAnalyticsTab({
   return (
     <div>
       <div className="mb-6 grid grid-cols-4 gap-4">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Total Referral Revenue (YTD)</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totalReferralRevenueYtdCents)}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Conversion Rate of Referred Leads</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{conversionRate.toFixed(0)}%</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">Average Value per Referred Job</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(avgValuePerReferredJobCents)}</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <p className="text-xs uppercase tracking-wide text-gray-400">BNI TYFCB Total (YTD)</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(bniTyfcbYtdCents)}</p>
         </div>
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-gray-500">BNI TYFCB Export Tool</h2>
         <p className="mb-4 text-sm text-gray-500">
           "Thank You For Closed Business" - ready-to-copy totals formatted for BNI Connect input, filtered by chapter and date range.
@@ -231,7 +231,7 @@ export function ReferralAnalyticsTab({
           <p className="py-6 text-center text-sm text-gray-500">No paid, referred jobs in this range.</p>
         ) : (
           <table className="mb-4 w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 text-xs uppercase text-gray-500">
               <tr>
                 <th className="py-2 font-semibold">Partner Name</th>
                 <th className="py-2 text-right font-semibold">Jobs Won Count</th>
@@ -240,7 +240,7 @@ export function ReferralAnalyticsTab({
             </thead>
             <tbody>
               {tyfcbRows.map((r) => (
-                <tr key={r.partner!.id} className="border-b border-gray-100 last:border-0">
+                <tr key={r.partner!.id} className="border-b border-gray-200 last:border-0">
                   <td className="py-2">{partnerDisplayName(r.partner!)}</td>
                   <td className="py-2 text-right">{r.jobsWon}</td>
                   <td className="py-2 text-right font-semibold">{formatCentsAsAud(r.revenueCents)}</td>

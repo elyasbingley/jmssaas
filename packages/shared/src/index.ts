@@ -4,4 +4,7 @@ export * from "./geo";
 export * from "./placeholders";
 export * from "./reports";
 export * from "./schemas";
+export * from "./email-recipients";
+export * from "./calendar-recurrence";
+export * from "./cost-of-ops";
 export * from "./powersync/schema";

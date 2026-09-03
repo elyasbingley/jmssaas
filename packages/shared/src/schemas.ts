@@ -3,6 +3,13 @@ import type { ReportFieldType } from "./reports";
 import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
 
 export const createClientSchema = z.object({
+  // "Individual" (regular COD homeowner): `name` is their own full name.
+  // "Company": `name` is the primary contact person, company_name is the
+  // company's own name (required in that case - see the refine below) -
+  // this is what stops a company client ever being saved with just a
+  // person's name and no company name, or vice versa.
+  client_type: z.enum(["individual", "company"]).default("individual"),
+  company_name: z.string().optional(),
   name: z.string().min(1, "Name is required"),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
@@ -12,8 +19,22 @@ export const createClientSchema = z.object({
   suburb: z.string().optional(),
   state: z.string().optional(),
   postcode: z.string().optional(),
+  workdrive_url: z.string().optional(),
+}).refine((data) => data.client_type !== "company" || !!data.company_name?.trim(), {
+  message: "Company name is required for a company client",
+  path: ["company_name"],
 });
 export type CreateClientInput = z.infer<typeof createClientSchema>;
+
+export const createClientContactSchema = z.object({
+  client_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  role: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+  is_primary: z.boolean().default(false),
+});
+export type CreateClientContactInput = z.infer<typeof createClientContactSchema>;
 
 export const createClientSiteSchema = z.object({
   client_id: z.string().uuid(),
@@ -51,8 +72,31 @@ export const createJobCardSchema = z.object({
   // B2B & Referral Tracking module (see the b2b_referral_tracking
   // migration) - which partner sent this job, if any.
   referral_partner_id: z.string().uuid().optional(),
+  // Lead Source (see the lead_sources migration) - referral_partner_id
+  // above is only meaningful once this points at a lead source flagged
+  // is_referral_source.
+  lead_source_id: z.string().uuid().optional(),
 });
 export type CreateJobCardInput = z.infer<typeof createJobCardSchema>;
+
+// Retrofits an EXISTING job (and, transitively, any quote/invoice already
+// linked to it - they read these same job_cards columns live via a join,
+// see InvoiceDetail.tsx's fetchInvoice) with real-estate/strata agency
+// assignment - the "New job" form's is_real_estate_job/agency_id/etc.
+// fields were previously only ever settable once, at creation. Same field
+// set as createJobCardSchema's real-estate slice, just standalone since
+// this is a full update (not a create) and is_real_estate_job is
+// required rather than optional here - the control always sends an
+// explicit true/false, never omits it.
+export const updateJobRealEstateAssignmentSchema = z.object({
+  is_real_estate_job: z.boolean(),
+  agency_id: z.string().uuid().optional().or(z.literal("")),
+  property_manager_id: z.string().uuid().optional().or(z.literal("")),
+  property_id: z.string().uuid().optional().or(z.literal("")),
+  work_order_number: z.string().optional(),
+  nte_limit_cents: z.number().int().positive().optional(),
+});
+export type UpdateJobRealEstateAssignmentInput = z.infer<typeof updateJobRealEstateAssignmentSchema>;
 
 export const createJobNoteSchema = z.object({
   job_card_id: z.string().uuid(),
@@ -66,14 +110,82 @@ export const createTaskNoteSchema = z.object({
 });
 export type CreateTaskNoteInput = z.infer<typeof createTaskNoteSchema>;
 
+export const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   job_card_id: z.string().uuid().optional(),
   assigned_to: z.string().uuid().optional(),
   due_date: z.string().date().optional(),
+  // Asana-style project engine (see the asana_task_engine migration).
+  project_id: z.string().uuid().optional(),
+  section_id: z.string().uuid().optional(),
+  parent_task_id: z.string().uuid().optional(),
+  priority: taskPrioritySchema.default("medium"),
+  is_milestone: z.boolean().default(false),
+  start_date: z.string().date().optional(),
+  estimated_hours: z.number().nonnegative().optional(),
+  actual_hours: z.number().nonnegative().optional(),
+  client_id: z.string().uuid().optional(),
+  property_id: z.string().uuid().optional(),
 });
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+
+// ---------------------------------------------------------------------------
+// Asana-style project management engine
+// ---------------------------------------------------------------------------
+
+export const taskProjectViewTypeSchema = z.enum(["BOARD", "LIST", "CALENDAR", "TIMELINE"]);
+
+export const createTaskProjectSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  color_hex: z.string().default("#3B82F6"),
+  icon: z.string().default("folder"),
+  view_type: taskProjectViewTypeSchema.default("BOARD"),
+});
+export type CreateTaskProjectInput = z.infer<typeof createTaskProjectSchema>;
+
+export const createTaskSectionSchema = z.object({
+  project_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  position_order: z.number().int().default(0),
+});
+export type CreateTaskSectionInput = z.infer<typeof createTaskSectionSchema>;
+
+export const createTaskDependencySchema = z.object({
+  blocking_task_id: z.string().uuid(),
+  dependent_task_id: z.string().uuid(),
+}).refine((data) => data.blocking_task_id !== data.dependent_task_id, {
+  message: "A task can't depend on itself",
+  path: ["dependent_task_id"],
+});
+export type CreateTaskDependencyInput = z.infer<typeof createTaskDependencySchema>;
+
+export const taskCustomFieldTypeSchema = z.enum(["text", "number", "dropdown", "date"]);
+
+export const createTaskCustomFieldSchema = z.object({
+  project_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  field_type: taskCustomFieldTypeSchema.default("text"),
+  // DROPDOWN fields only - ignored for every other field_type.
+  options: z.array(z.string().min(1)).optional(),
+  position_order: z.number().int().default(0),
+});
+export type CreateTaskCustomFieldInput = z.infer<typeof createTaskCustomFieldSchema>;
+
+// Only the one field matching the parent custom field's own field_type is
+// meant to be set - the UI picks which, this schema just accepts whichever
+// arrives.
+export const setTaskCustomFieldValueSchema = z.object({
+  task_id: z.string().uuid(),
+  custom_field_id: z.string().uuid(),
+  value_text: z.string().optional(),
+  value_number: z.number().optional(),
+  value_date: z.string().date().optional(),
+});
+export type SetTaskCustomFieldValueInput = z.infer<typeof setTaskCustomFieldValueSchema>;
 
 // Shared by a line item, a price book item, and a price book item variation
 // - all three price the same underlying thing (labour rate/hours, material
@@ -96,6 +208,27 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   unit_price_cents: z.number().int().nonnegative(),
   gst_applicable: z.boolean().default(true),
   sort_order: z.number().int().default(0),
+  // Copied from the source price_book_items row when a line is added from
+  // the catalogue (see AddLineItemBar) - not user-editable per line, just
+  // carried through so replace_quote_line_items/replace_invoice_line_items
+  // know which lines a membership's call-out-fee waiver can apply to.
+  is_callout_fee: z.boolean().default(false),
+  // Always server-derived (apply_membership_adjustments) - never actually
+  // submitted as a meaningful value by the client, but needed on the type so
+  // a persisted line item fetched back from quote_line_items/
+  // invoice_line_items can be read and displayed (see LineItemEditor's
+  // "Waived - Membership" label).
+  waived_amount_cents: z.number().int().nonnegative().default(0),
+  // "Subby box" - per-unit subcontractor cost on this line, same convention
+  // as material_cost_cents (multiplied by quantity, folded into
+  // computeLineItemUnitPriceCents' pre-markup cost basis).
+  is_subcontracted: z.boolean().default(false),
+  subcontractor_cost_cents: z.number().int().nonnegative().default(0),
+  // Optional/bundled line items - see types.ts's LineItemInput comment.
+  is_optional: z.boolean().default(false),
+  is_included: z.boolean().default(true),
+  bundle_name: z.string().nullable().optional(),
+  image_url: z.string().nullable().optional(),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 
@@ -109,6 +242,10 @@ export const createPriceBookItemSchema = priceBreakdownSchema.extend({
   category_id: z.string().uuid(),
   description: z.string().min(1, "Description is required"),
   sort_order: z.number().int().default(0),
+  // Flags this catalogue item as the tenant's call-out/service fee, so a
+  // membership plan's waive_callout_fee benefit knows which line item to
+  // waive once it's added to a quote/invoice (see AddLineItemBar).
+  is_callout_fee: z.boolean().default(false),
 });
 export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
 
@@ -118,6 +255,33 @@ export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
   sort_order: z.number().int().default(0),
 });
 export type CreatePriceBookVariationInput = z.infer<typeof createPriceBookVariationSchema>;
+
+export const createLineItemBundleSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateLineItemBundleInput = z.infer<typeof createLineItemBundleSchema>;
+
+// Either price_book_item_id (catalogue-linked, own breakdown fields ignored)
+// or a standalone description + its own price breakdown - see
+// LineItemBundleItem's own comment in types.ts.
+export const createLineItemBundleItemSchema = z
+  .object({
+    bundle_id: z.string().uuid(),
+    price_book_item_id: z.string().uuid().optional(),
+    description: z.string().optional(),
+    labour_rate_cents: z.number().int().nonnegative().default(0),
+    labour_hours: z.number().nonnegative().default(0),
+    material_cost_cents: z.number().int().nonnegative().default(0),
+    markup_percent: z.number().nonnegative().default(0),
+    quantity: z.number().positive().default(1),
+    sort_order: z.number().int().default(0),
+  })
+  .refine((data) => !!data.price_book_item_id || !!data.description?.trim(), {
+    message: "Pick a price book item or enter a description",
+    path: ["description"],
+  });
+export type CreateLineItemBundleItemInput = z.infer<typeof createLineItemBundleItemSchema>;
 
 export const createQuoteSchema = z.object({
   client_id: z.string().uuid(),
@@ -159,8 +323,18 @@ export const updateCompanySettingsSchema = z.object({
   bank_account_name: z.string().optional(),
   bank_account_number: z.string().optional(),
   bank_bsb: z.string().optional(),
+  xero_sales_account_code: z.string().optional(),
 });
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
+
+export const recurrenceRuleSchema = z.object({
+  freq: z.enum(["daily", "weekly", "monthly"]),
+  interval: z.number().int().min(1).max(365),
+  byWeekday: z.array(z.number().int().min(0).max(6)).optional(),
+  endType: z.enum(["never", "on", "after"]),
+  endDate: z.string().optional(),
+  count: z.number().int().min(1).max(500).optional(),
+});
 
 export const createCalendarEventSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -172,6 +346,7 @@ export const createCalendarEventSchema = z.object({
   all_day: z.boolean().default(false),
   job_card_id: z.string().uuid().optional(),
   task_id: z.string().uuid().optional(),
+  recurrence_rule: recurrenceRuleSchema.optional(),
 });
 export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>;
 
@@ -200,6 +375,22 @@ export const createJobLifecycleStageSchema = z.object({
   is_closed: z.boolean().optional().default(false),
 });
 export type CreateJobLifecycleStageInput = z.infer<typeof createJobLifecycleStageSchema>;
+
+export const createJobTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  service_category_id: z.string().uuid().optional(),
+  lifecycle_stage_id: z.string().uuid().optional(),
+  description: z.string().optional(),
+  sort_order: z.number().int().default(0),
+});
+export type CreateJobTemplateInput = z.infer<typeof createJobTemplateSchema>;
+
+export const createLeadSourceSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+  is_referral_source: z.boolean().optional().default(false),
+});
+export type CreateLeadSourceInput = z.infer<typeof createLeadSourceSchema>;
 
 export const createInventoryLocationSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -268,12 +459,96 @@ export const createJobMeasurementSchema = z.object({
 });
 export type CreateJobMeasurementInput = z.infer<typeof createJobMeasurementSchema>;
 
+// ---------------------------------------------------------------------------
+// Job Card Quote Tools
+// ---------------------------------------------------------------------------
+
+export const linearMeasurementSegmentSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1, "Label is required"),
+  coordinates: z.array(coordinateSchema).min(2, "A run needs at least 2 points"),
+  length_meters: z.number().nonnegative(),
+});
+export type LinearMeasurementSegmentInput = z.infer<typeof linearMeasurementSegmentSchema>;
+
+export const createJobLinearMeasurementSchema = z.object({
+  job_card_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  segments: z.array(linearMeasurementSegmentSchema).min(1, "Add at least one run"),
+  total_length_meters: z.number().nonnegative(),
+});
+export type CreateJobLinearMeasurementInput = z.infer<typeof createJobLinearMeasurementSchema>;
+
+export const materialTallyItemSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, "Name is required"),
+  count: z.number().int().nonnegative(),
+  category: z.string().default(""),
+});
+export type MaterialTallyItemInput = z.infer<typeof materialTallyItemSchema>;
+
+export const createJobMaterialTallySchema = z.object({
+  job_card_id: z.string().uuid(),
+  tally_name: z.string().optional(),
+  items: z.array(materialTallyItemSchema).min(1, "Add at least one item"),
+});
+export type CreateJobMaterialTallyInput = z.infer<typeof createJobMaterialTallySchema>;
+
+// total_cubic_meters/estimated_bags_20kg are derived from the other
+// fields (see money.ts-style computeLineItemUnitPriceCents precedent) but
+// still validated here since they're what actually gets persisted.
+export const createJobConcreteCalculationSchema = z.object({
+  job_card_id: z.string().uuid(),
+  calculation_name: z.string().min(1, "Name is required"),
+  length_meters: z.number().positive(),
+  width_meters: z.number().positive(),
+  depth_meters: z.number().positive(),
+  waste_percentage: z.number().nonnegative().default(10),
+  total_cubic_meters: z.number().nonnegative(),
+  estimated_bags_20kg: z.number().int().nonnegative(),
+});
+export type CreateJobConcreteCalculationInput = z.infer<typeof createJobConcreteCalculationSchema>;
+
+export const materialOrderStatusSchema = z.enum(["DRAFT", "ORDERED", "DELIVERED", "CANCELLED"]);
+
+export const materialOrderLineItemSchema = z.object({
+  item_name: z.string().min(1, "Item name is required"),
+  quantity: z.number().positive(),
+  unit_type: z.string().default("ea"),
+  notes: z.string().default(""),
+});
+export type MaterialOrderLineItemInput = z.infer<typeof materialOrderLineItemSchema>;
+
+// order_number is deliberately absent - server-assigned on insert (see
+// the migration's assign_material_order_number trigger), same as
+// quote_number/invoice_number.
+export const createJobMaterialOrderSchema = z.object({
+  job_card_id: z.string().uuid(),
+  supplier_name: z.string().optional(),
+  delivery_date: z.string().date().optional(),
+  line_items: z.array(materialOrderLineItemSchema).min(1, "Add at least one line item"),
+  status: materialOrderStatusSchema.default("DRAFT"),
+});
+export type CreateJobMaterialOrderInput = z.infer<typeof createJobMaterialOrderSchema>;
+
 export const communicationDelayUnitSchema = z.enum(["hours", "days"]);
 export const communicationDelayDirectionSchema = z.enum(["before", "after"]);
 export const communicationChannelSchema = z.enum(["sms", "email", "both"]);
 export const communicationMessageChannelSchema = z.enum(["sms", "email"]);
-export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field"]);
-export const scheduledCommunicationEntityTypeSchema = z.enum(["quote", "invoice", "job", "calendar_event", "client"]);
+export const communicationTemplateCategorySchema = z.enum(["quote", "invoice", "booking", "field", "partner"]);
+export const scheduledCommunicationEntityTypeSchema = z.enum([
+  "quote",
+  "invoice",
+  "job",
+  "calendar_event",
+  "client",
+  "property_asset",
+  "referral_partner",
+  "report",
+  "purchase_order",
+  "subcontractor",
+  "client_membership",
+]);
 
 // HH:MM or HH:MM:SS - matches the <input type="time">-style pickers used by
 // the quiet hours fields on the Automation & Messaging Settings screen.
@@ -327,6 +602,7 @@ export const createAgencySchema = z.object({
   phone: z.string().optional(),
   payment_terms_days: z.number().int().positive().default(30),
   require_work_order_num: z.boolean().default(true),
+  client_id: z.string().uuid().optional().or(z.literal("")),
 });
 export type CreateAgencyInput = z.infer<typeof createAgencySchema>;
 
@@ -377,17 +653,47 @@ export const updatePropertyContactSchema = z.object({
 });
 export type UpdatePropertyContactInput = z.infer<typeof updatePropertyContactSchema>;
 
+// Property Profile's "Edit property details" action - covers exactly the
+// fields updatePropertyContactSchema deliberately excludes (agency_id/
+// property_manager_id/address/property_type), for correcting a typo'd
+// address or reassigning a property to a different agency/PM after
+// creation - previously only settable once, at creation time.
+export const updatePropertyDetailsSchema = z.object({
+  agency_id: z.string().uuid(),
+  property_manager_id: z.string().uuid().optional().or(z.literal("")),
+  address_line1: z.string().min(1, "Address is required"),
+  suburb: z.string().min(1, "Suburb is required"),
+  state: z.string().min(1, "State is required"),
+  postcode: z.string().min(1, "Postcode is required"),
+  property_type: z.enum(["residential", "commercial", "strata_common_property", "strata_lot"]).default("residential"),
+});
+export type UpdatePropertyDetailsInput = z.infer<typeof updatePropertyDetailsSchema>;
+
 // attributes is intentionally z.record rather than a fixed shape - see
 // PropertyAssetAttributes in types.ts for the documented plumbing/roofing
 // fields this actually carries, none of which are required on any one
 // asset (a category's fields are all optional, shown/hidden by the UI).
-export const createPropertyAssetSchema = z.object({
-  property_id: z.string().uuid(),
-  category: z.enum(["plumbing", "roofing", "hvac", "general"]).default("general"),
-  asset_name: z.string().min(1, "Asset name is required"),
-  attributes: z.record(z.string(), z.unknown()).default({}),
-});
+export const createPropertyAssetSchema = z
+  .object({
+    property_id: z.string().uuid().optional(),
+    client_id: z.string().uuid().optional(),
+    category: z.enum(["plumbing", "roofing", "hvac", "general"]).default("general"),
+    asset_name: z.string().min(1, "Asset name is required"),
+    attributes: z.record(z.string(), z.unknown()).default({}),
+  })
+  .refine((data) => !!data.property_id !== !!data.client_id, {
+    message: "An asset must belong to either a property or a client, not both",
+    path: ["property_id"],
+  });
 export type CreatePropertyAssetInput = z.infer<typeof createPropertyAssetSchema>;
+
+export const createPropertyTenantSchema = z.object({
+  property_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+});
+export type CreatePropertyTenantInput = z.infer<typeof createPropertyTenantSchema>;
 
 export const createKeyLogSchema = z.object({
   property_id: z.string().uuid(),
@@ -600,3 +906,104 @@ export const createPurchaseOrderSchema = z.object({
   billed_to_client_cents: z.number().int().nonnegative().optional(),
 });
 export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;
+
+// ---------------------------------------------------------------------------
+// Membership Module (Munus) - mirrors membership_plans_and_clients.sql.
+// ---------------------------------------------------------------------------
+
+export const membershipStatusSchema = z.enum(["active", "past_due", "cancelled", "expired"]);
+export const membershipBenefitTypeSchema = z.enum(["annual_roof_inspection", "annual_plumbing_check"]);
+
+// One row per tenant for now (see the migration's own comment on the
+// partial unique index this reflects) - used for both the first-time
+// setup form and every later edit of the tenant's single plan.
+export const membershipPlanFormSchema = z.object({
+  name: z.string().min(1, "Name is required").default("Membership"),
+  annual_price_cents: z.number().int().nonnegative(),
+  discount_percent: z.number().min(0).max(100).default(0),
+  waive_callout_fee: z.boolean().default(true),
+  priority_scheduling: z.boolean().default(true),
+  same_day_response: z.boolean().default(false),
+  annual_roof_inspections_included: z.number().int().nonnegative().default(1),
+  annual_plumbing_checks_included: z.number().int().nonnegative().default(1),
+  is_active: z.boolean().default(true),
+});
+export type MembershipPlanFormInput = z.infer<typeof membershipPlanFormSchema>;
+
+// Client enrollment itself is never form-driven (it happens via Stripe
+// Checkout, and the client_memberships row is created by the
+// membership-stripe-webhook function on checkout.session.completed) - no
+// create schema needed for it here.
+
+export const recordMembershipBenefitUsageSchema = z.object({
+  client_membership_id: z.string().uuid(),
+  benefit_type: membershipBenefitTypeSchema,
+  job_card_id: z.string().uuid().optional(),
+  period_start: z.string().date(),
+  period_end: z.string().date(),
+});
+export type RecordMembershipBenefitUsageInput = z.infer<typeof recordMembershipBenefitUsageSchema>;
+
+// ---------------------------------------------------------------------------
+// Cost of Ops module
+// ---------------------------------------------------------------------------
+
+// One schema covering every settings field - each tab's "Edit assumptions"
+// action only ever changes the handful of fields it owns, but always
+// submits the full current settings object back (simpler than juggling a
+// separate schema per tab for what's ultimately one settings row).
+export const updateCostOfOpsSettingsSchema = z.object({
+  ordinary_hours_per_week: z.number().positive(),
+  weekend_days_per_year: z.number().int().nonnegative(),
+  public_holidays_per_year: z.number().int().nonnegative(),
+  annual_leave_days: z.number().int().nonnegative(),
+  sick_days: z.number().int().nonnegative(),
+  rain_shutdown_days: z.number().int().nonnegative(),
+  estimated_efficiency_rate: z.number().min(0).max(1),
+  target_labour_profit_margin: z.number().min(0).max(1),
+  actual_charge_rate_cents: z.number().int().nonnegative(),
+  materials_avg_monthly_spend_cents: z.number().int().nonnegative(),
+  materials_avg_markup: z.number().min(0),
+  contractors_weekly_spend_cents: z.number().int().nonnegative(),
+  contractors_weekly_hours: z.number().min(0),
+  vehicles_owned: z.number().int().nonnegative(),
+  vehicle_holding_cost_cents: z.number().int().nonnegative(),
+  buffer_percent: z.number().min(0),
+});
+export type UpdateCostOfOpsSettingsInput = z.infer<typeof updateCostOfOpsSettingsSchema>;
+
+export const createOperatingExpenseSchema = z.object({
+  account_name: z.string().min(1, "Account name is required"),
+  monthly_amount_cents: z.number().int().nonnegative().default(0),
+  budget_amount_cents: z.number().int().nonnegative().optional(),
+  is_default_category: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+});
+export type CreateOperatingExpenseInput = z.infer<typeof createOperatingExpenseSchema>;
+
+export const costOfOpsRoleTypeSchema = z.enum(["owner", "field_staff", "apprentice", "admin", "subcontractor"]);
+export const costOfOpsPayTypeSchema = z.enum(["salary", "hourly"]);
+
+export const createLabourCostEntrySchema = z
+  .object({
+    role_type: costOfOpsRoleTypeSchema,
+    profile_id: z.string().uuid().optional().or(z.literal("")),
+    name: z.string().optional(),
+    pay_type: costOfOpsPayTypeSchema.default("hourly"),
+    annual_salary_cents: z.number().int().nonnegative().optional(),
+    superannuation_cents: z.number().int().nonnegative().optional(),
+    hourly_rate_cents: z.number().int().nonnegative().optional(),
+    superannuation_rate: z.number().min(0).optional(),
+    allowance_cents: z.number().int().nonnegative().optional(),
+    billable_hours_per_week: z.number().min(0).default(0),
+    non_billable_hours_per_week: z.number().min(0).default(0),
+    apprentice_utilisation: z.number().min(0).max(1).optional(),
+    subcontractor_charge_out_rate_cents: z.number().int().nonnegative().optional(),
+    subcontractor_travel_allow_cents: z.number().int().nonnegative().optional(),
+    sort_order: z.number().int().default(0),
+  })
+  .refine((data) => data.role_type === "subcontractor" || !!data.profile_id || !!data.name?.trim(), {
+    message: "Pick a linked team member or enter a name",
+    path: ["name"],
+  });
+export type CreateLabourCostEntryInput = z.infer<typeof createLabourCostEntrySchema>;

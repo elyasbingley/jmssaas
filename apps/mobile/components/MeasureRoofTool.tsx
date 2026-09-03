@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { usePowerSync, useQuery } from "@powersync/react";
 import * as Location from "expo-location";
 import MapView, { Marker, Polygon, Polyline, type Region } from "react-native-maps";
@@ -15,20 +14,20 @@ import {
   type Coordinate,
   type Facet,
   type JobCard,
+  type JobMeasurement,
 } from "@jmssaas/shared";
-import { useAuth } from "../../../../lib/auth-context";
-import { formatClientAddress } from "../../../../lib/format";
-import { addJobPhoto } from "../../../../lib/powersync";
-import { getErrorMessage } from "../../../../lib/errors";
-import { CenteredModal } from "../../../../components/CenteredModal";
-import { FormField } from "../../../../components/FormField";
+import { useAuth } from "../lib/auth-context";
+import { formatClientAddress } from "../lib/format";
+import { addJobPhoto } from "../lib/powersync";
+import { getErrorMessage } from "../lib/errors";
+import { CenteredModal } from "./CenteredModal";
+import { FormField } from "./FormField";
 
-// A locally-drawn facet, before it's been saved - flat_area_sqm/
-// true_area_sqm aren't tracked here, they're derived live from
-// coordinates/pitch_degrees on every render (see facetAreas below) so
-// there's no risk of stale numbers; the persisted Facet shape (which does
-// store the computed areas - see types.ts) only gets built once, at save
-// time.
+// Embeddable Roof Area Tool for the Quote Tools tab - same drawing/save
+// logic as the old standalone /sales/jobs/measure route, restructured so
+// it toggles a local "drawing" flag instead of navigating to its own
+// screen (see RoofAreaTool.tsx, desktop's equivalent embedding).
+
 interface DraftFacet {
   id: string;
   name: string;
@@ -37,14 +36,8 @@ interface DraftFacet {
   finished: boolean;
 }
 
-// Cycled by facet index so overlapping/adjacent facets on the map are
-// visually distinguishable - not persisted anywhere, purely a drawing aid.
 const FACET_COLORS = ["#1d4ed8", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 
-// Roof-scale zoom - a few dozen metres across, close enough to place
-// individual vertices accurately. Sydney is just a reasonable Australian
-// default for the last-resort fallback below, not anything address-
-// specific - the person is expected to pan/zoom manually in that case.
 const DEFAULT_REGION: Region = { latitude: -33.8688, longitude: 151.2093, latitudeDelta: 0.01, longitudeDelta: 0.01 };
 const FACET_REGION_DELTA = 0.0025;
 
@@ -52,46 +45,33 @@ function toLatLng(coordinate: Coordinate) {
   return { latitude: coordinate.lat, longitude: coordinate.lng };
 }
 
-export default function MeasureRoofScreen() {
-  const { jobCardId } = useLocalSearchParams<{ jobCardId: string }>();
-  const router = useRouter();
+export function MeasureRoofTool({ jobCardId }: { jobCardId: string }) {
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const mapRef = useRef<MapView>(null);
 
-  const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [jobCardId ?? ""]);
+  const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [jobCardId]);
   const job = jobRows[0];
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
   const client = clientRows[0];
   const { data: siteRows } = useQuery<ClientSite>("SELECT * FROM client_sites WHERE id = ?", [job?.site_id ?? ""]);
   const site = siteRows[0];
+  const { data: measurements } = useQuery<JobMeasurement>(
+    "SELECT * FROM job_measurements WHERE job_card_id = ? ORDER BY created_at DESC",
+    [jobCardId]
+  );
 
-  // The job's own site (if one was picked) is the more specific address -
-  // falls back to the client's address, then gives up and centers on the
-  // device's current location, then a fixed default - see resolveRegion.
   const address = (job?.site_id ? formatClientAddress(site ?? { address_line1: null, address_line2: null, suburb: null, state: null, postcode: null }) : null) ?? (client ? formatClientAddress(client) : null);
 
+  const [drawing, setDrawing] = useState(false);
   const [region, setRegion] = useState<Region | null>(null);
   const [locating, setLocating] = useState(true);
 
   useEffect(() => {
-    // Waits for the job/client/site rows to actually load before resolving
-    // an address to geocode - `address` is null both "not loaded yet" and
-    // "genuinely has no address", so this only proceeds once `job` exists.
-    if (!job) return;
+    if (!drawing || !job) return;
     let cancelled = false;
 
     async function resolveRegion() {
-      // Unlike iOS's CLGeocoder (a pure lookup, no permission needed),
-      // Android's native Geocoder - what Location.geocodeAsync uses under
-      // the hood - requires location permission on some OS versions/OEMs
-      // even for forward geocoding, confirmed live ("Not authorized to use
-      // location services" thrown from geocodeAsync itself on a real
-      // device). Request permission up front, before attempting geocoding
-      // at all, so both the geocoding attempt and the current-position
-      // fallback below have it - a denied/unavailable permission just means
-      // geocodeAsync fails the same way it would offline, falling through
-      // to the same fallback chain either way.
       let permissionGranted = false;
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -147,7 +127,7 @@ export default function MeasureRoofScreen() {
     return () => {
       cancelled = true;
     };
-  }, [job, address]);
+  }, [drawing, job, address]);
 
   const [facets, setFacets] = useState<DraftFacet[]>([]);
   const [activeFacetId, setActiveFacetId] = useState<string | null>(null);
@@ -219,6 +199,14 @@ export default function MeasureRoofScreen() {
 
   const savableFacets = facets.filter((f) => f.coordinates.length >= 3);
 
+  const resetDraft = () => {
+    setDrawing(false);
+    setFacets([]);
+    setActiveFacetId(null);
+    setRegion(null);
+    setLocating(true);
+  };
+
   const handleSave = async () => {
     if (!job || !profile || savableFacets.length === 0) return;
 
@@ -267,8 +255,6 @@ export default function MeasureRoofScreen() {
           snapshotPath = `${profile.tenant_id}/${job.id}`;
         }
       } catch (e) {
-        // A failed snapshot shouldn't block saving the measurement itself -
-        // the numbers are what actually matter; the map image is a bonus.
         console.error("[MeasureRoof] Snapshot capture failed, saving measurement without one", e);
       }
 
@@ -305,7 +291,7 @@ export default function MeasureRoofScreen() {
         [uuidv4(), profile.tenant_id, job.id, profile.id, summaryLines.join("\n"), now]
       );
 
-      router.back();
+      resetDraft();
     } catch (e) {
       console.error("[MeasureRoof] Failed to save measurement", e);
       setSaveError(getErrorMessage(e, "Failed to save measurement (see console for details)"));
@@ -314,16 +300,36 @@ export default function MeasureRoofScreen() {
     }
   };
 
-  if (!job) {
+  if (!drawing) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.empty}>Loading...</Text>
+      <View>
+        <Pressable style={styles.measureButton} onPress={() => setDrawing(true)}>
+          <Text style={styles.measureButtonText}>📐 Measure Roof</Text>
+        </Pressable>
+        {measurements.length === 0 ? (
+          <Text style={styles.subtitle}>Draw roof sections on a satellite map and save the total area to this job.</Text>
+        ) : (
+          <View style={{ gap: 8 }}>
+            {measurements.map((m) => (
+              <View key={m.id} style={styles.measurementRow}>
+                <View>
+                  <Text style={styles.measurementTitle}>{m.title}</Text>
+                  <Text style={styles.measurementDate}>{new Date(m.created_at).toLocaleDateString("en-AU")}</Text>
+                </View>
+                <View>
+                  <Text style={styles.measurementArea}>{m.total_true_area_sqm.toFixed(1)} m² true</Text>
+                  <Text style={styles.measurementAreaSub}>{m.total_flat_area_sqm.toFixed(1)} m² flat</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View>
       <View style={styles.totalsHeader}>
         <View>
           <Text style={styles.totalsLabel}>Total flat area</Text>
@@ -333,6 +339,9 @@ export default function MeasureRoofScreen() {
           <Text style={styles.totalsLabel}>Total true surface area</Text>
           <Text style={[styles.totalsValue, styles.totalsValueBold]}>{totalTrue.toFixed(1)} m²</Text>
         </View>
+        <Pressable onPress={resetDraft}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
       </View>
 
       {locating || !region ? (
@@ -449,23 +458,45 @@ export default function MeasureRoofScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
+  center: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 24 },
   empty: { color: "#6b7280" },
+  subtitle: { color: "#6b7280", fontSize: 13, marginTop: 4 },
+  measureButton: {
+    backgroundColor: "#1d4ed8",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  measureButtonText: { color: "#fff", fontWeight: "700" },
+  measurementRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e7eb",
+    paddingTop: 8,
+  },
+  measurementTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  measurementDate: { fontSize: 12, color: "#6b7280" },
+  measurementArea: { fontSize: 14, color: "#374151", textAlign: "right" },
+  measurementAreaSub: { fontSize: 11, color: "#9ca3af", textAlign: "right" },
   totalsHeader: {
     flexDirection: "row",
     justifyContent: "space-around",
-    padding: 12,
+    alignItems: "center",
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: "#d1d5db",
+    marginBottom: 8,
   },
   totalsLabel: { fontSize: 12, color: "#6b7280", textAlign: "center" },
   totalsValue: { fontSize: 18, fontWeight: "700", color: "#111827", textAlign: "center" },
   totalsValueBold: { color: "#1d4ed8" },
-  map: { flex: 1 },
+  map: { height: 300, borderRadius: 8 },
   hint: { textAlign: "center", color: "#6b7280", fontSize: 12, paddingVertical: 6, paddingHorizontal: 12 },
-  drawer: { maxHeight: 240, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb" },
-  drawerContent: { padding: 12, gap: 8 },
+  drawer: { maxHeight: 220 },
+  drawerContent: { paddingVertical: 8, gap: 8 },
   facetRow: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, gap: 6 },
   facetRowActive: { backgroundColor: "#eef2ff" },
   facetRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
@@ -491,7 +522,7 @@ const styles = StyleSheet.create({
   activeFacetActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
   newFacetButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 12, alignItems: "center" },
   newFacetButtonText: { color: "#fff", fontWeight: "700" },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", margin: 12 },
+  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 10 },
   saveButtonDisabled: { backgroundColor: "#93c5fd" },
   saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   error: { color: "#dc2626", textAlign: "center", marginTop: 6 },

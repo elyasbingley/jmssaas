@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { computeLineItemUnitPriceCents, formatCentsAsAud, type PriceBookCategory, type PriceBookItem } from "@jmssaas/shared";
 import { useIsOnline } from "../../../../../lib/connectivity";
@@ -79,12 +79,23 @@ export default function PriceBookCategoryScreen() {
         <View style={styles.grid}>
           {(items ?? []).map((item) => (
             <Pressable key={item.id} style={styles.tile} onPress={() => router.push(`/sales/price-book/items/${item.id}`)}>
-              <Text style={styles.tileLabel} numberOfLines={1}>
-                {item.description}
-              </Text>
-              <Text style={styles.tilePrice}>
-                {formatCentsAsAud(computeLineItemUnitPriceCents(item))}
-              </Text>
+              {item.image_url ? (
+                <ImageBackground source={{ uri: item.image_url }} style={styles.tileImageBg}>
+                  <View style={styles.tileImageOverlay}>
+                    <Text style={styles.tileImageLabel} numberOfLines={2}>
+                      {item.description}
+                    </Text>
+                    <Text style={styles.tileImagePrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</Text>
+                  </View>
+                </ImageBackground>
+              ) : (
+                <View style={styles.tilePlain}>
+                  <Text style={styles.tileLabel} numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                  <Text style={styles.tilePrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</Text>
+                </View>
+              )}
             </Pressable>
           ))}
         </View>
@@ -119,14 +130,26 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   tile: {
     width: "46%",
-    aspectRatio: 1.3,
-    backgroundColor: "#f3f4f6",
+    // See price-book/index.tsx's own comment - a wrapped 2-line description
+    // plus the price line needs more vertical room than 1.3 left inside
+    // this overflow-clipped tile, so text that didn't fit was silently cut
+    // off rather than just looking cramped.
+    aspectRatio: 1.05,
     borderRadius: 16,
+    overflow: "hidden",
+  },
+  tilePlain: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     padding: 10,
   },
+  tileImageBg: { flex: 1, justifyContent: "flex-end" },
+  tileImageOverlay: { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, gap: 2 },
+  tileImageLabel: { fontSize: 15, fontWeight: "700", color: "#fff", textAlign: "center" },
+  tileImagePrice: { fontSize: 13, color: "#fff", fontWeight: "600", textAlign: "center" },
   tileLabel: { fontSize: 15, fontWeight: "700", color: "#111827", textAlign: "center" },
   tilePrice: { fontSize: 13, color: "#1d4ed8", fontWeight: "600" },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },

@@ -534,7 +534,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: "#d1d5db",
   },
   templateRowText: { flex: 1 },
   templateName: { fontSize: 13, fontWeight: "600", color: "#111827" },

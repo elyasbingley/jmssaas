@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
   row: {
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
     gap: 3,
   },
   rowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

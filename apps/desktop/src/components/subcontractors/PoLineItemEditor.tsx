@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { formatCentsAsAud, type PoLineItemInput } from "@jmssaas/shared";
 
 // Purchase order line items are a much flatter shape than quotes/invoices'
@@ -8,6 +9,36 @@ import { formatCentsAsAud, type PoLineItemInput } from "@jmssaas/shared";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
+}
+
+// See LineItemEditor.tsx's DecimalField for why a plain value={number} input
+// can never accept a decimal point being typed by hand.
+function DecimalField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  disabled?: boolean;
+}) {
+  const [text, setText] = useState(() => (value === 0 ? "" : String(value)));
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      disabled={disabled}
+      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+      value={text}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (!/^\d*\.?\d*$/.test(next)) return;
+        setText(next);
+        onChange(parseNumber(next));
+      }}
+    />
+  );
 }
 
 export function PoLineItemEditor({
@@ -30,7 +61,7 @@ export function PoLineItemEditor({
   return (
     <div>
       {items.map((item, index) => (
-        <div key={index} className="mb-3 rounded-lg border border-gray-200 p-4">
+        <div key={index} className="mb-3 rounded-lg border border-gray-300 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
             {!readOnly ? (
@@ -50,24 +81,14 @@ export function PoLineItemEditor({
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Quantity</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                disabled={readOnly}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                value={item.quantity}
-                onChange={(e) => updateItem(index, { quantity: parseNumber(e.target.value) })}
-              />
+              <DecimalField value={item.quantity} disabled={readOnly} onChange={(n) => updateItem(index, { quantity: n })} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-500">Unit cost ($)</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                disabled={readOnly}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+              <DecimalField
                 value={item.unit_cost_cents / 100}
-                onChange={(e) => updateItem(index, { unit_cost_cents: Math.round(parseNumber(e.target.value) * 100) })}
+                disabled={readOnly}
+                onChange={(n) => updateItem(index, { unit_cost_cents: Math.round(n * 100) })}
               />
             </div>
             <div>
@@ -84,7 +105,7 @@ export function PoLineItemEditor({
         </button>
       ) : null}
 
-      <div className="flex justify-between border-t border-gray-200 pt-3 text-sm font-bold text-gray-900">
+      <div className="flex justify-between border-t border-gray-300 pt-3 text-sm font-bold text-gray-900">
         <span>Total cost</span>
         <span>{formatCentsAsAud(totalCents)}</span>
       </div>
