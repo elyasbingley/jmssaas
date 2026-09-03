@@ -54,6 +54,15 @@ export interface Tenant {
   created_at: string;
 }
 
+// Which of the Dashboard's four summary widgets this user has switched on -
+// see dashboard.ts for the defaults and the counting logic that feeds them.
+export interface DashboardWidgetPrefs {
+  jobs_today: boolean;
+  jobs_tomorrow: boolean;
+  invoices: boolean;
+  quotes: boolean;
+}
+
 export interface Profile {
   id: string;
   tenant_id: string;
@@ -63,6 +72,7 @@ export interface Profile {
   phone: string | null;
   created_at: string;
   updated_at: string;
+  dashboard_widgets: DashboardWidgetPrefs;
 }
 
 export type ClientType = "individual" | "company";

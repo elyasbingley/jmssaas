@@ -13,7 +13,7 @@ import { useAuth } from "../../../lib/auth-context";
 // Material/Tools/... category hierarchy used by the Inventory tile in
 // Sales (see app/inventory-setup.tsx). Automation & Messaging is also new -
 // see app/automation-settings.tsx.
-const SETTINGS_ITEMS = [
+const ADMIN_SETTINGS_ITEMS = [
   { href: "/company-settings", label: "Company Details", emoji: "🏢" },
   { href: "/team", label: "Team/Staff", emoji: "👥" },
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️" },
@@ -25,6 +25,12 @@ const SETTINGS_ITEMS = [
   { href: "/b2b-referrals", label: "B2B & Referrals", emoji: "🤝" },
 ] as const;
 
+// Unlike the items above, Dashboard customisation isn't admin-only - every
+// user (technicians included) has their own Dashboard home screen (see
+// (tabs)/index.tsx) and can pick their own widgets for it, same "own
+// profile row" RLS as everything else this screen touches.
+const DASHBOARD_ITEM = { href: "/dashboard-settings", label: "Dashboard", emoji: "📊" } as const;
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -34,19 +40,23 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Text style={styles.title}>Settings</Text>
 
-      {isAdmin ? (
-        <View style={styles.list}>
-          {SETTINGS_ITEMS.map((item) => (
-            <Pressable key={item.href} style={styles.row} onPress={() => router.push(item.href)}>
-              <Text style={styles.rowEmoji}>{item.emoji}</Text>
-              <Text style={styles.rowLabel}>{item.label}</Text>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.empty}>Nothing to configure here yet - check with an admin.</Text>
-      )}
+      <View style={styles.list}>
+        <Pressable style={styles.row} onPress={() => router.push(DASHBOARD_ITEM.href)}>
+          <Text style={styles.rowEmoji}>{DASHBOARD_ITEM.emoji}</Text>
+          <Text style={styles.rowLabel}>{DASHBOARD_ITEM.label}</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+
+        {isAdmin
+          ? ADMIN_SETTINGS_ITEMS.map((item) => (
+              <Pressable key={item.href} style={styles.row} onPress={() => router.push(item.href)}>
+                <Text style={styles.rowEmoji}>{item.emoji}</Text>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            ))
+          : null}
+      </View>
     </SafeAreaView>
   );
 }
@@ -66,5 +76,4 @@ const styles = StyleSheet.create({
   rowEmoji: { fontSize: 20 },
   rowLabel: { flex: 1, fontSize: 16, fontWeight: "600", color: "#111827" },
   chevron: { fontSize: 20, color: "#9ca3af" },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
 });

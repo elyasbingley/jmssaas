@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireAdmin } from "./components/RequireAdmin";
 import { Layout } from "./components/Layout";
 import LoginPage from "./pages/Login";
+import DashboardPage from "./pages/Dashboard";
+import DashboardSettingsPage from "./pages/DashboardSettings";
 import ClientsPage from "./pages/Clients";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
@@ -50,7 +52,7 @@ export default function App() {
           <RequireAdmin>
             <Layout>
               <Routes>
-                <Route path="/" element={<Navigate to="/dispatch" replace />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/dispatch" element={<DispatchPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/tasks/:id" element={<TaskDetailPage />} />
@@ -86,10 +88,11 @@ export default function App() {
                 <Route path="/subcontractors/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
                 <Route path="/subcontractors/:id" element={<SubcontractorDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/dashboard" element={<DashboardSettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />
-                <Route path="*" element={<Navigate to="/dispatch" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>
           </RequireAdmin>

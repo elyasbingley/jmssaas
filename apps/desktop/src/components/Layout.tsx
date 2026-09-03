@@ -6,6 +6,7 @@ const navSections = [
   {
     heading: null,
     items: [
+      { to: "/", label: "Dashboard" },
       { to: "/dispatch", label: "Dispatch" },
       { to: "/tasks", label: "Tasks" },
       { to: "/reports", label: "Reports" },
@@ -40,6 +41,7 @@ const navSections = [
     heading: "Settings",
     items: [
       { to: "/settings", label: "Company Details" },
+      { to: "/settings/dashboard", label: "Dashboard" },
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
       { to: "/settings/inventory-setup", label: "Inventory Setup" },
@@ -71,7 +73,7 @@ export function Layout({ children }: { children: ReactNode }) {
               ) : null}
               <div className="space-y-1">
                 {section.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} className={linkClasses}>
+                  <NavLink key={item.to} to={item.to} end={item.to === "/"} className={linkClasses}>
                     {item.label}
                   </NavLink>
                 ))}
