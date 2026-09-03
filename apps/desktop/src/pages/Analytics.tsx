@@ -65,6 +65,21 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   return data as InvoiceLineItem[];
 }
 
+type ClientReviewRow = { id: string; name: string; google_review_stars: number; google_review_recorded_at: string };
+
+// Only clients with a star rating recorded - a client just ticked as
+// "reviewed" before this feature existed (or unmarked since) has
+// google_review_stars null and is correctly left out of the average/
+// distribution rather than counted as a 0-star review.
+async function fetchClientReviews(): Promise<ClientReviewRow[]> {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("id, name, google_review_stars, google_review_recorded_at")
+    .not("google_review_stars", "is", null);
+  if (error) throw error;
+  return data as ClientReviewRow[];
+}
+
 // Same per-unit breakdown as Job Costing / mobile's job costing tab -
 // labour_rate_cents/labour_hours/material_cost_cents are the PER UNIT cost
 // that fed into unit_price_cents, not already multiplied by quantity.
@@ -213,6 +228,7 @@ export default function AnalyticsPage() {
     queryFn: () => fetchInvoiceLineItems(invoiceIds),
     enabled: !!invoices,
   });
+  const { data: clientReviews } = useQuery({ queryKey: ["analytics-client-reviews"], queryFn: fetchClientReviews });
 
   const isLoading = !jobCards || !quotes || !invoices || !quoteLineItems || !invoiceLineItems;
 
@@ -221,6 +237,21 @@ export default function AnalyticsPage() {
   const [customTo, setCustomTo] = useState(() => presetRange("this_quarter").to);
   const range = preset === "custom" ? { from: customFrom, to: customTo } : presetRange(preset);
   const prevRange = useMemo(() => previousRange(range.from, range.to), [range.from, range.to]);
+
+  // --- Customer Feedback (Google review stars) ---
+  const reviewsInRange = useMemo(
+    () => (clientReviews ?? []).filter((r) => inRange(r.google_review_recorded_at, range.from, range.to)),
+    [clientReviews, range.from, range.to]
+  );
+  const avgStars = reviewsInRange.length > 0 ? reviewsInRange.reduce((sum, r) => sum + r.google_review_stars, 0) / reviewsInRange.length : 0;
+  const starDistribution = useMemo(() => {
+    const counts = [1, 2, 3, 4, 5].map((n) => ({ label: `${n}★`, value: 0 }));
+    for (const r of reviewsInRange) {
+      const bucket = counts[r.google_review_stars - 1];
+      if (bucket) bucket.value += 1;
+    }
+    return counts;
+  }, [reviewsInRange]);
 
   const quoteLineItemsByQuote = useMemo(() => {
     const map = new Map<string, QuoteLineItem[]>();
@@ -722,6 +753,32 @@ export default function AnalyticsPage() {
               figure. A quote that's since been converted to an invoice within the same window is counted under both - same basis as
               the Job Costing report.
             </p>
+          </div>
+
+          <div className="mb-6 rounded-lg border border-gray-300 bg-white p-4">
+            <div className="mb-4">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Customer Feedback</h2>
+              <p className="text-xs text-gray-400">Google review stars recorded from the client card, in this range.</p>
+            </div>
+
+            {reviewsInRange.length === 0 ? (
+              <p className="p-6 text-center text-sm text-gray-500">No reviews recorded in this range.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-[200px_1fr]">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Average rating</p>
+                  <p className="text-3xl font-extrabold text-gray-900">{avgStars.toFixed(1)}</p>
+                  <p className="text-yellow-500">
+                    {"★".repeat(Math.round(avgStars))}
+                    {"☆".repeat(5 - Math.round(avgStars))}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {reviewsInRange.length} review{reviewsInRange.length === 1 ? "" : "s"} recorded
+                  </p>
+                </div>
+                <BarChart data={starDistribution} formatValue={(v) => String(v)} />
+              </div>
+            )}
           </div>
         </>
       )}

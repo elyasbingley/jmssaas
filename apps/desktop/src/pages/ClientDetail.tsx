@@ -110,12 +110,42 @@ export default function ClientDetailPage() {
 
   // Manual tick - no public API to detect an actual Google review being
   // left, so this is purely office-driven (see the Google Reviews module's
-  // own comment). Invalidating "google-review-clients" too so ticking it
-  // here immediately drops this client off that module's worklist.
-  const toggleReviewed = useMutation({
-    mutationFn: async (nextValue: boolean) => {
+  // own comment). Now also captures a star rating (feeds Analytics'
+  // Customer Feedback section) - recorded_at is when the office ticked
+  // this, not when the client actually left the review on Google.
+  // Invalidating "google-review-clients" too so marking it here
+  // immediately drops this client off that module's worklist.
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [pendingStars, setPendingStars] = useState(5);
+
+  const openReviewModal = () => {
+    setPendingStars(client?.google_review_stars ?? 5);
+    setReviewModalOpen(true);
+  };
+
+  const saveReview = useMutation({
+    mutationFn: async (stars: number) => {
       if (!id) return;
-      const { error } = await supabase.from("clients").update({ left_google_review: nextValue }).eq("id", id);
+      const { error } = await supabase
+        .from("clients")
+        .update({ left_google_review: true, google_review_stars: stars, google_review_recorded_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client", id] });
+      queryClient.invalidateQueries({ queryKey: ["google-review-clients"] });
+      setReviewModalOpen(false);
+    },
+  });
+
+  const removeReview = useMutation({
+    mutationFn: async () => {
+      if (!id) return;
+      const { error } = await supabase
+        .from("clients")
+        .update({ left_google_review: false, google_review_stars: null, google_review_recorded_at: null })
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -399,14 +429,29 @@ export default function ClientDetailPage() {
               Open WorkDrive folder &rarr;
             </a>
           ) : null}
-          <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
-            <input
-              type="checkbox"
-              checked={client.left_google_review}
-              onChange={(e) => toggleReviewed.mutate(e.target.checked)}
-            />
-            Left a Google review
-          </label>
+          <div className="mt-3 flex items-center gap-3">
+            {client.left_google_review ? (
+              <>
+                <span className="text-sm font-semibold text-gray-700">
+                  Left a Google review{" "}
+                  <span className="text-yellow-500" title={`${client.google_review_stars ?? 0}/5 stars`}>
+                    {"★".repeat(client.google_review_stars ?? 0)}
+                    {"☆".repeat(5 - (client.google_review_stars ?? 0))}
+                  </span>
+                </span>
+                <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+                  Change
+                </button>
+                <button onClick={() => removeReview.mutate()} className="text-sm font-semibold text-red-600 hover:underline">
+                  Remove
+                </button>
+              </>
+            ) : (
+              <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+                Mark as left a Google review
+              </button>
+            )}
+          </div>
         </div>
         <button onClick={openEdit} className="text-sm font-semibold text-blue-700 hover:underline">
           Edit
@@ -831,6 +876,34 @@ export default function ClientDetailPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {createJob.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={reviewModalOpen} onClose={() => setReviewModalOpen(false)} title="Google review rating">
+        <p className="mb-3 text-sm text-gray-500">How many stars did this client leave?</p>
+        <div className="mb-4 flex justify-center gap-2">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              onClick={() => setPendingStars(n)}
+              className={`text-3xl ${n <= pendingStars ? "text-yellow-500" : "text-gray-300"}`}
+              aria-label={`${n} star${n === 1 ? "" : "s"}`}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setReviewModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveReview.mutate(pendingStars)}
+            disabled={saveReview.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveReview.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

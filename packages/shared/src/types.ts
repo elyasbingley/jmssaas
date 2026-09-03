@@ -117,6 +117,12 @@ export interface Client {
   // plain office-driven flag, not derived from anything. Drives the Google
   // Reviews module's "hasn't reviewed yet" list.
   left_google_review: boolean;
+  // Set together with left_google_review (both null/cleared if unmarked) -
+  // feeds the Analytics page's Customer Feedback section. recorded_at is
+  // when the office ticked it, not when the client actually left the
+  // review on Google - there's no way to know that.
+  google_review_stars: number | null;
+  google_review_recorded_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
