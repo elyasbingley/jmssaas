@@ -127,6 +127,8 @@ export default function NewInvoiceScreen() {
           is_callout_fee: item.is_callout_fee ?? false,
           is_subcontracted: item.is_subcontracted ?? false,
           subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;

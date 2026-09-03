@@ -143,6 +143,10 @@ export default function NewQuoteScreen() {
           is_callout_fee: item.is_callout_fee ?? false,
           is_subcontracted: item.is_subcontracted ?? false,
           subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          is_optional: item.is_optional ?? false,
+          is_included: item.is_included ?? true,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;
