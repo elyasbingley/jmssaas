@@ -92,6 +92,10 @@ const BASE_STYLES = `
   table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
   th { text-align: left; font-size: 11px; color: #fff; padding: 8px; }
   th.num, td.num { text-align: right; }
+  /* Without this, expo-print's PDF renderer will split a tall row (a long
+     wrapped description, an image) across a page boundary, leaving the
+     border-bottom line drawn straight through the middle of the text. */
+  tr { break-inside: avoid; page-break-inside: avoid; }
   td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; vertical-align: top; }
   td.desc { white-space: pre-wrap; }
   tr.excluded-item td { color: #9ca3af; }

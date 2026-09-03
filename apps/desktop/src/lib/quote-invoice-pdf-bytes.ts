@@ -46,6 +46,19 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+// jsPDF's addImage stretches the source into whatever box you give it - it
+// does not preserve the image's own aspect ratio the way the HTML/print
+// pipeline's `max-width`/`max-height` CSS does. Reading the natural size via
+// getImageProperties and contain-fitting it into (maxW, maxH) keeps every
+// image (logo, line-item photo, signature) undistorted here too.
+function addContainedImage(doc: jsPDF, dataUrl: string, x: number, y: number, maxW: number, maxH: number) {
+  const props = doc.getImageProperties(dataUrl);
+  const scale = Math.min(maxW / props.width, maxH / props.height);
+  const w = props.width * scale;
+  const h = props.height * scale;
+  doc.addImage(dataUrl, props.fileType || "PNG", x, y, w, h, undefined, "MEDIUM");
+}
+
 async function fetchImageDataUrl(url: string): Promise<string | null> {
   try {
     const res = await fetch(url);
@@ -122,7 +135,7 @@ async function renderHeader(
     const dataUrl = await fetchImageDataUrl(tenant.logo_url);
     if (dataUrl) {
       try {
-        cursor.doc.addImage(dataUrl, "PNG", MARGIN, cursor.y, 40, 20, undefined, "MEDIUM");
+        addContainedImage(cursor.doc, dataUrl, MARGIN, cursor.y, 40, 20);
       } catch {
         // Some logo formats/data URIs reject the format hint - skip the
         // image rather than fail the whole PDF over a logo.
@@ -263,7 +276,7 @@ async function renderLineItemsTable(cursor: Cursor, accent: [number, number, num
     }
     if (imageDataUrl) {
       try {
-        cursor.doc.addImage(imageDataUrl, "PNG", COL_DESC_X, textY, 32, IMAGE_H, undefined, "MEDIUM");
+        addContainedImage(cursor.doc, imageDataUrl, COL_DESC_X, textY, 32, IMAGE_H);
       } catch {
         // Skip an unembeddable image rather than fail the whole PDF.
       }
@@ -341,7 +354,7 @@ async function renderSignature(cursor: Cursor, signerName: string | null, accept
   cursor.bold("Accepted", MARGIN, 9, [107, 114, 128]);
   cursor.y += 5;
   try {
-    cursor.doc.addImage(svgData, "PNG", MARGIN, cursor.y, 50, 22, undefined, "MEDIUM");
+    addContainedImage(cursor.doc, svgData, MARGIN, cursor.y, 50, 22);
   } catch {
     // Ignore an unembeddable signature rather than failing the PDF.
   }
