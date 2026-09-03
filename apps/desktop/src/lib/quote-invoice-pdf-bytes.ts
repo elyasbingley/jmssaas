@@ -285,12 +285,15 @@ async function renderLineItemsTable(cursor: Cursor, accent: [number, number, num
     cursor.doc.text(String(item.quantity), COL_QTY_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(item.unit_price_cents), COL_RATE_X, rowTop, { align: "right" });
     cursor.doc.text(excluded ? "-" : formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
-    cursor.y =
-      rowTop +
-      Math.max((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5) +
-      2;
+    // Draw the separator right at this row's own bottom edge, then leave a
+    // clear 3mm gap before the next row starts - a 9pt font's ascent is
+    // ~2.3mm, so anything less than that here draws the line straight
+    // through the top of the next row's text instead of below this one's.
+    const rowBottom =
+      rowTop + Math.max((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5);
     cursor.doc.setDrawColor(229, 231, 235);
-    cursor.doc.line(MARGIN, cursor.y - 1, PAGE_WIDTH - MARGIN, cursor.y - 1);
+    cursor.doc.line(MARGIN, rowBottom, PAGE_WIDTH - MARGIN, rowBottom);
+    cursor.y = rowBottom + 3;
   }
   cursor.y += 4;
 }
