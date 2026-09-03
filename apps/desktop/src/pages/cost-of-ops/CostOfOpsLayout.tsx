@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 // Shared shell for the 5 Cost of Ops tabs - each one is its own route/page
 // (matching Settings' existing sub-sections, e.g. /settings/automation),
@@ -19,6 +19,9 @@ const TABS = [
 export default function CostOfOpsLayout() {
   return (
     <div className="p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Cost of Ops</h1>
         <p className="text-sm text-gray-500">What it actually costs to run the business, and what charge-out rate that implies.</p>

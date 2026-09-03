@@ -44,22 +44,11 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
     items: [
       { to: "/calendar", label: "Calendar" },
       { to: "/team", label: "Team" },
-    ],
-  },
-  {
-    heading: "Settings",
-    items: [
-      // `end` so this doesn't also light up for its own nested routes
-      // (/settings/automation, /settings/job-setup, /settings/inventory-setup)
-      // - without it, NavLink's default prefix match treats "/settings" as
-      // active on any path that starts with it.
-      { to: "/settings", label: "Company Details", end: true },
-      { to: "/settings/automation", label: "Automation & Messaging" },
-      { to: "/settings/job-setup", label: "Job Setup" },
-      { to: "/settings/job-templates", label: "Job Templates" },
-      { to: "/settings/bundles", label: "Bundles" },
-      { to: "/settings/inventory-setup", label: "Inventory Setup" },
-      { to: "/settings/cost-of-ops", label: "Cost of Ops" },
+      // No `end` - deliberately lights up for every /settings/* subpage too
+      // (Company Details, Automation & Messaging, Job Setup, ...), since
+      // they're all reached through the single Settings tile grid now (see
+      // SettingsHub.tsx) rather than each having their own nav link.
+      { to: "/settings", label: "Settings" },
     ],
   },
 ];

@@ -54,6 +54,9 @@ export default function BundlesPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Bundles</h1>

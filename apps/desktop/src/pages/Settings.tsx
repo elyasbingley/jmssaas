@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
@@ -379,6 +379,9 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Company Settings</h1>
       <p className="mb-6 text-sm text-gray-500">Used on exported quote/invoice PDFs.</p>
 

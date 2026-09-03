@@ -16,6 +16,7 @@ import PriceBookPage from "./pages/PriceBook";
 import PriceBookCategoryPage from "./pages/PriceBookCategory";
 import PriceBookItemPage from "./pages/PriceBookItem";
 import CalendarPage from "./pages/Calendar";
+import SettingsHubPage from "./pages/SettingsHub";
 import SettingsPage from "./pages/Settings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
@@ -95,7 +96,8 @@ export default function App() {
                 <Route path="/subcontractors/purchase-orders/new" element={<PurchaseOrderNewPage />} />
                 <Route path="/subcontractors/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
                 <Route path="/subcontractors/:id" element={<SubcontractorDetailPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings" element={<SettingsHubPage />} />
+                <Route path="/settings/company" element={<SettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/job-templates" element={<JobTemplatesPage />} />

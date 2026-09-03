@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   createJobTemplateSchema,
   type JobLifecycleStage,
@@ -128,6 +129,9 @@ export default function JobTemplatesPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Job Templates</h1>
       <p className="mb-3 mt-1 text-sm text-gray-500">
         Reusable starting points for a new job - pick one from the "New job" screen instead of filling in the category,

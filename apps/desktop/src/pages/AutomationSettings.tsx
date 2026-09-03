@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   ALL_PLACEHOLDER_TOKENS,
   updateCommunicationRuleSchema,
@@ -297,6 +298,9 @@ export default function AutomationSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Automation & Messaging</h1>
       <p className="mb-6 text-sm text-gray-500">Control when automated emails go out, and edit their wording.</p>
 

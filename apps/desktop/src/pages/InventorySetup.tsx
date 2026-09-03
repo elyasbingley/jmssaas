@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   createInventoryCategorySchema,
   createInventorySubcategorySchema,
@@ -266,6 +267,9 @@ export default function InventorySetupPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Inventory Setup</h1>
 
       <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Categories</h2>
