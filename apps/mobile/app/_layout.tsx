@@ -74,6 +74,7 @@ function RootNavigator() {
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Details" }} />
+      <Stack.Screen name="dashboard-settings" options={{ headerShown: true, title: "Dashboard" }} />
       <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
       <Stack.Screen name="team" options={{ headerShown: true, title: "Team/Staff" }} />
       <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />

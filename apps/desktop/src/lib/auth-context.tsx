@@ -10,6 +10,11 @@ interface AuthContextValue {
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  // Re-reads this user's own profile row without a full session reload -
+  // needed after a screen updates a profile column directly (e.g.
+  // DashboardSettings writing dashboard_widgets), since profile here is a
+  // one-shot fetch keyed on session?.user.id, not a live query.
+  refetchProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -40,18 +45,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // wasted work. See apps/mobile/lib/auth-context.tsx's own comment - the
   // same distinction mattered a lot more there (a PowerSync reconnect loop),
   // but the underlying gotcha is identical.
+  const loadProfile = async (userId: string) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    setProfile((data as Profile | null) ?? null);
+  };
+
   useEffect(() => {
     if (!session) {
       setProfile(null);
       return;
     }
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", session.user.id)
-      .single()
-      .then(({ data }) => setProfile((data as Profile | null) ?? null));
+    loadProfile(session.user.id);
   }, [session?.user.id]);
+
+  const refetchProfile = async () => {
+    if (session) await loadProfile(session.user.id);
+  };
 
   const isAdmin = profile?.role === "admin";
 
@@ -65,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, profile, isLoading, isAdmin, signIn, signOut }}>
+    <AuthContext.Provider value={{ session, profile, isLoading, isAdmin, signIn, signOut, refetchProfile }}>
       {children}
     </AuthContext.Provider>
   );

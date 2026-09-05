@@ -184,6 +184,14 @@ export const createInvoiceSchema = z.object({
 });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 
+export const updateDashboardWidgetsSchema = z.object({
+  jobs_today: z.boolean(),
+  jobs_tomorrow: z.boolean(),
+  invoices: z.boolean(),
+  quotes: z.boolean(),
+});
+export type UpdateDashboardWidgetsInput = z.infer<typeof updateDashboardWidgetsSchema>;
+
 export const updateCompanySettingsSchema = z.object({
   name: z.string().min(1, "Company name is required"),
   abn: z.string().optional(),

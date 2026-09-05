@@ -5,4 +5,5 @@ export * from "./placeholders";
 export * from "./reports";
 export * from "./schemas";
 export * from "./email-recipients";
+export * from "./dashboard";
 export * from "./powersync/schema";
