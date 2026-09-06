@@ -19,6 +19,8 @@ import { formatClientAddress } from "../lib/format";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
+import { ClientMembershipSection } from "../components/ClientMembershipSection";
+import { AssetsSection } from "../components/AssetsSection";
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -40,6 +42,20 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   const { data, error } = await supabase.from("job_lifecycle_stages").select("*").order("position");
   if (error) throw error;
   return data as JobLifecycleStage[];
+}
+
+// Just whether this client currently has an active membership - drives
+// the "same-day response" reminder banner on the New Job form.
+async function fetchIsActiveMember(clientId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("client_memberships")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
 }
 
 async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
@@ -90,6 +106,53 @@ export default function ClientDetailPage() {
   const stageById = new Map((stages ?? []).map((s) => [s.id, s]));
   const { data: contacts } = useQuery({ queryKey: ["client-contacts", id], queryFn: () => fetchClientContacts(id!), enabled: !!id });
   const { data: sites } = useQuery({ queryKey: ["client-sites", id], queryFn: () => fetchClientSites(id!), enabled: !!id });
+  const { data: isActiveMember } = useQuery({ queryKey: ["client-is-active-member", id], queryFn: () => fetchIsActiveMember(id!), enabled: !!id });
+
+  // Manual tick - no public API to detect an actual Google review being
+  // left, so this is purely office-driven (see the Google Reviews module's
+  // own comment). Now also captures a star rating (feeds Analytics'
+  // Customer Feedback section) - recorded_at is when the office ticked
+  // this, not when the client actually left the review on Google.
+  // Invalidating "google-review-clients" too so marking it here
+  // immediately drops this client off that module's worklist.
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [pendingStars, setPendingStars] = useState(5);
+
+  const openReviewModal = () => {
+    setPendingStars(client?.google_review_stars ?? 5);
+    setReviewModalOpen(true);
+  };
+
+  const saveReview = useMutation({
+    mutationFn: async (stars: number) => {
+      if (!id) return;
+      const { error } = await supabase
+        .from("clients")
+        .update({ left_google_review: true, google_review_stars: stars, google_review_recorded_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client", id] });
+      queryClient.invalidateQueries({ queryKey: ["google-review-clients"] });
+      setReviewModalOpen(false);
+    },
+  });
+
+  const removeReview = useMutation({
+    mutationFn: async () => {
+      if (!id) return;
+      const { error } = await supabase
+        .from("clients")
+        .update({ left_google_review: false, google_review_stars: null, google_review_recorded_at: null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client", id] });
+      queryClient.invalidateQueries({ queryKey: ["google-review-clients"] });
+    },
+  });
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -162,28 +225,47 @@ export default function ClientDetailPage() {
 
   // --- Contacts ---
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", role: "", email: "", phone: "", is_primary: false });
   const [contactError, setContactError] = useState<string | null>(null);
+
+  const openEditContact = (contact: ClientContact) => {
+    setEditingContactId(contact.id);
+    setContactForm({
+      name: contact.name,
+      role: contact.role ?? "",
+      email: contact.email ?? "",
+      phone: contact.phone ?? "",
+      is_primary: contact.is_primary,
+    });
+    setContactError(null);
+    setContactModalOpen(true);
+  };
 
   const saveContact = useMutation({
     mutationFn: async () => {
       const result = createClientContactSchema.safeParse({ ...contactForm, client_id: id });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid contact");
       if (!profile) throw new Error("Not signed in");
-      const { error } = await supabase.from("client_contacts").insert({
-        tenant_id: profile.tenant_id,
-        client_id: id,
+      const payload = {
         name: result.data.name,
         role: result.data.role || null,
         email: result.data.email || null,
         phone: result.data.phone || null,
         is_primary: result.data.is_primary,
-      });
-      if (error) throw error;
+      };
+      if (editingContactId) {
+        const { error } = await supabase.from("client_contacts").update(payload).eq("id", editingContactId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("client_contacts").insert({ tenant_id: profile.tenant_id, client_id: id, ...payload });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-contacts", id] });
       setContactModalOpen(false);
+      setEditingContactId(null);
       setContactForm({ name: "", role: "", email: "", phone: "", is_primary: false });
       setContactError(null);
     },
@@ -323,7 +405,7 @@ export default function ClientDetailPage() {
         &larr; Back to Clients
       </Link>
 
-      <div className="mb-6 flex items-start justify-between rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 flex items-start justify-between rounded-lg border border-gray-300 bg-white p-6">
         <div>
           {client.client_type === "company" && client.company_name ? (
             <>
@@ -347,6 +429,29 @@ export default function ClientDetailPage() {
               Open WorkDrive folder &rarr;
             </a>
           ) : null}
+          <div className="mt-3 flex items-center gap-3">
+            {client.left_google_review ? (
+              <>
+                <span className="text-sm font-semibold text-gray-700">
+                  Left a Google review{" "}
+                  <span className="text-yellow-500" title={`${client.google_review_stars ?? 0}/5 stars`}>
+                    {"★".repeat(client.google_review_stars ?? 0)}
+                    {"☆".repeat(5 - (client.google_review_stars ?? 0))}
+                  </span>
+                </span>
+                <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+                  Change
+                </button>
+                <button onClick={() => removeReview.mutate()} className="text-sm font-semibold text-red-600 hover:underline">
+                  Remove
+                </button>
+              </>
+            ) : (
+              <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+                Mark as left a Google review
+              </button>
+            )}
+          </div>
         </div>
         <button onClick={openEdit} className="text-sm font-semibold text-blue-700 hover:underline">
           Edit
@@ -354,10 +459,18 @@ export default function ClientDetailPage() {
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Contacts</h2>
-            <button onClick={() => setContactModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            <button
+              onClick={() => {
+                setEditingContactId(null);
+                setContactForm({ name: "", role: "", email: "", phone: "", is_primary: false });
+                setContactError(null);
+                setContactModalOpen(true);
+              }}
+              className="text-xs font-semibold text-blue-700 hover:underline"
+            >
               + Add contact
             </button>
           </div>
@@ -376,16 +489,21 @@ export default function ClientDetailPage() {
                     {contact.email ? <p className="text-xs text-gray-600">{contact.email}</p> : null}
                     {contact.phone ? <p className="text-xs text-gray-600">{contact.phone}</p> : null}
                   </div>
-                  <button onClick={() => deleteContact.mutate(contact.id)} className="text-xs font-semibold text-red-600 hover:underline">
-                    Remove
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button onClick={() => openEditContact(contact)} className="text-xs font-semibold text-blue-700 hover:underline">
+                      Edit
+                    </button>
+                    <button onClick={() => deleteContact.mutate(contact.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="rounded-lg border border-gray-300 bg-white p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Addresses</h2>
             <button onClick={() => setSiteModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
@@ -434,12 +552,12 @@ export default function ClientDetailPage() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {!jobs || jobs.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No jobs yet for this client.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Title</th>
@@ -450,7 +568,7 @@ export default function ClientDetailPage() {
               {jobs.map((job) => {
                 const stage = stageById.get(job.lifecycle_stage_id ?? "");
                 return (
-                  <tr key={job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <tr key={job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 text-blue-700">
                       <Link to={`/jobs/${job.id}`} className="hover:underline">
                         {job.number ?? "Pending"}
@@ -470,7 +588,11 @@ export default function ClientDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <ClientMembershipSection clientId={id!} />
+
+      <AssetsSection owner={{ type: "client", id: id! }} />
+
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog entities={(jobs ?? []).map((job) => ({ entityType: "job" as const, entityId: job.id }))} />
       </div>
@@ -573,7 +695,14 @@ export default function ClientDetailPage() {
         </div>
       </Modal>
 
-      <Modal open={contactModalOpen} onClose={() => setContactModalOpen(false)} title="Add contact">
+      <Modal
+        open={contactModalOpen}
+        onClose={() => {
+          setContactModalOpen(false);
+          setEditingContactId(null);
+        }}
+        title={editingContactId ? "Edit contact" : "Add contact"}
+      >
         <FormField label="Name" value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} />
         <FormField
           label="Role (optional)"
@@ -598,7 +727,13 @@ export default function ClientDetailPage() {
         </label>
         {contactError ? <p className="mb-4 text-sm text-red-600">{contactError}</p> : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setContactModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => {
+              setContactModalOpen(false);
+              setEditingContactId(null);
+            }}
+            className="px-4 py-2 text-sm font-semibold text-gray-600"
+          >
             Cancel
           </button>
           <button
@@ -665,6 +800,11 @@ export default function ClientDetailPage() {
           <p className="font-semibold text-gray-900">{client.client_type === "company" && client.company_name ? client.company_name : client.name}</p>
           {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
         </div>
+        {isActiveMember ? (
+          <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+            This client is a Member - remember the same-day response guarantee.
+          </p>
+        ) : null}
         <FormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         <TextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
 
@@ -685,7 +825,7 @@ export default function ClientDetailPage() {
           </select>
         </div>
         {jobSiteChoice === "new" ? (
-          <div className="mb-4 rounded-md border border-gray-200 p-3">
+          <div className="mb-4 rounded-md border border-gray-300 p-3">
             <p className="mb-2 text-xs font-semibold text-gray-500">
               This address will be saved to {client.client_type === "company" && client.company_name ? client.company_name : client.name}'s card.
             </p>
@@ -736,6 +876,34 @@ export default function ClientDetailPage() {
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
             {createJob.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={reviewModalOpen} onClose={() => setReviewModalOpen(false)} title="Google review rating">
+        <p className="mb-3 text-sm text-gray-500">How many stars did this client leave?</p>
+        <div className="mb-4 flex justify-center gap-2">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              onClick={() => setPendingStars(n)}
+              className={`text-3xl ${n <= pendingStars ? "text-yellow-500" : "text-gray-300"}`}
+              aria-label={`${n} star${n === 1 ? "" : "s"}`}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setReviewModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveReview.mutate(pendingStars)}
+            disabled={saveReview.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveReview.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

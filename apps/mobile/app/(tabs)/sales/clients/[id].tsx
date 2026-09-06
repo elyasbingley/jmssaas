@@ -20,6 +20,7 @@ import { formatClientAddress } from "../../../../lib/format";
 import { CenteredModal } from "../../../../components/CenteredModal";
 import { CommunicationLog } from "../../../../components/CommunicationLog";
 import { FormField } from "../../../../components/FormField";
+import { MembershipStatusCard } from "../../../../components/MembershipStatusCard";
 
 export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -425,6 +426,10 @@ export default function ClientDetailScreen() {
               )}
             </View>
 
+            <View style={{ marginHorizontal: 16 }}>
+              <MembershipStatusCard clientId={id} />
+            </View>
+
             <Text style={styles.sectionTitle}>Jobs</Text>
           </>
         }
@@ -634,18 +639,21 @@ export default function ClientDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  clientHeader: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb", gap: 4 },
+  clientHeader: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db", gap: 4 },
   clientHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   clientName: { fontSize: 20, fontWeight: "700" },
   clientMeta: { color: "#6b7280" },
   clientNotes: { marginTop: 8, color: "#374151" },
   sectionTitle: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, fontWeight: "700", color: "#6b7280" },
   commLogSection: { paddingHorizontal: 16, paddingBottom: 24 },
-  row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0", flexDirection: "row", alignItems: "center" },
+  row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db", flexDirection: "row", alignItems: "center" },
   rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8" },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
-  rowSubtitle: { color: "#6b7280", marginTop: 2 },
+  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
+  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
+  // flexShrink so a long lifecycle stage name (free text, admin-defined,
+  // no length cap) can't overflow past the row's edge next to the
+  // flex:1 title block - same fix shape as jobs/index.tsx's stageBadgeText.
+  rowSubtitle: { color: "#6b7280", marginTop: 2, flexShrink: 1, maxWidth: "40%", textAlign: "right" },
   empty: { textAlign: "center", color: "#6b7280" },
   emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
   link: { color: "#1d4ed8", fontWeight: "600" },
@@ -679,7 +687,7 @@ const styles = StyleSheet.create({
   switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1 },
   subSection: { paddingHorizontal: 16 },
   subSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
-  subRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  subRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   subRowTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
   subRowMeta: { fontSize: 13, color: "#6b7280", marginTop: 1 },
   emptySmall: { color: "#9ca3af", fontSize: 13, paddingVertical: 8 },

@@ -15,6 +15,14 @@ export function emptyLineItem(sortOrder: number): LineItemFormInput {
     unit_price_cents: 0,
     gst_applicable: true,
     sort_order: sortOrder,
+    is_callout_fee: false,
+    waived_amount_cents: 0,
+    is_subcontracted: false,
+    subcontractor_cost_cents: 0,
+    is_optional: false,
+    is_included: true,
+    bundle_name: "",
+    image_url: "",
   };
 }
 

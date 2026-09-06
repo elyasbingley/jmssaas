@@ -31,6 +31,12 @@
       .accept-btn { background: #16a34a; color: #fff; }
       .decline-btn { background: #f3f4f6; color: #b91c1c; margin-top: 10px; }
       .pay-btn { background: #635bff; color: #fff; margin-top: 4px; }
+      td.optional-check { width: 30px; text-align: center; }
+      tr.bundle-heading td { background: #f9fafb; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+      .item-desc { display: flex; flex-direction: column; gap: 6px; }
+      .item-image { max-width: 160px; max-height: 100px; border-radius: 6px; object-fit: cover; }
+      .optional-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #7e22ce; background: #f3e8ff; border-radius: 10px; padding: 2px 8px; margin-left: 6px; }
+      tr.excluded-row td { opacity: 0.5; }
       .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
       .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
       canvas.sig-pad { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 8px; touch-action: none; margin-bottom: 4px; background: #fff; }
@@ -113,12 +119,40 @@
           '<p class="message-body">' + escapeHtml(body) + "</p>";
       }
 
+      // Optional line items only exist on quotes (see the migration's
+      // header comment - by the time something's an invoice, optional
+      // items have already been resolved by convert_quote_to_invoice), so
+      // item.is_optional is simply undefined/falsy on every invoice line -
+      // hasOptional below naturally comes out false there and the checkbox
+      // column is skipped entirely, no docType check needed.
       function renderLineItemsTable(items) {
+        var hasOptional = items.some(function (item) { return item.is_optional; });
+        var lastBundle = null;
         var rows = items
           .map(function (item) {
+            var excluded = item.is_optional && !item.is_included;
+            var heading = "";
+            if (item.bundle_name && item.bundle_name !== lastBundle) {
+              heading = '<tr class="bundle-heading"><td colspan="' + (hasOptional ? 5 : 4) + '">' + escapeHtml(item.bundle_name) + "</td></tr>";
+            }
+            lastBundle = item.bundle_name || null;
+            var checkboxCell = hasOptional
+              ? '<td class="optional-check">' +
+                (item.is_optional
+                  ? '<input type="checkbox" class="optional-checkbox" data-item-id="' + escapeHtml(item.id) + '"' + (item.is_included ? " checked" : "") + " />"
+                  : "") +
+                "</td>"
+              : "";
+            var descCell =
+              '<td><div class="item-desc"><span>' + escapeHtml(item.description) +
+              (item.is_optional ? '<span class="optional-tag">Optional</span>' : "") + "</span>" +
+              (item.image_url ? '<img class="item-image" src="' + escapeHtml(item.image_url) + '" />' : "") +
+              "</div></td>";
             return (
-              "<tr>" +
-              "<td>" + escapeHtml(item.description) + "</td>" +
+              heading +
+              '<tr class="line-item-row' + (excluded ? " excluded-row" : "") + '" data-item-id="' + escapeHtml(item.id || "") + '">' +
+              checkboxCell +
+              descCell +
               '<td class="num">' + item.quantity + "</td>" +
               '<td class="num">' + formatCentsAsAud(item.unit_price_cents) + "</td>" +
               '<td class="num">' + formatCentsAsAud(item.quantity * item.unit_price_cents) + "</td>" +
@@ -128,12 +162,64 @@
           .join("");
         return (
           "<table><thead><tr style=\"background: " + ACCENT[docType] + ";\">" +
+          (hasOptional ? '<th style="width: 30px;"></th>' : "") +
           "<th>Item &amp; Description</th>" +
           '<th class="num" style="width: 50px;">Qty</th>' +
           '<th class="num" style="width: 80px;">Rate</th>' +
           '<th class="num" style="width: 90px;">Amount</th>' +
           "</tr></thead><tbody>" + rows + "</tbody></table>"
         );
+      }
+
+      // Recomputes the visible subtotal/GST/total from the current checkbox
+      // state, exactly mirroring calculateDocumentTotals/
+      // calculate_line_item_totals - so what's shown here as a client ticks
+      // things on/off never disagrees with what accept_quote_by_token will
+      // actually recompute and persist server-side once they submit. Never
+      // trusted as-is by the server - purely a live preview.
+      function computeLiveTotals(items) {
+        var subtotal = 0;
+        var gst = 0;
+        items.forEach(function (item) {
+          var checkbox = document.querySelector('.optional-checkbox[data-item-id="' + item.id + '"]');
+          var included = item.is_optional ? (checkbox ? checkbox.checked : item.is_included) : true;
+          if (!included) return;
+          var lineSubtotal = Math.round(item.quantity * item.unit_price_cents) - (item.waived_amount_cents || 0);
+          subtotal += lineSubtotal;
+          if (item.gst_applicable) gst += Math.round(lineSubtotal * 0.1);
+        });
+        return { subtotal_cents: subtotal, gst_cents: gst, total_cents: subtotal + gst };
+      }
+
+      function updateLiveTotals(doc) {
+        var totals = computeLiveTotals(doc.line_items);
+        // The doc's own subtotal/gst/total as first loaded already has any
+        // membership discount baked in (see accept_quote_by_token's own
+        // comment on why it's carried through rather than recomputed here) -
+        // back that fixed dollar amount out once and keep applying it to
+        // every live recompute, so ticking an optional item on/off never
+        // makes a member's discount silently disappear from this preview.
+        var membershipDiscountCents = doc.subtotal_cents + doc.gst_cents - doc.total_cents;
+        var subtotalEl = document.getElementById("totals-subtotal");
+        var gstEl = document.getElementById("totals-gst");
+        var totalEl = document.getElementById("totals-total");
+        if (subtotalEl) subtotalEl.textContent = formatCentsAsAud(totals.subtotal_cents);
+        if (gstEl) gstEl.textContent = formatCentsAsAud(totals.gst_cents);
+        if (totalEl) totalEl.textContent = formatCentsAsAud(totals.total_cents - membershipDiscountCents);
+
+        document.querySelectorAll(".line-item-row").forEach(function (row) {
+          var id = row.getAttribute("data-item-id");
+          var item = doc.line_items.find(function (i) { return String(i.id) === id; });
+          if (!item || !item.is_optional) return;
+          var checkbox = row.querySelector(".optional-checkbox");
+          row.classList.toggle("excluded-row", checkbox ? !checkbox.checked : false);
+        });
+      }
+
+      function attachOptionalCheckboxHandlers(doc) {
+        document.querySelectorAll(".optional-checkbox").forEach(function (checkbox) {
+          checkbox.addEventListener("change", function () { updateLiveTotals(doc); });
+        });
       }
 
       // Canvas-based signature capture, same base64 PNG data URI convention
@@ -209,7 +295,20 @@
               renderMessage("Signature required", "Please sign above to accept this document, then reload the link to try again.");
               return;
             }
-            submitAction("accept", { name: name, signature_svg: sigPad ? sigPad.toDataUrl() : "" });
+            // Only quotes ever have optional items (see renderLineItemsTable's
+            // comment) - the checked state of every .optional-checkbox on the
+            // page right now is the client's final say on what's included,
+            // sent alongside name/signature so accept_quote_by_token can
+            // resolve is_included and recompute the real total server-side.
+            var includedOptionalItemIds = Array.prototype.map.call(
+              document.querySelectorAll(".optional-checkbox:checked"),
+              function (checkbox) { return checkbox.getAttribute("data-item-id"); }
+            );
+            submitAction("accept", {
+              name: name,
+              signature_svg: sigPad ? sigPad.toDataUrl() : "",
+              included_optional_item_ids: includedOptionalItemIds,
+            });
           });
         }
         if (declineForm) {
@@ -466,13 +565,14 @@
           "</div>" +
           renderLineItemsTable(doc.line_items) +
           '<div class="totals">' +
-          '<div class="totals-row"><span>Sub Total</span><span>' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
-          '<div class="totals-row"><span>GST</span><span>' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
-          '<div class="totals-row total"><span>Total</span><span>' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
+          '<div class="totals-row"><span>Sub Total</span><span id="totals-subtotal">' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
+          '<div class="totals-row"><span>GST</span><span id="totals-gst">' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
+          '<div class="totals-row total"><span>Total</span><span id="totals-total">' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
           "</div>" +
           (doc.notes ? '<div class="notes"><strong>Notes</strong><br/>' + escapeHtml(doc.notes) + "</div>" : "") +
           actionSection;
 
+        attachOptionalCheckboxHandlers(doc);
         attachActionHandlers(doc);
       }
 

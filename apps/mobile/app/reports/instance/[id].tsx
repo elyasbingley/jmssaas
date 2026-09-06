@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -678,17 +679,28 @@ function ReportPhotoField({
     await upload(asset.base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
   };
 
+  // Reads each picked asset back off disk rather than relying on
+  // ImagePicker's own `base64: true` option, which is unreliable once
+  // `allowsMultipleSelection` triggers the native multi-select picker -
+  // see PhotoAttachments.tsx's own comment on this exact bug ("Choose
+  // photos" silently doing nothing because every asset came back with no
+  // base64 and the loop just skipped it).
   const pickFromLibrary = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert("Permission needed", "Enable photo access in Settings to attach photos.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.6, allowsMultipleSelection: true });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.6, allowsMultipleSelection: true });
     if (result.canceled) return;
     for (const asset of result.assets) {
-      if (!asset.base64) continue;
-      await upload(asset.base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
+      try {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        await upload(base64, asset.mimeType ?? "image/jpeg", asset.mimeType?.includes("png") ? "png" : "jpg");
+      } catch (e) {
+        console.error("[ReportInstance] Failed to read picked photo", e);
+        Alert.alert("Failed to attach photo", "One of the selected photos couldn't be read.");
+      }
     }
   };
 
@@ -845,7 +857,7 @@ const styles = StyleSheet.create({
   pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
   pickerFieldValue: { fontSize: 15, color: "#111827" },
 
-  sectionCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 16, marginBottom: 14, backgroundColor: "#fff" },
+  sectionCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 16, marginBottom: 14, backgroundColor: "#fff" },
   sectionTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 12 },
   fieldBlock: { marginBottom: 18 },
   fieldLabel: { fontSize: 14, fontWeight: "700", color: "#1f2937", marginBottom: 4 },
@@ -861,7 +873,7 @@ const styles = StyleSheet.create({
   textInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, fontSize: 14, backgroundColor: "#fff" },
   multiline: { minHeight: 60, textAlignVertical: "top" },
   meterInput: { width: 160 },
-  signaturePreview: { height: 100, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, backgroundColor: "#fff" },
+  signaturePreview: { height: 100, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, backgroundColor: "#fff" },
 
   photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   photoThumb: { width: 80, height: 80, borderRadius: 8, backgroundColor: "#e5e7eb" },
@@ -874,7 +886,7 @@ const styles = StyleSheet.create({
   photoActionButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
   photoActionButtonSecondaryText: { color: "#1d4ed8" },
 
-  hazardCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, backgroundColor: "#f9fafb", marginBottom: 10 },
+  hazardCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, backgroundColor: "#f9fafb", marginBottom: 10 },
   hazardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   hazardIndex: { fontSize: 11, fontWeight: "700", color: "#9ca3af" },
   removeLink: { color: "#dc2626", fontWeight: "700", fontSize: 12 },

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   createInventoryCategorySchema,
   createInventorySubcategorySchema,
@@ -266,6 +267,9 @@ export default function InventorySetupPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+        &larr; Back to Settings
+      </Link>
       <h1 className="text-xl font-bold text-gray-900">Inventory Setup</h1>
 
       <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Categories</h2>
@@ -273,14 +277,14 @@ export default function InventorySetupPage() {
         "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
       </p>
 
-      <div className="rounded-lg border border-gray-200 bg-white">
+      <div className="rounded-lg border border-gray-300 bg-white">
         {(categories ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No categories yet.</p>
         ) : (
           (categories ?? []).map((category) => {
             const categorySubcategories = (subcategories ?? []).filter((s) => s.category_id === category.id);
             return (
-              <div key={category.id} className="border-b border-gray-100 last:border-0">
+              <div key={category.id} className="border-b border-gray-200 last:border-0">
                 <div className="flex items-center justify-between gap-3 p-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color ?? "#e5e7eb" }} />
@@ -335,7 +339,7 @@ export default function InventorySetupPage() {
       <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Suppliers</h2>
       <p className="mb-3 text-sm text-gray-500">Who you buy each item from - e.g. "Bunnings", "Reece".</p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
         {(suppliers ?? []).length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No suppliers yet.</p>
         ) : (

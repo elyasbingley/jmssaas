@@ -164,6 +164,18 @@ interface PlaceholderContext {
   purchaseOrder?: { contact_first_name: string; po_number: string | null; po_total_cents: number; quote_link: string | null; pdf_link: string | null };
   // subcontractor_compliance_expired only.
   subcontractor?: { contact_first_name: string; company_name: string; expired_doc_type_label: string; expired_doc_expiry_date: string | null };
+  // membership_welcome/membership_renewal_upcoming/membership_payment_
+  // failed/membership_cancelled/membership_annual_benefit_reminder only -
+  // benefit_type_label is populated only for the last of those (a joined
+  // label of currently-unused included benefits, computed live in
+  // buildEntityContext below), left null for the other four trigger_keys.
+  membership?: {
+    plan_name: string;
+    annual_price_cents: number;
+    discount_percent: number;
+    period_end: string | null;
+    benefit_type_label: string | null;
+  };
 }
 
 function formatCentsAsAud(cents: number): string {
@@ -242,6 +254,13 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.subcontractor_company_name = context.subcontractor.company_name;
     tokens.expired_doc_type = context.subcontractor.expired_doc_type_label;
     tokens.expired_doc_expiry_date = formatDateAu(context.subcontractor.expired_doc_expiry_date);
+  }
+  if (context.membership) {
+    tokens.membership_plan_name = context.membership.plan_name;
+    tokens.membership_annual_price = formatCentsAsAud(context.membership.annual_price_cents);
+    tokens.membership_discount_percent = String(context.membership.discount_percent);
+    tokens.membership_renewal_date = formatDateAu(context.membership.period_end);
+    tokens.membership_benefit_type = context.membership.benefit_type_label ?? "";
   }
   if (context.company) {
     tokens.company_name = context.company.name;
@@ -332,7 +351,7 @@ function nextSydneyOccurrence(date: Date, timeOfDay: string): Date {
 interface ScheduledCommunicationRow {
   id: string;
   tenant_id: string;
-  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner" | "report" | "purchase_order" | "subcontractor";
+  entity_type: "quote" | "invoice" | "job" | "calendar_event" | "client" | "property_asset" | "referral_partner" | "report" | "purchase_order" | "subcontractor" | "client_membership";
   entity_id: string;
   trigger_key: string;
   channel: "sms" | "email";
@@ -636,6 +655,45 @@ async function buildEntityContext(
       company_name: subcontractor.company_name,
       expired_doc_type_label: DOC_TYPE_LABELS[expiredDoc?.doc_type as string] ?? "compliance document",
       expired_doc_expiry_date: expiredDoc?.expiry_date ?? null,
+    };
+  } else if (row.entity_type === "client_membership") {
+    // membership_welcome/membership_renewal_upcoming/membership_payment_
+    // failed/membership_cancelled/membership_annual_benefit_reminder rows
+    // (see the membership_communications migration and process-membership-
+    // reminders) - entity_id is the client_memberships row itself.
+    const { data: membership } = await admin.from("client_memberships").select("*").eq("id", row.entity_id).single();
+    if (!membership) return context;
+    const { data: client } = await admin.from("clients").select("*").eq("id", membership.client_id).single();
+    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    const { data: plan } = await admin.from("membership_plans").select("*").eq("id", membership.membership_plan_id).single();
+    if (!plan) return context;
+
+    // benefit_type_label is only ever populated for membership_annual_
+    // benefit_reminder - computed live against membership_benefit_usage at
+    // send time (not trusted from queue time, same "recompute, don't trust
+    // a snapshot" reasoning as process-real-estate-maintenance's own
+    // due-date recomputation), so a benefit used between queueing and
+    // sending is correctly reflected in the final rendered label.
+    let benefitTypeLabel: string | null = null;
+    if (row.trigger_key === "membership_annual_benefit_reminder" && membership.current_period_start) {
+      const { data: used } = await admin
+        .from("membership_benefit_usage")
+        .select("benefit_type")
+        .eq("client_membership_id", membership.id)
+        .eq("period_start", membership.current_period_start);
+      const usedTypes = new Set((used ?? []).map((u: { benefit_type: string }) => u.benefit_type));
+      const labels: string[] = [];
+      if (plan.annual_roof_inspections_included > 0 && !usedTypes.has("annual_roof_inspection")) labels.push("annual roof inspection");
+      if (plan.annual_plumbing_checks_included > 0 && !usedTypes.has("annual_plumbing_check")) labels.push("annual plumbing check");
+      benefitTypeLabel = labels.length > 0 ? labels.join(" and ") : null;
+    }
+
+    context.membership = {
+      plan_name: plan.name,
+      annual_price_cents: plan.annual_price_cents,
+      discount_percent: plan.discount_percent,
+      period_end: membership.current_period_end,
+      benefit_type_label: benefitTypeLabel,
     };
   }
 

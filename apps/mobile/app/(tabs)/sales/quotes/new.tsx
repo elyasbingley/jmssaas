@@ -140,6 +140,13 @@ export default function NewQuoteScreen() {
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
+          is_callout_fee: item.is_callout_fee ?? false,
+          is_subcontracted: item.is_subcontracted ?? false,
+          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          is_optional: item.is_optional ?? false,
+          is_included: item.is_included ?? true,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;
@@ -204,7 +211,7 @@ export default function NewQuoteScreen() {
         ) : null}
 
         <Text style={styles.sectionTitle}>Line items</Text>
-        <LineItemEditor items={lineItems} onChange={setLineItems} />
+        <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
         <View style={styles.fieldSpacing}>
           <FormField

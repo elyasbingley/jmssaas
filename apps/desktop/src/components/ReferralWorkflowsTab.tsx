@@ -133,7 +133,7 @@ export function ReferralWorkflowsTab() {
           const triggerTemplates = (templates ?? []).filter((t) => t.trigger_key === key);
           if (!rule) return null;
           return (
-            <div key={key} className="rounded-lg border border-gray-200 bg-white p-4">
+            <div key={key} className="rounded-lg border border-gray-300 bg-white p-4">
               <div className="mb-1 flex items-center justify-between">
                 <p className="font-bold text-gray-900">{TRIGGER_LABELS[key]}</p>
                 <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -144,7 +144,7 @@ export function ReferralWorkflowsTab() {
               <p className="mb-2 text-sm text-gray-500">{TRIGGER_DESCRIPTIONS[key]}</p>
 
               {triggerTemplates.map((template) => (
-                <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
+                <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2">
                   <div className="min-w-0 flex-1 pr-3">
                     <p className="text-sm font-semibold text-gray-900">
                       {template.name} ({template.type})

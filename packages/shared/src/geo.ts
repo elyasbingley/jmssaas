@@ -57,3 +57,26 @@ export function trueAreaSqm(flatAreaSqm: number, pitchDegrees: number): number {
   if (cosPitch <= 0) return flatAreaSqm;
   return flatAreaSqm / cosPitch;
 }
+
+// Total length of a drawn run (gutter, fencing, piping) - same
+// equirectangular-projection approach as polygonFlatAreaSqm above (one
+// shared reference latitude, planar distance between consecutive
+// points) rather than a second, different distance algorithm (e.g.
+// haversine) - at the scale a straight run on one job site spans, they
+// agree to well under a millimetre, and reusing the same projection
+// means desktop (which previously called Google's own
+// geometry.spherical.computeLength()) and mobile (which has no such
+// library available via react-native-maps) produce identical totals for
+// identical coordinates, not two independently-rounded numbers.
+export function polylineLengthMeters(coordinates: Coordinate[]): number {
+  if (coordinates.length < 2) return 0;
+  const referenceLat = coordinates.reduce((sum, c) => sum + c.lat, 0) / coordinates.length;
+  const points = coordinates.map((c) => projectToMeters(c, referenceLat));
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return total;
+}

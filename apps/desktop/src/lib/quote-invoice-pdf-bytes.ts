@@ -46,6 +46,19 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+// jsPDF's addImage stretches the source into whatever box you give it - it
+// does not preserve the image's own aspect ratio the way the HTML/print
+// pipeline's `max-width`/`max-height` CSS does. Reading the natural size via
+// getImageProperties and contain-fitting it into (maxW, maxH) keeps every
+// image (logo, line-item photo, signature) undistorted here too.
+function addContainedImage(doc: jsPDF, dataUrl: string, x: number, y: number, maxW: number, maxH: number) {
+  const props = doc.getImageProperties(dataUrl);
+  const scale = Math.min(maxW / props.width, maxH / props.height);
+  const w = props.width * scale;
+  const h = props.height * scale;
+  doc.addImage(dataUrl, props.fileType || "PNG", x, y, w, h, undefined, "MEDIUM");
+}
+
 async function fetchImageDataUrl(url: string): Promise<string | null> {
   try {
     const res = await fetch(url);
@@ -122,7 +135,7 @@ async function renderHeader(
     const dataUrl = await fetchImageDataUrl(tenant.logo_url);
     if (dataUrl) {
       try {
-        cursor.doc.addImage(dataUrl, "PNG", MARGIN, cursor.y, 40, 20, undefined, "MEDIUM");
+        addContainedImage(cursor.doc, dataUrl, MARGIN, cursor.y, 40, 20);
       } catch {
         // Some logo formats/data URIs reject the format hint - skip the
         // image rather than fail the whole PDF over a logo.
@@ -207,7 +220,7 @@ const COL_QTY_X = PAGE_WIDTH - MARGIN - 55;
 const COL_RATE_X = PAGE_WIDTH - MARGIN - 32;
 const COL_AMOUNT_X = PAGE_WIDTH - MARGIN;
 
-function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], lineItems: LineItemFormInput[]) {
+async function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], lineItems: LineItemFormInput[]) {
   cursor.ensureSpace(12);
   cursor.doc.setFillColor(...accent);
   cursor.doc.rect(MARGIN, cursor.y - 4, CONTENT_WIDTH, 7, "F");
@@ -218,30 +231,82 @@ function renderLineItemsTable(cursor: Cursor, accent: [number, number, number], 
   cursor.doc.text("Amount", COL_AMOUNT_X, cursor.y, { align: "right" });
   cursor.y += 6;
 
+  let lastBundleName: string | null = null;
   for (const item of lineItems) {
+    // A bundle is purely a presentation grouping (see the migration's own
+    // comment) - a heading band, same shape as the column header above but
+    // muted, whenever the bundle changes. Consecutive items sharing a
+    // bundle_name only get one heading, matching the desktop/mobile
+    // LineItemSummary views.
+    if (item.bundle_name && item.bundle_name !== lastBundleName) {
+      cursor.ensureSpace(8);
+      cursor.doc.setFillColor(243, 244, 246);
+      cursor.doc.rect(MARGIN, cursor.y - 4, CONTENT_WIDTH, 6, "F");
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(107, 114, 128);
+      cursor.doc.text(item.bundle_name.toUpperCase(), COL_DESC_X + 1, cursor.y);
+      cursor.y += 6;
+    }
+    lastBundleName = item.bundle_name || null;
+
+    const excluded = !!item.is_optional && !item.is_included;
+    const rowColor: [number, number, number] = excluded ? [156, 163, 175] : [55, 65, 81];
     const descLines = cursor.doc.splitTextToSize(item.description || "-", COL_QTY_X - COL_DESC_X - 40) as string[];
-    cursor.ensureSpace(descLines.length * 4.5 + 4);
+    const showWaived = item.waived_amount_cents > 0;
+    const waivedLineCount = showWaived ? 1 : 0;
+    const optionalTagLineCount = item.is_optional ? 1 : 0;
+
+    let imageDataUrl: string | null = null;
+    const IMAGE_H = 22;
+    if (item.image_url) imageDataUrl = await fetchImageDataUrl(item.image_url);
+
+    cursor.ensureSpace((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0) + 4);
     const rowTop = cursor.y;
-    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(55, 65, 81);
+    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
     descLines.forEach((line, i) => cursor.doc.text(line, COL_DESC_X, rowTop + i * 4.5));
+    let textY = rowTop + descLines.length * 4.5;
+    if (item.is_optional) {
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(126, 34, 206);
+      cursor.doc.text(excluded ? "Optional - not selected" : "Optional - included", COL_DESC_X, textY);
+      textY += 4.5;
+    }
+    if (showWaived) {
+      cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(29, 78, 216);
+      cursor.doc.text("Waived - Membership", COL_DESC_X, textY);
+      textY += 4.5;
+    }
+    if (imageDataUrl) {
+      try {
+        addContainedImage(cursor.doc, imageDataUrl, COL_DESC_X, textY, 32, IMAGE_H);
+      } catch {
+        // Skip an unembeddable image rather than fail the whole PDF.
+      }
+    }
+    cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
     cursor.doc.text(String(item.quantity), COL_QTY_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(item.unit_price_cents), COL_RATE_X, rowTop, { align: "right" });
-    cursor.doc.text(formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
-    cursor.y = rowTop + Math.max(descLines.length * 4.5, 4.5) + 2;
+    cursor.doc.text(excluded ? "-" : formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
+    // Draw the separator right at this row's own bottom edge, then leave a
+    // clear 3mm gap before the next row starts - a 9pt font's ascent is
+    // ~2.3mm, so anything less than that here draws the line straight
+    // through the top of the next row's text instead of below this one's.
+    const rowBottom =
+      rowTop + Math.max((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5);
     cursor.doc.setDrawColor(229, 231, 235);
-    cursor.doc.line(MARGIN, cursor.y - 1, PAGE_WIDTH - MARGIN, cursor.y - 1);
+    cursor.doc.line(MARGIN, rowBottom, PAGE_WIDTH - MARGIN, rowBottom);
+    cursor.y = rowBottom + 3;
   }
   cursor.y += 4;
 }
 
-function renderTotals(cursor: Cursor, lineItems: LineItemFormInput[], balanceDueCents: number | null) {
+function renderTotals(cursor: Cursor, lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0) {
   const totals = calculateDocumentTotals(lineItems);
   cursor.ensureSpace(24);
   const rows: [string, string, boolean][] = [
     ["Sub Total", formatCentsAsAud(totals.subtotal_cents), false],
     ["GST", formatCentsAsAud(totals.gst_cents), false],
-    ["Total", formatCentsAsAud(totals.total_cents), true],
   ];
+  if (membershipDiscountCents > 0) rows.push(["Membership discount", `-${formatCentsAsAud(membershipDiscountCents)}`, false]);
+  rows.push(["Total", formatCentsAsAud(totals.total_cents - membershipDiscountCents), true]);
   if (balanceDueCents !== null) rows.push(["Balance Due", formatCentsAsAud(balanceDueCents), true]);
   for (const [label, value, bold] of rows) {
     if (bold) {
@@ -292,7 +357,7 @@ async function renderSignature(cursor: Cursor, signerName: string | null, accept
   cursor.bold("Accepted", MARGIN, 9, [107, 114, 128]);
   cursor.y += 5;
   try {
-    cursor.doc.addImage(svgData, "PNG", MARGIN, cursor.y, 50, 22, undefined, "MEDIUM");
+    addContainedImage(cursor.doc, svgData, MARGIN, cursor.y, 50, 22);
   } catch {
     // Ignore an unembeddable signature rather than failing the PDF.
   }
@@ -320,8 +385,8 @@ export async function buildQuotePdfBytes(params: {
     { label: "Quote date", value: formatDate(quote.issue_date) },
     { label: "Expiry date", value: formatDate(quote.expiry_date) },
   ]);
-  renderLineItemsTable(cursor, ACCENT.quote, lineItems);
-  renderTotals(cursor, lineItems, null);
+  await renderLineItemsTable(cursor, ACCENT.quote, lineItems);
+  renderTotals(cursor, lineItems, null, quote.membership_discount_cents);
   renderNotes(cursor, quote.notes);
   await renderSignature(cursor, quote.accepted_by_name, quote.accepted_at, quote.accepted_signature_svg);
 
@@ -363,8 +428,8 @@ export async function buildInvoicePdfBytes(params: {
     ],
     billToContact
   );
-  renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
-  renderTotals(cursor, lineItems, balanceDueCents);
+  await renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
+  renderTotals(cursor, lineItems, balanceDueCents, invoice.membership_discount_cents);
   renderNotes(cursor, invoice.notes);
   await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);
   renderBankDetails(cursor, tenant);

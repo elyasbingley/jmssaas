@@ -6353,3 +6353,1710 @@ npx eas build --profile preview --platform android
 - Not tested against a real device/EAS build in this sandbox. Verified:
   `tsc --noEmit` clean for `apps/mobile`, `apps/desktop`, and
   `packages/shared`.
+
+## 54. Google Calendar two-way sync
+
+Every profile (technician or admin) connects their own Google account.
+Once connected: jobs/tasks scheduled here push to that person's real
+Google Calendar, and any edit/move/delete made either side - in the app
+or directly on their phone's Google Calendar app - flows back to the
+other, in real time via Google's push notifications (not polling). A
+technician's pre-existing personal Google events are also pulled in as
+plain "Busy" placeholders so scheduling avoids clashing with them,
+without exposing what those personal events actually are to anyone but
+the technician themselves.
+
+### Privacy model
+
+Visibility is **per-viewer-ownership**, not role-based: you see full
+detail (title/description/location) of events you own; everyone else -
+including admins - sees only a "Busy" placeholder for events they don't
+own. This is enforced at write time, not by a redaction view: a
+`'google_personal'` event's row in `calendar_events` always literally
+stores the title `'Busy'`; the real detail lives only in the satellite
+table `calendar_event_personal_details`, readable via RLS only by
+`owner_profile_id = auth.uid()`. `'app'` events (jobs/tasks scheduled
+from this app) are unaffected - full detail for everyone who could see
+them before, same as today.
+
+### Architecture
+
+- **`google_calendar_connections`** - one row per profile (not per
+  tenant, unlike `xero_connections`), OAuth tokens + the push-
+  notification channel's id/expiry + the incremental `sync_token`. Zero
+  RLS grants, same service-role-only lockdown as `xero_connections` -
+  `get_google_calendar_connection_status()` (self, any profile) and
+  `list_google_calendar_connections()` (admin, whole tenant) are the only
+  way to read connection state, both SECURITY DEFINER RPCs that never
+  expose tokens.
+- **`calendar_events`** gained `source` (`'app'` | `'google_personal'`),
+  `owner_profile_id`, and `google_calendar_connection_id`. RLS was
+  tightened so ordinary write policies only ever apply to `source =
+  'app'` rows - a `'google_personal'` row is service-role-written only
+  (by the sync functions below), never directly editable through the
+  app.
+- **`google-oauth-start`** / **`google-oauth-callback`** - the connect
+  flow. Unlike `xero-oauth-start`, not admin-gated (any profile connects
+  their own account). The callback does the full initial setup inline
+  (resolve the real calendar id, import a rolling 7-days-back/180-days-
+  forward baseline of existing events, create the first push channel)
+  rather than deferring to a cron sweep, so the connection is fully live
+  by the time the browser lands back on the app.
+- **`google-calendar-push`** - outbound. Called by the client right after
+  a `calendar_events` write (and any linked `job_cards.
+  assigned_technician_id` reassignment) lands - see `apps/desktop/src/
+  lib/google-calendar-sync.ts` / `apps/mobile/lib/google-calendar-sync.ts`
+  - same best-effort, swallow-failures shape as `dispatch-now.ts`'s
+  `triggerImmediateDispatch`. Only pushes `'app'` events with a resolved
+  assignee who's connected; a reassignment deletes from the old
+  assignee's calendar and creates fresh on the new one (Google has no
+  "move to a different account" operation).
+- **`google-calendar-webhook`** - inbound. Google calls this directly
+  (`X-Goog-Channel-ID`/`X-Goog-Channel-Token`/`X-Goog-Resource-State`
+  headers, no Supabase JWT - see `[functions.google-calendar-webhook]` in
+  `supabase/config.toml`) whenever a watched calendar changes. Pulls the
+  actual diff via `events.list({syncToken})`, applies each item (delete /
+  update an `'app'` event's schedule fields / update a `'google_personal'`
+  event's satellite detail / insert a brand-new `'google_personal'`
+  event), falls back to a full re-list + local-deletion reconciliation on
+  a 410 Gone.
+- **`google-calendar-renew-channels`** (cron, daily) - push channels
+  expire and can't be renewed in place, only recreated; sweeps every
+  connection whose channel is missing or expiring within 24h.
+- **`google-calendar-reconcile`** (cron, hourly) - two-part backstop:
+  finishes any connection whose inline setup in the callback didn't fully
+  complete (missing `sync_token` and/or channel), and pulls an
+  incremental diff for every connected calendar in case a push
+  notification was ever dropped (Google delivery isn't 100% guaranteed).
+- **`google-calendar-disconnect`** - self-serve (disconnect your own) or
+  admin-triggered (disconnect anyone on the tenant). Stops the push
+  channel and revokes the OAuth grant (both best-effort), deletes local
+  `'google_personal'` rows for that connection, and clears the Google-
+  sync columns on any `'app'` rows that were synced to it.
+- **Desktop**: Settings gained a "Google Calendar" section (self-connect,
+  every profile) plus, for admins, a "Team Google Calendar connections"
+  list with per-person Disconnect. `Calendar.tsx`/`CalendarEventDetail.tsx`/
+  `CalendarEventNew.tsx`/`Dispatch.tsx` all call `pushCalendarEventUpsert`/
+  `pushCalendarEventDelete` after their existing writes, and
+  `CalendarEventDetail.tsx` renders `'google_personal'` events as a
+  simplified read-only card (edit/delete happens on the Google side and
+  flows back automatically) instead of the normal edit form.
+- **Mobile**: a new always-visible "Google Calendar" row in the Settings
+  tab (`app/google-calendar-settings.tsx`, not admin-gated - unlike the
+  rest of that tab's list) mirrors the desktop Settings section
+  (self-connect + admin team list). `(tabs)/calendar/index.tsx`/
+  `(tabs)/calendar/[id].tsx`/`(tabs)/calendar/new.tsx` got the same
+  push-call wiring and read-only `'google_personal'` treatment as
+  desktop.
+
+### New Google Cloud project + secrets needed
+
+1. [console.cloud.google.com](https://console.cloud.google.com) -> new
+   (or existing) project -> **APIs & Services -> Library** -> enable the
+   **Google Calendar API**.
+2. **APIs & Services -> OAuth consent screen** - External, add the
+   `openid`, `email`, and `https://www.googleapis.com/auth/calendar`
+   scopes. While the app is in "Testing" publish status only explicitly
+   added test users can connect - move to "In production" (may trigger
+   Google's verification review, since `calendar` is a sensitive scope)
+   once ready for every technician to connect for real.
+3. **APIs & Services -> Credentials -> Create Credentials -> OAuth client
+   ID** -> Web application. **Authorized redirect URI** (must match
+   exactly):
+   ```
+   https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-oauth-callback
+   ```
+4. Set secrets:
+   ```powershell
+   npx supabase secrets set GOOGLE_CLIENT_ID=your_client_id_here
+   npx supabase secrets set GOOGLE_CLIENT_SECRET=your_client_secret_here
+   npx supabase secrets set GOOGLE_APP_REDIRECT_URL=https://jmssaas.vercel.app/settings
+   npx supabase secrets set GOOGLE_CHANNEL_TOKEN=any_long_random_string_you_generate
+   ```
+   `GOOGLE_CHANNEL_TOKEN` isn't a Google-issued value - it's a shared
+   secret this app makes up once (e.g. `openssl rand -hex 32`) and sends
+   to Google when creating a watch channel; Google echoes it back on
+   every push notification, and `google-calendar-webhook` checks it
+   matches before trusting the notification. Treat it like any other
+   secret - don't reuse it for anything else.
+
+### Push notifications need a verified domain
+
+Google's `events.watch()` push notifications will only deliver to an
+`address` on a domain verified in
+[Google Search Console](https://search.google.com/search-console) under
+the **same Google Cloud project** as the OAuth client above - the shared
+`*.supabase.co` domain every Edge Function otherwise lives on cannot be
+verified (Supabase, not this tenant, owns that domain) and Google will
+reject the watch request outright. This is why sync is push-based instead
+of falling back to polling: it needs the business's own domain wired up
+as a [custom domain for Supabase Edge Functions](https://supabase.com/docs/guides/functions/custom-domains)
+(or a thin reverse-proxy in front of them on that domain), verified once
+in Search Console, before `google-calendar-webhook`'s URL will actually
+receive anything from Google. Until that's done, `createWatchChannel`
+calls in `google-oauth-callback`/`google-calendar-renew-channels` will
+fail (logged, non-fatal - the connection still works, just without live
+push; `google-calendar-reconcile`'s hourly sweep becomes the only sync
+path in that case).
+
+**Done for this deployment**: `hooks.bingleyroof.com.au` is set up as a
+Supabase custom domain (Settings -> Custom Domains, CNAMEd at VentraIP to
+`qnlxmpxjmmhcnzzpcabd.supabase.co`), verified and activated via `npx
+supabase domains create/reverify/activate --project-ref
+qnlxmpxjmmhcnzzpcabd --custom-hostname hooks.bingleyroof.com.au`.
+`WEBHOOK_URL` in `google-oauth-callback`/`google-calendar-renew-channels`
+is hardcoded to `https://hooks.bingleyroof.com.au/functions/v1/google-calendar-webhook`
+rather than derived from `SUPABASE_URL`, since the whole point is that it
+must NOT be the default `*.supabase.co` address. One real gotcha hit
+during setup worth flagging for next time: this domain briefly had **both**
+VentraIP's and Cloudflare's nameservers delegated at once (split-brain
+DNS - some resolvers answered from one zone, some from the other,
+inconsistently), which made every DNS-dependent step here flaky/
+inconsistent until the unused Cloudflare nameservers were removed from
+the domain's delegation at VentraIP, leaving only VentraIP's authoritative.
+If a future domain hits inexplicably inconsistent DNS behavior during
+this same setup, check for exactly that before assuming it's just
+propagation delay.
+
+### Deploy steps
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx supabase functions deploy google-oauth-start
+npx supabase functions deploy google-oauth-callback --no-verify-jwt
+npx supabase functions deploy google-calendar-push
+npx supabase functions deploy google-calendar-webhook --no-verify-jwt
+npx supabase functions deploy google-calendar-renew-channels
+npx supabase functions deploy google-calendar-reconcile
+npx supabase functions deploy google-calendar-disconnect
+npx vercel --prod
+```
+
+(Only `google-oauth-callback` and `google-calendar-webhook` need
+`--no-verify-jwt` - both are reached with no Supabase session at all, see
+their `verify_jwt = false` entries in `supabase/config.toml`. The two
+cron functions are called by `pg_net` with the service-role key checked
+by exact string match inside the function itself, same pattern as
+`process-scheduled-comms` - they still work fine under the platform's
+default JWT verification since the service-role key is itself a valid
+JWT.)
+
+Then, in the SQL editor, schedule the two cron sweeps (one-time, requires
+`pg_cron`/`pg_net`, same as every other scheduled sweep in this schema -
+see `process-scheduled-comms`'s own setup notes):
+```sql
+select cron.schedule(
+  'google-calendar-renew-channels',
+  '0 3 * * *',
+  $$select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-calendar-renew-channels',
+    headers := '{"Authorization": "Bearer YOUR-SERVICE-ROLE-KEY"}'::jsonb
+  )$$
+);
+select cron.schedule(
+  'google-calendar-reconcile',
+  '0 * * * *',
+  $$select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-calendar-reconcile',
+    headers := '{"Authorization": "Bearer YOUR-SERVICE-ROLE-KEY"}'::jsonb
+  )$$
+);
+```
+
+### Test it
+
+1. Settings (desktop) or Settings tab -> Google Calendar (mobile) ->
+   **Connect Google Calendar** -> approve on Google's consent screen ->
+   confirm it redirects back showing "Connected as [email]".
+2. Schedule a job to that technician (Dispatch or Calendar > New event) ->
+   confirm the event appears on the technician's real Google Calendar
+   within a few seconds.
+3. Move or rename that event directly in Google Calendar (phone or
+   calendar.google.com) -> confirm it updates here too, without
+   refreshing anything manually (push, not polling - should be near-
+   instant once the webhook domain is verified).
+4. Create a brand-new personal event directly in that technician's Google
+   Calendar, overlapping a work day -> confirm it shows up here as
+   "Busy" for everyone else, with the real title/location visible only
+   when signed in as that technician.
+5. Disconnect from Settings -> confirm the "Busy" placeholders for that
+   person disappear and the badge flips back to "Connect Google
+   Calendar".
+
+### Known gaps / judgment calls
+
+- **Requires a verified custom domain to get live push** - see above;
+  done for this deployment (`hooks.bingleyroof.com.au`). On a fresh
+  project with only the default `*.supabase.co` URL, sync still works but
+  only on `google-calendar-reconcile`'s hourly cadence, not "ideally
+  instantly" until that's set up - and `WEBHOOK_URL` in `google-oauth-
+  callback`/`google-calendar-renew-channels` would need updating to that
+  project's own verified domain too, not reused as-is.
+- **Recurring events created in this app sync to Google as N separate
+  events, not one native recurring series** - see section 55 below
+  (`generateRecurrenceOccurrences`) for why and how that works.
+  `singleEvents: true` still expands anything recurring *on Google's own
+  side* into individual occurrences on import/sync either way, so a
+  Google-side recurrence change also shows up as many individual
+  occurrence updates here, not a single "edit series" action.
+- **One Google Calendar per profile** - always the account's primary
+  calendar (`calendars/primary`), no picker for a secondary calendar.
+- **`google_personal` events are read-only in-app** - by design (see
+  `CalendarEventEditor.tsx`'s own comment): editing/deleting happens on
+  the Google Calendar side and flows back automatically, since
+  `google-calendar-push` already no-ops any edit to a non-`'app'` event.
+- **OAuth consent screen "Testing" mode caps connections at added test
+  users** - see the Google Cloud project setup above; moving to
+  "In production" needs Google's review since `calendar` is a sensitive
+  scope.
+- Not verified against a real Google Cloud project, OAuth client, live
+  push delivery, or a verified custom domain - none of those exist in
+  this sandbox. Verified: `tsc --noEmit` clean and a production `vite
+  build` clean for `apps/desktop`/`apps/mobile`/`packages/shared`, the
+  migration's RLS/redaction design empirically tested against a real
+  local Postgres 16 instance (base-table reads/writes for admins and
+  `'app'` events unaffected; owner sees full personal-event detail via
+  the satellite table; non-owner sees zero rows there; admin cannot
+  write a `'google_personal'` row directly; cross-tenant isolation
+  holds), and the Google Calendar API v3 request/response shapes
+  (`events.watch`/`events.list` with `syncToken`/`showDeleted`/
+  `singleEvents`, the 410 Gone `fullSyncRequired` contract, OAuth
+  `access_type=offline&prompt=consent`) checked against Google's own
+  public API documentation by reading, not a live call.
+
+## 55. Desktop calendar UI overhaul: Google-Calendar-style popup/editor, colors, recurrence
+
+Rebuilt the desktop Calendar screen to match Google Calendar's own feel,
+not just its layout: click an event and a small popup card appears
+anchored next to it (grid still visible behind), click the pencil icon
+and a larger edit overlay opens over the grid instead of navigating to a
+separate page. `apps/desktop/src/pages/CalendarEventNew.tsx` and
+`CalendarEventDetail.tsx` (and their `/calendar/new`/`/calendar/:id`
+routes) are gone - `CalendarEventPopover.tsx` and `CalendarEventEditor.tsx`
+in `components/` replace them, both driven by local state in
+`Calendar.tsx` rather than routing. Nothing else in the app linked to
+those two routes, so this was a clean removal, not a redirect shim.
+
+### Recurring events
+
+Real recurring events, but deliberately **not** built on Google's native
+RRULE/`recurringEventId` model - see `packages/shared/src/calendar-
+recurrence.ts`. Creating a "Weekly on Tuesday" event generates every
+occurrence as its own independent `calendar_events` row up front
+(`generateRecurrenceOccurrences`, capped at 2 years out / 500 occurrences,
+whichever comes first - a `never`-ending series doesn't actually go
+forever, see the function's own comment), linked only by a shared
+`recurrence_group_id` and a denormalized `recurrence_rule` copied onto
+every row (not a single "series master"). The payoff: every existing sync
+function (`google-calendar-push`/`google-calendar-webhook`/`google-
+calendar-renew-channels`/`google-calendar-reconcile`) needed **zero**
+changes - from their point of view a recurring event's occurrences are
+just N ordinary `'app'` events, pushed/synced independently exactly like
+before. The cost: Google sees N separate calendar entries, not one native
+recurring series, so bulk operations *on Google's own side* (e.g.
+deleting "this and following" from the Google Calendar app) only affect
+whichever single occurrence was clicked - the app's own "This event /
+This and following / All events" scope picker (`RecurrenceScopeDialog.tsx`)
+is where bulk edit/delete for a series actually lives.
+
+Editing "this and following" or "all events" on a series applies
+title/description/location/guests/job/task to every affected row, and -
+for the clock-time/duration only, never the underlying day-of-week/day-
+of-month pattern - shifts every affected occurrence's own start/end by
+applying the edited occurrence's new time-of-day onto each row's existing
+date (`Calendar.tsx`'s save mutation, the `newTimeOfDayMs`/`durationMs`
+block). Deliberately does not attempt to re-anchor the recurrence pattern
+itself (e.g. moving occurrence 3 from a Tuesday to a Wednesday does not
+shift future occurrences from Tuesdays to Wednesdays) - see the code
+comment there for why that was scoped out.
+
+### Colors
+
+Four fixed categories - Job, Task, Personal (Google), General - derived
+from an event's own fields by default (`categoryForEvent` in `calendar-
+recurrence.ts`: `job_card_id` set -> Job, `task_id` set -> Task,
+`source = 'google_personal'` -> Personal, else General). `tenants.
+calendar_category_colors` (jsonb, one hex color per category) is
+admin-editable from Settings' new "Calendar colors" section, bundled into
+the same "Save changes" button as the rest of Company Settings rather
+than its own separate save action. Quotes aren't a category - nothing
+schedules a quote onto the calendar today, so there was no real category
+to color; that'd be a separate feature if wanted later.
+
+**`calendar_events.category_override`** (added in a follow-up pass, see
+the `calendar_category_override` migration) lets any `'app'` event's
+type/color be set directly from the editor's "Event type" dropdown
+(Auto / Job / Task / General), independent of what it's actually linked
+to - e.g. a job-linked event can still be colored General, or an
+unlinked event can be colored Job. `categoryForEvent` checks this first
+and only falls back to the derived category when it's `null`. Deliberately
+excludes `'personal'` (enforced by the column's own check constraint) -
+that category only ever applies to read-only `'google_personal'` rows,
+which never reach the editor this is set from.
+
+### Trimmed from a literal Google Calendar copy
+
+No Google Meet video conferencing, no "Find a time" availability tab, no
+notification/reminder delivery, no rich-text HTML description (kept
+plain text, matching how description is used everywhere else in the app -
+job cards, PDFs, emails), no granular per-guest permissions (kept the
+existing simple comma-separated guest email field) - none of these have
+any real backing capability in this app, so copying their exact UI would
+have been decorative rather than functional. See the chat thread's own
+scoping discussion for the full reasoning.
+
+### Test it
+
+1. Calendar -> click any existing event -> confirm the popup card appears
+   anchored next to it, grid still visible, with the correct color dot,
+   date/time, category, and (if linked) job/task.
+2. Click the pencil icon -> confirm the edit overlay opens over the grid
+   (no page navigation) with the event's fields populated.
+3. Create a new event, set repeat to "Weekly on [today's weekday]",
+   "Ends after 4 occurrences" -> Save -> confirm 4 events appear on the
+   calendar, one per week, all the same color.
+4. Open one of those 4 -> change its time -> Save -> choose "This and
+   following events" -> confirm that occurrence and the ones after it
+   (not the ones before) moved to the new time, same dates.
+5. Settings -> Calendar colors -> change the Job color -> Save changes ->
+   confirm job-linked events on the Calendar screen immediately reflect
+   the new color after the query refetch.
+6. Delete one occurrence of the series with "All events" scope -> confirm
+   every occurrence (and its synced Google Calendar event, if the
+   assignee is connected) disappears.
+
+### Known gaps / judgment calls
+
+- **Mobile calendar UI is unchanged** - this pass was explicitly scoped
+  to desktop only; mobile keeps its existing full-page create/detail
+  screens and has no recurrence or color-coding UI.
+- **A `never`-ending recurring event is capped at 2 years / 500
+  occurrences** - there's no background job to lazily extend a series
+  past that horizon; re-saving the event with a later end date is the
+  workaround if a series genuinely needs to run longer.
+- **"This event only" edits don't detach from the series** - the edited
+  row keeps its `recurrence_group_id`, so a later "all events" edit on
+  the same series still touches it too. A true per-occurrence "exception"
+  model (like Google's own) was scoped out for complexity - see
+  `RecurrenceScopeDialog`'s own comment.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean and a
+  production `vite build` clean for `apps/desktop`/`packages/shared`, the
+  recurrence generator's date math (multi-weekday ordering, month-end
+  clamping Jan 31 -> Feb 28 without drifting into March, end-date
+  bounding) empirically run via `tsx` against real `Date` objects rather
+  than only reviewed by eye, and the new migration's `ALTER TABLE`
+  statements applied against a real local Postgres 16 instance seeded
+  with the relevant existing table shapes.
+
+## 56. Bug-fix batch: job card editing/truncation, referral saving, border contrast, real estate truncation, price book image tiles
+
+Eight fixes/small features reported together, grouped here as one batch
+rather than eight tiny sections.
+
+**Job card title/description not editable (desktop).** Mobile's job
+detail screen already had a working "Edit" modal; desktop's
+`JobDetail.tsx` had none. Added the same shape: an "Edit" button next to
+the existing "Email" button opens a modal (Title + Description fields,
+reusing `createJobCardSchema` from `@jmssaas/shared` for validation) that
+writes straight to `job_cards.title`/`description`. The description
+display itself also gained `whitespace-pre-wrap` so line breaks in a
+saved description actually render as line breaks.
+
+**Mobile "Log Referral" stuck on "Saving..." forever.** Root cause:
+`apps/mobile/app/b2b-referrals/index.tsx`'s `saveGroup`/`savePartner`/
+`saveLog` handlers all called `setXSaving(true)` then `setXSaving(false)`
+as a plain statement *after* the `await supabase...insert(...)` call -
+any thrown exception (a network blip, RLS rejection, anything) skipped
+straight past that line and left the saving flag stuck `true` forever.
+Same bug, identically shaped, in all three handlers even though only the
+referral-log one was reported. Fixed all three with `try/catch/finally`,
+`finally { setXSaving(false); }` guaranteeing the flag always clears.
+
+**App randomly looking logged-out / "fresh account" until restarted.**
+Investigated, no code change. `auth-context.tsx`'s session handling
+already has a documented earlier fix for the closest-sounding bug
+(PowerSync `connect()` re-triggering on every token refresh); the session
+itself isn't being lost. The far more likely explanation, given how many
+`packages/shared/src/powersync/schema.ts` changes shipped across this
+project's recent history: PowerSync detecting a local schema version
+bump and doing a one-time local resync, which blanks the local SQLite
+cache and `hasSynced` flag until it completes - indistinguishable from
+"logged out" to a user, and exactly matches "fixed by restarting" if the
+device regained connectivity around the same time. This is expected
+PowerSync behavior after a schema-changing update, not a bug to fix in
+this codebase.
+
+**Category/status labels cut off on the desktop job card.** Traced to
+plain `<select>` elements clipping their closed-state text hard at the
+box edge (no ellipsis) when the box is narrower than the selected
+option's text - not a `truncate` class anywhere, since this app doesn't
+use one. `JobDetail.tsx`'s Category/Stage/Technician row was
+`grid-cols-2 md:grid-cols-3`, squeezing each select at wider viewports;
+flattened to a plain `grid-cols-2` so each select gets more room.
+
+**Separator/border lines too light, app-wide.** Established as a
+deliberate, global rule: shift every border color one step darker. Desktop
+uses a 3-tier Tailwind gray scale for borders (`border-gray-100` ->
+`-200` -> `-300`, darkest already in use); shifted 100->200 and 200->300
+across 43 files via a placeholder-based `sed` pass (to avoid the 100->200
+values then also being caught by the 200->300 rule). Mobile has two flat
+hex border colors used directly in `StyleSheet.create` objects
+(`#f0f0f0`, `#e5e7eb`); both collapsed to one darker `#d1d5db` across 33
+files, matching only `border*Color:` properties so the same hex used as a
+`backgroundColor` (empty-swatch placeholders, archived-status badges) was
+left untouched.
+
+**Real estate/strata suburb text cut off.** Same root cause on both
+platforms: an address and a suburb rendered as unconstrained siblings in
+a row layout, so a long address pushed the suburb past the visible edge.
+Desktop's `RealEstate.tsx` PM property list and mobile's
+`real-estate/index.tsx` property list both fixed the same way - the
+address becomes the element that shrinks and truncates
+(`min-w-0 flex-1 truncate` / `flex: 1` + `numberOfLines={1}`), the suburb
+becomes the element that always shows in full (`flex-shrink-0` /
+`flexShrink: 0`). `PropertyDetail.tsx` (desktop) and `[id].tsx` (mobile)
+already wrap safely and needed no change.
+
+**Price book image tiles.** `price_book_categories` and
+`price_book_items` each gained an `image_url` column
+(`20260905000100_price_book_image_tiles.sql`), plus a public
+`price-book-images` storage bucket with the same
+public-read/tenant-and-admin-scoped-write RLS shape as the existing
+`company-logos` bucket. Desktop only (no scope given for mobile in the
+request, and the pricebook browsing UI itself is desktop-only today):
+
+- `PriceBook.tsx`'s "New category" modal and `PriceBookCategory.tsx`'s
+  "New item" modal each gained an optional file picker; picking a file
+  uploads it to `<tenant_id>/category-<ts>.<ext>` / `item-<ts>.<ext>`
+  before the row insert, so the row is created with `image_url` already
+  set.
+- Existing categories/items get an immediate-upload "Add/Change tile
+  image" + "Remove image" control (same pattern as the company logo
+  uploader in Settings) - next to "Rename" on the category page, and as
+  its own section on `PriceBookItem.tsx`.
+- Both tile grids (`PriceBook.tsx` categories, `PriceBookCategory.tsx`
+  items) render the image as the tile's `background-image` with the
+  name (and, for items, the computed price) overlaid in a bottom
+  gradient bar when `image_url` is set, falling back to the existing
+  emoji-and-centered-text tile when it isn't.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+```
+
+Mobile-touching fixes in this batch (referral saving fix, border darkening,
+suburb truncation) need a new EAS build to reach devices already installed
+from a prior build.
+
+### Test it
+
+1. Open a job card -> Edit -> change the title and description, including
+   a line break in the description -> Save -> confirm both show correctly
+   and the line break renders.
+2. Mobile: B2B & Referrals -> Log Referral -> submit with the device
+   offline or against a bad network -> confirm the modal shows an error
+   instead of hanging on "Saving..." forever; retry with network back and
+   confirm it saves normally.
+3. Open a job card at a narrower desktop window width -> confirm the
+   Category/Stage/Technician dropdowns show their full selected text
+   without clipping.
+4. Spot-check a few list/card borders across both apps (job list, price
+   book tiles, dispatch board) -> confirm dividing lines are visibly
+   darker/more distinct than before.
+5. Real Estate -> a property manager with a long address -> confirm the
+   suburb still shows in full next to a truncated (not overflowing)
+   address, on both desktop and mobile.
+6. Price Book -> new category -> attach an image -> Save -> confirm the
+   tile shows the image with the name readable at the bottom -> open the
+   category -> new item -> same check -> open an existing item -> upload/
+   change/remove its image and confirm the tile grid reflects it after
+   the query refetch.
+
+### Known gaps / judgment calls
+
+- **Mobile job description "cut off"** - the reported "not editable AND
+  cut off on mobile" was two claims; editing already worked on mobile
+  (only desktop was missing it, now fixed), but no reproducible
+  truncation could be found in `apps/mobile/app/(tabs)/sales/jobs/[id].tsx`'s
+  description display (no `numberOfLines`, no fixed-height/overflow
+  container) or its edit modal (`CenteredModal` scrolls past 85% height
+  rather than clipping). Left as-is; flag it again with a screenshot if
+  it's still visible after this deploy - there may be a code path this
+  pass didn't reach.
+- **Price book image tiles are desktop-only** - the request didn't
+  specify mobile, and mobile has no price book browsing UI to attach
+  this to today.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean across
+  `apps/desktop`, `apps/mobile`, `packages/shared`; a production
+  `vite build` clean for `apps/desktop`; and the new migration's `ALTER
+  TABLE`/bucket/RLS-policy statements applied against a real local
+  Postgres 16 instance, including sanity inserts confirming `image_url`
+  defaults to `null` when omitted and that the four storage policies
+  attach correctly.
+
+## 57. Bug-fix batch: referral partner editability, team roles, price book/inventory polish, calendar coloring, PO numbers, template preview rendering
+
+Eleven more fixes/small features from the same "keep reporting bugs as you
+hit them" workflow as section 56.
+
+**Referral partner not editable after creation.** `referral_partner_id`
+was only ever set in the desktop "New Job"/"New Quote" creation forms -
+`JobDetail.tsx`, `QuoteDetail.tsx`, and (by extension, since invoices have
+no column of their own and always derive attribution from the linked job)
+`InvoiceDetail.tsx` had no way to set or change it afterward. New shared
+`ReferralPartnerModal` component (parameterized by `table: "job_cards" |
+"quotes"`) mounted on all three desktop pages, plus the equivalent picker
+added to mobile's job/quote/invoice detail screens (job writes through
+PowerSync like every other `job_cards` field there; quotes/invoices write
+directly via Supabase like the rest of those screens).
+
+**Team member name/role.** `Team.tsx`/`team.tsx` only ever listed
+technicians and had no edit action at all. Now lists every team member
+(admins included) with an Edit action for name, plus a new free-text
+`job_title` column (migration `20260906000100_profile_job_title.sql`) an
+admin can set to whatever the person's actual job is - "Foreman", "Office
+Manager", "Apprentice", anything. `profiles.role` (admin/technician)
+deliberately stays a fixed two-value enum rather than becoming fully
+custom - it drives roughly 160 RLS policy references across the schema,
+and rewriting that into an arbitrary/tenant-defined set would mean
+touching every one of those policies for a purely cosmetic ask. Role
+badge shown read-only next to the new job title field.
+
+**Mobile price book category titles clipping ("Roof Repairs" → "Roof").**
+Self-inflicted regression from section 56's own image-tile work: the tile
+gained `overflow: "hidden"` (to clip the new background image to its
+rounded corners) with no `numberOfLines` on the plain-tile label, so a
+name wrapping to a second line got silently cut off by the same clip
+rather than shown with an ellipsis. Fixed with `numberOfLines={2}` on
+both category and item labels, and a shorter aspect ratio (1.3 → 1.05,
+taller tiles) so two lines actually fit.
+
+**"Choose photos" not working.** `ImagePicker.launchImageLibraryAsync`'s
+own `base64: true` option is unreliable once `allowsMultipleSelection`
+triggers the native multi-select picker - assets often come back with no
+`base64` data and no error, and the upload loop's `if (!asset.base64)
+continue;` silently skipped every one, so nothing visibly happened.
+Fixed in all three affected call sites (`PhotoAttachments.tsx`,
+`reports/instance/[id].tsx`, `EmailComposeModal.tsx`) by reading each
+picked asset back off disk via `expo-file-system` instead - the same
+reliable technique `pickDocument` already used.
+
+**Mobile inventory UI, price-book-style with images.** `inventory_items`
+gained an `image_url` column (migration
+`20260907000100_inventory_item_images.sql`, new `inventory-images`
+bucket, same public-read/admin-write shape as `price-book-images`) and a
+PowerSync schema column so the existing offline-first inventory screen
+can read/write it locally. The flat list of `itemCard` rows became a
+2-column tile grid matching the price book's look (image as background +
+name/supplier overlaid at the bottom, or the previous plain tile when no
+image is set) while keeping the -/qty/+ stepper as its own row below each
+tile - that interaction is still the point of this screen, not just a
+visual match. The New/Edit item modal gained a photo picker (deferred
+upload - only actually uploaded on Save, not the moment a photo is
+picked, so cancelling never leaves an orphaned file behind).
+
+**Mobile job stage automation toggle undoing itself after save** (and,
+it turned out, four other silently-broken toggles). Empirically
+confirmed root cause: PowerSync stores every boolean-shaped flag as
+`column.integer` (SQLite has no boolean type), and `connector.ts`'s
+`uploadData` was forwarding that raw `0`/`1` straight to Supabase's REST
+API as a JSON *number* - which PostgREST rejects for a genuine Postgres
+`boolean` column (verified directly against a local Postgres 16 instance:
+`('{"v":1}'::jsonb -> 'v')::boolean` raises "cannot cast jsonb numeric to
+type boolean", the exact shape of request a `{is_closed: 1}` body
+produces). The CRUD upload silently failed and never completed, so the
+optimistic local toggle reverted back to the last-synced value once
+PowerSync's own consistency check caught up - looking exactly like "I
+flipped it, saved, reopened it, and it's back to what it was." Fixed once
+in the connector (`coerceBooleanColumns`), for every affected column
+across the schema, not just `job_lifecycle_stages.is_closed`:
+`client_sites.is_primary`, `client_contacts.is_primary`, `job_cards.
+is_real_estate_job`/`nte_exceeded_approved`/`referral_fee_paid`, `job_
+lifecycle_stages.is_system_default`/`is_closed`, `communication_rules.
+is_enabled`, `communication_templates.is_active`.
+
+**Mobile Schedule: assigning an unassigned job doesn't remove it from
+Unassigned** (and the identical bug on desktop's Dispatch board, fixed
+alongside it once found there too). Both screens computed "still
+unassigned" as "no calendar event with a start time `>= now`" - comparing
+against the *exact current moment*, not the day. Scheduling a job for
+later *today* at a clock time earlier than right now (e.g. the "new
+event" default of 9am, picked mid-afternoon, or Dispatch's own default
+1-hour block dropped onto an earlier slot) was already "in the past" the
+instant it was created, so the job never left the unassigned list.
+Fixed by comparing against the start of today instead of the exact
+moment - a job scheduled anywhere on today's date (or later) now counts
+as assigned for the rest of that day.
+
+**Desktop Dispatch board filter/search.** Added a search box (job title
+or client name) plus category and stage dropdown filters, matching
+ServiceM8's own dispatch board search/filter. Applied identically to the
+unassigned shelf and to which scheduled blocks show on the technician
+rows, so filtering narrows the whole board, not just the jobs still
+waiting to be dispatched.
+
+**Calendar colors + full-tile coloring, on mobile too, and both
+platforms now fill the whole tile.** Mobile's calendar never read
+`tenants.calendar_category_colors` at all - every event rendered
+identically regardless of category. Added the same `categoryForEvent`/
+color lookup desktop already had. Separately, on **both** platforms, the
+color treatment itself changed from a colored left-edge accent (border-
+left on a plain gray/white row) to a full solid-color tile with white
+text, matching Google Calendar's own event styling rather than the
+subtler accent-bar look this app had been using.
+
+**Optional PO number on quotes/invoices, any client type.** New
+`po_number` column on both `quotes` and `invoices` (migration
+`20260908000100_quote_invoice_po_number.sql`) - distinct from `job_cards.
+work_order_number`, which is a different concept (the agency's own
+work order, real-estate/strata jobs only) that already existed. Quick-
+edit control on both desktop (new `PurchaseOrderNumberModal`) and mobile
+detail screens, independent per document (a quote's PO can differ from
+its invoice's). Shown on the PDF as a "PO" line in the same dates block
+as the issue/expiry/due dates, only when set - no PO number, no line at
+all, not even a blank one.
+
+**Email composer showing raw `{tags}` instead of the client's actual
+values.** "Send Quote via Email"/"Send Invoice via Email" prefilled the
+editable composer with the *literal* stored template - `{client_full_
+name}`, `{company_name}`, `{quote_accept_link}` and so on, verbatim. The
+actual send path was never broken: `process-scheduled-comms` (the
+dispatcher) always re-renders `rendered_subject`/`rendered_body` against
+fresh entity data at actual send time regardless of what's stored, so a
+client was never going to receive a literal unrendered tag - but the
+*editable preview* looked wrong and made it hard to tell what, if
+anything, still needed editing before sending. Fixed by rendering the
+template (via the existing shared `renderTemplate`, the same function
+the dispatcher's own Deno copy is kept in sync with) against the specific
+client/quote-or-invoice/company data before showing it in the composer -
+on both desktop and mobile, for both quotes and invoices. The one field
+that needs an extra step, the accept/decline/payment link, is generated
+via the same `generate_quote_approval_link`/`generate_invoice_approval_
+link` RPC the existing "copy approval link" button already calls, so the
+link shown in the preview is real and clickable, not a placeholder.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+Mobile-touching fixes in this batch (referral partner editing, price book
+tile clipping, "Choose photos", inventory images, the boolean-toggle
+connector fix, Schedule's unassigned-job bug, calendar colors, PO
+numbers, template preview rendering) need a new EAS build to reach
+devices already installed from a prior build.
+
+### Test it
+
+1. Open a job card, quote, and invoice each - confirm "Referral source"
+   shows and is editable on all three, on both desktop and mobile.
+2. Team -> confirm every team member shows (not just technicians), each
+   with a Role badge -> Edit one -> change the name and set a job title
+   -> Save -> confirm both show immediately.
+3. Mobile: Price Book -> a category with a name that wraps to two lines
+   -> confirm both lines show fully, no clipping.
+4. Mobile: a job or task -> "Choose photos" -> pick several from the
+   library -> confirm they actually attach (not silently nothing).
+5. Mobile: Inventory -> confirm the item grid looks like tiles (not a
+   flat list) -> add/edit an item with a photo -> confirm the tile shows
+   the image with the name at the bottom, and the -/qty/+ stepper still
+   works underneath it.
+6. Mobile: Job Setup -> edit a stage -> toggle "Job is done in this
+   stage" -> Save -> leave the screen and come back -> confirm the
+   toggle held (previously it silently reverted).
+7. Mobile: Schedule -> tap an unassigned job -> schedule it for later
+   today with a technician -> confirm it immediately disappears from
+   Unassigned (previously it stayed). Same check on desktop's Dispatch
+   board by dragging a job onto a technician's row at an earlier time
+   slot than right now.
+8. Desktop: Dispatch -> type into the search box, or pick a category/
+   stage filter -> confirm both the unassigned shelf and the scheduled
+   blocks on technician rows narrow to match -> Clear filters -> confirm
+   everything reappears.
+9. Desktop and mobile Calendar -> confirm events render as solid colored
+   tiles (not a thin colored edge on a gray row), and that job/task/
+   personal/general events show different colors matching Settings'
+   Calendar colors on both platforms now.
+10. Open a quote -> "PO number" -> + Add -> type one -> Save -> confirm
+    it shows -> export/preview the PDF -> confirm a "PO" line appears.
+    Clear it back to empty -> confirm the PDF's PO line disappears
+    entirely. Same check on an invoice.
+11. Open a quote with a client that has a name/email on file -> "Send
+    Quote via Email" -> confirm the subject/body show the client's actual
+    name and company details instead of `{client_full_name}`/
+    `{company_name}` placeholders, and that the accept/decline links in
+    the body are real working links, not empty. Same check on an invoice.
+
+### Known gaps / judgment calls
+
+- **`profiles.role` (admin/technician) is still not customisable** - see
+  above; a full custom-role/permission system was scoped out as too big
+  and too security-sensitive for this pass. `job_title` covers the
+  "identify what they actually do" half of the request without touching
+  any RLS policy.
+- **Mobile has no upload UI for price book images** - unchanged from
+  section 56, still desktop-only; this batch only fixed the *display*
+  clipping bug on mobile's existing (read-only) tiles.
+- **The boolean-toggle connector fix is a fixed allowlist, not a generic
+  mechanism** - `BOOLEAN_COLUMNS_BY_TABLE` in `connector.ts` has to be
+  updated by hand if a new boolean-shaped `column.integer` field is added
+  to the PowerSync schema later and gets written to from a mobile screen;
+  nothing enforces that today.
+- **The "in-modal switch template" dropdown inside `EmailComposeModal`
+  still inserts a raw, unrendered template** when a different template is
+  picked *after* the composer is already open (as opposed to the initial
+  "Send Quote/Invoice via Email" prefill, which is fixed) - fixing that
+  properly means plumbing a render context/callback through the shared
+  component for every one of its callers (job's free-form email button
+  has no single obvious entity context to render against), which was out
+  of scope for this pass. The initial prefill this batch fixed is the
+  path the user actually reported.
+- Not tested in a real browser against a live Supabase project - this
+  sandbox has no such backend. Verified: `tsc --noEmit` clean across
+  `apps/desktop`, `apps/mobile`, `packages/shared`; a production
+  `vite build` clean for `apps/desktop`; the PostgREST boolean/numeric
+  cast failure empirically reproduced against a real local Postgres 16
+  instance via `node-postgres` before writing the fix (not just inferred
+  from documentation); and all three new migrations applied and sanity-
+  tested (inserts, defaults, bucket/RLS policies where applicable)
+  against real local Postgres 16 instances.
+
+## 58. Asana-style task management engine
+
+Upgraded the flat single-list Tasks screen into a full project management
+system: Projects, Kanban sections, subtasks, task dependencies,
+per-project custom fields, and a system activity log alongside the
+existing human-authored notes - on both desktop and mobile.
+
+### Scope decisions (read this before touching `tasks`)
+
+- **`tasks.status` (todo/in_progress/done) was NOT replaced.** Too much
+  already keys off it - the Complete button, mobile's status chips, the
+  subtask rollup, and the new dependency guardrail's "mark complete"
+  check - same reasoning as `job_lifecycle_stages` alongside
+  `job_cards.status` (section 32's migration). The new `section_id` is a
+  purely organisational Kanban-column position within a project,
+  independent of completion state: dragging a card into a "Done"-looking
+  section does not itself flip `status`. An admin who wants that
+  automatic behaviour drags the completed card there themselves.
+- **The JMS "Job" link reuses the existing `job_card_id` column** - this
+  schema's job entity is `job_cards`, not a separate `jobs` table, so
+  there was nothing new to add there. `client_id`/`property_id` are the
+  two genuinely new JMS link columns.
+- **No new `task_comments` table.** The existing `task_notes` table
+  (already PowerSync-synced) already is exactly that - author, body,
+  timestamp - so it's reused as the human-authored half of the "Activity
+  & Comment feed". The new `task_activity_logs` table is the
+  system-generated half (field-change history), populated by a single
+  `AFTER UPDATE` trigger (`log_task_activity()`) rather than scattered
+  application-side insert calls at every mutation site.
+- **No project-membership/collaborator table, and no notification
+  wiring for milestone completion.** There's no existing "who's on this
+  project" concept in this schema to notify, and building one plus
+  wiring it into the communication/dispatch engine is a separate feature
+  in its own right. Milestone completion still gets its own
+  `task_activity_logs` entry (`field_name = 'milestone_completed'`),
+  just not a push/email - a real, visible gap against the original ask,
+  called out here rather than silently dropped.
+
+### Database (`supabase/migrations/20260909000100_asana_task_engine.sql`)
+
+New tables: `task_projects`, `task_sections`, `task_dependencies` (a
+directed `blocking_task_id` -> `dependent_task_id` edge, no self-loops,
+no duplicate edges), `task_custom_fields` + `task_custom_field_values`
+(per-project field definitions, one value row per task+field pair), and
+`task_activity_logs`. New columns on `tasks`: `project_id`, `section_id`,
+`parent_task_id` (subtasks are ordinary `tasks` rows, no separate
+subtask table), `priority` (low/medium/high/urgent), `is_milestone`,
+`start_date`, `position_order`, `estimated_hours`/`actual_hours`,
+`client_id`/`property_id`. RLS mirrors two existing shapes exactly:
+`task_projects`/`task_sections`/`task_custom_fields` are tenant-wide
+read, admin-only write (same as `job_lifecycle_stages`/
+`service_categories`); `task_dependencies`/`task_custom_field_values`/
+`task_activity_logs` are visible/writable via the parent task's own
+admin-or-assigned rule (same as `task_notes`/`task_files`).
+
+Empirically tested against a local Postgres 16 instance before being
+considered done, same bar as every other migration in this repo: a
+minimal mirrored schema (`tenants`/`profiles`/`clients`/`properties`/
+`job_cards`/`tasks` plus the `task_status` enum and the
+`set_updated_at()`/`current_tenant_id()`/`is_admin()` helper functions
+this migration's triggers/RLS depend on), the real migration applied on
+top, then real inserts covering: a project + two sections, a task in
+each linked to `client_id`/`property_id`, a dependency edge between two
+tasks (confirmed the self-loop and duplicate-edge constraints reject bad
+inserts), a custom field + its value (confirmed the one-value-per-
+task-per-field unique constraint rejects a duplicate), and a single
+`UPDATE` changing `status`/`priority`/`assigned_to`/`due_date`/
+`section_id` together - confirmed exactly 5 `task_activity_logs` rows
+came out of the trigger, plus a separate check that the
+`milestone_completed` special-case entry fires only for a milestone task
+transitioning to `done` and not for an ordinary one.
+
+### Shared (`packages/shared/src`)
+
+`types.ts`: `Task` extended with the new columns; new `TaskProject`,
+`TaskSection`, `TaskDependency`, `TaskCustomField`,
+`TaskCustomFieldValue`, `TaskActivityLog` interfaces. `schemas.ts`: new
+Zod schemas for all of the above, and `createTaskSchema` extended to
+match. `powersync/schema.ts`: `tasks` gained the same new columns;
+`task_projects`/`task_sections`/`task_custom_fields` added as new
+PowerSync tables. `task_dependencies`/`task_custom_field_values` were
+**also** added to the local PowerSync schema (per the original ask) but
+deliberately **not** wired into `powersync/sync-rules.yaml`'s
+technician-scoped buckets - see the known gap below.
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Tasks.tsx` is now a multi-view workspace: a project sidebar ("All
+Tasks" plus each `task_projects` row), a view switcher (Board/List/
+Calendar/Timeline - defaulting to the selected project's own
+`view_type`, since Board/Timeline need a project's sections/dates to
+mean anything and aren't offered for "All Tasks"), quick filters (My
+Tasks/Overdue/Unassigned/priority/search), and "+ New Project"/"+ New
+Section"/"+ New Task". The four views live in
+`components/tasks/{BoardView,ListView,CalendarView,TimelineView}.tsx`:
+Board is a `@dnd-kit`-based Kanban (same library already used by
+Dispatch's board) with drag-and-drop updating `section_id`/
+`position_order` instantly; List is a grouped accordion (by section when
+a project is selected, by priority for "All Tasks") with inline editing;
+Calendar is a month grid plotting `due_date`/`start_date`; Timeline is a
+horizontal Gantt-style bar chart with SVG arrows for dependencies, drawn
+between each row's known y-position and the shared date scale - a real,
+working implementation, not a polished commercial Gantt (no resize-by-
+drag, no cross-project view).
+
+`pages/TaskDetail.tsx` became a slide-over drawer instead of a full-page
+navigation: `App.tsx`'s `/tasks/:id` route nests under `/tasks` and
+`TasksPage` renders `<Outlet/>` inside a fixed right-side panel (only
+when the child route matches, via `useMatch`), so the board/list stays
+mounted behind the drawer like real Asana instead of navigating away.
+The drawer covers every piece from the spec: breadcrumb (Project /
+Section / Parent task), a properties grid (assignee/dates/priority/
+estimated vs actual hours), JMS entity link dropdowns (Job/Client/
+Property - "combobox" here means the same `<select>` convention every
+other entity-link field in this app already uses, not a new rich-text
+autocomplete component), dynamic custom-field inputs per the task's
+project, a dependencies widget ("Blocked by"/"Blocking" with a search-
+to-add box), a subtask checklist (add + up/down reorder + progress),
+photos (unchanged from before), and a merged activity/comment feed
+(system-generated `task_activity_logs` lines interleaved with
+`task_notes` comments by timestamp). @mentions are a lightweight
+"tap a name to insert `@Full Name`" row under the comment box, not a
+live autocomplete-while-typing or a real notification - there's no rich
+text editor in this app to hang that off, and wiring actual mention
+notifications is the same out-of-scope problem as the milestone
+notification above.
+
+### Mobile (`apps/mobile/app/(tabs)/tasks`)
+
+`index.tsx` gained a project filter row, section tabs (shown once a
+project with sections is selected), and quick filter chips (My Tasks/Due
+Today), on top of the existing status filter row - the "+ New task"
+form (admin-only, unchanged) gained priority chips, a milestone switch,
+and an assignee picker (`PickerModal`, the same searchable-list
+component quotes/invoices/job detail already use for client/job/
+category pickers). `[id].tsx` gained priority chips, an assignee picker,
+a start-date field alongside the existing due-date field, and a subtask
+checklist (checkbox to toggle status, "+ Add subtask" input) - all
+writable offline via the same `powersync.execute()` pattern the existing
+status chips already used, no new sync plumbing needed since these are
+all just columns/rows in tables mobile already syncs.
+
+### Guardrails (`apps/desktop/src/components/tasks/taskHelpers.ts`)
+
+- **Dependency guardrail**: `unresolvedBlockers()` + `dependencyGuardrailMessage()`
+  are shared by every place a desktop task can be marked complete - the
+  drawer's Complete button and the List view's inline status
+  controls - so completing a task from either place surfaces "This task
+  is blocked by X. Resolve dependencies first or override?" rather than
+  the warning being bypassable by using the other view. An admin can
+  still confirm through it; this is a warning, not a hard block. Not
+  enforced on mobile - see the known gap below.
+- **Milestone auto-completion**: handled entirely by the
+  `log_task_activity()` trigger - no client-side code needed. Does not
+  notify collaborators (see the scope decision above).
+- **Subtask rollup**: `subtaskProgress()` computes done/total from the
+  same in-memory task list every view already has (subtasks are just
+  rows with `parent_task_id` set) - shown as an "X/Y" badge on cards, list
+  rows, the drawer's subtask section, and mobile's subtask section.
+- **JMS integration link**: the Job # badge on Board/List cards is a
+  real button (not a static label) that navigates to `/jobs/:id`,
+  `stopPropagation`-guarded so clicking it doesn't also open the task
+  drawer underneath it.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+A new EAS build is needed for the mobile changes (new tasks columns,
+project/section filters, subtasks) to reach devices already installed
+from a prior build.
+
+### Test it
+
+1. Tasks -> "+ New Project" -> name it, pick a default view -> confirm it
+   appears in the sidebar and is auto-selected.
+2. On that project -> "+ New Section" twice -> switch to Board view ->
+   confirm both columns appear -> "+ New Task" into one -> drag the card
+   into the other column -> confirm it stays there after a refetch
+   (`section_id`/`position_order` persisted).
+3. Switch to List view -> confirm the same tasks group by section ->
+   inline-edit a task's assignee/due date/priority/status directly in
+   the row, with no drawer open.
+4. Switch to Calendar view -> confirm a task with a due date shows on
+   that day; Timeline view -> confirm a task with both start and due
+   dates renders as a bar spanning that range.
+5. Click a task to open the drawer -> confirm the board stays visible
+   behind it. Add a subtask, reorder it, mark it done -> confirm the
+   parent's "X/Y" badge updates on close. Link a Client and a Property
+   via the JMS dropdowns -> Save -> reopen -> confirm they held.
+6. Add a second task -> from the first task's Dependencies widget,
+   search for it and add it under "Blocking" -> confirm it now shows
+   under "Blocked by" on the second task -> try marking the second task
+   complete -> confirm the warning appears -> Cancel -> mark the first
+   task done first -> mark the second complete again -> confirm no
+   warning this time.
+7. On a project with a custom field (add one via Supabase directly for
+   this test, no admin UI for defining fields was built beyond the
+   migration/table) -> confirm it renders in the drawer and saves.
+8. Click a task's Job # badge on a Board or List card -> confirm it
+   navigates straight to that job, without opening the task drawer.
+9. Mobile: Tasks tab -> filter by project, then by section, then by "My
+   Tasks"/"Due Today" -> confirm each narrows the list correctly. Open a
+   task -> change its priority and assignee -> add a subtask -> tick it
+   done -> confirm it all persists after a background/foreground cycle
+   (offline-first via PowerSync).
+
+### Known gaps / judgment calls
+
+- **`task_dependencies`/`task_custom_field_values` are declared in
+  mobile's local PowerSync schema but not wired into any
+  `sync-rules.yaml` bucket for technician devices** - only into
+  `admin_job_data` (so admin devices do get them). They're keyed by
+  `task_id` rather than `job_card_id`, so scoping them into
+  `technician_assigned_jobs`/`technician_own_tasks` the way
+  `task_notes`/`task_files` are would need a join those buckets'
+  existing "NOT verified against a real PowerSync instance" caveat
+  already flags as uncertain. Mobile's own screens don't yet surface
+  dependency management or custom fields either (only desktop does), so
+  there's nothing on a technician's device that would need them today -
+  revisit both together if mobile ever gains that UI.
+- **No admin UI for defining a project's custom fields** - the
+  `task_custom_fields` table, RLS, and the drawer's rendering of
+  whatever fields exist are all in place, but creating/editing a field
+  definition itself is Supabase-direct-only for now (test step 7 above).
+  A `task_custom_fields` settings screen is a reasonable, bounded
+  follow-up.
+- **@mentions are an insert-only affordance, not a real notification
+  system** - see the scope decision above; same for milestone
+  completion. Both are one clearly-scoped feature away (a project
+  collaborators/subscribers concept, wired into the existing
+  communication/dispatch engine) from what the original ask implied.
+- **The Timeline (Gantt) view has no drag-to-reschedule or resize** -
+  bars are click-to-open-drawer only; rescheduling happens through the
+  drawer's own date fields. Cross-project Gantt view isn't offered -
+  Timeline, like Board, requires a project to be selected.
+- Not tested in a real browser against a live Supabase project or a real
+  device/EAS build - this sandbox has neither. Verified: `tsc --noEmit`
+  clean across `apps/desktop`, `apps/mobile`, `packages/shared`; a
+  production `vite build` clean for `apps/desktop`; and the new
+  migration applied and empirically sanity-tested (inserts, constraints,
+  the activity-log trigger's exact row counts, the milestone special
+  case) against a real local Postgres 16 instance, same bar as every
+  other migration in this repo.
+
+## 59. Bug-fix batch: task drawer close/header color, nav highlighting, clipping fixes, calendar dead end
+
+A round of small fixes reported after the Asana task engine shipped:
+
+- **Task drawer had no way to close it** - no X button, no
+  click-outside backdrop. Added both (either navigates back to
+  `/tasks`), and gave the drawer's header band its own blue background
+  so it stands out from the white properties/activity area below it.
+- **Desktop Settings sidebar**: "Company Details" (`/settings`) stayed
+  highlighted on every nested settings route, since `NavLink`'s default
+  match is a prefix match, not exact - added `end` so it only lights up
+  on its own route.
+- **Mobile Inventory screen**: the top nav was a cramped stack of
+  scrolling chip rows. Collapsed the location chip row into a header
+  picker button, shortened the "Out of Stock / Need to Order" tab label
+  to "Low Stock", and pinned "Manage categories" as a fixed gear icon
+  beside the category chip scroll instead of inside it (so it doesn't
+  get pushed further away as more categories are added). Also wrapped
+  the screen in `SafeAreaView` (`edges=["top"]`) - unlike Home/Sales/
+  Settings, which already did this, Inventory's custom header had never
+  been wrapped and sat right under the status bar/notch with a guessed
+  flat `paddingTop`, making the location button hard to tap on some
+  devices. And the subcategory chip row's `ScrollView` had never been
+  given an explicit `style` (only `contentContainerStyle`, unlike the
+  category row above it, which needed one for its own pinned-gear-icon
+  layout) - without it, the row could size its own frame wrong before
+  content was measured, clipping the top of tall-ascender letters
+  (visible on "Roof"/"Blocking", invisible on short words like "All").
+- **Mobile Jobs list filter bar**: the "All categories"/"All stages"/
+  Clear row had no `flexWrap`, so a long lifecycle stage name pushed the
+  row past the screen edge instead of wrapping.
+- **Mobile Job Detail's Category/Stage picker fields**: these are the
+  only picker fields in the app that lay a color swatch and the label
+  out side-by-side in a row - every other picker field just puts the
+  label alone in a plain column, which sizes correctly on its own. In a
+  row, a `Text` next to a fixed-width sibling needs `flexShrink` to be
+  properly constrained by Yoga; without it, a name just over one line's
+  width (e.g. "Scheduled", "Enquiry") silently lost its last character
+  or two instead of wrapping onto a second line - visible as e.g.
+  "Schedule"/"Enquir" with room still left in the box, not a hard clip
+  at the border (which is what made this one hard to spot from the
+  bug report alone - screenshots were what nailed the exact cause).
+- **Mobile Job Setup's category/stage rows**: crammed a name, two tags
+  (Default/Closed), and four action links (Up/Down/Edit/Delete) into one
+  unwrapped horizontal row, squeezing long stage names down to nothing.
+  Split into a label row and an actions row, both wrapping.
+- **Mobile calendar "stuck on event card"**: creating an event from
+  Schedule's "tap an unassigned job" flow (or the Calendar tab's own
+  FAB) used `router.replace()` to swap the "new event" form for the
+  created event's detail screen. Since `replace()` only rewrites history
+  *within the Calendar tab's own nested stack*, this left the detail
+  screen with nothing to pop back to at all - no back arrow, a genuine
+  dead end, regardless of which screen the flow started from. Popping
+  the form first, then pushing the detail on top, restores a real back
+  step.
+
+Two other reports turned out not to be code bugs: the "Job is done in
+this stage" toggle reverting, and mobile calendar missing colors, were
+both already fixed in earlier commits (the boolean-write connector fix
+and the per-category tile coloring, respectively) - if either is still
+showing up, the device is running a build from before those commits,
+not hitting a live bug. EAS preview builds don't auto-update; the
+specific new APK has to be downloaded and reinstalled each time.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx vercel --prod
+```
+```powershell
+cd apps\mobile
+eas build --platform android --profile preview
+```
+No Supabase migration in this batch - every fix here is UI-only.
+
+## 60. Job Card Quote Tools module
+
+A "Quote Tools" hub added to the Job Card: the Roof Area Tool, a linear
+distance measurer, an on-site material tally counter, a photo markup/
+annotation editor, a concrete volume calculator, and a material order
+form - all six tools, on both desktop and mobile (see "60a" below for
+the v2 pass that merged Roof Area in and closed the mobile gap).
+
+### Scope decisions (read this before touching these tables)
+
+- **All four new tables reference `job_cards`, not a `jobs` table** -
+  same spec-writer assumption the Asana task engine's own migration
+  comment already corrected once this session.
+- **No new `communication_logs` table.** Every tool's "Save to Job
+  Notes" action inserts into the existing `job_notes` table directly -
+  same table job_measurements' own "Save & Append to Job Card" flow
+  already uses, no duplicate table needed.
+- **The desktop Job Card has no tab system today** - it's one long
+  scrolling page of bordered sections (Photos, Job Costing, Notes, ...),
+  not tabs, so "add a Quote Tools tab" became a new section
+  (`QuoteToolsSection`) with its own internal sub-tab bar for the 6
+  tools, matching how the page actually works rather than introducing a
+  page-wide tab system for one section for it.
+- **`job_material_orders.order_number` is server-assigned** via the
+  existing generic `next_reference_number()` helper (same mechanism as
+  job/quote/invoice numbers) - "MAT-001", "MAT-002", ... - never set by
+  the client.
+- **`job_material_orders.pdf_url` stays unpopulated for now.** Desktop's
+  own PDF "export" everywhere else (e.g. the Inventory shopping list) is
+  a browser print dialog, not a stored file - the Material Order PDF
+  follows that same pattern (`buildMaterialOrderPdfHtml` +
+  `lib/print.ts`'s `exportPdf`), so there's no file to point `pdf_url`
+  at. "Email Order to Supplier" reuses the existing `EmailComposeModal`
+  + `queueAndSendEmail` plumbing (the same free-form-email pattern the
+  job card's own "Email" button already uses) with the order details in
+  the message body - not a real PDF-generation-and-storage-and-attach
+  pipeline, which would be a separate feature in its own right.
+- **`job_concrete_calculations` has no `updated_at`/update policy** -
+  matches the spec's own column list; a recalculation is a new row, not
+  an edit-in-place, same append-style-history reasoning as
+  job_measurements' own facets.
+- **Photo Markup's annotated filename doesn't literally get the
+  `_annotated` suffix as the displayed `file_name`** on desktop -
+  `uploadJobPhoto` (shared, used by every photo upload in this app)
+  always assigns a UUID-based storage filename regardless of the
+  `File` object's own name; touching that shared helper for one caller's
+  cosmetic naming wasn't worth it. The annotated photo does show up as
+  a distinct new photo in the gallery either way.
+
+### Database (`supabase/migrations/20260910000100_quote_tools.sql`)
+
+`job_linear_measurements` (named sets of straight-line runs, each a
+jsonb array of `{id, label, coordinates, length_meters}` segments),
+`job_material_tallies` (jsonb array of `{id, name, count, category}`
+items), `job_concrete_calculations` (one-shot calculation records), and
+`job_material_orders` (jsonb array of `{item_name, quantity, unit_type,
+notes}` line items, `material_order_status` enum). RLS mirrors
+`job_measurements` exactly on all four: visible/writable via the parent
+`job_cards` row's own admin-or-assigned-technician rule, admin-only
+delete.
+
+Empirically tested against a local Postgres 16 instance before being
+considered done: a minimal mirrored schema plus the existing
+`next_reference_number()`/`tenant_counters` machinery this migration's
+order-number trigger depends on, the real migration applied on top,
+then real inserts covering all four tables, confirming the
+`assign_material_order_number` trigger assigns "MAT-001" then "MAT-002"
+sequentially, the per-tenant unique constraint rejects a duplicate
+order number, and the `updated_at` trigger fires on the tables that have
+one.
+
+### Shared (`packages/shared/src`)
+
+New `LinearMeasurementSegment`/`JobLinearMeasurement`,
+`MaterialTallyItem`/`JobMaterialTally`, `JobConcreteCalculation`, and
+`MaterialOrderLineItem`/`JobMaterialOrder`/`MaterialOrderStatus` types
+in `types.ts`; matching Zod schemas in `schemas.ts`. Not added to
+PowerSync - see the mobile section below.
+
+### Desktop (`apps/desktop/src`)
+
+`components/quote-tools/QuoteToolsSection.tsx` renders the sub-tab bar
+(Roof Area links out to the existing `/jobs/:id/measure` route; the
+other 5 are inline panels) and owns the one piece of state shared
+between two sibling tools - `transferredTallyItems`, populated by
+Material Tally's "Transfer to Material Order Form" button and consumed
+by the Material Order form, a pure in-memory handoff since both tools
+are mounted at once. `LinearMeasurer.tsx` is modeled directly on
+`JobMeasure.tsx`'s map/click/overlay pattern (polygons there, polylines
+here), using the same `loadGoogleMaps()` helper - now also loading the
+`geometry` library for `google.maps.geometry.spherical.computeLength()`.
+`MaterialTally.tsx` is a walkthrough counter with 44px +/- steppers and
+`truncate` on item names. `PhotoMarkup.tsx` is a plain HTML5 `<canvas>`
+editor (pen/line/arrow/rect/circle/text, 5-color palette, stroke
+thickness, undo/redo/clear) - no external drawing library, the shape set
+is small enough that hand-rolled redraw-from-shape-list is simpler than
+pulling one in. `ConcreteCalculator.tsx` computes volume/bags live as
+you type. `MaterialOrderForm.tsx` builds line items manually or via the
+tally transfer, and exports/emails via `lib/material-order-pdf.ts` +
+`lib/print.ts` / `EmailComposeModal`.
+
+### Mobile (`apps/mobile`)
+
+Per the spec's own explicit mobile scope (native touch support for the
+Material Counter and Photo Markup tool only, not the full desktop
+suite): the Job Card screen gained a third tab, "Quote Tools", visible
+to every role (unlike "Job Costing", which stays admin-only) -
+`components/MaterialTallyCounter.tsx` (same counter idea, native
+44px steppers) and `components/PhotoMarkupEditor.tsx`. There's no
+`<canvas>` in React Native, so the markup editor uses `react-native-svg`
+for live shape rendering (the same approach `SignaturePad.tsx` already
+uses for a single freehand path, extended to five more shape types) over
+an `Image` background, then rasterizes the whole Image+Svg overlay to a
+PNG via `react-native-view-shot`'s `ViewShot.capture()` - both libraries
+were already installed and already used elsewhere in this app for
+exactly this "flatten a touch-drawn overlay to a real image" step, nothing
+new pulled in. No Redo on mobile (Undo only) - a deliberate trim to keep
+the touch toolbar to one row, not an oversight. Text annotations use a
+small custom modal (`CenteredModal` + `FormField`) rather than
+`Alert.prompt`, which is iOS-only in React Native.
+
+Both tools are Supabase-direct (not PowerSync) - same "occasional site
+tool, needs connectivity" treatment as Reports & Safety and Purchase
+Orders, not the "must always work offline" treatment tasks/jobs/notes
+get. Linear Measurer, Concrete Calculator, and Material Order Form were
+not built for mobile at all, per the spec's own scope.
+
+### Deploy
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx vercel --prod
+```
+
+A new EAS build is needed for the mobile Quote Tools tab to reach
+devices already installed from a prior build.
+
+### Test it
+
+1. Open a job -> "Quote Tools" section -> "Linear Measurer" -> "+ New
+   Measurement Set" -> name it -> "+ New Run" -> click the map a few
+   times -> "Finish run" -> add a second run -> confirm the total length
+   sums both -> Save -> confirm it lists below with "Copy Summary to Job
+   Notes" -> click it -> confirm a note appears on the job.
+2. "Material Tally" -> type a few material names, adjust counts with
+   +/- -> "Save Tally to Job Notes" -> confirm a formatted note appears
+   -> add another tally -> "Transfer to Material Order Form" -> confirm
+   it switches tabs with those items pre-filled as line items.
+3. "Photo Markup" -> pick an existing job photo -> draw with each tool
+   (pen, line, arrow, rectangle, circle, text) in a couple of colors ->
+   Undo one -> Save -> confirm a new `..._annotated.png` photo appears in
+   the job's Photos section.
+4. "Concrete Calculator" -> enter length/width/depth -> confirm the m³
+   and bag count update live -> Save -> confirm it appears in "Past
+   calculations" and a note appears on the job.
+5. "Material Order" -> add a couple of line items manually -> Save ->
+   confirm it shows an auto-assigned "MAT-001" number -> "Export
+   Material Order PDF" -> confirm the browser print dialog opens with
+   the order details -> "Email Order to Supplier" -> confirm the
+   composer pre-fills the order details -> send.
+6. Mobile: open a job -> "Quote Tools" tab (visible to both admin and
+   technician logins) -> Material Tally counter works with large touch
+   steppers -> Photo Markup: pick a downloaded photo, draw a couple of
+   shapes plus a text annotation, Save -> confirm the annotated photo
+   appears in Photos.
+
+### Known gaps / judgment calls
+
+- **No admin UI restricting who can delete a tool's records beyond the
+  existing admin-only RLS** - matches job_measurements' own existing
+  behavior, not a new gap introduced here.
+- **`job_material_orders.pdf_url`/real PDF attachment on the emailed
+  order** - see the scope decision above; the PDF export and the email
+  are two independent actions (print-dialog PDF vs. a text-body email),
+  not one "attach the exported PDF to the email" flow.
+- **Mobile doesn't get the Linear Measurer, Concrete Calculator, or
+  Material Order Form** - per the spec's own explicit mobile scope
+  (Material Counter + Photo Markup only). Revisit if a technician-facing
+  need for the others shows up.
+- **No Redo on mobile's Photo Markup** (Undo only) - see the mobile
+  section above.
+- Not tested in a real browser against a live Supabase project, live
+  Google Maps key, or a real device/EAS build - this sandbox has none of
+  those. Verified: `tsc --noEmit` clean across `apps/desktop`,
+  `apps/mobile`, `packages/shared`; a production `vite build` clean for
+  `apps/desktop`; and the new migration applied and empirically
+  sanity-tested (inserts, constraints, the order-number trigger's exact
+  sequence, the unique-order-number rejection) against a real local
+  Postgres 16 instance, same bar as every other migration in this repo.
+
+## 60a. Quote Tools v2 - Roof Area merged in, full mobile parity
+
+Follow-up to section 60, prompted by feedback that the Roof Area Tool
+still felt bolted-on next to the other five, and that mobile was missing
+three of the six tools entirely. No new tables or migration - this is a
+UI consolidation on top of the existing `job_measurements` /
+`job_linear_measurements` / `job_concrete_calculations` /
+`job_material_orders` schema.
+
+- **Roof Area is now one of the six Quote Tools sub-tabs, not a separate
+  page, on both platforms.** Desktop: `JobMeasure.tsx` and its
+  `/jobs/:id/measure` route are gone; its logic now lives in
+  `components/quote-tools/RoofAreaTool.tsx`, an embeddable version that
+  toggles a local `drawing` flag instead of navigating (a `resetDraft()`
+  after save instead of `navigate()`). `JobDetail.tsx`'s old standalone
+  "Roof Measurement" card is removed - `QuoteToolsSection` is the only
+  place it renders now. Mobile: `sales/jobs/measure.tsx` and its route are
+  gone; `components/MeasureRoofTool.tsx` is the embeddable equivalent
+  (same PowerSync-backed `job_measurements`/`job_notes` writes,
+  `react-native-maps` drawing), wired into the Job Card's "Quote Tools"
+  tab alongside the others. `job_measurements` stays the one Quote Tools
+  table that's PowerSync-synced (pre-dates the other five, which are
+  plain-Supabase) - that split is unchanged, just no longer split across
+  two different screens per platform.
+- **`packages/shared/src/geo.ts` gained `polylineLengthMeters()`** - same
+  equirectangular-projection approach as the existing
+  `polygonFlatAreaSqm()`/`trueAreaSqm()` (one shared reference latitude,
+  planar distance between consecutive points), added so the Linear
+  Measurer's distance total is computed identically on both platforms.
+  Desktop's `LinearMeasurer.tsx` switched from
+  `google.maps.geometry.spherical.computeLength()` to this shared
+  function (dropping the `geometry` library from `lib/google-maps.ts`'s
+  `loadGoogleMaps()` load chain, since nothing needs it anymore); mobile
+  has no Google geometry library available via `react-native-maps` at
+  all, so this was the only way to get matching totals rather than two
+  independently-rounded numbers from two different formulas.
+- **Mobile now has all six tools**, closing the gap from section 60's
+  "Mobile doesn't get the Linear Measurer, Concrete Calculator, or
+  Material Order Form" known gap - that scope-down was the original
+  spec's own explicit call, superseded here:
+  - `components/LinearMeasurerTool.tsx` - `react-native-maps` `Polyline`
+    drawing, same named-runs/segments model as desktop, Supabase-direct
+    (`job_linear_measurements` isn't a PowerSync table).
+  - `components/ConcreteCalculatorTool.tsx` - same
+    volume = L×W×D×(1+waste%), bags = volume×108 formula, live as you
+    type.
+  - `components/MaterialOrderFormTool.tsx` - line items manual or
+    transferred from Material Tally, a `DateField` for delivery date
+    (converted to a plain `YYYY-MM-DD` string on save) instead of
+    desktop's `<input type="date">`, a status-chip row (the same
+    "row of pressable pills" pattern purchase orders already use on
+    mobile, not desktop's `<select>`) instead of `SelectField` (mobile
+    has no such component), PDF export via `lib/material-order-pdf.ts` +
+    `lib/print.ts`'s `exportPdf` (expo-print + the native share sheet,
+    not a browser print dialog), and email send via the same inline
+    `scheduled_communications` insert + `triggerImmediateDispatch` +
+    `Alert.alert` pattern the job card's own free-form email button
+    already uses (mobile has no shared `queueAndSendEmail` helper).
+  - `MaterialTallyCounter.tsx` gained the same "Transfer to Material
+    Order Form" button desktop's `MaterialTally.tsx` has (an optional
+    `onTransferToOrder` prop), and `jobs/[id].tsx` gained the matching
+    `transferredTallyItems` in-memory handoff state.
+  - The Job Card's "Quote Tools" tab now lists all six tools in the same
+    order as desktop's sub-tab bar: Roof Area, Linear Measurer, Material
+    Tally, Concrete Calculator, Material Order, Photo Markup.
+- **Not done**: converting mobile's "Quote Tools" tab from one long
+  stacked list of sections into a sub-tab switcher matching desktop's
+  `QuoteToolsSection` (button row + one panel at a time) - all six tools
+  are present and functional, just laid out as sequential sections rather
+  than sub-tabs. Worth revisiting if the stacked list gets unwieldy on a
+  phone-sized screen.
+- Verified: `tsc --noEmit` clean across `apps/desktop` and `apps/mobile`;
+  a production `vite build` clean for `apps/desktop`. Not tested against
+  a live Google Maps key, a real device, or an EAS build - same sandbox
+  limitation as section 60. A new EAS build is needed for the mobile
+  changes here to reach devices already installed from a prior build.
+
+## 61. Membership Module (Munus)
+
+A "Membership" offer layered on top of the existing client/job/quote/
+invoice schema, not a replacement for any of it - same shape as the Real
+Estate & Strata module. Clients pay an annual fee (tenant-configurable,
+one plan per tenant for now) for: no call-out fee, a discount on repairs/
+installations, priority scheduling, an included annual roof inspection,
+an included annual plumbing check, and a same-day response guarantee.
+Built as four migration batches (mirroring Real Estate & Strata's own
+phased-migration style) plus Edge Functions and desktop/mobile UI.
+
+### Corrections to the original brief, found during research
+
+- **This codebase already had Stripe integration** (`supabase/functions/
+  approve` + `stripe-webhook`, a single platform-level `STRIPE_SECRET_KEY`
+  used for invoice payment links) - contrary to the initial assumption of
+  no existing Stripe usage. Membership's Stripe Connect flow is a
+  genuinely new, parallel mechanism (per-tenant connected accounts, not
+  one shared platform account), matching the existing code's *style* (raw
+  `fetch`, hand-verified webhook signatures, no stripe-node SDK) but not
+  reusing its functions - different auth model, different webhook
+  endpoint/secret entirely.
+- **Quote/invoice totals are never trusted from the client** -
+  `subtotal_cents`/`gst_cents`/`total_cents` are always recomputed
+  server-side from stored line items (`calculate_line_item_totals`,
+  confirmed by `atomic_line_item_rpcs.sql`'s own header comment). This
+  meant the membership discount couldn't be a client-side calculation
+  like the Quote Tools' Concrete Calculator - it had to be threaded into
+  that same server-side totals machinery, recomputed on every line-item
+  save.
+- The `communication_templates` "duplicate seed rows -> duplicate sends"
+  bug some earlier migrations' own comments describe as still-unfixed was
+  actually fixed by `fix_duplicate_communication_templates.sql` (a real
+  unique constraint + `ON CONFLICT` guard) before this module was built -
+  confirmed by reading the actual latest state rather than an out-of-date
+  comment, since building on the wrong assumption would have meant either
+  silently dropping the fix or re-introducing the duplicate-send bug.
+
+### Batch 1 - `20260911000100_membership_plans_and_clients.sql`
+
+`membership_plans` (tenant-wide read, admin-only write - same shape as
+`price_book_items`; one active plan per tenant enforced by a partial
+unique index, deliberately the *only* thing standing between this and
+multi-tier support later), `client_memberships` (tenant-wide read so a
+technician can see "this client is a Member" for job context, admin-only
+write since enrollment goes through Stripe Checkout / the webhook),
+`membership_benefit_usage` (tenant-wide read+insert - a technician logs a
+benefit's use from the field, same shape as `scheduled_communications`).
+`price_book_items.is_callout_fee` and `tenants.stripe_connect_account_id`/
+`stripe_connect_onboarded` added. The `(client_membership_id, benefit_type,
+period_start)` unique constraint on `membership_benefit_usage` is the
+actual mechanism preventing a client using the same included benefit
+twice in one billing year.
+
+Empirically tested against a local Postgres 16 instance (14 checks): the
+partial unique indexes correctly reject a second active row while
+allowing a second inactive/cancelled one, the benefit-usage anti-double-
+use constraint, and RLS (cross-tenant isolation, non-admin read-only,
+admin write).
+
+### Batch 2 - `20260912000100_membership_discount_engine.sql`
+
+`quotes`/`invoices` gain `client_membership_id`, `membership_discount_
+percent`, `membership_discount_cents`, `membership_discount_overridden`;
+their line items gain `is_callout_fee` and `waived_amount_cents`. A
+waiver is never a lossy price overwrite - `unit_price_cents` stays the
+catalogue price forever, `waived_amount_cents` is what's actually
+subtracted at totals time, so turning an admin override back off fully
+and correctly re-derives the auto figures from scratch. `calculate_line_
+item_totals`/`replace_quote_line_items`/`replace_invoice_line_items`/
+`convert_quote_to_invoice` all route through a new `apply_membership_
+adjustments` helper. The override is a sticky flag (mirroring
+`nte_exceeded_approved`'s shape) that survives further line-item edits;
+`set_quote_membership_discount_override`/`set_invoice_membership_
+discount_override` toggle it. `convert_quote_to_invoice` re-checks
+membership status live rather than trusting the quote's cached figures.
+
+GST is computed on the net (post-waiver) amount per line; the percentage
+discount is a lump-sum reduction to the GST-inclusive total rather than a
+tax-recalculation - a judgment call worth revisiting if the person wants
+the discount itself to reduce the taxable amount.
+
+Empirically tested (6 scenarios): the discount/waiver math exactly as
+designed, override persistence across line-item edits and full reversal
+when turned off, and a client enrolling in a membership *between* quoting
+and invoice conversion correctly getting the waiver on the invoice (not
+the quote's stale unmembered state).
+
+### Batch 3 - `20260913000100_membership_communications.sql`
+
+Five new `trigger_key`s (`membership_welcome`, `membership_renewal_
+upcoming`, `membership_payment_failed`, `membership_cancelled`,
+`membership_annual_benefit_reminder`), seeded via the same full-
+cumulative redefinition every trigger_key in this schema uses.
+`membership_welcome` fires on a `client_memberships` `INSERT` (status
+active at creation); `membership_payment_failed`/`membership_cancelled`
+fire on `UPDATE` watching status transitions - deliberately not
+deduplicated against a prior send, since a membership can flap active ->
+past_due -> active -> past_due again and each transition is real news.
+`membership_renewal_upcoming`/`membership_annual_benefit_reminder` have
+no natural row-change event, so a new daily cron-swept Edge Function
+(`process-membership-reminders`, same shape as `process-real-estate-
+maintenance`) detects and queues them. The benefit reminder sends ONE
+combined message per membership per period (not one per unused benefit) -
+`{membership_benefit_type}` resolves to a joined label at send time,
+computed live against `membership_benefit_usage`, sidestepping a need for
+a benefit-type-specific idempotency column. `process-scheduled-comms` and
+`packages/shared/src/placeholders.ts` both gained a `client_membership`
+context/token set.
+
+Empirically tested (8 scenarios): a pre-existing tenant's backfill adds
+exactly the 5 new rows (31 total, not duplicated even run twice), each
+trigger fires exactly once per real status transition, unrelated column
+updates don't double-fire anything, and a disabled rule correctly
+suppresses the message.
+
+### Batch 4 - Stripe Connect Edge Functions (no migration)
+
+- **`stripe-connect-onboard`** - starts/resumes Express Connect onboarding
+  for a tenant (admin-only), storing `stripe_connect_account_id`/
+  `onboarded`. Express, not Standard - keeps onboarding embedded in this
+  app's own Settings page rather than handing the tenant an independent
+  Stripe dashboard.
+- **`create-membership-checkout`** - admin-only; creates (or reuses) a
+  Stripe Checkout Session in subscription mode *on the tenant's connected
+  account* (every call carries the `Stripe-Account` header), given a
+  `client_id`. Lazily creates the plan's Stripe Product/Price the first
+  time it's needed (persisting `membership_plans.stripe_price_id`),
+  reuses an existing Stripe customer for the client if one already
+  exists from a past enrollment.
+- **`membership-stripe-webhook`** - a *separate* webhook endpoint and
+  signing secret from the existing `stripe-webhook` (Connect events, not
+  platform events - new env var `STRIPE_CONNECT_WEBHOOK_SECRET`). Handles
+  `checkout.session.completed` (inserts the `client_memberships` row -
+  this is what fires `membership_welcome`), `customer.subscription.
+  updated`/`deleted`, and `invoice.paid`/`invoice.payment_failed` - keeps
+  `status`/`current_period_start`/`current_period_end` in sync. No
+  communication-sending logic lives in this file at all; every status
+  transition it produces fires the right message automatically via
+  Batch 3's triggers.
+
+### Shared (`packages/shared/src`)
+
+New `MembershipStatus`/`MembershipBenefitType`/`MembershipPlan`/
+`MembershipBenefitsSnapshot`/`ClientMembership`/`MembershipBenefitUsage`
+types and `membershipPlanFormSchema`/`recordMembershipBenefitUsageSchema`
+schemas. `Quote`/`Invoice`/`Tenant`/`PriceBookItem` gained their new
+columns; `LineItemInput.is_callout_fee`/`waived_amount_cents` and
+`PriceBookItem.is_callout_fee` are optional (not required, even though
+the DB columns are NOT NULL) so the existing line-item-editor and
+price-book-editor call sites across desktop/mobile that build these
+objects without them still compile - not yet surfaced as editable toggles
+anywhere in the UI (see Known gaps below). Also fixed two pieces of
+pre-existing drift found while touching this area: `ScheduledCommunication
+EntityType`/`scheduledCommunicationEntityTypeSchema` were missing four
+entity types several later migrations had already added (`referral_
+partner`/`report`/`purchase_order`/`subcontractor`), and `communication
+TemplateCategorySchema` was missing `'partner'`.
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Membership.tsx` (new sidebar link, same structural pattern as
+`RealEstate.tsx`) - manage the tenant's one plan (price, benefit toggles,
+active flag) and a read-only list of current/past members. `components/
+ClientMembershipSection.tsx` on the client detail page - enrol (creates a
+Checkout link via `create-membership-checkout` for the admin to copy/send
+to the client, mirroring how invoice payment links already work), current
+benefit-usage-this-period list, cancel, past-membership history.
+`Settings.tsx` gained a "Membership - Stripe Connect" block (same
+bearer-token-POST-to-an-Edge-Function shape as the existing Xero/Google
+Calendar connect buttons) - unlike those OAuth flows, Stripe's own Express
+onboarding just drops the tenant back at `return_url` with no status
+attached, so the return leg re-calls the same `stripe-connect-onboard`
+function, which already has an "account exists, check its current state"
+branch. `Dispatch.tsx`'s Unassigned shelf shows a "Member - Priority"
+badge and sorts member-client jobs above non-member jobs (stable
+secondary sort, `priority_scheduling`'s tangible effect). `Jobs.tsx`'s and
+`ClientDetail.tsx`'s "New Job" modals show a same-day-response reminder
+banner when the selected/current client is an active member.
+
+### Mobile (`apps/mobile`)
+
+`components/MembershipStatusCard.tsx` - Supabase-direct (not PowerSync,
+same "occasional, needs connectivity" treatment as `MaterialTallyCounter`
+- membership status changes happen through the office + Stripe, not from
+the field), renders nothing for a non-member client. Shows the status
+badge, the benefit chips derived from `benefits_snapshot` ("No call-out
+fee", "X% off repairs", "Priority scheduling", "Same-day response"), and
+a used/not-yet-used line per included benefit type this period - exactly
+the "this client is a Member, no call-out fee, hasn't used their annual
+roof inspection yet" field visibility the brief asked for. Dropped into
+both the client detail screen (FlatList header, own horizontal margin)
+and the job detail screen (already-padded section, no extra margin - the
+component itself takes no horizontal margin so it composes correctly in
+either container).
+
+### Deploy
+
+New Stripe Dashboard step beyond what already existed for invoice
+payments: enable Connect and create a *separate* Connect webhook endpoint
+(Developers -> Webhooks -> the **Connect** tab, not the main platform
+tab) pointed at the deployed `membership-stripe-webhook` URL, subscribed
+to `checkout.session.completed`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
+Set its signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET` (distinct from
+the existing `STRIPE_WEBHOOK_SECRET`).
+
+**Important, confirmed against a real account**: Stripe does NOT allow an
+existing merchant account (one already accepting payments for its own
+business - which is exactly what the invoice-payment feature's account
+is) to also become a Connect platform. Attempting to enable Connect on
+that account instead shows "Connect is not available for this account -
+please create a new account to build a Connect integration. The new
+account will be automatically linked to you." Click through that flow to
+create the new (linked, same login) platform account, then generate an
+API key from THAT account specifically (Developers -> API keys, while
+that new account is the one selected in the account switcher, not the
+original merchant account) and set it as its own secret -
+`STRIPE_CONNECT_SECRET_KEY`, deliberately distinct from the existing
+`STRIPE_SECRET_KEY` the invoice-payment feature already uses, since they
+are now provably two different Stripe accounts with two different keys,
+not one shared platform key as originally assumed:
+
+```powershell
+git pull origin claude/template-risk-client-updates-7ljk6t
+npx supabase db push
+npx supabase secrets set STRIPE_CONNECT_SECRET_KEY=sk_test_or_live_new_platform_account_key_here
+npx supabase functions deploy stripe-connect-onboard
+npx supabase functions deploy create-membership-checkout
+npx supabase functions deploy membership-stripe-webhook --no-verify-jwt
+npx supabase functions deploy process-membership-reminders --no-verify-jwt
+npx vercel --prod
+```
+
+`process-membership-reminders` needs its own daily `pg_cron` schedule
+(separate from `process-scheduled-comms`'s 5-minute sweep), same one-time
+SQL-editor step every other cron-swept function in this repo needed:
+
+```sql
+select cron.schedule(
+  'process-membership-reminders-daily',
+  '0 6 * * *',
+  $$
+  select net.http_post(
+    url := 'https://<project-ref>.supabase.co/functions/v1/process-membership-reminders',
+    headers := jsonb_build_object('Authorization', 'Bearer <service-role-key>')
+  );
+  $$
+);
+```
+
+A new EAS build is needed for the mobile changes here to reach devices
+already installed from a prior build.
+
+### Test it
+
+1. Settings -> "Membership - Stripe Connect" -> Connect Stripe -> confirm
+   redirect to Stripe's Express onboarding, then back to Settings showing
+   "Connected".
+2. Membership page -> set a plan (price, discount %, toggles, included
+   benefits) -> Save -> confirm it persists.
+3. A client's detail page -> Membership section -> Enrol in Membership ->
+   confirm a Checkout link is generated -> complete payment as the client
+   -> confirm `membership_welcome` fires and the client's card now shows
+   Active with the plan's benefits.
+4. Create a quote/invoice for that member client including a call-out-fee
+   line item -> confirm it's waived ("Waived - Membership" reflected in
+   `waived_amount_cents`) and the discount is applied to the rest,
+   `membership_discount_cents` stored on the document.
+5. Dispatch board -> confirm the member's unassigned job shows "Member -
+   Priority" and sorts above non-member jobs.
+6. Mobile -> open that client or one of their jobs -> confirm the
+   Membership card shows Active, the right benefit chips, and correct
+   used/not-yet-used benefit lines.
+7. Cancel the Stripe subscription (or the client detail page's own Cancel
+   button) -> confirm `membership_cancelled` fires and status updates
+   everywhere.
+8. Price Book -> open an item -> toggle "This is the call-out / service
+   fee" -> Save -> reopen -> confirm it stuck. Add that item to a member
+   client's quote/invoice via the price book search -> Save -> confirm the
+   line shows "Waived - Membership" and the Total matches the persisted
+   `total_cents` (subtotal + GST - `membership_discount_cents`).
+9. Open a job for a member client with included benefits (desktop
+   `JobDetail.tsx` or mobile `jobs/[id].tsx`) -> "Mark as used" on an
+   unused benefit -> confirm it now shows "Used this period" and a second
+   click on the same benefit (or another job) surfaces "Already used this
+   period" instead of erroring.
+
+### Known gaps / judgment calls
+
+- ~~No UI yet to flag a price_book_items row as `is_callout_fee`~~ **Closed.**
+  The Price Book item editor (desktop `PriceBookItem.tsx`, mobile
+  `price-book/items/[id].tsx` and `new.tsx`) now has a "This is the
+  call-out / service fee" toggle, persisted via `createPriceBookItemSchema`'s
+  new `is_callout_fee` field. `AddLineItemBar` (both apps) carries the flag
+  onto the line item when it's added to a quote/invoice from the catalogue.
+  Quote/invoice line item editors and the client-facing summary now show a
+  per-line "Waived - Membership" label (and a "Call-out fee" badge) wherever
+  `waived_amount_cents > 0`, on-screen and on the generated PDF (both apps'
+  PDF builders). `money.ts`'s `lineItemSubtotalCents` now also subtracts
+  `waived_amount_cents` before summing a document's subtotal/GST, and every
+  totals display (`TotalsBox`/`LineItemSummary`, both PDF builders) shows a
+  "Membership discount" row and folds `membership_discount_cents` into the
+  displayed Total - previously these all silently disagreed with the
+  persisted `total_cents` the moment a membership discount applied, since
+  neither the per-line waiver nor the document-level percentage discount was
+  reflected client-side. `set_quote_membership_discount_override`/
+  `set_invoice_membership_discount_override` (the manual override RPCs)
+  still have no UI control - out of scope for this pass, since nothing in
+  the original ask named them specifically.
+- **GST is not recalculated as reduced by the percentage discount** - see
+  Batch 2's own note; the discount is a lump-sum reduction to the
+  GST-inclusive total, not a taxable-amount recalculation.
+- ~~No admin UI for `membership_benefit_usage`~~ **Closed.** Desktop's
+  `JobDetail.tsx` gained a `JobMembershipBenefitSection` (new component)
+  and mobile's `MembershipStatusCard` gained an optional `jobCardId` prop -
+  when supplied (from `jobs/[id].tsx`), each not-yet-used included benefit
+  gets a "Mark as used" action. Both platforms proactively re-query
+  `membership_benefit_usage` for the current period before inserting (per
+  the original spec) and show "Already used this period - bill this visit
+  as billable instead" if a record already exists, falling back to the same
+  message on a `23505` unique-violation for the rare race. Records
+  `job_card_id`/`client_membership_id`/`benefit_type`/`period_start`/
+  `period_end`/`created_by` via the existing `recordMembershipBenefitUsageSchema`.
+- Not tested against a live Stripe account (real or test-mode Connect
+  account, a real webhook delivery, or a real Checkout completion) or a
+  real device/EAS build - this sandbox has none of those. Verified:
+  `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
+  `apps/mobile`; a production `vite build` clean for `apps/desktop`; all
+  four migrations empirically tested (28 total sanity checks across
+  Batches 1-3) against a real local Postgres 16 instance, same bar as
+  every other migration in this repo. The three Stripe Connect Edge
+  Functions have no Deno runtime available in this sandbox to typecheck -
+  verified by careful review and structural brace/paren balance checks
+  instead, same limitation as every other Edge Function added this
+  session.

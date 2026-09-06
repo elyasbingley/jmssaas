@@ -94,13 +94,25 @@ Deno.serve(async (req: Request) => {
       signature_svg?: string;
       invoice_id?: string;
       approval_page_url?: string;
+      included_optional_item_ids?: string[];
     };
     try {
       body = await req.json();
     } catch {
       return json({ error: "bad_request" }, 400);
     }
-    const { type: docType, token, action, name, reason, amount_cents, signature_svg, invoice_id, approval_page_url } = body;
+    const {
+      type: docType,
+      token,
+      action,
+      name,
+      reason,
+      amount_cents,
+      signature_svg,
+      invoice_id,
+      approval_page_url,
+      included_optional_item_ids,
+    } = body;
 
     // Stripe Checkout link creation - the office's own admin-authenticated
     // path (a bearer token from a signed-in user, not a client-facing
@@ -152,11 +164,19 @@ Deno.serve(async (req: Request) => {
     const rpcPrefix: DocType = docType;
 
     if (action === "accept") {
-      const { data, error } = await supabase.rpc(`accept_${rpcPrefix}_by_token`, {
+      // included_optional_item_ids only means anything for a quote -
+      // accept_invoice_by_token has no such parameter (invoices never carry
+      // optional line items, see the optional_bundled_line_items migration),
+      // so it's only added to the RPC params for docType === "quote".
+      const rpcParams: Record<string, unknown> = {
         p_token: token,
         p_name: name ?? "",
         p_signature_svg: signature_svg ?? null,
-      });
+      };
+      if (rpcPrefix === "quote") {
+        rpcParams.p_included_optional_item_ids = included_optional_item_ids ?? [];
+      }
+      const { data, error } = await supabase.rpc(`accept_${rpcPrefix}_by_token`, rpcParams);
       if (error) return json({ error: "server_error" }, 500);
       return json(data);
     }

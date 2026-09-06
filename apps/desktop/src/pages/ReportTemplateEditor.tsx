@@ -208,7 +208,7 @@ export default function ReportTemplateEditorPage() {
       <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Sections</h2>
       <div className="space-y-4">
         {sections.map((section, sectionIndex) => (
-          <div key={section.id} className="rounded-lg border border-gray-200 bg-white p-4">
+          <div key={section.id} className="rounded-lg border border-gray-300 bg-white p-4">
             <div className="mb-3 flex items-center gap-2">
               <input
                 value={section.title}

@@ -348,19 +348,21 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 17, fontWeight: "700", color: "#111827" },
   secondSection: { marginTop: 28 },
   subtitle: { color: "#6b7280", marginTop: 2, marginBottom: 12 },
+  // Stacked (label row, then actions row) rather than a single crammed
+  // row - a stage can carry a name plus two tags (Default/Closed) next to
+  // four action links (Up/Down/Edit/Delete), which squeezed the name text
+  // down to nothing on a phone-width screen. Each row wraps independently
+  // instead.
   row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
-    gap: 8,
+    borderBottomColor: "#d1d5db",
+    gap: 6,
   },
-  rowLabel: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  rowLabel: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   swatch: { width: 14, height: 14, borderRadius: 7 },
   swatchEmpty: { backgroundColor: "#e5e7eb" },
-  rowText: { fontSize: 15, fontWeight: "600", color: "#111827" },
+  rowText: { fontSize: 15, fontWeight: "600", color: "#111827", flexShrink: 1 },
   defaultTag: {
     fontSize: 11,
     fontWeight: "700",
@@ -370,7 +372,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  rowActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  rowActions: { flexDirection: "row", alignItems: "center", gap: 14, flexWrap: "wrap" },
   link: { color: "#1d4ed8", fontWeight: "600" },
   deleteLink: { color: "#dc2626", fontWeight: "600" },
   reorderLink: { color: "#374151", fontWeight: "600" },

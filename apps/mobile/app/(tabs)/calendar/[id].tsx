@@ -9,6 +9,7 @@ import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { openInMaps } from "../../../lib/maps";
 import { getErrorMessage } from "../../../lib/errors";
+import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../../../lib/google-calendar-sync";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 import { PickerModal } from "../../../components/PickerModal";
 import { FormField } from "../../../components/FormField";
@@ -34,10 +35,32 @@ export default function CalendarEventDetailScreen() {
       .eq("id", id)
       .single();
     if (error) throw error;
-    return data as CalendarEventRow;
+    const row = data as CalendarEventRow;
+
+    // The base row's title/description/location for a 'google_personal'
+    // event is always the literal 'Busy' placeholder (see the migration's
+    // own comment on why) - calendar_event_personal_details holds the
+    // real detail, readable only by its owner via RLS. A non-owner
+    // querying this just gets zero rows back, correctly leaving the
+    // placeholder in place.
+    if (row.source === "google_personal") {
+      const { data: details } = await supabase
+        .from("calendar_event_personal_details")
+        .select("title, description, location")
+        .eq("calendar_event_id", id)
+        .maybeSingle();
+      if (details) {
+        row.title = details.title;
+        row.description = details.description;
+        row.location = details.location;
+      }
+    }
+    return row;
   }, [id, isOnline]);
 
-  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles WHERE role = 'technician' ORDER BY full_name");
+  // Any profile can be assigned a job - not just role='technician' - so an
+  // admin who also does field work can assign jobs to themselves too.
+  const { data: technicians } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
 
   const canEdit =
     isAdmin ||
@@ -104,6 +127,10 @@ export default function CalendarEventDetailScreen() {
         ]);
       }
 
+      // Must come after the job_cards write above lands, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(id);
+
       refetch();
     } catch (e) {
       console.error("[Calendar] Failed to save event", e);
@@ -120,7 +147,12 @@ export default function CalendarEventDetailScreen() {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
+          // Capture these before the row is gone - nothing left to look
+          // them up from afterward.
+          const googleEventId = event?.google_event_id;
+          const googleConnectionId = event?.google_calendar_connection_id;
           await supabase.from("calendar_events").delete().eq("id", id);
+          await pushCalendarEventDelete(id, googleEventId, googleConnectionId);
           router.back();
         },
       },
@@ -140,6 +172,31 @@ export default function CalendarEventDetailScreen() {
       <View style={styles.container}>
         <Text style={styles.empty}>Loading...</Text>
       </View>
+    );
+  }
+
+  // 'google_personal' events are a mirror of something that lives in
+  // someone's own Google Calendar, not an app-owned schedule item -
+  // google-calendar-push already no-ops any edit made to a non-'app'
+  // event, so letting the form pretend edits here take effect would be
+  // misleading. Editing/deleting happens on the Google Calendar side and
+  // flows back in automatically (google-calendar-webhook / the reconcile
+  // sweep), same "full permissions either way" behavior, just from the
+  // other direction.
+  if (event.source === "google_personal") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+        <Text style={styles.personalTitle}>{event.title}</Text>
+        <Text style={styles.personalMeta}>
+          {new Date(event.start_at).toLocaleString("en-AU")} - {new Date(event.end_at).toLocaleString("en-AU")}
+        </Text>
+        {event.location ? <Text style={styles.personalMeta}>{event.location}</Text> : null}
+        {event.description ? <Text style={styles.personalDescription}>{event.description}</Text> : null}
+        <Text style={styles.personalNotice}>
+          Personal Google Calendar event, shown here for scheduling visibility only. To change or remove it, edit it in Google
+          Calendar directly - the change syncs back here automatically.
+        </Text>
+      </ScrollView>
     );
   }
 
@@ -243,6 +300,10 @@ const styles = StyleSheet.create({
   pickerFieldText: { fontSize: 16, color: "#111827" },
   pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
   googleSyncNotice: { color: "#9ca3af", fontSize: 12, marginTop: 16 },
+  personalTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  personalMeta: { fontSize: 14, color: "#374151", marginTop: 6 },
+  personalDescription: { fontSize: 14, color: "#374151", marginTop: 12 },
+  personalNotice: { fontSize: 12, color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: 8, padding: 12, marginTop: 20 },
   error: { color: "#dc2626", marginTop: 12 },
   saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
   saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },

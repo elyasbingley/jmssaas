@@ -37,6 +37,7 @@ export default function QuoteNewPage() {
   const [searchParams] = useSearchParams();
   const jobCardIdParam = searchParams.get("jobCardId");
   const clientIdParam = searchParams.get("clientId");
+  const referralPartnerIdParam = searchParams.get("referralPartnerId");
   const lockedFromJob = !!jobCardIdParam;
 
   const { data: clients } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
@@ -72,6 +73,13 @@ export default function QuoteNewPage() {
   useEffect(() => {
     if (jobCardIdParam && !jobCardId) setJobCardId(jobCardIdParam);
   }, [jobCardIdParam, jobCardId]);
+  // Carries the job's own referral_partner_id through to the quote it's
+  // created for - previously a "+ New quote for this job" click silently
+  // dropped it, forcing the admin to look the referrer up again from
+  // scratch even though the job already recorded who sent the client in.
+  useEffect(() => {
+    if (referralPartnerIdParam && !referralPartnerId) setReferralPartnerId(referralPartnerIdParam);
+  }, [referralPartnerIdParam, referralPartnerId]);
 
   const createQuote = useMutation({
     mutationFn: async () => {
@@ -121,6 +129,13 @@ export default function QuoteNewPage() {
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
+          is_callout_fee: item.is_callout_fee ?? false,
+          is_subcontracted: item.is_subcontracted ?? false,
+          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          is_optional: item.is_optional ?? false,
+          is_included: item.is_included ?? true,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;
@@ -189,7 +204,7 @@ export default function QuoteNewPage() {
       ) : null}
 
       <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Line items</h2>
-      <LineItemEditor items={lineItems} onChange={setLineItems} />
+      <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
       <div className="mt-4">
         <TextAreaField label="Notes (optional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
