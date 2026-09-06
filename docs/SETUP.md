@@ -8257,20 +8257,28 @@ already installed from a prior build.
 
 ### Known gaps / judgment calls
 
-- **`resend-inbound-webhook`'s payload field names, live-tested once**:
-  a real forwarded email confirmed `payload.data.from`/`subject` and
-  `attachments[]` parse correctly, but `data.text` came back empty even
-  though the sender's email visibly had a body - most likely an
-  HTML-composed email with no populated plain-text part (common from
-  Gmail/Outlook's compose box), not a wrong field name. Fixed with
-  `htmlToPlainText` - a best-effort tag-stripping fallback used only when
-  `data.text` is empty and `data.html` isn't - plus unconditional payload
-  logging (`console.log` at the top of the handler, visible in Supabase
-  Dashboard -> Edge Functions -> `resend-inbound-webhook` -> Logs) so any
-  further mismatch is a log line away instead of another guess. Not yet
-  re-verified against a fresh send after this fix - the message already
-  sitting in a tenant's Inbox from the first test predates it and won't
-  retroactively gain a body; send a new test email to check.
+- **`resend-inbound-webhook`'s `email.received` payload is metadata-only -
+  confirmed live, this took two rounds to nail down**. Two real forwarded
+  test emails (one with a body and a real PDF attachment) both confirmed
+  `payload.data.from`/`subject`/`attachments[]` (id/filename/content_type)
+  parse correctly, but neither ever carried a `text`/`html` body or an
+  attachment `content` field - not because of a wrong field name (the
+  first hypothesis, an HTML-only compose box, turned out wrong once a
+  second test with a confirmed body still came back empty), but because
+  the webhook itself is just a lightweight "an email arrived" notification.
+  The real content needs a follow-up call to Resend's API using the
+  webhook's own `data.email_id` - added as `fetchFullEmail`, reusing the
+  existing `RESEND_API_KEY` secret every other function's outbound sends
+  already use. That follow-up call's response shape is itself an educated
+  guess (this sandbox has no network access to confirm it against Resend's
+  docs), so it's logged unconditionally the same way the raw webhook
+  payload is - check Supabase Dashboard -> Edge Functions ->
+  `resend-inbound-webhook` -> Logs after a test send for a
+  `fetched full email` log line if a field still comes through wrong, and
+  adjust `fetchFullEmail`'s extraction to match what's actually returned.
+  `htmlToPlainText` (tag-stripping fallback for an HTML-only body once the
+  real content is in hand) is kept as-is, just fed from the fetched email
+  now instead of the webhook payload directly.
 - **AI drafting only runs for text-only messages** (no attachment) - per
   the original ask ("if you send an email with just a text body..."). A
   message with both a text body and an attachment goes straight to the
