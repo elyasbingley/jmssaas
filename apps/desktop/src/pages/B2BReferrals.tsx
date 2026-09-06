@@ -139,7 +139,7 @@ export default function B2BReferralsPage() {
         B2B partners, BNI/networking groups, referral revenue attribution, and reciprocity tracking.
       </p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "directory", label: "Partner Directory & Groups" },
@@ -283,8 +283,9 @@ function DirectoryTab({
     onError: (e) => setGroupError(getErrorMessage(e, "Failed to create group")),
   });
 
-  // --- Add Partner ---
+  // --- Add / Edit Partner ---
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
+  const [pEditId, setPEditId] = useState<string | null>(null);
   const [pGroupId, setPGroupId] = useState("");
   const [pCompanyName, setPCompanyName] = useState("");
   const [pFirstName, setPFirstName] = useState("");
@@ -299,6 +300,7 @@ function DirectoryTab({
   const [partnerError, setPartnerError] = useState<string | null>(null);
 
   const openNewPartner = (groupId?: string) => {
+    setPEditId(null);
     setPGroupId(groupId ?? "");
     setPCompanyName("");
     setPFirstName("");
@@ -314,7 +316,24 @@ function DirectoryTab({
     setPartnerModalOpen(true);
   };
 
-  const createPartner = useMutation({
+  const openEditPartner = (partner: ReferralPartner) => {
+    setPEditId(partner.id);
+    setPGroupId(partner.group_id ?? "");
+    setPCompanyName(partner.company_name ?? "");
+    setPFirstName(partner.contact_first_name);
+    setPLastName(partner.contact_last_name ?? "");
+    setPEmail(partner.email ?? "");
+    setPMobile(partner.mobile ?? "");
+    setPPartnerType(partner.partner_type);
+    setPTier(partner.tier);
+    setPRewardType(partner.reward_type);
+    setPRewardPercent(partner.reward_percent != null ? String(partner.reward_percent) : "");
+    setPRewardFlat(partner.reward_flat_cents != null ? String(partner.reward_flat_cents / 100) : "");
+    setPartnerError(null);
+    setPartnerModalOpen(true);
+  };
+
+  const savePartner = useMutation({
     mutationFn: async () => {
       const result = createReferralPartnerSchema.safeParse({
         group_id: pGroupId || undefined,
@@ -332,8 +351,7 @@ function DirectoryTab({
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid partner");
       if (!profile) throw new Error("Not signed in");
 
-      const { error } = await supabase.from("referral_partners").insert({
-        tenant_id: profile.tenant_id,
+      const values = {
         group_id: result.data.group_id || null,
         company_name: result.data.company_name || null,
         contact_first_name: result.data.contact_first_name,
@@ -345,14 +363,18 @@ function DirectoryTab({
         reward_type: result.data.reward_type,
         reward_percent: result.data.reward_percent ?? null,
         reward_flat_cents: result.data.reward_flat_cents ?? null,
-      });
+      };
+
+      const { error } = pEditId
+        ? await supabase.from("referral_partners").update(values).eq("id", pEditId)
+        : await supabase.from("referral_partners").insert({ tenant_id: profile.tenant_id, ...values });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["referral-partners"] });
       setPartnerModalOpen(false);
     },
-    onError: (e) => setPartnerError(getErrorMessage(e, "Failed to create partner")),
+    onError: (e) => setPartnerError(getErrorMessage(e, pEditId ? "Failed to save partner" : "Failed to create partner")),
   });
 
   // --- Log Referral Passed Out ---
@@ -411,7 +433,7 @@ function DirectoryTab({
     const group = partner.group_id ? groupById.get(partner.group_id) : null;
 
     return (
-      <div key={partner.id} className="rounded-lg border border-gray-200 bg-white p-4">
+      <div key={partner.id} className="rounded-lg border border-gray-300 bg-white p-4">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div>
             <p className="font-bold text-gray-900">{partnerDisplayName(partner)}</p>
@@ -431,7 +453,7 @@ function DirectoryTab({
           {partner.email ? <p>{partner.email}</p> : null}
           {partner.mobile ? <p>{partner.mobile}</p> : null}
         </div>
-        <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 text-sm">
+        <div className="grid grid-cols-2 gap-2 border-t border-gray-200 pt-3 text-sm">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-400">Referrals sent</p>
             <p className="font-semibold text-gray-900">{referralsSent}</p>
@@ -447,12 +469,17 @@ function DirectoryTab({
             </p>
           </div>
         </div>
-        <button
-          onClick={() => openLogReferral(partner.id)}
-          className="mt-3 text-xs font-semibold text-blue-700 hover:underline"
-        >
-          + Log referral passed out to {partner.contact_first_name}
-        </button>
+        <div className="mt-3 flex items-center justify-between">
+          <button
+            onClick={() => openLogReferral(partner.id)}
+            className="text-xs font-semibold text-blue-700 hover:underline"
+          >
+            + Log referral passed out to {partner.contact_first_name}
+          </button>
+          <button onClick={() => openEditPartner(partner)} className="flex-shrink-0 text-xs font-semibold text-gray-600 hover:underline">
+            Edit
+          </button>
+        </div>
       </div>
     );
   };
@@ -510,7 +537,7 @@ function DirectoryTab({
             const expanded = expandedGroupIds.has(group.id);
             const groupPartners = partnersByGroup(group.id);
             return (
-              <div key={group.id} className="rounded-lg border border-gray-200 bg-white">
+              <div key={group.id} className="rounded-lg border border-gray-300 bg-white">
                 <button onClick={() => toggleGroup(group.id)} className="flex w-full items-center justify-between px-4 py-3 text-left">
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
@@ -525,7 +552,7 @@ function DirectoryTab({
                   </span>
                 </button>
                 {expanded ? (
-                  <div className="border-t border-gray-100 px-4 py-3">
+                  <div className="border-t border-gray-200 px-4 py-3">
                     {groupPartners.length === 0 ? (
                       <p className="text-sm text-gray-500">No partners in this group yet.</p>
                     ) : (
@@ -540,7 +567,7 @@ function DirectoryTab({
             );
           })}
           {ungroupedPartners.length > 0 ? (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="rounded-lg border border-gray-300 bg-white p-4">
               <p className="mb-3 text-sm font-bold text-gray-900">Ungrouped partners</p>
               <div className="grid grid-cols-3 gap-3">{ungroupedPartners.map(renderPartnerCard)}</div>
             </div>
@@ -568,7 +595,7 @@ function DirectoryTab({
         </div>
       </Modal>
 
-      <Modal open={partnerModalOpen} onClose={() => setPartnerModalOpen(false)} title="New referral partner">
+      <Modal open={partnerModalOpen} onClose={() => setPartnerModalOpen(false)} title={pEditId ? "Edit referral partner" : "New referral partner"}>
         <SelectField label="Group (optional)" value={pGroupId} onChange={setPGroupId} options={groups.map((g) => ({ value: g.id, label: g.name }))} placeholder="No group" />
         <FormField label="Company name (optional)" value={pCompanyName} onChange={(e) => setPCompanyName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
@@ -610,11 +637,11 @@ function DirectoryTab({
             Cancel
           </button>
           <button
-            onClick={() => createPartner.mutate()}
-            disabled={createPartner.isPending}
+            onClick={() => savePartner.mutate()}
+            disabled={savePartner.isPending}
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           >
-            {createPartner.isPending ? "Saving..." : "Save"}
+            {savePartner.isPending ? "Saving..." : "Save"}
           </button>
         </div>
       </Modal>

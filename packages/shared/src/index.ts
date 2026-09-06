@@ -6,4 +6,6 @@ export * from "./reports";
 export * from "./schemas";
 export * from "./email-recipients";
 export * from "./dashboard";
+export * from "./calendar-recurrence";
+export * from "./cost-of-ops";
 export * from "./powersync/schema";

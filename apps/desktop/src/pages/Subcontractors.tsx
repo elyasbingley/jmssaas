@@ -77,7 +77,7 @@ export default function SubcontractorsPage() {
       <h1 className="mb-1 text-xl font-bold text-gray-900">Subcontractors</h1>
       <p className="mb-6 text-sm text-gray-500">Manage subcontractor companies, compliance, preference tiers, and purchase orders.</p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "directory", label: "Directory & Tier Board" },
@@ -283,7 +283,7 @@ function DirectoryTab({
               <Link
                 key={sub.id}
                 to={`/subcontractors/${sub.id}`}
-                className="rounded-lg border border-gray-200 bg-white p-4 hover:border-blue-400 hover:shadow-sm"
+                className="rounded-lg border border-gray-300 bg-white p-4 hover:border-blue-400 hover:shadow-sm"
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <p className="font-bold text-gray-900">{sub.company_name}</p>
@@ -303,7 +303,7 @@ function DirectoryTab({
                     {contact.first_name} {contact.last_name ?? ""}
                   </p>
                 ) : null}
-                <div className="flex items-center justify-between border-t border-gray-100 pt-2 text-xs">
+                <div className="flex items-center justify-between border-t border-gray-200 pt-2 text-xs">
                   <span className={`rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGE[sub.status].classes}`}>
                     {STATUS_BADGE[sub.status].label}
                   </span>

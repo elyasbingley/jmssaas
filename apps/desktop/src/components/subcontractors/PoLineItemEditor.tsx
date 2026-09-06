@@ -61,7 +61,7 @@ export function PoLineItemEditor({
   return (
     <div>
       {items.map((item, index) => (
-        <div key={index} className="mb-3 rounded-lg border border-gray-200 p-4">
+        <div key={index} className="mb-3 rounded-lg border border-gray-300 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
             {!readOnly ? (
@@ -105,7 +105,7 @@ export function PoLineItemEditor({
         </button>
       ) : null}
 
-      <div className="flex justify-between border-t border-gray-200 pt-3 text-sm font-bold text-gray-900">
+      <div className="flex justify-between border-t border-gray-300 pt-3 text-sm font-bold text-gray-900">
         <span>Total cost</span>
         <span>{formatCentsAsAud(totalCents)}</span>
       </div>

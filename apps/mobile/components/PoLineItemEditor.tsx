@@ -104,7 +104,7 @@ export function PoLineItemEditor({
 
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
-  card: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 12, marginBottom: 10 },
+  card: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginBottom: 10 },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   cardIndex: { fontSize: 11, fontWeight: "700", color: "#9ca3af" },
   removeLink: { color: "#dc2626", fontWeight: "700", fontSize: 12 },
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
   lineTotal: { fontSize: 13, fontWeight: "700", color: "#111827", paddingTop: 8 },
   addButton: { borderWidth: 1, borderColor: "#d1d5db", borderStyle: "dashed", borderRadius: 8, padding: 10, alignItems: "center", marginBottom: 10 },
   addButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 13 },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingTop: 10 },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#d1d5db", paddingTop: 10 },
   totalLabel: { fontSize: 14, fontWeight: "700", color: "#111827" },
   totalValue: { fontSize: 14, fontWeight: "700", color: "#111827" },
 });

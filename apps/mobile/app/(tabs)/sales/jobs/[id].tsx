@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
@@ -24,11 +24,13 @@ import {
   type JobLifecycleStage,
   type JobNote,
   type KeyLog,
+  type MaterialTallyItem,
   type Property,
   type PropertyManager,
   type PurchaseOrder,
   type Quote,
   type QuoteLineItem,
+  type ReferralPartner,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
@@ -51,8 +53,16 @@ import { EmailComposeModal } from "../../../../components/EmailComposeModal";
 import { FormField } from "../../../../components/FormField";
 import { PhotoAttachments } from "../../../../components/PhotoAttachments";
 import { PickerModal } from "../../../../components/PickerModal";
+import { MeasureRoofTool } from "../../../../components/MeasureRoofTool";
+import { MembershipStatusCard } from "../../../../components/MembershipStatusCard";
+import { LinearMeasurerTool } from "../../../../components/LinearMeasurerTool";
+import { MaterialTallyCounter } from "../../../../components/MaterialTallyCounter";
+import { PhotoMarkupEditor } from "../../../../components/PhotoMarkupEditor";
+import { ConcreteCalculatorTool } from "../../../../components/ConcreteCalculatorTool";
+import { MaterialOrderFormTool } from "../../../../components/MaterialOrderFormTool";
 import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -394,7 +404,9 @@ export default function JobDetailScreen() {
     refetchKeyLog();
   };
 
-  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
+  const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
+  const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
   const isAdmin = profile?.role === "admin";
 
   // Only fetched once the person actually opens Job Costing (not needed for
@@ -755,6 +767,28 @@ export default function JobDetailScreen() {
     setWorkdriveModalVisible(false);
   };
 
+  // --- Referral source - same "settable any time, not just at creation"
+  // gap as WorkDrive/real estate assignment above. referral_partners isn't
+  // a PowerSync table (see jobs/index.tsx's own comment), so the picker's
+  // options only load while online; the job itself still updates via
+  // PowerSync like every other job_cards field on this screen.
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
+  const [referralPickerVisible, setReferralPickerVisible] = useState(false);
+  const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === job?.referral_partner_id) ?? null;
+
+  const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
+    await powersync.execute("UPDATE job_cards SET referral_partner_id = ?, updated_at = ? WHERE id = ?", [
+      partner?.id ?? null,
+      new Date().toISOString(),
+      id,
+    ]);
+  };
+
   // --- Real estate / strata assignment (retrofit an existing job, or edit
   // one already assigned) - same job_cards columns as the New Job form
   // (desktop's Jobs.tsx), previously only ever settable at creation there,
@@ -914,6 +948,8 @@ export default function JobDetailScreen() {
           </Pressable>
         ) : null}
 
+        {client ? <MembershipStatusCard clientId={client.id} jobCardId={job.id} /> : null}
+
         {!job.is_real_estate_job ? (
           <Pressable onPress={openRaModal}>
             <Text style={styles.link}>Mark as real estate / strata job</Text>
@@ -927,6 +963,14 @@ export default function JobDetailScreen() {
           </Pressable>
         </View>
         {job.workdrive_url ? <Text style={styles.clientCardMeta}>{job.workdrive_url}</Text> : null}
+
+        <View style={styles.workdriveRow}>
+          <Text style={styles.workdriveLabel}>Referral source</Text>
+          <Pressable onPress={() => setReferralPickerVisible(true)}>
+            <Text style={styles.link}>{job.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
 
         {job.is_real_estate_job ? (
           <View style={styles.agencyCard}>
@@ -974,20 +1018,80 @@ export default function JobDetailScreen() {
         ) : null}
       </View>
 
-      {isAdmin ? (
-        <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("details")}
-          >
-            <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
-          </Pressable>
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("details")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
+        </Pressable>
+        {isAdmin ? (
           <Pressable
             style={[styles.tabButton, activeTab === "costing" && styles.tabButtonActive]}
             onPress={() => setActiveTab("costing")}
           >
             <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
           </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.tabButton, activeTab === "tools" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("tools")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "tools" && styles.tabButtonTextActive]}>Quote Tools</Text>
+        </Pressable>
+      </View>
+
+      {activeTab === "tools" ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Roof Area</Text>
+          <MeasureRoofTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Linear Measurer</Text>
+          <LinearMeasurerTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Tally</Text>
+          <MaterialTallyCounter
+            jobCardId={id}
+            onTransferToOrder={(items) => setTransferredTallyItems(items)}
+          />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Concrete Calculator</Text>
+          <ConcreteCalculatorTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Order</Text>
+          <MaterialOrderFormTool
+            jobCardId={id}
+            prefillItems={transferredTallyItems}
+            onConsumedPrefill={() => setTransferredTallyItems(null)}
+          />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Photo Markup</Text>
+          {markupPhoto ? (
+            <PhotoMarkupEditor
+              jobCardId={id}
+              photoUri={markupPhoto.local_uri!}
+              photoFileName={markupPhoto.file_name ?? "photo.jpg"}
+              onSaved={() => setMarkupPhoto(null)}
+              onCancel={() => setMarkupPhoto(null)}
+            />
+          ) : (
+            <>
+              <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
+              <View style={styles.markupGrid}>
+                {files.filter((f) => f.local_uri).length === 0 ? (
+                  <Text style={styles.empty}>No downloaded photos yet - add or open one from Photos below first.</Text>
+                ) : (
+                  files
+                    .filter((f) => f.local_uri)
+                    .map((f) => (
+                      <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
+                        <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
+                      </Pressable>
+                    ))
+                )}
+              </View>
+            </>
+          )}
         </View>
       ) : null}
 
@@ -1237,19 +1341,6 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Roof Measurement</Text>
-        <Pressable
-          style={styles.measureButton}
-          onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
-        >
-          <Text style={styles.measureButtonText}>📐 Measure Roof</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>
-          Draw roof sections on a satellite map and save the total area to this job's notes.
-        </Text>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notes</Text>
         <FormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
         {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
@@ -1357,6 +1448,16 @@ export default function JobDetailScreen() {
       getLabel={(s) => s.name}
       onSelect={handleStageChange}
       onClose={() => setStagePickerVisible(false)}
+    />
+
+    <PickerModal
+      visible={referralPickerVisible}
+      title="Referral source"
+      items={[null, ...(referralPartners ?? [])]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+      onSelect={handleSelectReferralPartner}
+      onClose={() => setReferralPickerVisible(false)}
     />
 
     <CenteredModal visible={workdriveModalVisible} onClose={() => setWorkdriveModalVisible(false)}>
@@ -1573,7 +1674,7 @@ export default function JobDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
   title: { fontSize: 20, fontWeight: "700" },
@@ -1605,25 +1706,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   costingDocNumber: { fontSize: 15, fontWeight: "700", color: "#111827" },
   costingDocMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
   costingDocTotal: { fontSize: 15, fontWeight: "700", color: "#111827" },
   costingSummaryTitle: { marginTop: 20 },
   costingSummaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
-  costingSummaryRowBold: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", marginTop: 4, paddingTop: 10 },
+  costingSummaryRowBold: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", marginTop: 4, paddingTop: 10 },
   costingSummaryLabel: { color: "#6b7280", fontSize: 13 },
   costingSummaryValue: { color: "#111827", fontSize: 13, fontWeight: "600" },
   costingSummaryLabelBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
   costingSummaryValueBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
   pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   pickerFieldRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
+  // flexShrink so the text is actually width-constrained by the row
+  // (next to the fixed-width swatch dot) and wraps onto a second line
+  // for a long category/stage name, instead of Yoga letting it overflow
+  // its measured width and silently clipping the last character or two.
+  pickerFieldText: { fontSize: 15, color: "#111827", flexShrink: 1 },
+  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af", flexShrink: 1 },
   swatch: { width: 12, height: 12, borderRadius: 6 },
   clearLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6, alignSelf: "flex-start" },
-  linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   linkedRowText: { color: "#1d4ed8", fontWeight: "600" },
   linkButton: { marginTop: 10, alignSelf: "flex-start" },
   linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
@@ -1633,7 +1738,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   taskRowTitle: { fontSize: 15, color: "#111827", flex: 1, marginRight: 8 },
   taskStatusBadge: { backgroundColor: "#f3f4f6", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
@@ -1642,21 +1747,23 @@ const styles = StyleSheet.create({
   button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   buttonText: { color: "#fff", fontWeight: "600" },
   addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
-  measureButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
-  measureButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   measureHint: { color: "#6b7280", fontSize: 12, marginTop: 8 },
   onTheWayButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
   onTheWayButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   multiline: { minHeight: 70, textAlignVertical: "top" },
   error: { color: "#dc2626", marginTop: 6 },
-  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
+  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
   noteBody: { fontSize: 15, color: "#111827" },
   noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
   empty: { textAlign: "center", color: "#6b7280", padding: 12 },
   reportActionsRow: { flexDirection: "row", gap: 16, marginTop: 10 },
-  reportTemplateRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  reportTemplateRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   reportTemplateRowText: { fontSize: 15, color: "#111827" },
   swmsTag: { fontSize: 10, fontWeight: "700", color: "#9a3412", backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  subtitle: { color: "#6b7280", fontSize: 13, marginBottom: 10 },
+  markupGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  markupThumbWrap: { width: "23%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: "#f3f4f6" },
+  markupThumb: { width: "100%", height: "100%" },
   holdNotice: { color: "#b91c1c", fontSize: 12, marginTop: 4, marginBottom: 8 },
   tradeFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
   tradeFilterChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },

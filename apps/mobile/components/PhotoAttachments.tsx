@@ -67,6 +67,14 @@ export function PhotoAttachments({ photos, uploading, onUpload }: PhotoAttachmen
     setCameraVisible(true);
   };
 
+  // Reads each picked asset back off disk via expo-file-system rather than
+  // relying on ImagePicker's own `base64: true` option - that option is
+  // unreliable once `allowsMultipleSelection` triggers the native multi-
+  // select picker (iOS 14+/Android), often coming back with no base64 data
+  // per asset with no error surfaced, which silently skipped every photo
+  // here (the "Choose photos button not working" bug - nothing visibly
+  // happened because the loop just `continue`d past every asset). Same
+  // read-from-uri approach pickDocument already uses below.
   const pickFromLibrary = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -76,7 +84,6 @@ export function PhotoAttachments({ photos, uploading, onUpload }: PhotoAttachmen
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      base64: true,
       quality: 0.6,
       allowsMultipleSelection: true,
       selectionLimit: 30,
@@ -84,12 +91,17 @@ export function PhotoAttachments({ photos, uploading, onUpload }: PhotoAttachmen
     if (result.canceled) return;
 
     for (const asset of result.assets) {
-      if (!asset.base64) continue;
-      await onUpload({
-        base64: asset.base64,
-        mimeType: asset.mimeType ?? "image/jpeg",
-        fileExtension: extensionFor(asset.mimeType),
-      });
+      try {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        await onUpload({
+          base64,
+          mimeType: asset.mimeType ?? "image/jpeg",
+          fileExtension: extensionFor(asset.mimeType),
+        });
+      } catch (e) {
+        console.error("[PhotoAttachments] Failed to read picked photo", e);
+        Alert.alert("Failed to attach photo", asset.fileName ?? "One of the selected photos couldn't be read.");
+      }
     }
   };
 

@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
   rowTitle: { fontSize: 16, fontWeight: "600" },
   rowSubtitle: { color: "#6b7280", marginTop: 2 },

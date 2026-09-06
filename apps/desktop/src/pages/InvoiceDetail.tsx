@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
   collectRecipientEmails,
+  renderTemplate,
   type Agency,
   type ApprovalStatus,
   type Client,
@@ -13,6 +14,7 @@ import {
   type InvoiceStatus,
   type LineItemFormInput,
   type Property,
+  type ReferralPartner,
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -27,6 +29,8 @@ import { Modal } from "../components/Modal";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
+import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { PurchaseOrderNumberModal } from "../components/PurchaseOrderNumberModal";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -58,6 +62,7 @@ type InvoiceJobCard = {
   property_id: string | null;
   work_order_number: string | null;
   nte_limit_cents: number | null;
+  referral_partner_id: string | null;
 };
 type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
@@ -66,7 +71,7 @@ async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: L
     supabase
       .from("invoices")
       .select(
-        "*, clients(*), job_cards!invoices_job_card_id_fkey(id, title, is_real_estate_job, agency_id, property_manager_id, property_id, work_order_number, nte_limit_cents)"
+        "*, clients(*), job_cards!invoices_job_card_id_fkey(id, title, is_real_estate_job, agency_id, property_manager_id, property_id, work_order_number, nte_limit_cents, referral_partner_id)"
       )
       .eq("id", id)
       .single(),
@@ -93,6 +98,12 @@ async function fetchProperty(propertyId: string): Promise<Property> {
   const { data, error } = await supabase.from("properties").select("*").eq("id", propertyId).single();
   if (error) throw error;
   return data as Property;
+}
+
+async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as ReferralPartner;
 }
 
 async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
@@ -154,6 +165,11 @@ export default function InvoiceDetailPage() {
     queryKey: ["job-notes-text", data?.invoice.job_card_id],
     queryFn: () => fetchJobNoteBodies(data!.invoice.job_card_id!),
     enabled: !!data?.invoice.job_card_id,
+  });
+  const { data: referralPartner } = useQuery({
+    queryKey: ["referral-partner", jobCard?.referral_partner_id],
+    queryFn: () => fetchReferralPartner(jobCard!.referral_partner_id!),
+    enabled: !!jobCard?.referral_partner_id,
   });
 
   // Workflow 4 of the Real Estate & Strata spec: an agency that requires a
@@ -256,14 +272,11 @@ export default function InvoiceDetailPage() {
       setSendEmailError(agencyComplianceError);
       return;
     }
-    if (!invoiceRecipientEmail) {
-      setSendEmailError(
-        data.invoice.bill_to_landlord
-          ? "This invoice is set to bill the landlord, but no landlord email is on file - add one on the property's Access & Contacts tab, or switch 'Bill to' back to the agency."
-          : "This client has no email address on file - add one on the Clients screen."
-      );
-      return;
-    }
+    // No longer hard-blocked on invoiceRecipientEmail being blank - see
+    // QuoteDetail.tsx's identical fix. recipientOptions (below) already
+    // merges client email + contacts + landlord/tenant emails + job-note
+    // scraped addresses, and EmailComposeModal's "To" field is freely
+    // editable regardless of what's prefilled.
     setOpeningEmail(true);
     setSendEmailError(null);
     try {
@@ -284,7 +297,44 @@ export default function InvoiceDetailPage() {
         .eq("is_active", true);
       const template = (templates ?? []).find((t) => rule.channel === "both" || rule.channel === t.type);
       if (!template) throw new Error("No active 'Invoice Delivery' email template found");
-      setEmailDefaults({ subject: template.subject ?? "", body: template.body });
+
+      // Render tags against this specific client/invoice before showing the
+      // composer - see QuoteDetail.tsx's identical fix for the full
+      // reasoning. Same approval-link construction generateLink's own
+      // mutation uses, so {invoice_payment_link} in the preview is a real,
+      // clickable link too.
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_invoice_approval_link", { p_invoice_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=invoice&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: {
+          name: data.invoice.clients?.name ?? "",
+          phone: data.invoice.clients?.phone ?? null,
+          email: data.invoice.clients?.email ?? null,
+        },
+        invoice: {
+          invoice_number: data.invoice.invoice_number,
+          total_cents: data.invoice.total_cents,
+          due_date: data.invoice.due_date,
+          payment_link: approvalLink,
+        },
+      };
+      setEmailDefaults({
+        subject: template.subject ? renderTemplate(template.subject, renderContext) : "",
+        body: renderTemplate(template.body, renderContext),
+      });
       // Best-effort, same as QuoteDetail.tsx - a PDF generation failure
       // falls back to no attachment rather than blocking the send.
       try {
@@ -350,6 +400,8 @@ export default function InvoiceDetailPage() {
 
   const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
   const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
+  const [referralModalOpen, setReferralModalOpen] = useState(false);
+  const [poModalOpen, setPoModalOpen] = useState(false);
 
   const [billToModalOpen, setBillToModalOpen] = useState(false);
   const [billToError, setBillToError] = useState<string | null>(null);
@@ -555,6 +607,22 @@ export default function InvoiceDetailPage() {
         </p>
       ) : null}
 
+      {jobCard ? (
+        <p className="mt-1 text-sm text-gray-600">
+          Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}{" "}
+          <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {jobCard.referral_partner_id ? "Edit" : "+ Add"}
+          </button>
+        </p>
+      ) : null}
+
+      <p className="mt-1 text-sm text-gray-600">
+        PO number: {data.invoice.po_number ?? "Not set"}{" "}
+        <button onClick={() => setPoModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          {data.invoice.po_number ? "Edit" : "+ Add"}
+        </button>
+      </p>
+
       {agencyComplianceError ? (
         <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
           {agencyComplianceError}{" "}
@@ -715,7 +783,16 @@ export default function InvoiceDetailPage() {
           This invoice has been {data.invoice.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
-      {!isLocked ? <LineItemEditor items={lineItems} onChange={setLineItems} /> : <LineItemSummary items={lineItems} />}
+      {!isLocked ? (
+        <LineItemEditor
+          items={lineItems}
+          onChange={setLineItems}
+          membershipDiscountCents={data.invoice.membership_discount_cents}
+          tenantId={profile?.tenant_id ?? ""}
+        />
+      ) : (
+        <LineItemSummary items={lineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
+      )}
 
       <div className="mt-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
@@ -782,7 +859,7 @@ export default function InvoiceDetailPage() {
               onClick={() => updateBillTo.mutate(false)}
               disabled={updateBillTo.isPending}
               className={`w-full rounded-md border p-3 text-left text-sm ${
-                !data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                !data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:bg-gray-50"
               }`}
             >
               <p className="font-semibold text-gray-900">Agency / Property Manager</p>
@@ -795,7 +872,7 @@ export default function InvoiceDetailPage() {
               onClick={() => updateBillTo.mutate(true)}
               disabled={updateBillTo.isPending}
               className={`w-full rounded-md border p-3 text-left text-sm ${
-                data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                data.invoice.bill_to_landlord ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:bg-gray-50"
               }`}
             >
               <p className="font-semibold text-gray-900">Landlord / Owner</p>
@@ -847,11 +924,30 @@ export default function InvoiceDetailPage() {
         />
       ) : null}
 
+      {jobCard ? (
+        <ReferralPartnerModal
+          open={referralModalOpen}
+          onClose={() => setReferralModalOpen(false)}
+          table="job_cards"
+          recordId={jobCard.id}
+          currentValue={jobCard.referral_partner_id}
+          invalidateKeys={[["invoice", id]]}
+        />
+      ) : null}
+
+      <PurchaseOrderNumberModal
+        open={poModalOpen}
+        onClose={() => setPoModalOpen(false)}
+        table="invoices"
+        recordId={id!}
+        currentValue={data.invoice.po_number}
+      />
+
       <EmailComposeModal
         open={emailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         title="Send invoice"
-        defaultTo={invoiceRecipientEmail}
+        defaultTo={invoiceRecipientEmail || recipientOptions[0] || ""}
         defaultSubject={emailDefaults.subject}
         defaultBody={emailDefaults.body}
         defaultAttachments={emailDefaultAttachments}

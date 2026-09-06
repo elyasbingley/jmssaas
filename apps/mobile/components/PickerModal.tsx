@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 8 },
   list: { maxHeight: 320 },
-  row: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
+  row: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
   rowText: { fontSize: 15 },
   empty: { textAlign: "center", color: "#6b7280", padding: 16 },
   closeButton: { marginTop: 12, alignSelf: "center" },

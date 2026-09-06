@@ -17,13 +17,15 @@ import { FormField } from "../components/FormField";
 // onboarding someone or configuring the business, not a daily operational
 // tool the way Sales/Tasks/Calendar/Schedule are, so they share that
 // header-link treatment rather than spending tile-grid space on them.
+const ROLE_LABELS: Record<Profile["role"], string> = { admin: "Admin", technician: "Technician" };
+
 export default function TeamScreen() {
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
 
-  const { data: technicians, refetch } = useSupabaseFetch<Profile[]>(async () => {
-    const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+  const { data: teamMembers, refetch } = useSupabaseFetch<Profile[]>(async () => {
+    const { data, error } = await supabase.from("profiles").select("*").order("full_name");
     if (error) throw error;
     return (data ?? []) as Profile[];
   }, [isOnline]);
@@ -35,6 +37,40 @@ export default function TeamScreen() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [editingMember, setEditingMember] = useState<Profile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editJobTitle, setEditJobTitle] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEditModal = (member: Profile) => {
+    setEditingMember(member);
+    setEditName(member.full_name);
+    setEditJobTitle(member.job_title ?? "");
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMember || !editName.trim()) {
+      setEditError("Name is required");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ full_name: editName.trim(), job_title: editJobTitle.trim() || null })
+        .eq("id", editingMember.id);
+      if (error) throw error;
+      setEditingMember(null);
+      refetch();
+    } catch (e) {
+      setEditError(getErrorMessage(e, "Failed to save"));
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const resetForm = () => {
     setFullName("");
@@ -112,15 +148,23 @@ export default function TeamScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.subtitle}>Technicians who can sign in to this app.</Text>
+        <Text style={styles.subtitle}>Everyone with sign-in access, and their role in the company.</Text>
 
-        {(technicians ?? []).map((tech) => (
-          <View key={tech.id} style={styles.techRow}>
-            <Text style={styles.techName}>{tech.full_name}</Text>
-            <Text style={styles.techEmail}>{tech.email}</Text>
-          </View>
+        {(teamMembers ?? []).map((member) => (
+          <Pressable key={member.id} style={styles.techRow} onPress={() => openEditModal(member)}>
+            <View style={styles.techRowTop}>
+              <Text style={styles.techName}>{member.full_name}</Text>
+              <View style={[styles.roleBadge, member.role === "admin" && styles.roleBadgeAdmin]}>
+                <Text style={[styles.roleBadgeText, member.role === "admin" && styles.roleBadgeTextAdmin]}>
+                  {ROLE_LABELS[member.role]}
+                </Text>
+              </View>
+            </View>
+            {member.job_title ? <Text style={styles.techJobTitle}>{member.job_title}</Text> : null}
+            <Text style={styles.techEmail}>{member.email}</Text>
+          </Pressable>
         ))}
-        {(technicians ?? []).length === 0 ? <Text style={styles.empty}>No technicians yet.</Text> : null}
+        {(teamMembers ?? []).length === 0 ? <Text style={styles.empty}>No team members yet.</Text> : null}
 
         <Pressable style={styles.addButton} onPress={() => setModalVisible(true)}>
           <Text style={styles.addButtonText}>+ New technician</Text>
@@ -171,6 +215,28 @@ export default function TeamScreen() {
           </Pressable>
         </View>
       </CenteredModal>
+
+      <CenteredModal visible={!!editingMember} onClose={() => setEditingMember(null)}>
+        <Text style={styles.modalTitle}>Edit team member</Text>
+        <FormField label="Full name" placeholder="e.g. Sam Taylor" value={editName} onChangeText={setEditName} />
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Job title (optional)"
+            placeholder="e.g. Foreman, Office Manager, Apprentice"
+            value={editJobTitle}
+            onChangeText={setEditJobTitle}
+          />
+        </View>
+        {editError ? <Text style={styles.error}>{editError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setEditingMember(null)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={handleSaveEdit} disabled={editSaving}>
+            <Text style={styles.buttonText}>{editSaving ? "Saving..." : "Save"}</Text>
+          </Pressable>
+        </View>
+      </CenteredModal>
     </>
   );
 }
@@ -181,10 +247,21 @@ const styles = StyleSheet.create({
   techRow: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#d1d5db",
   },
-  techName: { fontSize: 16, fontWeight: "600", color: "#111827" },
+  // Not justifyContent: "space-between" with two auto-width children - see
+  // LineItemEditor.tsx's totalsRow comment for why that silently clips a
+  // long name with no ellipsis on some devices. techName gets flex: 1 (it
+  // absorbs the row's leftover width after the badge's own natural size)
+  // and roleBadge stays flexShrink: 0 at its fixed intrinsic width.
+  techRowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  techName: { fontSize: 16, fontWeight: "600", color: "#111827", flex: 1 },
+  techJobTitle: { fontSize: 13, color: "#374151", marginTop: 2 },
   techEmail: { fontSize: 13, color: "#6b7280", marginTop: 2 },
+  roleBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#e5e7eb", flexShrink: 0 },
+  roleBadgeAdmin: { backgroundColor: "#dbeafe" },
+  roleBadgeText: { fontSize: 11, fontWeight: "700", color: "#374151" },
+  roleBadgeTextAdmin: { color: "#1e40af" },
   empty: { textAlign: "center", color: "#6b7280", padding: 24 },
   addButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
   addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },

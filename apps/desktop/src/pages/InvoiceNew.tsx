@@ -108,6 +108,11 @@ export default function InvoiceNewPage() {
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
+          is_callout_fee: item.is_callout_fee ?? false,
+          is_subcontracted: item.is_subcontracted ?? false,
+          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;
@@ -165,7 +170,7 @@ export default function InvoiceNewPage() {
       ) : null}
 
       <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Line items</h2>
-      <LineItemEditor items={lineItems} onChange={setLineItems} />
+      <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
       <div className="mt-4">
         <TextAreaField label="Notes (optional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />

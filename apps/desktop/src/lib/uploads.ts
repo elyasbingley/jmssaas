@@ -64,6 +64,29 @@ export async function uploadReportPhoto(params: { tenantId: string; reportInstan
   return storagePath;
 }
 
+// Optional/bundled line items - same "no DB row, just return a path/URL"
+// shape as uploadReportPhoto, since a line item's image_url is a plain
+// column on quote_line_items/invoice_line_items, not a separate table -
+// including for a brand new, not-yet-saved line item (the URL just flows
+// through as part of that item's own field values once the doc is saved).
+// "line-item-images" bucket is public for the same reason company-logos/
+// price-book-images are - the anonymous approval page and the emailed PDF
+// both need to load it with no auth, so this returns the public URL
+// directly rather than a bare storage path.
+export async function uploadLineItemImage(params: { tenantId: string; file: File }): Promise<string> {
+  const id = crypto.randomUUID();
+  const extension = params.file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const storagePath = `${params.tenantId}/${id}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from("line-item-images")
+    .upload(storagePath, params.file, { contentType: params.file.type || undefined });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("line-item-images").getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
 // Same pattern as uploadJobPhoto, for task photo attachments - same
 // job-files bucket, same "<tenant_id>/task-<task_id>/<uuid>.<ext>" storage
 // path shape as apps/mobile/lib/powersync.ts's addTaskPhoto, just a direct

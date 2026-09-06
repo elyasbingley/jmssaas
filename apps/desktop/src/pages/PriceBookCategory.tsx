@@ -14,6 +14,8 @@ import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 
+const IMAGE_BUCKET = "price-book-images";
+
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
 }
@@ -68,8 +70,46 @@ export default function PriceBookCategoryPage() {
     onError: (e) => setRenameError(getErrorMessage(e, "Failed to rename category")),
   });
 
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const changeCategoryImage = useMutation({
+    mutationFn: async (file: File) => {
+      if (!profile) throw new Error("Not signed in");
+      const extension = file.type.includes("png") ? "png" : "jpg";
+      const path = `${profile.tenant_id}/category-${id}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true });
+      if (uploadError) throw uploadError;
+      const imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+
+      const { error } = await supabase.from("price_book_categories").update({ image_url: imageUrl }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-book-category", id] });
+      queryClient.invalidateQueries({ queryKey: ["price-book-categories"] });
+      setImageError(null);
+    },
+    onError: (e) => setImageError(getErrorMessage(e, "Failed to upload image")),
+  });
+
+  const removeCategoryImage = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("price_book_categories").update({ image_url: null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-book-category", id] });
+      queryClient.invalidateQueries({ queryKey: ["price-book-categories"] });
+      setImageError(null);
+    },
+    onError: (e) => setImageError(getErrorMessage(e, "Failed to remove image")),
+  });
+
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm);
+  const [itemImageFile, setItemImageFile] = useState<File | null>(null);
   const [itemError, setItemError] = useState<string | null>(null);
 
   const previewCents = computeLineItemUnitPriceCents({
@@ -92,9 +132,20 @@ export default function PriceBookCategoryPage() {
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
 
+      let imageUrl: string | null = null;
+      if (itemImageFile) {
+        const extension = itemImageFile.type.includes("png") ? "png" : "jpg";
+        const path = `${profile.tenant_id}/item-${Date.now()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from(IMAGE_BUCKET)
+          .upload(path, itemImageFile, { contentType: itemImageFile.type || "image/jpeg", upsert: true });
+        if (uploadError) throw uploadError;
+        imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+      }
+
       const { data, error } = await supabase
         .from("price_book_items")
-        .insert({ ...result.data, tenant_id: profile.tenant_id })
+        .insert({ ...result.data, tenant_id: profile.tenant_id, image_url: imageUrl })
         .select()
         .single();
       if (error) throw error;
@@ -119,10 +170,30 @@ export default function PriceBookCategoryPage() {
           <button onClick={() => setRenameOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
             Rename
           </button>
+          <label className="cursor-pointer text-sm font-semibold text-blue-700 hover:underline">
+            {changeCategoryImage.isPending ? "Uploading..." : category?.image_url ? "Change tile image" : "Add tile image"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={changeCategoryImage.isPending}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) changeCategoryImage.mutate(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {category?.image_url ? (
+            <button onClick={() => removeCategoryImage.mutate()} className="text-sm font-semibold text-red-600">
+              Remove image
+            </button>
+          ) : null}
         </div>
         <button
           onClick={() => {
             setItemForm(emptyItemForm);
+            setItemImageFile(null);
             setItemError(null);
             setNewItemOpen(true);
           }}
@@ -131,21 +202,36 @@ export default function PriceBookCategoryPage() {
           + New item
         </button>
       </div>
+      {imageError ? <p className="mb-4 text-sm text-red-600">{imageError}</p> : null}
 
       {!items || items.length === 0 ? (
         <p className="text-sm text-gray-500">No items yet in this category.</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-          {items.map((item) => (
-            <Link
-              key={item.id}
-              to={`/price-book/items/${item.id}`}
-              className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
-            >
-              <span className="line-clamp-2 font-bold text-gray-900">{item.description}</span>
-              <span className="text-sm font-semibold text-blue-700">{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</span>
-            </Link>
-          ))}
+          {items.map((item) =>
+            item.image_url ? (
+              <Link
+                key={item.id}
+                to={`/price-book/items/${item.id}`}
+                className="flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-xl bg-gray-100 bg-cover bg-center text-center hover:opacity-90"
+                style={{ backgroundImage: `url(${item.image_url})` }}
+              >
+                <div className="flex flex-col gap-0.5 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6">
+                  <span className="line-clamp-2 font-bold text-white">{item.description}</span>
+                  <span className="text-sm font-semibold text-white">{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</span>
+                </div>
+              </Link>
+            ) : (
+              <Link
+                key={item.id}
+                to={`/price-book/items/${item.id}`}
+                className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+              >
+                <span className="line-clamp-2 font-bold text-gray-900">{item.description}</span>
+                <span className="text-sm font-semibold text-blue-700">{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</span>
+              </Link>
+            ),
+          )}
         </div>
       )}
 
@@ -202,6 +288,15 @@ export default function PriceBookCategoryPage() {
           <p className="text-xs font-bold text-gray-500">Computed price</p>
           <p className="text-lg font-extrabold text-gray-900">{formatCentsAsAud(previewCents)}</p>
         </div>
+        <label className="mb-4 block text-sm font-semibold text-gray-700">
+          Tile image (optional)
+          <input
+            type="file"
+            accept="image/*"
+            className="mt-1 block w-full text-sm text-gray-600"
+            onChange={(e) => setItemImageFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
         {itemError ? <p className="mb-4 text-sm text-red-600">{itemError}</p> : null}
         <div className="flex justify-end gap-3">
           <button onClick={() => setNewItemOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
