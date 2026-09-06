@@ -2244,21 +2244,34 @@ this lives):
    whatever project serves `bingleyroof.com.au` - same account, different
    project, since it's a different app on presumably a different
    subdomain, e.g. `app.bingleytrades.com.au`).
-2. **Root Directory**: `apps/desktop` (Vercel dashboard -> Project
-   Settings -> General). Vercel auto-detects the Vite framework preset
-   from that directory and pre-fills Build Command
-   (`vite build`)/Output Directory (`dist`) - leave those as detected.
-3. Because this is a pnpm workspace, the install step needs to happen from
-   the repo root, not `apps/desktop`. Vercel's monorepo support handles
-   this automatically once it detects `pnpm-lock.yaml` at the repo root -
-   no override needed under **Install Command**. If a deploy ever fails
-   with "workspace:* not found" or similar, that's this step not running
-   from the root - check the build log's install step.
-4. **Environment Variables**: `VITE_SUPABASE_URL` and
+2. **Root Directory**: leave it **blank** (the repo root) - do NOT set it
+   to `apps/desktop`. The repo-root `vercel.json` now carries explicit
+   `installCommand`/`buildCommand`/`outputDirectory` (`pnpm install` /
+   `pnpm --filter desktop build` / `apps/desktop/dist`), all resolved
+   relative to the repo root, so Vercel never needs to be told to treat a
+   subdirectory as its own project root at all.
+   ~~Root Directory: `apps/desktop`, plus the dashboard's "Include source
+   files outside of the Root Directory in the Build Step" checkbox~~ -
+   **this was the original approach and it's fragile**: it depends on
+   that checkbox actually being saved/staying on, and a CLI `vercel
+   --prod` run doesn't apply it the same way a Root Directory setting
+   would when your shell's cwd is already inside `apps/desktop` - both
+   failure modes were hit live (`ERR_PNPM_NO_MATCHING_VERSION_INSIDE_WORKSPACE`
+   for `@jmssaas/shared` on a Git-triggered build, then "No Output
+   Directory named 'dist' found" on two different CLI-triggered deploys,
+   one run from `apps/desktop` and one from the repo root - same
+   underlying cause of the workspace package or the build output not
+   being where Vercel expected either way). Root Directory blank + an
+   explicit `vercel.json` removes the ambiguity for good: works
+   identically whether triggered by a GitHub push or `npx vercel --prod`,
+   and whether your shell happens to be in the repo root or not, since
+   `vercel.json` always resolves its paths relative to the repo root
+   regardless of local cwd.
+3. **Environment Variables**: `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY`, same values as `apps/mobile/.env` - safe to
    expose in the client bundle (anon key, meaningless without a valid
    RLS-scoped session).
-5. Every push to `main` deploys to production; every PR gets its own
+4. Every push to `main` deploys to production; every PR gets its own
    preview URL - same flow `bingleyroof.com.au` already uses.
 
 ### Known gaps / judgment calls

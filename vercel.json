@@ -1,3 +1,6 @@
 {
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter desktop build",
+  "outputDirectory": "apps/desktop/dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
