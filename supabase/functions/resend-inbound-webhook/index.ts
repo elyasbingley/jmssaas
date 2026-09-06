@@ -1,7 +1,7 @@
 // Inbox - Resend's inbound email webhook. A tenant forwards from their own
 // real inbox to their generated <inbox_local_part>@<verified domain>
 // address (see the inbox migration and docs/SETUP.md's setup steps);
-// Resend receives it there and POSTs the parsed email here.
+// Resend receives it there and POSTs a notification here.
 //
 // Signature verification uses Svix (Resend signs every webhook - inbound
 // included - the same way as their other webhook types), the same
@@ -11,20 +11,31 @@
 // with the base64 portion of the whsec_... secret, compared against each
 // "v1,<base64 sig>" entry in the space-separated svix-signature header.
 //
-// IMPORTANT - the exact field names below (payload.data.from/to/subject/
-// text/html/attachments\[\].content) are Resend's documented inbound
-// email shape as of when this was written, not verified against a live
-// payload in this environment (no Resend inbound domain exists here to
-// receive a real test webhook). Once inbound is enabled for real, send
-// yourself a test email and check the Resend dashboard's webhook delivery
-// log (or this function's own logs) against what's actually parsed below
-// - adjust the `parseResendPayload` extraction if any field name differs.
+// CONFIRMED LIVE (two real test sends, one with a body and a real PDF
+// attachment): the `email.received` webhook itself is a lightweight
+// notification only - `payload.data` has from/to/subject/attachment
+// metadata (id/filename/content_type, no `content`), but never a text/html
+// body, even when the source email genuinely had one. The actual content
+// has to be fetched with a follow-up call to Resend's API using the
+// webhook's own `data.email_id` - see fetchFullEmail below. That follow-up
+// call's own response shape is a best-effort guess (this sandbox has no
+// network access to Resend's docs to confirm it, and Resend's outbound
+// "retrieve a sent email" endpoint - the closest documented analog - may
+// not exactly match the receiving shape), so it's logged unconditionally
+// the same way the raw webhook payload is: check Supabase Dashboard ->
+// Edge Functions -> resend-inbound-webhook -> Logs after a test send if a
+// field ever comes through wrong/empty, and adjust fetchFullEmail's
+// extraction to match what's actually there.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const RESEND_INBOUND_WEBHOOK_SECRET = Deno.env.get("RESEND_INBOUND_WEBHOOK_SECRET") ?? "";
+// Same secret every other function's outbound Resend calls already use
+// (process-scheduled-comms) - project secrets are shared across all Edge
+// Functions, so no new `supabase secrets set` is needed for this.
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -60,14 +71,28 @@ async function verifySvixSignature(rawBody: string, headers: Headers): Promise<b
   });
 }
 
+interface InboundAttachmentMeta {
+  id: string;
+  filename: string;
+  contentType: string | null;
+}
+
 interface ParsedInboundEmail {
+  emailId: string | null;
   fromEmail: string;
   fromName: string | null;
   toEmail: string;
   subject: string | null;
+  attachments: InboundAttachmentMeta[];
+}
+
+interface FullReceivedEmail {
   text: string | null;
   html: string | null;
-  attachments: { filename: string; contentType: string | null; content: string }[];
+  // Keyed by the attachment `id` from the webhook's own metadata, since
+  // that's the only stable handle both payloads share for matching one up
+  // to the other.
+  attachmentContentById: Record<string, string>;
 }
 
 function parseFromHeader(from: string): { email: string; name: string | null } {
@@ -77,12 +102,10 @@ function parseFromHeader(from: string): { email: string; name: string | null } {
 }
 
 // Some senders (Gmail/Outlook "compose" boxes especially) only populate the
-// HTML part of a multipart email, leaving text/plain empty - confirmed live:
-// subject/from/attachments all parsed correctly from a real test send, but
-// body_text came back empty while the sender's email visibly had a body.
-// This is a best-effort tag-stripping fallback (not a real HTML parser -
-// Deno's std lib has none built in and pulling a dependency in for this one
-// field isn't worth it), used only when Resend's own text field is empty.
+// HTML part of a multipart email, leaving text/plain empty. Best-effort
+// tag-stripping fallback (not a real HTML parser - Deno's std lib has none
+// built in and pulling a dependency in for this one field isn't worth it),
+// used only when the fetched email's own text field is empty.
 function htmlToPlainText(html: string): string {
   return html
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
@@ -108,25 +131,57 @@ function parseResendPayload(payload: any): ParsedInboundEmail | null {
   const toEmail = String(Array.isArray(toRaw) ? toRaw[0] : toRaw);
   if (!fromEmail || !toEmail) return null;
 
-  const attachments = (data.attachments ?? []).map((a: any) => ({
+  const attachments: InboundAttachmentMeta[] = (data.attachments ?? []).map((a: any) => ({
+    id: a.id ?? a.attachment_id ?? "",
     filename: a.filename ?? a.file_name ?? "attachment",
     contentType: a.content_type ?? a.contentType ?? null,
-    content: a.content ?? a.content_base64 ?? "",
   }));
 
-  const html = data.html ?? null;
-  const rawText = data.text ?? null;
-  const text = rawText && rawText.trim() ? rawText : html ? htmlToPlainText(html) : null;
-
   return {
+    emailId: data.email_id ?? data.id ?? null,
     fromEmail,
     fromName,
     toEmail,
     subject: data.subject ?? null,
-    text,
-    html,
     attachments,
   };
+}
+
+// See the top-of-file comment - the webhook itself never carries body/
+// attachment content, only metadata, so this fetches the real thing from
+// Resend's API. Response shape is an educated guess, logged unconditionally
+// so it can be corrected against what Resend actually returns.
+async function fetchFullEmail(emailId: string): Promise<FullReceivedEmail | null> {
+  if (!RESEND_API_KEY) {
+    console.error("[resend-inbound-webhook] RESEND_API_KEY not set - cannot fetch full email content");
+    return null;
+  }
+  try {
+    const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+    });
+    const bodyText = await res.text();
+    console.log("[resend-inbound-webhook] fetched full email", emailId, res.status, bodyText);
+    if (!res.ok) return null;
+
+    const full = JSON.parse(bodyText);
+    const data = full?.data ?? full;
+    const attachmentContentById: Record<string, string> = {};
+    for (const a of data?.attachments ?? []) {
+      const attachmentId = a?.id ?? a?.attachment_id;
+      const content = a?.content ?? a?.content_base64 ?? a?.base64 ?? null;
+      if (attachmentId && content) attachmentContentById[attachmentId] = content;
+    }
+
+    return {
+      text: data?.text ?? null,
+      html: data?.html ?? null,
+      attachmentContentById,
+    };
+  } catch (e) {
+    console.error("[resend-inbound-webhook] Failed to fetch full email", emailId, e);
+    return null;
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -155,6 +210,11 @@ Deno.serve(async (req: Request) => {
   const email = parseResendPayload(payload);
   if (!email) return json({ ok: true, skipped: "unrecognised_payload" });
 
+  const full = email.emailId ? await fetchFullEmail(email.emailId) : null;
+  const html = full?.html ?? null;
+  const rawText = full?.text ?? null;
+  const bodyText = rawText && rawText.trim() ? rawText : html ? htmlToPlainText(html) : null;
+
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   const localPart = email.toEmail.split("@")[0]?.toLowerCase();
@@ -180,8 +240,8 @@ Deno.serve(async (req: Request) => {
       from_email: email.fromEmail,
       from_name: email.fromName,
       subject: email.subject,
-      body_text: email.text,
-      body_html: email.html,
+      body_text: bodyText,
+      body_html: html,
       status: "unprocessed",
     })
     .select("id")
@@ -192,9 +252,17 @@ Deno.serve(async (req: Request) => {
   }
 
   for (const attachment of email.attachments) {
-    if (!attachment.content) continue;
+    const content = full?.attachmentContentById[attachment.id];
+    if (!content) {
+      console.warn(
+        "[resend-inbound-webhook] No content found for attachment - check fetchFullEmail's logged response for the right field name",
+        attachment.filename,
+        attachment.id
+      );
+      continue;
+    }
     try {
-      const bytes = base64ToBytes(attachment.content);
+      const bytes = base64ToBytes(content);
       const storagePath = `${tenant.id}/${message.id}/${crypto.randomUUID()}-${attachment.filename}`;
       const { error: uploadError } = await admin.storage
         .from("inbox-attachments")
@@ -218,7 +286,7 @@ Deno.serve(async (req: Request) => {
   // AI-parsing function to draft a job suggestion (fire-and-forget: a
   // parsing failure shouldn't fail the webhook response Resend is waiting
   // on, the message is already safely stored either way).
-  if (email.attachments.length === 0 && (email.text ?? "").trim().length > 0) {
+  if (email.attachments.length === 0 && (bodyText ?? "").trim().length > 0) {
     fetch(`${SUPABASE_URL}/functions/v1/process-inbox-ai-parse`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
