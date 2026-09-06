@@ -3,6 +3,8 @@
 // once the schema stabilises.
 
 import type { ReportFormData, ReportStructureSchema } from "./reports";
+import type { KnowledgeBlock } from "./knowledge";
+import type { InboxJobSuggestion } from "./inbox";
 
 export type UserRole = "admin" | "technician";
 
@@ -63,6 +65,12 @@ export interface Tenant {
   // STRIPE_SECRET_KEY the existing invoice-payment Stripe code uses.
   stripe_connect_account_id: string | null;
   stripe_connect_onboarded: boolean;
+  // The local-part (before the @) of this tenant's generated Inbox
+  // address - see the inbox migration's own comment on why it's just the
+  // local-part (the domain is a platform-level constant, not per-tenant
+  // data) and why a tenant forwards their own inbox to it rather than
+  // giving it out directly.
+  inbox_local_part: string;
   created_at: string;
 }
 
@@ -1252,7 +1260,8 @@ export type ScheduledCommunicationEntityType =
   | "report"
   | "purchase_order"
   | "subcontractor"
-  | "client_membership";
+  | "client_membership"
+  | "knowledge_article";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,
@@ -1717,4 +1726,64 @@ export interface LabourCostEntry {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge base - mirrors the knowledge_base migration. See knowledge.ts
+// for KnowledgeBlock (content_blocks' element shape).
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeArticle {
+  id: string;
+  tenant_id: string;
+  category_id: string | null;
+  title: string;
+  content_blocks: KnowledgeBlock[];
+  is_published: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Inbox - mirrors the inbox migration. See inbox.ts for
+// InboxJobSuggestion (parsed_job_suggestion's shape).
+// ---------------------------------------------------------------------------
+
+export type InboxMessageStatus = "unprocessed" | "needs_review" | "attached" | "dismissed";
+
+export interface InboxMessage {
+  id: string;
+  tenant_id: string;
+  from_email: string;
+  from_name: string | null;
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  received_at: string;
+  status: InboxMessageStatus;
+  linked_job_id: string | null;
+  parsed_job_suggestion: InboxJobSuggestion | null;
+  parsed_at: string | null;
+  created_at: string;
+}
+
+export interface InboxAttachment {
+  id: string;
+  tenant_id: string;
+  message_id: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
 }

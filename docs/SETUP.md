@@ -8060,3 +8060,201 @@ already installed from a prior build.
   verified by careful review and structural brace/paren balance checks
   instead, same limitation as every other Edge Function added this
   session.
+
+## 62. Knowledge base and Inbox
+
+Two independent features, requested together: **Knowledge** (SOP/how-to
+articles with text, images and embedded videos, downloadable/emailable as a
+PDF) and **Inbox** (a per-tenant email address - forwarded from the
+tenant's own real inbox - that turns attachments into job files and
+text-only requests into an AI-drafted job suggestion for review).
+
+### Knowledge
+
+Fully self-contained - no new third-party service, no new secret.
+
+- **Database** (`supabase/migrations/20260925000100_knowledge_base.sql`):
+  `knowledge_categories` and `knowledge_articles` (tenant read, admin
+  write; an article is only tenant-readable once `is_published`, always
+  admin-readable) plus a private `knowledge-files` storage bucket for
+  in-article images. `content_blocks` is a `jsonb` array of the same
+  discriminated-union-blob pattern used elsewhere in this repo (e.g.
+  `report_templates.structure_schema`) - Postgres doesn't validate the
+  internal shape, `knowledgeBlockSchema` (zod, `packages/shared/src/schemas.ts`)
+  validates it client-side, and the editor only ever constructs the three
+  known variants (text / image / video_embed).
+- **Video embeds** default to linking out to YouTube/Vimeo/Loom
+  (`toEmbedUrl` in `packages/shared/src/knowledge.ts` normalises a pasted
+  URL into its embeddable player form) rather than self-hosted upload -
+  keeps this pass storage-cheap and avoids building a video transcoding
+  pipeline nobody asked for. Revisit if a tenant specifically wants
+  self-hosted video.
+- **Desktop** (`apps/desktop/src/pages/Knowledge{Base,Category,Article}.tsx`):
+  full authoring - category tiles, article list per category, and a block
+  editor (add/reorder/remove text, image, video blocks; publish toggle;
+  Download PDF / Email PDF via `lib/knowledge-pdf.ts`'s jsPDF builder, same
+  `PdfCursor` pattern as `report-pdf.ts`).
+- **Mobile** (`apps/mobile/app/knowledge/*`): **read-only** - browse
+  categories/articles, view blocks (images via signed URL, videos via
+  `Linking.openURL`), Download PDF / Email PDF via `lib/knowledge-pdf.ts`'s
+  HTML-string builder (`expo-print`, same pattern as `lib/report-pdf.ts`).
+  Authoring stays desktop-only, matching Reports/Real Estate/Job
+  Templates - office builds it, the field reads it. Not a PowerSync table,
+  so (like Reports/Calendar/Quotes) it's Supabase-direct and needs a
+  connection.
+
+### Inbox
+
+Needs one thing only this environment can't set up: a domain verified
+with Resend for **inbound** email (a different capability from the
+outbound sending this app already uses `RESEND_API_KEY`/`RESEND_FROM_EMAIL`
+for - see the existing Resend setup earlier in this doc).
+
+**How it works**: every tenant gets a unique `inbox_local_part` (an
+auto-generated slug from their company name, e.g. `acme-plumbing`,
+editable in Company Settings), giving them the address
+`<inbox_local_part>@<your-verified-inbound-domain>`. The **decision made
+for this pass**: a tenant forwards mail from their own real business
+inbox to that generated address (a simple "forward to" filter rule in
+Gmail/Outlook/etc, one-time setup) rather than the platform trying to
+provision a real inbox per tenant on their own domain - far simpler to
+operate, and the tenant keeps using the email address their clients
+already have. Resend receives it and POSTs to `resend-inbound-webhook`,
+which:
+1. Verifies the Svix signature (Resend signs inbound webhooks the same
+   way as their other webhook types - `svix-id`/`svix-timestamp`/
+   `svix-signature` headers, HMAC-SHA256 over
+   `"{svix-id}.{svix-timestamp}.{raw_body}"`), same hand-rolled
+   Web-Crypto verification `xero-webhook`/`stripe-webhook` already use.
+2. Matches the recipient local-part to a tenant, stores the message
+   (`inbox_messages`) and any attachments (uploaded to the private
+   `inbox-attachments` bucket, one `inbox_attachments` row each).
+3. If there are **no** attachments and the body has actual text, fires
+   `process-inbox-ai-parse` (fire-and-forget) to draft a job suggestion.
+
+`process-inbox-ai-parse` calls Claude (`claude-opus-5`, forced tool use
+with `strict: true` on an `extract_job_suggestion` tool so the response is
+guaranteed to match `InboxJobSuggestion`'s shape) and writes the result to
+`inbox_messages.parsed_job_suggestion` + `status: 'needs_review'`. **This
+never creates a job by itself** - per the explicit decision for this pass,
+an admin always reviews/edits the draft and clicks Create on the Inbox
+screen (desktop `InboxMessage.tsx` / mobile `inbox/[id].tsx`) before
+anything lands in `job_cards`. Attaching a message's files to a job (new
+or existing) copies them out of `inbox-attachments` into `job-files` (a
+real copy, not a repointed path - `job_files` rows always point into the
+`job-files` bucket) and marks the message `attached` with `linked_job_id`
+set.
+
+- **Database** (`supabase/migrations/20260926000100_inbox.sql`):
+  `tenants.inbox_local_part` (unique, auto-slugified from company name on
+  insert via a trigger, with a backfill for existing tenants), an
+  `inbox_message_status` enum, `inbox_messages` and `inbox_attachments`
+  (tenant read; only an admin can update/delete a message - e.g. dismiss
+  or the attach/create actions; the attachments bucket has no
+  authenticated write policy at all, only the service-role webhook writes
+  to it).
+- **Edge Functions**: `resend-inbound-webhook` (public, Svix-verified, no
+  `--no-verify-jwt` needed since Resend never sends a Supabase JWT - same
+  category as `xero-webhook`/`stripe-webhook`) and `process-inbox-ai-parse`
+  (internal-only, bearer-checked against the service role key, called
+  exclusively by the webhook function above - never invoke it directly
+  from either app).
+- **Desktop** (`apps/desktop/src/pages/Inbox.tsx`, `InboxMessage.tsx`):
+  Queue/Attached/Dismissed tabs; a message screen showing the body and
+  attachments (signed URLs), an "attach to existing job" picker, and a
+  "create job" form pre-filled from the AI draft when one exists (shows
+  its confidence level), or from the subject/body otherwise.
+- **Mobile** (`apps/mobile/app/inbox/*`): same triage capability as
+  desktop (not read-only, unlike Knowledge) - Inbox is a per-message admin
+  action queue, not authored content, and admins are exactly the audience
+  already gated to it in Settings. `inbox_messages`/`inbox_attachments`
+  aren't PowerSync tables, so (like Knowledge) it's Supabase-direct and
+  needs a connection; creating a job/client here is a direct
+  `supabase.from(...).insert()` (not a `powersync.execute` local insert)
+  since the whole screen already requires connectivity - the new rows flow
+  back down to every device's local PowerSync copy on the next sync tick,
+  same as any other device's write would.
+
+### Resend inbound domain setup (one-time, do this in the Resend dashboard)
+
+1. Resend dashboard -> Domains -> Add Domain. Use a domain (or subdomain,
+   e.g. `inbox.yourcompany.com`) you control - **this can be the same
+   domain already verified for outbound**, Resend supports both directions
+   on one domain.
+2. Add the DNS records Resend shows you (SPF/DKIM as usual for outbound;
+   inbound additionally needs an **MX record** pointed at Resend's inbound
+   mail servers - the dashboard gives you the exact host/value once you
+   enable "Receiving" for that domain).
+3. Domains -> your domain -> Webhooks (or the top-level Webhooks section,
+   scoped to "Inbound Email" events) -> add an endpoint pointed at:
+   `https://<project-ref>.supabase.co/functions/v1/resend-inbound-webhook`
+4. Copy the endpoint's signing secret (`whsec_...`) and set it below.
+5. Tell each tenant their address is
+   `<their inbox_local_part>@<your inbound domain>` (visible in Company
+   Settings once built into that screen, or read directly from
+   `tenants.inbox_local_part` for now) and to add a forwarding rule in
+   their own mailbox pointed at it.
+
+### Deploy
+
+```powershell
+git pull origin claude/knowledge-and-inbox
+npx supabase db push
+npx supabase secrets set RESEND_INBOUND_WEBHOOK_SECRET=whsec_your_inbound_endpoint_secret_here
+npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-your-key-here
+npx supabase functions deploy resend-inbound-webhook --no-verify-jwt
+npx supabase functions deploy process-inbox-ai-parse --no-verify-jwt
+npx vercel --prod
+```
+
+A new EAS build is needed for the mobile changes here to reach devices
+already installed from a prior build.
+
+### Test it
+
+1. Knowledge -> new category -> new article -> add a text block, an image
+   block (upload an image), and a video block (paste a YouTube URL) ->
+   Save -> confirm all three render. Toggle Published -> confirm it now
+   shows for a non-admin. Download PDF and Email PDF -> confirm the PDF
+   contains all three blocks and the email arrives.
+2. Mobile -> Settings -> Knowledge -> confirm the same article reads
+   correctly (image loads, video link opens, PDF actions work).
+3. Set up the Resend inbound domain (above), forward a test email with a
+   PDF attached to a tenant's inbox address -> confirm it appears in
+   Inbox -> Queue with the attachment, "Attach to existing job" works, and
+   "Create job" (no AI draft, since it has an attachment) pre-fills from
+   the subject/body.
+4. Forward a text-only email describing a job (e.g. "Hi, I need a leaking
+   tap fixed at 12 Smith St, Newtown NSW 2042, my number is 0400 000 000")
+   with no attachment -> confirm it lands as `needs_review` with a
+   populated `parsed_job_suggestion` and the Inbox screen shows the
+   AI-drafted form pre-filled with a confidence badge -> edit if needed ->
+   Create job -> confirm the client/job are created correctly.
+5. Mobile -> Settings -> Inbox (admin only) -> repeat the attach/create
+   flows there.
+
+### Known gaps / judgment calls
+
+- **`resend-inbound-webhook`'s payload field names
+  (`payload.data.from`/`to`/`subject`/`text`/`html`/`attachments[].content`)
+  are Resend's documented inbound shape, not verified against a live
+  payload** - this sandbox has no Resend inbound domain to receive a real
+  test webhook. Once inbound is set up for real, send a test email and
+  check the Resend dashboard's webhook delivery log (or the function's own
+  logs) against what's actually parsed; adjust `parseResendPayload` if any
+  field name differs. This is the one part of this pass most likely to
+  need a follow-up tweak.
+- **AI drafting only runs for text-only messages** (no attachment) - per
+  the original ask ("if you send an email with just a text body..."). A
+  message with both a text body and an attachment goes straight to the
+  attach/create flow with no AI pre-fill; the subject/body is still used
+  as the create-job form's fallback default.
+- Knowledge video embeds are external links only (no self-hosted upload) -
+  see the note above.
+- Not tested against a live Resend inbound domain, a live Anthropic API
+  key, or a real device/EAS build - this sandbox has none of those.
+  Verified: `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
+  `apps/mobile`. The two new Edge Functions have no Deno runtime available
+  in this sandbox to typecheck - verified by careful review and structural
+  brace/paren balance checks instead, same limitation as every other Edge
+  Function added this session.
