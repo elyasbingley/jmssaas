@@ -76,6 +76,29 @@ function parseFromHeader(from: string): { email: string; name: string | null } {
   return { email: from.trim(), name: null };
 }
 
+// Some senders (Gmail/Outlook "compose" boxes especially) only populate the
+// HTML part of a multipart email, leaving text/plain empty - confirmed live:
+// subject/from/attachments all parsed correctly from a real test send, but
+// body_text came back empty while the sender's email visibly had a body.
+// This is a best-effort tag-stripping fallback (not a real HTML parser -
+// Deno's std lib has none built in and pulling a dependency in for this one
+// field isn't worth it), used only when Resend's own text field is empty.
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseResendPayload(payload: any): ParsedInboundEmail | null {
   const data = payload?.data;
   if (!data) return null;
@@ -91,13 +114,17 @@ function parseResendPayload(payload: any): ParsedInboundEmail | null {
     content: a.content ?? a.content_base64 ?? "",
   }));
 
+  const html = data.html ?? null;
+  const rawText = data.text ?? null;
+  const text = rawText && rawText.trim() ? rawText : html ? htmlToPlainText(html) : null;
+
   return {
     fromEmail,
     fromName,
     toEmail,
     subject: data.subject ?? null,
-    text: data.text ?? null,
-    html: data.html ?? null,
+    text,
+    html,
     attachments,
   };
 }
@@ -117,6 +144,13 @@ Deno.serve(async (req: Request) => {
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
+
+  // Logged unconditionally (not just on parse failure) while the exact
+  // Resend inbound payload shape is still being confirmed against live
+  // sends - see this function's own top-of-file comment. Check Supabase
+  // Dashboard -> Edge Functions -> resend-inbound-webhook -> Logs after a
+  // test send if a field ever comes through wrong/empty.
+  console.log("[resend-inbound-webhook] raw payload", JSON.stringify(payload));
 
   const email = parseResendPayload(payload);
   if (!email) return json({ ok: true, skipped: "unrecognised_payload" });

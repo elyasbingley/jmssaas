@@ -8220,6 +8220,13 @@ npx supabase functions deploy process-inbox-ai-parse --no-verify-jwt
 npx vercel --prod
 ```
 
+Also set `VITE_INBOX_DOMAIN` in `apps/desktop/.env` (and
+`EXPO_PUBLIC_INBOX_DOMAIN` in `apps/mobile/.env`) to the domain verified
+with Resend for inbound (e.g. `inbox.yourcompany.com.au`) - Company
+Settings combines it with each tenant's `inbox_local_part` column to show
+and let admins copy their full Inbox address. Leave unset and Company
+Settings shows a "not configured yet" note instead of a broken address.
+
 A new EAS build is needed for the mobile changes here to reach devices
 already installed from a prior build.
 
@@ -8245,18 +8252,25 @@ already installed from a prior build.
    Create job -> confirm the client/job are created correctly.
 5. Mobile -> Settings -> Inbox (admin only) -> repeat the attach/create
    flows there.
+6. Company Settings (desktop and mobile) -> confirm the Inbox card shows
+   `<inbox_local_part>@<VITE_INBOX_DOMAIN>` and Copy works.
 
 ### Known gaps / judgment calls
 
-- **`resend-inbound-webhook`'s payload field names
-  (`payload.data.from`/`to`/`subject`/`text`/`html`/`attachments[].content`)
-  are Resend's documented inbound shape, not verified against a live
-  payload** - this sandbox has no Resend inbound domain to receive a real
-  test webhook. Once inbound is set up for real, send a test email and
-  check the Resend dashboard's webhook delivery log (or the function's own
-  logs) against what's actually parsed; adjust `parseResendPayload` if any
-  field name differs. This is the one part of this pass most likely to
-  need a follow-up tweak.
+- **`resend-inbound-webhook`'s payload field names, live-tested once**:
+  a real forwarded email confirmed `payload.data.from`/`subject` and
+  `attachments[]` parse correctly, but `data.text` came back empty even
+  though the sender's email visibly had a body - most likely an
+  HTML-composed email with no populated plain-text part (common from
+  Gmail/Outlook's compose box), not a wrong field name. Fixed with
+  `htmlToPlainText` - a best-effort tag-stripping fallback used only when
+  `data.text` is empty and `data.html` isn't - plus unconditional payload
+  logging (`console.log` at the top of the handler, visible in Supabase
+  Dashboard -> Edge Functions -> `resend-inbound-webhook` -> Logs) so any
+  further mismatch is a log line away instead of another guess. Not yet
+  re-verified against a fresh send after this fix - the message already
+  sitting in a tenant's Inbox from the first test predates it and won't
+  retroactively gain a body; send a new test email to check.
 - **AI drafting only runs for text-only messages** (no attachment) - per
   the original ask ("if you send an email with just a text body..."). A
   message with both a text body and an attachment goes straight to the

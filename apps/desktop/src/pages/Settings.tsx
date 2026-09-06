@@ -86,6 +86,7 @@ export default function SettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [inboxAddressCopied, setInboxAddressCopied] = useState(false);
 
   useEffect(() => {
     if (tenant) {
@@ -415,6 +416,36 @@ export default function SettingsPage() {
         ) : null}
       </div>
       {logoError ? <p className="mb-4 text-sm text-red-600">{logoError}</p> : null}
+
+      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Inbox</h2>
+      {tenant?.inbox_local_part && import.meta.env.VITE_INBOX_DOMAIN ? (
+        <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4">
+          <p className="mb-1 text-sm text-gray-600">
+            Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
+            review an AI-drafted job.
+          </p>
+          <div className="flex items-center gap-3">
+            <code className="rounded bg-white px-2 py-1 text-sm font-semibold text-gray-900">
+              {tenant.inbox_local_part}@{import.meta.env.VITE_INBOX_DOMAIN}
+            </code>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(`${tenant.inbox_local_part}@${import.meta.env.VITE_INBOX_DOMAIN}`);
+                setInboxAddressCopied(true);
+                setTimeout(() => setInboxAddressCopied(false), 2000);
+              }}
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
+              {inboxAddressCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mb-6 text-sm text-gray-500">
+          Not configured yet - set <code>VITE_INBOX_DOMAIN</code> to your verified Resend inbound domain (see
+          docs/SETUP.md's Inbox section).
+        </p>
+      )}
 
       <FormField label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
       <FormField label="ABN" value={abn} onChange={(e) => setAbn(e.target.value)} placeholder="e.g. 12 345 678 901" />

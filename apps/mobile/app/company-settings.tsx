@@ -290,6 +290,24 @@ export default function CompanySettingsScreen() {
       </View>
       {logoError ? <Text style={styles.error}>{logoError}</Text> : null}
 
+      <Text style={styles.sectionTitle}>Inbox</Text>
+      {tenant?.inbox_local_part && process.env.EXPO_PUBLIC_INBOX_DOMAIN ? (
+        <View style={styles.inboxCard}>
+          <Text style={styles.inboxCardHint}>
+            Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
+            review an AI-drafted job.
+          </Text>
+          <Text style={styles.inboxAddress} selectable>
+            {tenant.inbox_local_part}@{process.env.EXPO_PUBLIC_INBOX_DOMAIN}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.logoPlaceholderText}>
+          Not configured yet - set EXPO_PUBLIC_INBOX_DOMAIN to your verified Resend inbound domain (see
+          docs/SETUP.md's Inbox section).
+        </Text>
+      )}
+
       <View style={styles.fieldSpacing}>
         <FormField label="Company name" value={name} onChangeText={setName} />
       </View>
@@ -412,4 +430,7 @@ const styles = StyleSheet.create({
   xeroDisconnectLink: { color: "#dc2626", fontWeight: "600" },
   xeroConnectButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start", marginTop: 8 },
   xeroConnectButtonText: { color: "#fff", fontWeight: "700" },
+  inboxCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 8, marginBottom: 8 },
+  inboxCardHint: { fontSize: 13, color: "#6b7280" },
+  inboxAddress: { fontSize: 15, fontWeight: "700", color: "#111827" },
 });
