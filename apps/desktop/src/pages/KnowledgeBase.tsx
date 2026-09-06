@@ -37,6 +37,7 @@ export default function KnowledgeBasePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [articleError, setArticleError] = useState<string | null>(null);
 
   const createCategory = useMutation({
     mutationFn: async () => {
@@ -68,6 +69,7 @@ export default function KnowledgeBasePage() {
       return data.id as string;
     },
     onSuccess: (articleId) => navigate(`/knowledge/articles/${articleId}`),
+    onError: (e) => setArticleError(getErrorMessage(e, "Failed to create article")),
   });
 
   return (
@@ -77,20 +79,23 @@ export default function KnowledgeBasePage() {
           <h1 className="text-xl font-bold text-gray-900">Knowledge</h1>
           <p className="text-sm text-gray-500">SOPs, how-tos and training material for your team.</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => setModalOpen(true)}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            + New category
-          </button>
-          <button
-            onClick={() => createArticle.mutate()}
-            disabled={createArticle.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
-            {createArticle.isPending ? "Creating..." : "+ New article"}
-          </button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-3">
+            <button
+              onClick={() => setModalOpen(true)}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              + New category
+            </button>
+            <button
+              onClick={() => createArticle.mutate()}
+              disabled={createArticle.isPending}
+              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+            >
+              {createArticle.isPending ? "Creating..." : "+ New article"}
+            </button>
+          </div>
+          {articleError ? <p className="text-sm text-red-600">{articleError}</p> : null}
         </div>
       </div>
 

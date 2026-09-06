@@ -45,6 +45,7 @@ export default function KnowledgeCategoryPage() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [articleError, setArticleError] = useState<string | null>(null);
 
   useEffect(() => {
     if (category) setRenameValue(category.name);
@@ -82,6 +83,7 @@ export default function KnowledgeCategoryPage() {
       return data.id as string;
     },
     onSuccess: (articleId) => navigate(`/knowledge/articles/${articleId}`),
+    onError: (e) => setArticleError(getErrorMessage(e, "Failed to create article")),
   });
 
   return (
@@ -99,13 +101,16 @@ export default function KnowledgeCategoryPage() {
             </button>
           )}
         </div>
-        <button
-          onClick={() => createArticle.mutate()}
-          disabled={createArticle.isPending}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
-          {createArticle.isPending ? "Creating..." : "+ New article"}
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          <button
+            onClick={() => createArticle.mutate()}
+            disabled={createArticle.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {createArticle.isPending ? "Creating..." : "+ New article"}
+          </button>
+          {articleError ? <p className="text-sm text-red-600">{articleError}</p> : null}
+        </div>
       </div>
 
       {isLoading ? (
