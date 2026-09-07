@@ -11,21 +11,26 @@
 // with the base64 portion of the whsec_... secret, compared against each
 // "v1,<base64 sig>" entry in the space-separated svix-signature header.
 //
-// CONFIRMED LIVE (three real test sends so far): the `email.received`
-// webhook itself is a lightweight notification only - `payload.data` has
-// from/to/subject/attachment metadata (id/filename/content_type, no
-// `content`), never a text/html body, even when the source email genuinely
-// had one. The actual content needs a follow-up call to Resend's API using
-// the webhook's own `data.email_id` - see fetchFullEmail below. Also
-// confirmed live: `GET /emails/{id}` (Resend's documented "retrieve a sent
-// email" endpoint) 404s for a received email's id - that path is for
-// emails sent through Resend, not received ones, so fetchFullEmail tries
-// several other plausible paths instead (no network access to Resend's
-// docs from this sandbox to look up the real one). Every attempt is
-// logged unconditionally, same as the raw webhook payload: check Supabase
-// Dashboard -> Edge Functions -> resend-inbound-webhook -> Logs after a
-// test send to see which path actually works (or none did), and adjust
-// CANDIDATE_RECEIVED_EMAIL_PATHS/fetchFullEmail's extraction to match.
+// CONFIRMED LIVE across four real test sends:
+// 1. The `email.received` webhook itself is a lightweight notification
+//    only - `payload.data` has from/to/subject/attachment metadata
+//    (id/filename/content_type/content_id, no `content`), never a
+//    text/html body, even when the source email genuinely had one.
+// 2. `GET /emails/{id}` (Resend's documented "retrieve a sent email"
+//    endpoint) 404s for a received email's id - that path is for emails
+//    sent through Resend, not received ones.
+// 3. `GET /emails/receiving/{id}` (using the webhook's own `data.email_id`)
+//    DOES work and returns the real `text`/`html` body - see fetchFullEmail.
+// 4. That response's own `attachments[]` is metadata-only too (no
+//    `content`), but it carries a `raw.download_url` - a signed URL (no
+//    Resend auth needed) to the complete original RFC 822 email, MIME
+//    attachments and all. extractAttachmentBase64 pulls one attachment's
+//    base64 body out of that raw message by matching its Content-ID or
+//    filename - a small hand-rolled reader targeting the common case (a
+//    standard multipart/mixed message with a base64-encoded attachment
+//    part, which is what every normal mail client produces), not a full
+//    MIME parser. Every fetch here is still logged unconditionally in case
+//    a future edge case needs adjusting this extraction.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -75,6 +80,11 @@ interface InboundAttachmentMeta {
   id: string;
   filename: string;
   contentType: string | null;
+  // e.g. "<f_mtqkp7ik0>" (angle brackets included, matching the raw MIME
+  // message's own Content-ID header) - the most reliable way to match this
+  // attachment's metadata to its body inside the raw email, filename being
+  // the fallback for a part with no Content-ID.
+  contentId: string | null;
 }
 
 interface ParsedInboundEmail {
@@ -135,6 +145,7 @@ function parseResendPayload(payload: any): ParsedInboundEmail | null {
     id: a.id ?? a.attachment_id ?? "",
     filename: a.filename ?? a.file_name ?? "attachment",
     contentType: a.content_type ?? a.contentType ?? null,
+    contentId: a.content_id ?? a.contentId ?? null,
   }));
 
   return {
@@ -147,58 +158,81 @@ function parseResendPayload(payload: any): ParsedInboundEmail | null {
   };
 }
 
-// GET /emails/{id} (Resend's documented "retrieve a sent email" endpoint)
-// returned a hard 404 "Email not found" for a real received email's
-// email_id - confirmed live, that path is scoped to emails sent through
-// Resend, not ones received. No network access to Resend's docs from this
-// sandbox to find the right one, so this tries several plausible shapes in
-// one round instead of guessing a single path again - REST convention
-// (nesting "receiving" as its own resource, or as a sub-path of /emails)
-// covers the likely options. Every attempt is logged with its own URL and
-// status, so whichever one 200s (or the fact that none did) is a single
-// log line away instead of another blind guess.
-const CANDIDATE_RECEIVED_EMAIL_PATHS = [
-  (id: string) => `https://api.resend.com/emails/receiving/${id}`,
-  (id: string) => `https://api.resend.com/receiving/emails/${id}`,
-  (id: string) => `https://api.resend.com/inbound-emails/${id}`,
-  (id: string) => `https://api.resend.com/emails/inbound/${id}`,
-];
+// Finds one attachment's base64 body inside a raw RFC 822 email by
+// matching its Content-ID (preferred) or filename, per the top-of-file
+// comment. Not a general MIME parser - only handles a single level of
+// multipart (no nested multipart/related inside multipart/mixed) and only
+// base64-encoded parts, which covers a normal mail client's attachments.
+function extractAttachmentBase64(rawEmail: string, contentId: string | null, filename: string): string | null {
+  const topHeaderEnd = rawEmail.search(/\r?\n\r?\n/);
+  if (topHeaderEnd === -1) return null;
+  const topHeaders = rawEmail.slice(0, topHeaderEnd);
+  const boundaryMatch = topHeaders.match(/boundary="?([^";\r\n]+)"?/i);
+  if (!boundaryMatch) return null;
+  const boundary = boundaryMatch[1];
 
-async function fetchFullEmail(emailId: string): Promise<FullReceivedEmail | null> {
+  const parts = rawEmail.split(`--${boundary}`);
+  for (const part of parts) {
+    const partHeaderEnd = part.search(/\r?\n\r?\n/);
+    if (partHeaderEnd === -1) continue;
+    const partHeaders = part.slice(0, partHeaderEnd);
+    const partBody = part.slice(partHeaderEnd).replace(/^\r?\n\r?\n/, "");
+
+    const matchesContentId = !!contentId && new RegExp(`content-id:\\s*${contentId}`, "i").test(partHeaders);
+    const lowerHeaders = partHeaders.toLowerCase();
+    const matchesFilename = lowerHeaders.includes(`filename="${filename.toLowerCase()}"`) || lowerHeaders.includes(`filename=${filename.toLowerCase()}`);
+    if (!matchesContentId && !matchesFilename) continue;
+
+    if (!/content-transfer-encoding:\s*base64/i.test(partHeaders)) continue;
+    return partBody.replace(/\r?\n/g, "").trim();
+  }
+  return null;
+}
+
+async function fetchFullEmail(emailId: string, attachments: InboundAttachmentMeta[]): Promise<FullReceivedEmail | null> {
   if (!RESEND_API_KEY) {
     console.error("[resend-inbound-webhook] RESEND_API_KEY not set - cannot fetch full email content");
     return null;
   }
 
-  for (const buildUrl of CANDIDATE_RECEIVED_EMAIL_PATHS) {
-    const url = buildUrl(emailId);
+  const url = `https://api.resend.com/emails/receiving/${emailId}`;
+  let data: any;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${RESEND_API_KEY}` } });
+    const bodyText = await res.text();
+    console.log("[resend-inbound-webhook] fetched full email", url, res.status, bodyText);
+    if (!res.ok) return null;
+    const full = JSON.parse(bodyText);
+    data = full?.data ?? full;
+  } catch (e) {
+    console.error("[resend-inbound-webhook] Failed to fetch full email", url, e);
+    return null;
+  }
+
+  const attachmentContentById: Record<string, string> = {};
+  const downloadUrl = data?.raw?.download_url;
+  if (attachments.length > 0 && downloadUrl) {
     try {
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${RESEND_API_KEY}` } });
-      const bodyText = await res.text();
-      console.log("[resend-inbound-webhook] fetched full email", url, res.status, bodyText);
-      if (!res.ok) continue;
-
-      const full = JSON.parse(bodyText);
-      const data = full?.data ?? full;
-      const attachmentContentById: Record<string, string> = {};
-      for (const a of data?.attachments ?? []) {
-        const attachmentId = a?.id ?? a?.attachment_id;
-        const content = a?.content ?? a?.content_base64 ?? a?.base64 ?? null;
-        if (attachmentId && content) attachmentContentById[attachmentId] = content;
+      const rawRes = await fetch(downloadUrl);
+      const rawEmail = await rawRes.text();
+      console.log("[resend-inbound-webhook] fetched raw email", downloadUrl, rawRes.status, "length", rawEmail.length);
+      if (rawRes.ok) {
+        for (const attachment of attachments) {
+          const content = extractAttachmentBase64(rawEmail, attachment.contentId, attachment.filename);
+          if (content) attachmentContentById[attachment.id] = content;
+          else console.warn("[resend-inbound-webhook] Could not find attachment body in raw email", attachment.filename, attachment.contentId);
+        }
       }
-
-      return {
-        text: data?.text ?? null,
-        html: data?.html ?? null,
-        attachmentContentById,
-      };
     } catch (e) {
-      console.error("[resend-inbound-webhook] Failed to fetch full email", url, e);
+      console.error("[resend-inbound-webhook] Failed to fetch/parse raw email", downloadUrl, e);
     }
   }
 
-  console.error("[resend-inbound-webhook] No candidate endpoint returned the full email", emailId);
-  return null;
+  return {
+    text: data?.text ?? null,
+    html: data?.html ?? null,
+    attachmentContentById,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -227,7 +261,7 @@ Deno.serve(async (req: Request) => {
   const email = parseResendPayload(payload);
   if (!email) return json({ ok: true, skipped: "unrecognised_payload" });
 
-  const full = email.emailId ? await fetchFullEmail(email.emailId) : null;
+  const full = email.emailId ? await fetchFullEmail(email.emailId, email.attachments) : null;
   const html = full?.html ?? null;
   const rawText = full?.text ?? null;
   const bodyText = rawText && rawText.trim() ? rawText : html ? htmlToPlainText(html) : null;
