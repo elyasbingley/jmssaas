@@ -139,3 +139,21 @@ export async function uploadTaskPhoto(params: {
 
   return storagePath;
 }
+
+// Channels - an admin attaching a file to an outbound reply (see the
+// channels_outbound_media migration's new insert policy). Same "no DB row"
+// shape as uploadReportPhoto/uploadKnowledgeImage - channel-send-message
+// reads this path back via a signed URL to hand to Twilio as MediaUrl, and
+// the resulting outbound channel_messages row carries the path directly in
+// its own media jsonb column, no separate attachments table.
+export async function uploadChannelMedia(params: { tenantId: string; conversationId: string; file: File }): Promise<{ storagePath: string; fileName: string; mimeType: string | null }> {
+  const id = crypto.randomUUID();
+  const storagePath = `${params.tenantId}/${params.conversationId}/${id}-${params.file.name}`;
+
+  const { error } = await supabase.storage
+    .from("channel-media")
+    .upload(storagePath, params.file, { contentType: params.file.type || undefined });
+  if (error) throw error;
+
+  return { storagePath, fileName: params.file.name, mimeType: params.file.type || null };
+}

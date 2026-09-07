@@ -16,6 +16,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
+const MEDIA_BUCKET = "channel-media";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -28,12 +29,18 @@ function json(body: unknown, status = 200): Response {
 }
 
 // `viaWhatsapp` prefixes both numbers "whatsapp:" - the only difference
-// between an SMS and a WhatsApp send through Twilio's Messages API.
-async function sendViaTwilio(params: { from: string; to: string; body: string; viaWhatsapp: boolean }): Promise<{ sid: string } | { error: string }> {
+// between an SMS/MMS and a WhatsApp send through Twilio's Messages API.
+// `mediaUrl`, when given, is the one attachment on this message - Twilio
+// fetches it itself (same MediaUrl param name/behavior for MMS and
+// WhatsApp), so it has to be a URL Twilio can reach with no auth of its
+// own, hence the caller signs it first (see the handler below).
+async function sendViaTwilio(params: { from: string; to: string; body?: string; mediaUrl?: string; viaWhatsapp: boolean }): Promise<{ sid: string } | { error: string }> {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) return { error: "twilio_not_configured" };
   const prefix = params.viaWhatsapp ? "whatsapp:" : "";
   const basicAuth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
-  const form = new URLSearchParams({ To: `${prefix}${params.to}`, From: `${prefix}${params.from}`, Body: params.body });
+  const form = new URLSearchParams({ To: `${prefix}${params.to}`, From: `${prefix}${params.from}` });
+  if (params.body) form.set("Body", params.body);
+  if (params.mediaUrl) form.set("MediaUrl", params.mediaUrl);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
     method: "POST",
     headers: { Authorization: `Basic ${basicAuth}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -63,13 +70,16 @@ Deno.serve(async (req: Request) => {
   if (!callerProfile) return json({ error: "unauthorized" }, 401);
   if (callerProfile.role !== "admin") return json({ error: "forbidden" }, 403);
 
-  let payload: { conversation_id?: string; body?: string };
+  let payload: { conversation_id?: string; body?: string; media?: { storage_path: string; file_name: string; mime_type: string | null } };
   try {
     payload = await req.json();
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
-  if (!payload.conversation_id || !payload.body?.trim()) return json({ error: "conversation_id_and_body_required" }, 400);
+  const bodyText = payload.body?.trim() || undefined;
+  if (!payload.conversation_id || (!bodyText && !payload.media)) {
+    return json({ error: "conversation_id_and_body_or_media_required" }, 400);
+  }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -97,7 +107,20 @@ Deno.serve(async (req: Request) => {
   const fromNumber = isWhatsapp ? tenant?.whatsapp_phone_number : tenant?.sms_phone_number;
   if (!fromNumber) return json({ error: isWhatsapp ? "whatsapp_not_configured" : "sms_not_configured" }, 400);
 
-  const result = await sendViaTwilio({ from: fromNumber, to: conversation.external_contact, body: payload.body, viaWhatsapp: isWhatsapp });
+  // Twilio fetches the media itself, so a private-bucket path has to become
+  // a URL it can reach with no auth of its own - a signed URL, generous
+  // enough (1 hour) that a slow Twilio fetch or retry doesn't race it.
+  let mediaUrl: string | undefined;
+  if (payload.media) {
+    const { data: signed, error: signError } = await admin.storage.from(MEDIA_BUCKET).createSignedUrl(payload.media.storage_path, 3600);
+    if (signError || !signed) {
+      console.error("[channel-send-message] Failed to sign media URL", signError);
+      return json({ error: "server_error" }, 500);
+    }
+    mediaUrl = signed.signedUrl;
+  }
+
+  const result = await sendViaTwilio({ from: fromNumber, to: conversation.external_contact, body: bodyText, mediaUrl, viaWhatsapp: isWhatsapp });
   if ("error" in result) return json({ error: "send_failed", message: result.error }, 502);
 
   const { data: message, error: insertError } = await admin
@@ -106,7 +129,8 @@ Deno.serve(async (req: Request) => {
       conversation_id: conversation.id,
       tenant_id: conversation.tenant_id,
       direction: "outbound",
-      body: payload.body,
+      body: bodyText ?? null,
+      media: payload.media ? [payload.media] : [],
       external_message_id: result.sid,
       status: "sent",
       sent_by: authData.user.id,
@@ -118,9 +142,10 @@ Deno.serve(async (req: Request) => {
     return json({ error: "server_error" }, 500);
   }
 
+  const preview = bodyText?.slice(0, 200) || (payload.media ? `📎 ${payload.media.file_name}` : null);
   await admin
     .from("channel_conversations")
-    .update({ last_message_at: new Date().toISOString(), last_message_preview: payload.body.slice(0, 200) })
+    .update({ last_message_at: new Date().toISOString(), last_message_preview: preview })
     .eq("id", conversation.id);
 
   return json({ ok: true, message_id: message.id });

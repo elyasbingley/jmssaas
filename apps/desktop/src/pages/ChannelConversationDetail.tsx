@@ -10,7 +10,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { sendChannelMessage } from "../lib/channels";
+import { sendChannelMessage, type ChannelMediaAttachment } from "../lib/channels";
+import { uploadChannelMedia } from "../lib/uploads";
 import { FormField, TextAreaField } from "../components/FormField";
 import { decodeEmailConversationId } from "./Channels";
 
@@ -189,12 +190,31 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
     }
   }, [conversation?.id]);
 
+  const { profile } = useAuth();
   const [reply, setReply] = useState("");
+  const [attachment, setAttachment] = useState<ChannelMediaAttachment | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  const handleAttach = async (file: File) => {
+    if (!profile) return;
+    setUploadingAttachment(true);
+    setSendError(null);
+    try {
+      const uploaded = await uploadChannelMedia({ tenantId: profile.tenant_id, conversationId, file });
+      setAttachment({ storage_path: uploaded.storagePath, file_name: uploaded.fileName, mime_type: uploaded.mimeType });
+    } catch (e) {
+      setSendError(getErrorMessage(e, "Failed to attach file"));
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
   const send = useMutation({
-    mutationFn: () => sendChannelMessage(conversationId, reply.trim()),
+    mutationFn: () => sendChannelMessage(conversationId, reply.trim(), attachment ?? undefined),
     onSuccess: () => {
       setReply("");
+      setAttachment(null);
       setSendError(null);
       queryClient.invalidateQueries({ queryKey: ["channel-messages", conversationId] });
       queryClient.invalidateQueries({ queryKey: ["channel-conversations"] });
@@ -248,7 +268,28 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
       <div className="border-t border-gray-200 p-4">
         {canSend ? (
           <>
+            {attachment ? (
+              <div className="mb-2 flex items-center gap-2 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+                <span className="flex-1 truncate">📎 {attachment.file_name}</span>
+                <button onClick={() => setAttachment(null)} className="font-semibold text-red-600 hover:underline">
+                  Remove
+                </button>
+              </div>
+            ) : null}
             <div className="flex gap-2">
+              <label className="flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-lg text-gray-600 hover:bg-gray-50">
+                📎
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={uploadingAttachment}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleAttach(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
               <textarea
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
@@ -258,10 +299,10 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
               />
               <button
                 onClick={() => send.mutate()}
-                disabled={send.isPending || !reply.trim()}
+                disabled={send.isPending || uploadingAttachment || (!reply.trim() && !attachment)}
                 className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
               >
-                {send.isPending ? "Sending..." : "Send"}
+                {send.isPending ? "Sending..." : uploadingAttachment ? "Attaching..." : "Send"}
               </button>
             </div>
             {sendError ? <p className="mt-1 text-sm text-red-600">{sendError}</p> : null}

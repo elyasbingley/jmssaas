@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { createClientSchema, type ChannelConversation, type ChannelMessage, type InboxMessage } from "@jmssaas/shared";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../../lib/errors";
-import { sendChannelMessage, decodeEmailConversationId } from "../../../lib/channels";
+import { sendChannelMessage, uploadChannelMedia, decodeEmailConversationId, type ChannelMediaAttachment } from "../../../lib/channels";
 import { FormField } from "../../../components/FormField";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
 
@@ -157,17 +158,47 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
     }
   }, [conversation?.id]);
 
+  const { profile } = useAuth();
   const [reply, setReply] = useState("");
+  const [attachment, setAttachment] = useState<ChannelMediaAttachment | null>(null);
+  const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  const pickAttachment = async () => {
+    if (!profile) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Enable photo access in Settings to attach a photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.9 });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset?.base64) return;
+
+    setAttaching(true);
+    setSendError(null);
+    try {
+      const mimeType = asset.mimeType ?? "image/jpeg";
+      const fileName = asset.fileName ?? `photo-${Date.now()}.${mimeType.includes("png") ? "png" : "jpg"}`;
+      const uploaded = await uploadChannelMedia({ tenantId: profile.tenant_id, conversationId, base64: asset.base64, fileName, mimeType });
+      setAttachment(uploaded);
+    } catch (e) {
+      setSendError(getErrorMessage(e, "Failed to attach photo"));
+    } finally {
+      setAttaching(false);
+    }
+  };
+
   const send = async () => {
-    if (!reply.trim()) return;
+    if (!reply.trim() && !attachment) return;
     setSending(true);
     setSendError(null);
     try {
-      await sendChannelMessage(conversationId, reply.trim());
+      await sendChannelMessage(conversationId, reply.trim(), attachment ?? undefined);
       setReply("");
+      setAttachment(null);
       refetchMessages();
       refetch();
     } catch (e) {
@@ -222,10 +253,23 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
       <View style={styles.composer}>
         {canSend ? (
           <>
+            {attachment ? (
+              <View style={styles.attachmentPreview}>
+                <Text style={styles.attachmentPreviewText} numberOfLines={1}>
+                  📎 {attachment.file_name}
+                </Text>
+                <Pressable onPress={() => setAttachment(null)}>
+                  <Text style={styles.attachmentRemove}>Remove</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <View style={styles.composerRow}>
+              <Pressable style={styles.attachButton} onPress={pickAttachment} disabled={attaching}>
+                <Text style={styles.attachButtonText}>📎</Text>
+              </Pressable>
               <TextInput style={styles.composerInput} value={reply} onChangeText={setReply} placeholder="Type a reply..." multiline />
-              <Pressable style={styles.sendButton} onPress={send} disabled={sending || !reply.trim()}>
-                <Text style={styles.sendButtonText}>{sending ? "..." : "Send"}</Text>
+              <Pressable style={styles.sendButton} onPress={send} disabled={sending || attaching || (!reply.trim() && !attachment)}>
+                <Text style={styles.sendButtonText}>{sending ? "..." : attaching ? "..." : "Send"}</Text>
               </Pressable>
             </View>
             {sendError ? <Text style={styles.error}>{sendError}</Text> : null}
@@ -310,6 +354,11 @@ const styles = StyleSheet.create({
   mediaLink: { color: "#2563eb", textDecorationLine: "underline", marginTop: 4 },
   composer: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", padding: 12 },
   composerRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  attachButton: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, justifyContent: "center" },
+  attachButtonText: { fontSize: 18 },
+  attachmentPreview: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 },
+  attachmentPreviewText: { flex: 1, fontSize: 13, color: "#374151" },
+  attachmentRemove: { fontSize: 13, fontWeight: "700", color: "#dc2626" },
   composerInput: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 100, fontSize: 14 },
   sendButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   sendButtonText: { color: "#fff", fontWeight: "700" },

@@ -1,3 +1,5 @@
+import { decode as decodeBase64 } from "base64-arraybuffer";
+import { v4 as uuidv4 } from "uuid";
 import { supabase } from "./supabase";
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -7,7 +9,16 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 // the env var. Throws with the server's own message on failure (unlike
 // dispatch-now's best-effort swallow) - a Channels reply has no cron-sweep
 // fallback, the admin needs to know it didn't go out.
-export async function sendChannelMessage(conversationId: string, body: string): Promise<string> {
+export interface ChannelMediaAttachment {
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+}
+
+// `media` is one attachment, uploaded first (see uploadChannelMedia below)
+// - channel-send-message signs it and hands the URL to Twilio. At least
+// one of body/media is required, matching the WhatsApp UX this mirrors.
+export async function sendChannelMessage(conversationId: string, body: string, media?: ChannelMediaAttachment): Promise<string> {
   if (!SUPABASE_URL) throw new Error("EXPO_PUBLIC_SUPABASE_URL is not configured");
   const { data } = await supabase.auth.getSession();
   const accessToken = data.session?.access_token;
@@ -16,11 +27,30 @@ export async function sendChannelMessage(conversationId: string, body: string): 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/channel-send-message`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation_id: conversationId, body }),
+    body: JSON.stringify({ conversation_id: conversationId, body, media }),
   });
   const responseBody = await res.json();
   if (!res.ok) throw new Error(responseBody?.message ?? responseBody?.error ?? "Failed to send message");
   return responseBody.message_id as string;
+}
+
+// Mobile port of apps/desktop/src/lib/uploads.ts's uploadChannelMedia -
+// same storage_path convention, image-only here (expo-image-picker,
+// matching the existing company-settings.tsx logo-upload pattern) rather
+// than desktop's any-file-type input, since a native document picker is a
+// separate library this app doesn't otherwise depend on - covers the
+// common "send a photo" case WhatsApp itself is mostly used for.
+export async function uploadChannelMedia(params: {
+  tenantId: string;
+  conversationId: string;
+  base64: string;
+  fileName: string;
+  mimeType: string;
+}): Promise<ChannelMediaAttachment> {
+  const storagePath = `${params.tenantId}/${params.conversationId}/${uuidv4()}-${params.fileName}`;
+  const { error } = await supabase.storage.from("channel-media").upload(storagePath, decodeBase64(params.base64), { contentType: params.mimeType });
+  if (error) throw error;
+  return { storage_path: storagePath, file_name: params.fileName, mime_type: params.mimeType };
 }
 
 // Same synthetic-id scheme as apps/desktop/src/pages/Channels.tsx's

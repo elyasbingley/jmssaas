@@ -8539,17 +8539,30 @@ already do.
    WhatsApp display name as the conversation title if they have one set.
 9. Reply from the Channels panel -> confirm it arrives as a real WhatsApp
    message.
+10. Attach a file to a reply (📎 next to the composer) -> Send -> confirm
+    it arrives as a real WhatsApp/MMS attachment, and shows correctly in
+    the conversation thread on both platforms afterward.
 
 ### Known gaps / judgment calls
 
 - **Messenger/Instagram have no live send/receive** - by design, see
   above (Meta App Review is the real bottleneck). Their Settings rows are
   informational only.
-- **Outbound is text-only** - no MMS/media attachment on a reply sent from
-  Channels (inbound MMS/WhatsApp media is fully supported). Not asked for,
-  and adding it means either accepting arbitrary attachment uploads
-  through `channel-send-message` or building a signed-upload flow first -
-  left for when there's an actual need.
+- **Outbound media is one attachment per reply** - added after this pass's
+  original "text-only" limitation (see below), matching the WhatsApp UX
+  it's mirroring: a caption-only, media-only, or text-only reply are all
+  valid, but not several files at once. Desktop accepts any file type
+  (plain `<input type="file">`); mobile is images only (`expo-image-
+  picker`, matching the existing Company Settings logo-upload pattern -
+  a native document picker would be a separate library this app doesn't
+  otherwise depend on). `channel-send-message` signs the uploaded object
+  (1 hour, `channel-media` bucket) and hands that URL to Twilio as
+  `MediaUrl` - the same parameter name/behavior Twilio uses for both
+  MMS and WhatsApp media, so one code path covers both channel types.
+  Sending it requires the new `channel-media: admin upload` storage
+  policy (`20260929000100_channels_outbound_media.sql`) - previously that
+  bucket only had a tenant-read policy, since every object was written by
+  the inbound webhook (service role, bypassing RLS) until now.
 - **Email in Channels is read + link-out only**, not a new reply surface -
   see the desktop section above for why. Attaching files/creating a job
   from an AI draft/dismissing all still happen on the existing Inbox
