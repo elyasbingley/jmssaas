@@ -81,8 +81,17 @@ Deno.serve(async (req: Request) => {
 
   const rawBody = await req.text();
   const params = new URLSearchParams(rawBody);
+  const signatureHeader = req.headers.get("x-twilio-signature");
 
-  const valid = await verifyTwilioSignature(params, req.headers.get("x-twilio-signature"));
+  // Logged unconditionally while signature verification is still being
+  // confirmed against a live Twilio request - a failure here previously
+  // returned 401 with nothing logged, making it indistinguishable from
+  // "never called" in Supabase's own logs. See docs/SETUP.md's Channels
+  // section for what to check if `valid` comes back false.
+  console.log("[twilio-whatsapp-webhook] received request", { functionUrl: FUNCTION_URL, hasSignatureHeader: !!signatureHeader, rawBody });
+
+  const valid = await verifyTwilioSignature(params, signatureHeader);
+  console.log("[twilio-whatsapp-webhook] signature check", { valid });
   if (!valid) return json({ error: "invalid_signature" }, 401);
 
   const fromRaw = params.get("From");
