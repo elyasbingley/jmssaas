@@ -76,6 +76,11 @@ export interface Tenant {
   // one. See the channels migration's own comment on why it's stored
   // pre-normalised rather than in whatever format was typed.
   sms_phone_number: string | null;
+  // E.164 - the Channels WhatsApp sender (a Twilio Sandbox number for
+  // testing, or a Business-verified sender once approved) - see the
+  // channels_whatsapp migration's own comment on why this is a separate
+  // column from sms_phone_number rather than reused.
+  whatsapp_phone_number: string | null;
   created_at: string;
 }
 

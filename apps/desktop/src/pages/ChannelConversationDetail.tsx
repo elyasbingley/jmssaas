@@ -204,7 +204,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
 
   if (!conversation) return <div className="p-5 text-sm text-gray-500">Loading...</div>;
 
-  const canSend = conversation.channel_type === "sms";
+  const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp";
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
 
   return (

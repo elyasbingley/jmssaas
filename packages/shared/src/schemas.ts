@@ -1097,6 +1097,20 @@ export const updateSmsPhoneNumberSchema = z.object({
 });
 export type UpdateSmsPhoneNumberInput = z.infer<typeof updateSmsPhoneNumberSchema>;
 
+// Same validation as the SMS number field, for the Channels WhatsApp
+// sender (tenants.whatsapp_phone_number).
+export const updateWhatsappPhoneNumberSchema = z.object({
+  whatsapp_phone_number: z.string().transform((val, ctx) => {
+    const normalized = toE164(val);
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid phone number, e.g. 0491 570 156" });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
+});
+export type UpdateWhatsappPhoneNumberInput = z.infer<typeof updateWhatsappPhoneNumberSchema>;
+
 export const sendChannelMessageSchema = z.object({
   conversation_id: z.string().uuid(),
   body: z.string().min(1, "Message can't be empty"),

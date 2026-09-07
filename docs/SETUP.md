@@ -8308,31 +8308,27 @@ job/task from this conversation" the same way Inbox already lets you
 create a job from an email. Reachable from the desktop nav and, per the
 original ask, as its own bottom tab on mobile (not tucked under Settings).
 
-**Scoped deliberately for this pass** - three of the four real channels
-need an external, provider-side step only the account owner can do before
-they can go live at all, so building their full send/receive plumbing now
-would just be dead code sitting behind a wall only you can open:
+**Scoped in two passes.** The first pass wired SMS all the way through and
+left WhatsApp/Messenger/Instagram as schema-only stubs, on the assumption
+all three needed an external approval before any code could even be
+tested. That assumption was wrong for WhatsApp specifically:
 
-- **WhatsApp** needs Meta Business verification and, before you can
-  message a NEW contact first (rather than just replying within 24 hours
-  of their last message), an approved message template - both are
-  Meta/WhatsApp account-level steps, not something this codebase can do
-  for you.
-- **Messenger** and **Instagram** both need **Meta App Review** before a
-  SaaS like this can message through a business's own Facebook Page or
-  Instagram account at all (not just your own - the whole point is other
-  tenants connecting their own accounts). That's an external submission
-  (screencast, privacy policy, use-case description) only the app's owner
-  can make in the Meta Developer Portal, and can take days to weeks to
-  come back.
-
-So this pass wires **SMS all the way through** (inbound + outbound, via
-Twilio - the same provider a previous, since-removed SMS attempt used;
-see the channels migration's own comment on why this attempt is
-different), and gives WhatsApp/Messenger/Instagram their `channel_type`
-in the schema plus a "Not connected" row in Settings explaining what each
-one is waiting on - no OAuth flow or webhook exists for those three yet,
-so the schema doesn't need to change again once they are.
+- **WhatsApp via Twilio uses the exact same Messages API and inbound-
+  webhook shape as SMS** (see `twilio-whatsapp-webhook`), just with a
+  `whatsapp:` prefix on the numbers - there's no Meta App Review wall the
+  way there is for messaging through someone else's Facebook Page/
+  Instagram account. Twilio also has a free **Sandbox** number that lets
+  you test send/receive immediately, before a permanent Business-verified
+  sender is approved. So WhatsApp is fully wired in the second pass below
+  - same live status as SMS.
+- **Messenger** and **Instagram** still both need **Meta App Review**
+  before a SaaS like this can message through a business's own Facebook
+  Page or Instagram account at all (not just your own - the whole point is
+  other tenants connecting their own accounts). That's an external
+  submission (screencast, privacy policy, use-case description) only the
+  app's owner can make in the Meta Developer Portal, and can take days to
+  weeks to come back - genuinely nothing to build yet, so they're still
+  schema-only stubs with a "Not connected" row in Settings.
 
 ### Why SMS is worth trying again
 
@@ -8345,7 +8341,8 @@ normalised before it's ever stored or sent, and there was never an inbound
 SMS webhook before at all - `twilio-sms-webhook` is genuinely new, not a
 resurrection of deleted code.
 
-### Database (`supabase/migrations/20260927000100_channels.sql`)
+### Database (`supabase/migrations/20260927000100_channels.sql` +
+`20260928000100_channels_whatsapp.sql`)
 
 `channel_connections` (one row per tenant per non-email channel type,
 tracks connected/not_connected + a jsonb `config` blob), `channel_
@@ -8356,8 +8353,12 @@ for instagram - optionally linked to a `client_id`), `channel_messages`
 attachments). A private `channel-media` storage bucket. `tenants.sms_
 phone_number` (E.164, unique) is how the inbound webhook finds the right
 tenant - same "look up tenant by the address a message arrived at" shape
-as `inbox_local_part`. RLS: tenant read, admin write - same convention as
-every other admin-scoped module.
+as `inbox_local_part`. `tenants.whatsapp_phone_number` is the same idea for
+WhatsApp, as its own column rather than reusing `sms_phone_number` - a
+tenant's WhatsApp sender (a Twilio Sandbox number for testing, or a
+Business-verified sender once approved) is very likely a different number
+in practice. RLS: tenant read, admin write - same convention as every
+other admin-scoped module.
 
 **Email is deliberately NOT one of these tables.** It's folded into the
 Channels UI from the existing `inbox_messages` table at query time
@@ -8383,29 +8384,38 @@ Knowledge article was failing outright until this migration.
   existing client by normalising `clients.phone` and comparing to the
   sender's E.164 number, since that column has never been validated as
   E.164 anywhere in the app), stores any MMS media into `channel-media`.
+- `twilio-whatsapp-webhook` - a near-duplicate of `twilio-sms-webhook`
+  (same signature verification, same media handling, same client auto-
+  match), adjusted for two WhatsApp-specific things: `From`/`To` arrive as
+  `whatsapp:+61...` (stripped before storing/matching, so
+  `external_contact` stays a plain E.164 number either way) and the
+  sender's WhatsApp display name (`ProfileName`) is captured as
+  `contact_name` on a new conversation, which plain SMS never provides.
 - `channel-send-message` (called by the app with the signed-in admin's own
   bearer token, same auth pattern as `xero-oauth-start` - verifies the
   caller is an admin belonging to the conversation's tenant, then sends
-  via Twilio's Messages API and records the outbound message). Only
-  `channel_type: 'sms'` actually sends for now - it 400s for anything
-  else with a clear "not connected yet" message.
+  via Twilio's Messages API and records the outbound message). Handles
+  `channel_type: 'sms'` and `'whatsapp'` (the latter just prefixes both
+  numbers `whatsapp:` before the same API call) - it 400s for
+  Messenger/Instagram with a clear "not connected yet" message.
 
 ### Desktop (`apps/desktop/src`)
 
 `pages/Channels.tsx` (the unified list - real conversations plus the
 virtual email rows) and `pages/ChannelConversationDetail.tsx` (message
-thread, reply composer gated on `channel_type === 'sms'`, and a "Create
-job"/"Create task" section) open in a right-side panel, replicating
-`Tasks.tsx`'s own nested-route + `useMatch` + overlay pattern - extracted
-this time into a small reusable `components/SidePanel.tsx` rather than a
-second copy-paste, since this is now the second place that exact shape is
-needed (Tasks.tsx itself was left untouched rather than retrofitted, to
-avoid risking a regression in an already-working screen for the sake of
-symmetry). `lib/channels.ts` has the `sendChannelMessage` fetch helper
-(same shape as `lib/dispatch-now.ts`). Settings gained a "Channels"
-section: an SMS phone number field (saves immediately, not part of the
-big Company Settings form) plus three "Not connected" informational rows
-for WhatsApp/Messenger/Instagram naming what each needs.
+thread, reply composer gated on `channel_type === 'sms' || 'whatsapp'`,
+and a "Create job"/"Create task" section) open in a right-side panel,
+replicating `Tasks.tsx`'s own nested-route + `useMatch` + overlay pattern -
+extracted this time into a small reusable `components/SidePanel.tsx`
+rather than a second copy-paste, since this is now the second place that
+exact shape is needed (Tasks.tsx itself was left untouched rather than
+retrofitted, to avoid risking a regression in an already-working screen
+for the sake of symmetry). `lib/channels.ts` has the `sendChannelMessage`
+fetch helper (same shape as `lib/dispatch-now.ts`). Settings gained a
+"Channels" section: SMS and WhatsApp phone number fields (each saves
+immediately, not part of the big Company Settings form) plus two "Not
+connected" informational rows for Messenger/Instagram naming what each
+needs.
 
 The email virtual-conversation panel is intentionally lighter than a real
 channel's: it shows the message history and links each one to the
@@ -8425,10 +8435,10 @@ pushed Stack screen, matching how Tasks' own `[id].tsx` opens on mobile
 (full screen, header + back button) rather than a new modal/bottom-sheet
 pattern nothing else in this app uses (confirmed by checking - there is no
 existing `presentation: "modal"` anywhere in `apps/mobile`). Company
-Settings gained the same SMS number field + WhatsApp/Messenger/Instagram
+Settings gained the same SMS/WhatsApp number fields + Messenger/Instagram
 rows as desktop.
 
-### Twilio setup (one-time, in the Twilio Console)
+### Twilio setup - SMS (one-time, in the Twilio Console)
 
 1. Create a Twilio account (or use the platform's existing one, if any -
    check Console > Account first) and note the Account SID + Auth Token
@@ -8450,33 +8460,60 @@ rows as desktop.
    npx supabase secrets set TWILIO_ACCOUNT_SID=ACyour_account_sid_here
    npx supabase secrets set TWILIO_AUTH_TOKEN=your_auth_token_here
    npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+   npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
    npx supabase functions deploy channel-send-message
    npx vercel --prod
    ```
-   (`channel-send-message` is called by the app with the user's own
-   session, not Twilio, so it keeps the platform's default JWT
-   verification - no `--no-verify-jwt`.)
+   (`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` are shared by both webhooks -
+   no separate secrets needed for WhatsApp. `channel-send-message` is
+   called by the app with the user's own session, not Twilio, so it keeps
+   the platform's default JWT verification - no `--no-verify-jwt`.)
 5. A new EAS build is needed for the mobile changes here to reach devices
    already installed from a prior build.
 
-### When you're ready for WhatsApp/Messenger/Instagram
+### Twilio setup - WhatsApp (one-time, in the Twilio Console)
 
-Not built yet (see the scoping note above) - when you want to tackle one:
+Two paths, and you can start with the first today with zero approval
+wait:
 
-- **WhatsApp**: either add it as a Twilio "WhatsApp Sender" (Twilio's
-  Console walks you through Meta Business verification and template
-  submission as part of that flow) or go direct to Meta's WhatsApp Cloud
-  API - either way, budget for the verification step's own timeline
-  before writing any code.
-- **Messenger/Instagram**: start the Meta App Review submission first
-  (Meta for Developers -> your app -> App Review -> request
-  `pages_messaging` for Messenger, `instagram_manage_messages` for
-  Instagram) since that clock is the actual bottleneck - the OAuth
-  "Connect" flow itself, once approved, is a straightforward port of the
-  existing `xero-oauth-start`/`xero-oauth-callback` pattern (see that
-  section of this doc), storing tokens in a new connections table the
-  same never-exposed-to-the-client way `xero_connections`/`google_
-  calendar_connections` already do.
+**Option A - Sandbox (test immediately, no Meta verification needed):**
+
+1. Twilio Console -> Messaging -> Try it out -> Send a WhatsApp message ->
+   note the Sandbox number shown (a shared Twilio number, e.g.
+   `+1 415 523 8886`) and the join code (e.g. "join some-word").
+2. From your own phone's WhatsApp, send that join code as a message to the
+   Sandbox number - this opts your number into the sandbox for testing
+   (each tester has to do this once; it's Twilio's own restriction, not
+   this app's).
+3. Sandbox Settings (same Messaging page) -> set "WHEN A MESSAGE COMES IN"
+   to `https://<project-ref>.supabase.co/functions/v1/twilio-whatsapp-webhook`,
+   HTTP POST.
+4. Paste the Sandbox number (whatever format - the app normalises it) into
+   Company Settings -> Channels -> WhatsApp.
+5. Deploy `twilio-whatsapp-webhook` (see the SMS section's deploy block
+   above - it's the same commands).
+
+**Option B - a permanent Business-verified sender (for real customers):**
+
+Phone Numbers -> Senders -> WhatsApp senders -> Twilio's Console walks you
+through Meta Business verification and (if you want to message a customer
+first, rather than only replying within 24 hours of their last message)
+submitting a message template for approval. Once approved, same steps as
+the Sandbox above (webhook URL + paste the number into Settings) but with
+your own permanent number instead of the shared Sandbox one - budget for
+Meta's verification timeline before this path is usable.
+
+### When you're ready for Messenger/Instagram
+
+Still schema-only stubs (see the scoping note above) - Meta App Review is
+the real bottleneck, so start there: Meta for Developers -> your app ->
+App Review -> request `pages_messaging` for Messenger,
+`instagram_manage_messages` for Instagram. The OAuth "Connect" flow
+itself, once approved, is a straightforward port of the existing
+`xero-oauth-start`/`xero-oauth-callback` pattern (see that section of this
+doc), storing tokens in a new connections table the same never-exposed-
+to-the-client way `xero_connections`/`google_calendar_connections`
+already do.
 
 ### Test it
 
@@ -8495,16 +8532,24 @@ Not built yet (see the scoping note above) - when you want to tackle one:
 6. Channels -> Email filter -> confirm your existing Inbox messages show
    up grouped by sender, and "Open in Inbox" on one takes you to the
    existing Inbox message screen.
+7. Settings -> Channels -> save the Twilio Sandbox (or your verified)
+   WhatsApp number -> confirm it shows "Connected".
+8. Send a WhatsApp message to that number (join the Sandbox first if using
+   Option A above) -> confirm it appears in Channels, with the sender's
+   WhatsApp display name as the conversation title if they have one set.
+9. Reply from the Channels panel -> confirm it arrives as a real WhatsApp
+   message.
 
 ### Known gaps / judgment calls
 
-- **WhatsApp/Messenger/Instagram have no live send/receive** - by design
-  for this pass, see above. Their Settings rows are informational only.
+- **Messenger/Instagram have no live send/receive** - by design, see
+  above (Meta App Review is the real bottleneck). Their Settings rows are
+  informational only.
 - **Outbound is text-only** - no MMS/media attachment on a reply sent from
-  Channels (inbound MMS is fully supported). Not asked for, and adding it
-  means either accepting arbitrary attachment uploads through
-  `channel-send-message` or building a signed-upload flow first - left for
-  when there's an actual need.
+  Channels (inbound MMS/WhatsApp media is fully supported). Not asked for,
+  and adding it means either accepting arbitrary attachment uploads
+  through `channel-send-message` or building a signed-upload flow first -
+  left for when there's an actual need.
 - **Email in Channels is read + link-out only**, not a new reply surface -
   see the desktop section above for why. Attaching files/creating a job
   from an AI draft/dismissing all still happen on the existing Inbox
@@ -8515,19 +8560,22 @@ Not built yet (see the scoping note above) - when you want to tackle one:
   in an unusual format (extra punctuation, a landline written with
   brackets, etc.) won't auto-link; the admin can still link them manually
   via "Create job" using the same name.
-- Not tested against a live Twilio account, a real inbound SMS/MMS, or a
-  real device/EAS build - this sandbox has none of those. Verified:
-  `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
-  `apps/mobile`; both new migrations applied cleanly through the full
-  74-migration chain against a real local Postgres 16 instance (same
-  stub-`auth`/`storage`/`net`/`cron` harness used for every other
-  migration this session), with the new tables/policies/bucket verified
-  by hand afterward. The two new Edge Functions have no Deno runtime
-  available in this sandbox to typecheck - verified by careful review and
-  structural brace/paren balance checks instead, same limitation as every
-  other Edge Function added this session. Twilio's signature-verification
-  algorithm (`twilio-sms-webhook`) is long-documented and unchanged for
-  years, unlike Resend's inbound shape, so it didn't need a live
-  round-trip to get right the way the Inbox email webhook did - but it is
-  still unverified against a real Twilio request from this sandbox, so
-  treat the very first live test send as the real check.
+- Not tested against a live Twilio account, a real inbound SMS/MMS/
+  WhatsApp message, or a real device/EAS build - this sandbox has none of
+  those. Verified: `tsc --noEmit` clean across `packages/shared`,
+  `apps/desktop`, `apps/mobile`; all three new migrations (the original
+  Channels migration, the `knowledge_article` fix, and the WhatsApp column)
+  applied cleanly through the full migration chain against a real local
+  Postgres 16 instance (same stub-`auth`/`storage`/`net`/`cron` harness
+  used for every other migration this session), with the new tables/
+  policies/bucket verified by hand afterward. The three Twilio-facing Edge
+  Functions have no Deno runtime available in this sandbox to typecheck -
+  verified by careful review and structural brace/paren balance checks
+  instead, same limitation as every other Edge Function added this
+  session. Twilio's signature-verification algorithm is long-documented
+  and unchanged for years, unlike Resend's inbound shape, so it didn't
+  need a live round-trip to get right the way the Inbox email webhook did
+  - `twilio-whatsapp-webhook` is a close-enough duplicate of the already-
+  described `twilio-sms-webhook` that the same confidence carries over,
+  but neither is verified against a real Twilio request from this
+  sandbox, so treat your first live test send on each as the real check.

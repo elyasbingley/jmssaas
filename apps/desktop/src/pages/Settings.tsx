@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
   updateSmsPhoneNumberSchema,
+  updateWhatsappPhoneNumberSchema,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
   type CalendarCategoryColors,
   type CalendarEventCategory,
@@ -91,11 +92,15 @@ export default function SettingsPage() {
   const [smsPhoneNumberInput, setSmsPhoneNumberInput] = useState("");
   const [smsError, setSmsError] = useState<string | null>(null);
   const [smsSaved, setSmsSaved] = useState(false);
+  const [whatsappPhoneNumberInput, setWhatsappPhoneNumberInput] = useState("");
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappSaved, setWhatsappSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
       setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
+      setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -345,6 +350,23 @@ export default function SettingsPage() {
     onError: (e) => setSmsError(getErrorMessage(e, "Failed to save phone number")),
   });
 
+  const saveWhatsappPhoneNumber = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const result = updateWhatsappPhoneNumberSchema.safeParse({ whatsapp_phone_number: whatsappPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ whatsapp_phone_number: result.data.whatsapp_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateTenant();
+      setWhatsappError(null);
+      setWhatsappSaved(true);
+      setTimeout(() => setWhatsappSaved(false), 3000);
+    },
+    onError: (e) => setWhatsappError(getErrorMessage(e, "Failed to save phone number")),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const result = updateCompanySettingsSchema.safeParse({
@@ -505,9 +527,42 @@ export default function SettingsPage() {
         </div>
         {smsError ? <p className="mt-2 text-sm text-red-600">{smsError}</p> : null}
       </div>
+
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">🟢 WhatsApp</p>
+          {tenant?.whatsapp_phone_number ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        <p className="mb-2 text-sm text-gray-500">
+          A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
+          messaging real clients first needs Meta Business verification and an approved template. See
+          docs/SETUP.md's Channels section.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="tel"
+            value={whatsappPhoneNumberInput}
+            onChange={(e) => setWhatsappPhoneNumberInput(e.target.value)}
+            placeholder="0491 570 156"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => saveWhatsappPhoneNumber.mutate()}
+            disabled={saveWhatsappPhoneNumber.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveWhatsappPhoneNumber.isPending ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}
+          </button>
+        </div>
+        {whatsappError ? <p className="mt-2 text-sm text-red-600">{whatsappError}</p> : null}
+      </div>
+
       {(
         [
-          { icon: "🟢", label: "WhatsApp", note: "Needs Meta Business verification and an approved message template before you can message someone first." },
           { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
           { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
         ] as const

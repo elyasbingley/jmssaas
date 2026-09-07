@@ -4,10 +4,10 @@
 // --no-verify-jwt, since - unlike the inbound webhooks - this is only ever
 // invoked by a real app user, never by an external provider.
 //
-// SMS only for now (via Twilio's Messages API) - WhatsApp/Messenger/
-// Instagram all need their own connect step finished first (Meta Business
-// verification/App Review, or Twilio WhatsApp sender registration) before
-// there's anywhere to actually send to; see docs/SETUP.md.
+// SMS and WhatsApp (both via Twilio's Messages API - WhatsApp is the same
+// endpoint with a "whatsapp:" prefix on From/To) - Messenger/Instagram
+// still need Meta App Review finished first before there's anywhere to
+// actually send to; see docs/SETUP.md.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -27,10 +27,13 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: new Headers({ "Content-Type": "application/json", ...CORS_HEADERS }) });
 }
 
-async function sendSms(params: { from: string; to: string; body: string }): Promise<{ sid: string } | { error: string }> {
+// `viaWhatsapp` prefixes both numbers "whatsapp:" - the only difference
+// between an SMS and a WhatsApp send through Twilio's Messages API.
+async function sendViaTwilio(params: { from: string; to: string; body: string; viaWhatsapp: boolean }): Promise<{ sid: string } | { error: string }> {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) return { error: "twilio_not_configured" };
+  const prefix = params.viaWhatsapp ? "whatsapp:" : "";
   const basicAuth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
-  const form = new URLSearchParams({ To: params.to, From: params.from, Body: params.body });
+  const form = new URLSearchParams({ To: `${prefix}${params.to}`, From: `${prefix}${params.from}`, Body: params.body });
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
     method: "POST",
     headers: { Authorization: `Basic ${basicAuth}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -81,14 +84,20 @@ Deno.serve(async (req: Request) => {
   // verified profile row above), never anything the request body claims.
   if (conversation.tenant_id !== callerProfile.tenant_id) return json({ error: "not_found" }, 404);
 
-  if (conversation.channel_type !== "sms") {
+  if (conversation.channel_type !== "sms" && conversation.channel_type !== "whatsapp") {
     return json({ error: "channel_not_connected", message: "Sending isn't available on this channel yet." }, 400);
   }
+  const isWhatsapp = conversation.channel_type === "whatsapp";
 
-  const { data: tenant } = await admin.from("tenants").select("sms_phone_number").eq("id", conversation.tenant_id).single();
-  if (!tenant?.sms_phone_number) return json({ error: "sms_not_configured" }, 400);
+  const { data: tenant } = await admin
+    .from("tenants")
+    .select("sms_phone_number, whatsapp_phone_number")
+    .eq("id", conversation.tenant_id)
+    .single();
+  const fromNumber = isWhatsapp ? tenant?.whatsapp_phone_number : tenant?.sms_phone_number;
+  if (!fromNumber) return json({ error: isWhatsapp ? "whatsapp_not_configured" : "sms_not_configured" }, 400);
 
-  const result = await sendSms({ from: tenant.sms_phone_number, to: conversation.external_contact, body: payload.body });
+  const result = await sendViaTwilio({ from: fromNumber, to: conversation.external_contact, body: payload.body, viaWhatsapp: isWhatsapp });
   if ("error" in result) return json({ error: "send_failed", message: result.error }, 502);
 
   const { data: message, error: insertError } = await admin

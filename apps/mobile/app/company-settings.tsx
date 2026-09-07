@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { updateCompanySettingsSchema, updateSmsPhoneNumberSchema, type Tenant } from "@jmssaas/shared";
+import { updateCompanySettingsSchema, updateSmsPhoneNumberSchema, updateWhatsappPhoneNumberSchema, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
@@ -79,11 +79,16 @@ export default function CompanySettingsScreen() {
   const [savingSms, setSavingSms] = useState(false);
   const [smsError, setSmsError] = useState<string | null>(null);
   const [smsSaved, setSmsSaved] = useState(false);
+  const [whatsappPhoneNumberInput, setWhatsappPhoneNumberInput] = useState("");
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappSaved, setWhatsappSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
       setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
+      setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -216,6 +221,25 @@ export default function CompanySettingsScreen() {
       setSmsError(getErrorMessage(e, "Failed to save phone number"));
     } finally {
       setSavingSms(false);
+    }
+  };
+
+  const saveWhatsappPhoneNumber = async () => {
+    if (!profile) return;
+    setSavingWhatsapp(true);
+    setWhatsappError(null);
+    try {
+      const result = updateWhatsappPhoneNumberSchema.safeParse({ whatsapp_phone_number: whatsappPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ whatsapp_phone_number: result.data.whatsapp_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+      refetch();
+      setWhatsappSaved(true);
+      setTimeout(() => setWhatsappSaved(false), 3000);
+    } catch (e) {
+      setWhatsappError(getErrorMessage(e, "Failed to save phone number"));
+    } finally {
+      setSavingWhatsapp(false);
     }
   };
 
@@ -352,8 +376,29 @@ export default function CompanySettingsScreen() {
         </Pressable>
         {smsError ? <Text style={styles.error}>{smsError}</Text> : null}
       </View>
+
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>🟢 WhatsApp</Text>
+          <View style={[styles.channelBadge, tenant?.whatsapp_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={tenant?.whatsapp_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {tenant?.whatsapp_phone_number ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.inboxCardHint}>
+          A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
+          messaging real clients first needs Meta Business verification and an approved template. See
+          docs/SETUP.md's Channels section.
+        </Text>
+        <FormField label="Phone number" placeholder="0491 570 156" value={whatsappPhoneNumberInput} onChangeText={setWhatsappPhoneNumberInput} keyboardType="phone-pad" />
+        <Pressable style={styles.logoButton} onPress={saveWhatsappPhoneNumber} disabled={savingWhatsapp}>
+          <Text style={styles.logoButtonText}>{savingWhatsapp ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}</Text>
+        </Pressable>
+        {whatsappError ? <Text style={styles.error}>{whatsappError}</Text> : null}
+      </View>
+
       {[
-        { icon: "🟢", label: "WhatsApp", note: "Needs Meta Business verification and an approved message template before you can message someone first." },
         { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
         { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
       ].map((channel) => (
