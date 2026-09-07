@@ -37,6 +37,18 @@ async function fetchXeroStatus(): Promise<XeroStatus> {
   return data as XeroStatus;
 }
 
+interface FacebookStatus {
+  connected: boolean;
+  page_name?: string;
+  connected_at?: string;
+}
+
+async function fetchFacebookStatus(): Promise<FacebookStatus> {
+  const { data, error } = await supabase.rpc("get_facebook_connection_status");
+  if (error) throw error;
+  return data as FacebookStatus;
+}
+
 async function fetchGoogleCalendarStatus(): Promise<GoogleCalendarConnectionStatus> {
   const { data, error } = await supabase.rpc("get_google_calendar_connection_status");
   if (error) throw error;
@@ -58,6 +70,7 @@ export default function SettingsPage() {
     enabled: !!profile,
   });
   const { data: xeroStatus } = useQuery({ queryKey: ["xero-status"], queryFn: fetchXeroStatus, enabled: !!profile });
+  const { data: facebookStatus } = useQuery({ queryKey: ["facebook-status"], queryFn: fetchFacebookStatus, enabled: !!profile });
   const { data: googleStatus } = useQuery({
     queryKey: ["google-calendar-status"],
     queryFn: fetchGoogleCalendarStatus,
@@ -172,6 +185,58 @@ export default function SettingsPage() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["xero-status"] }),
     onError: (e) => setXeroConnectError(getErrorMessage(e, "Failed to disconnect")),
+  });
+
+  // Facebook Messenger connect/disconnect - same shape as Xero's above,
+  // see facebook-oauth-start's own comment for why this needs a
+  // bearer-token POST rather than a static link.
+  const [facebookConnectError, setFacebookConnectError] = useState<string | null>(null);
+  const [facebookConnecting, setFacebookConnecting] = useState(false);
+
+  useEffect(() => {
+    const facebookResult = searchParams.get("facebook");
+    if (!facebookResult) return;
+    if (facebookResult === "error") {
+      setFacebookConnectError(searchParams.get("facebook_message") || "Failed to connect to Facebook");
+    } else if (facebookResult === "connected") {
+      queryClient.invalidateQueries({ queryKey: ["facebook-status"] });
+    }
+    setSearchParams((params) => {
+      params.delete("facebook");
+      params.delete("facebook_message");
+      return params;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const connectFacebook = async () => {
+    setFacebookConnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/facebook-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Facebook connection");
+      window.location.href = resBody.url as string;
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to start Facebook connection"));
+      setFacebookConnecting(false);
+    }
+  };
+
+  const disconnectFacebook = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("disconnect_facebook");
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["facebook-status"] }),
+    onError: (e) => setFacebookConnectError(getErrorMessage(e, "Failed to disconnect")),
   });
 
   // Membership Stripe Connect - unlike Xero/Google's OAuth redirect (a
@@ -561,9 +626,46 @@ export default function SettingsPage() {
         {whatsappError ? <p className="mt-2 text-sm text-red-600">{whatsappError}</p> : null}
       </div>
 
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">🔵 Messenger</p>
+          {facebookStatus?.connected ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        {facebookStatus?.connected ? (
+          <>
+            <p className="mb-2 text-sm text-gray-500">
+              Connected to {facebookStatus.page_name || "your Facebook Page"}
+              {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
+            </p>
+            <button onClick={() => disconnectFacebook.mutate()} disabled={disconnectFacebook.isPending} className="text-sm font-semibold text-red-600">
+              {disconnectFacebook.isPending ? "Disconnecting..." : "Disconnect Messenger"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mb-2 text-sm text-gray-500">
+              Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
+              Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
+              section.
+            </p>
+            <button
+              onClick={connectFacebook}
+              disabled={facebookConnecting}
+              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+            >
+              {facebookConnecting ? "Redirecting to Facebook..." : "Connect to Facebook"}
+            </button>
+          </>
+        )}
+        {facebookConnectError ? <p className="mt-2 text-sm text-red-600">{facebookConnectError}</p> : null}
+      </div>
+
       {(
         [
-          { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
           { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
         ] as const
       ).map((channel) => (

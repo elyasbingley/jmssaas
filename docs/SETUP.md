@@ -8308,10 +8308,10 @@ job/task from this conversation" the same way Inbox already lets you
 create a job from an email. Reachable from the desktop nav and, per the
 original ask, as its own bottom tab on mobile (not tucked under Settings).
 
-**Scoped in two passes.** The first pass wired SMS all the way through and
-left WhatsApp/Messenger/Instagram as schema-only stubs, on the assumption
-all three needed an external approval before any code could even be
-tested. That assumption was wrong for WhatsApp specifically:
+**Scoped in three passes.** The first pass wired SMS all the way through
+and left WhatsApp/Messenger/Instagram as schema-only stubs, on the
+assumption all three needed an external approval before any code could
+even be tested. That assumption was wrong for WhatsApp and Messenger:
 
 - **WhatsApp via Twilio uses the exact same Messages API and inbound-
   webhook shape as SMS** (see `twilio-whatsapp-webhook`), just with a
@@ -8321,14 +8321,26 @@ tested. That assumption was wrong for WhatsApp specifically:
   you test send/receive immediately, before a permanent Business-verified
   sender is approved. So WhatsApp is fully wired in the second pass below
   - same live status as SMS.
-- **Messenger** and **Instagram** still both need **Meta App Review**
-  before a SaaS like this can message through a business's own Facebook
-  Page or Instagram account at all (not just your own - the whole point is
-  other tenants connecting their own accounts). That's an external
-  submission (screencast, privacy policy, use-case description) only the
-  app's owner can make in the Meta Developer Portal, and can take days to
-  weeks to come back - genuinely nothing to build yet, so they're still
-  schema-only stubs with a "Not connected" row in Settings.
+- **Messenger** turns out to have the same kind of early-testing path as
+  WhatsApp's Sandbox: Facebook Login permissions like `pages_messaging`
+  are **Standard Access** (works immediately, no review, for a Page and
+  the people messaging it that are all "owned" by the app - in practice, a
+  Page the OAuth-granting Facebook user personally administers, tested by
+  messaging it from an account that also has an Admin/Developer/Tester
+  role on the Meta App) until Meta App Review upgrades the permission to
+  **Advanced Access** (any Page, any tenant, any real customer messaging
+  it). So Messenger is fully wired in the third pass below via a
+  per-tenant OAuth "Connect" flow, the same shape as Xero's - built to the
+  documented Send/Receive API shape but **not yet exercised against a real
+  Meta App or a live webhook delivery** (this sandbox has no way to stand
+  one up), so budget for a debugging pass against real Meta Console
+  screenshots the same way SMS/WhatsApp needed one - see the Test It
+  section below.
+- **Instagram** still needs **Meta App Review** for `instagram_manage_
+  messages` before this app can message through even a Standard-Access
+  test account the same way - that's a separate permission from
+  Messenger's, and remains a schema-only stub with a "Not connected" row
+  in Settings.
 
 ### Why SMS is worth trying again
 
@@ -8342,7 +8354,8 @@ SMS webhook before at all - `twilio-sms-webhook` is genuinely new, not a
 resurrection of deleted code.
 
 ### Database (`supabase/migrations/20260927000100_channels.sql` +
-`20260928000100_channels_whatsapp.sql`)
+`20260928000100_channels_whatsapp.sql` + `20260930000100_channels_
+messenger.sql`)
 
 `channel_connections` (one row per tenant per non-email channel type,
 tracks connected/not_connected + a jsonb `config` blob), `channel_
@@ -8364,6 +8377,20 @@ other admin-scoped module.
 Channels UI from the existing `inbox_messages` table at query time
 (grouped by `from_email` into a virtual conversation), so there's exactly
 one source of truth for email and no risk of the two ever drifting apart.
+
+`facebook_connections` (one row per tenant, holds the Page Access Token
+from a completed OAuth connect) and `facebook_oauth_states` (short-lived
+CSRF-protection rows for the handshake) are a straight port of `xero_
+connections`/`xero_oauth_states`' own shape - same lockdown too: RLS
+enabled with zero grants to anon/authenticated, service-role only, never
+read directly by the app (only via the `get_facebook_connection_status()`/
+`disconnect_facebook()` SECURITY DEFINER RPCs, which never return the
+token itself). `disconnect_facebook()` also resets the tenant's `channel_
+connections` row for `channel_type = 'messenger'` back to `not_connected`
+- the OAuth callback mirrors a connection's `page_id`/`page_name` into
+that table's `config` jsonb on connect (see that table's own comment in
+the original migration for why it exists at all - this is the first
+channel type to actually use it, rather than just reserve the shape).
 
 Also in this migration set: `supabase/migrations/20260927000200_fix_
 knowledge_article_entity_type.sql` - an unrelated bug found while building
@@ -8395,27 +8422,60 @@ Knowledge article was failing outright until this migration.
   bearer token, same auth pattern as `xero-oauth-start` - verifies the
   caller is an admin belonging to the conversation's tenant, then sends
   via Twilio's Messages API and records the outbound message). Handles
-  `channel_type: 'sms'` and `'whatsapp'` (the latter just prefixes both
-  numbers `whatsapp:` before the same API call) - it 400s for
-  Messenger/Instagram with a clear "not connected yet" message.
+  `channel_type: 'sms'`, `'whatsapp'` (both via Twilio, the latter just
+  prefixing both numbers `whatsapp:` before the same API call), and
+  `'messenger'` (via Meta's Graph API Send API, using the tenant's own
+  `facebook_connections.page_access_token`) - it 400s for Instagram with a
+  clear "not connected yet" message. Meta's Send API takes one message
+  content per call (text OR an attachment, never combined the way
+  Twilio's single request with an optional `MediaUrl` does), so a reply
+  with both body and media sends two Graph API calls under the one
+  `channel_messages` row this function still inserts.
+- `facebook-oauth-start`/`facebook-oauth-callback` - a direct port of
+  `xero-oauth-start`/`xero-oauth-callback`'s pattern (see that section of
+  this doc for the overall two-step shape). The token exchange is a
+  three-step dance Xero's isn't: short-lived user token -> long-lived user
+  token -> `/me/accounts` for the Page(s) that user manages and each
+  Page's own (long-lived, effectively non-expiring) access token. Takes
+  the first Page returned - same "no picker in Phase 1" limitation as
+  Xero's "first Xero organisation" - and explicitly subscribes that Page
+  to this app's webhook (`POST /{page-id}/subscribed_apps`) before storing
+  the connection, since a Page token alone does not make Meta start
+  calling the webhook below.
+- `facebook-messenger-webhook` - Messenger's inbound webhook. A GET
+  handshake (`?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...`,
+  echoed back only if the verify token matches `FACEBOOK_WEBHOOK_VERIFY_
+  TOKEN`) plus POST delivery signed via `X-Hub-Signature-256` (HMAC-SHA256
+  of the raw body, keyed with the Meta App Secret) - a completely
+  different mechanism from Twilio's per-field HMAC-SHA1 scheme, see that
+  function's own comment. Looks up the tenant by the Page ID in `facebook_
+  connections`, stores the conversation keyed by the sender's Page-Scoped
+  ID (PSID) - there's no phone/email to auto-match a client by the way
+  SMS/WhatsApp can, so `client_id` always starts null here - and best-
+  effort fetches the sender's display name via Meta's own User Profile
+  API (wrapped so a failure there doesn't fail the whole webhook, since
+  that API's availability has shifted under Meta policy independently of
+  this app more than once).
 
 ### Desktop (`apps/desktop/src`)
 
 `pages/Channels.tsx` (the unified list - real conversations plus the
 virtual email rows) and `pages/ChannelConversationDetail.tsx` (message
-thread, reply composer gated on `channel_type === 'sms' || 'whatsapp'`,
-and a "Create job"/"Create task" section) open in a right-side panel,
-replicating `Tasks.tsx`'s own nested-route + `useMatch` + overlay pattern -
-extracted this time into a small reusable `components/SidePanel.tsx`
-rather than a second copy-paste, since this is now the second place that
-exact shape is needed (Tasks.tsx itself was left untouched rather than
-retrofitted, to avoid risking a regression in an already-working screen
-for the sake of symmetry). `lib/channels.ts` has the `sendChannelMessage`
-fetch helper (same shape as `lib/dispatch-now.ts`). Settings gained a
-"Channels" section: SMS and WhatsApp phone number fields (each saves
-immediately, not part of the big Company Settings form) plus two "Not
-connected" informational rows for Messenger/Instagram naming what each
-needs.
+thread, reply composer gated on `channel_type === 'sms' || 'whatsapp' ||
+'messenger'`, and a "Create job"/"Create task" section) open in a
+right-side panel, replicating `Tasks.tsx`'s own nested-route + `useMatch` +
+overlay pattern - extracted this time into a small reusable
+`components/SidePanel.tsx` rather than a second copy-paste, since this is
+now the second place that exact shape is needed (Tasks.tsx itself was left
+untouched rather than retrofitted, to avoid risking a regression in an
+already-working screen for the sake of symmetry). `lib/channels.ts` has
+the `sendChannelMessage` fetch helper (same shape as `lib/dispatch-
+now.ts`). Settings gained a "Channels" section: SMS and WhatsApp phone
+number fields (each saves immediately, not part of the big Company
+Settings form), a Messenger "Connect to Facebook"/"Disconnect Messenger"
+card (same `get_facebook_connection_status()` RPC + bearer-token POST to
+`facebook-oauth-start` pattern as Xero's own connect button), and one
+remaining "Not connected" informational row for Instagram.
 
 The email virtual-conversation panel is intentionally lighter than a real
 channel's: it shows the message history and links each one to the
@@ -8435,8 +8495,12 @@ pushed Stack screen, matching how Tasks' own `[id].tsx` opens on mobile
 (full screen, header + back button) rather than a new modal/bottom-sheet
 pattern nothing else in this app uses (confirmed by checking - there is no
 existing `presentation: "modal"` anywhere in `apps/mobile`). Company
-Settings gained the same SMS/WhatsApp number fields + Messenger/Instagram
-rows as desktop.
+Settings gained the same SMS/WhatsApp number fields + Messenger connect
+card + Instagram informational row as desktop, opening the OAuth flow via
+`Linking.openURL` the same way `connectXero` already does (there's no
+in-app webview flow here - see that function's own comment on why
+refetching on focus is enough to pick up a mobile-initiated connection's
+result).
 
 ### Twilio setup - SMS (one-time, in the Twilio Console)
 
@@ -8503,17 +8567,69 @@ the Sandbox above (webhook URL + paste the number into Settings) but with
 your own permanent number instead of the shared Sandbox one - budget for
 Meta's verification timeline before this path is usable.
 
-### When you're ready for Messenger/Instagram
+### Meta App + Messenger setup (one-time, in the Meta Developer Portal)
 
-Still schema-only stubs (see the scoping note above) - Meta App Review is
-the real bottleneck, so start there: Meta for Developers -> your app ->
-App Review -> request `pages_messaging` for Messenger,
-`instagram_manage_messages` for Instagram. The OAuth "Connect" flow
-itself, once approved, is a straightforward port of the existing
-`xero-oauth-start`/`xero-oauth-callback` pattern (see that section of this
-doc), storing tokens in a new connections table the same never-exposed-
-to-the-client way `xero_connections`/`google_calendar_connections`
-already do.
+1. developers.facebook.com -> My Apps -> Create App (type "Business") ->
+   note the App ID and App Secret (App Settings -> Basic).
+2. Add the **Facebook Login for Business** and **Messenger** products to
+   the app (App Dashboard -> Add Product).
+3. Facebook Login for Business -> Settings -> Valid OAuth Redirect URIs ->
+   add `https://<project-ref>.supabase.co/functions/v1/facebook-oauth-callback`.
+4. App Roles -> Roles -> add every Facebook account that should be able to
+   test-connect a Page (yourself, plus anyone else testing) as an Admin,
+   Developer, or Tester on this Meta App - required for Standard Access to
+   work at all before App Review, see the scoping note above.
+5. Messenger -> Settings -> Webhooks -> Add Callback URL:
+   `https://<project-ref>.supabase.co/functions/v1/facebook-messenger-webhook`,
+   Verify Token: any string you pick (this becomes `FACEBOOK_WEBHOOK_
+   VERIFY_TOKEN` below - it only has to match what you set as a secret).
+   Subscribe the app-level webhook to the `messages` and `messaging_
+   postbacks` fields - separate from the per-Page subscription `facebook-
+   oauth-callback` already does automatically on connect.
+6. Set secrets and deploy:
+   ```powershell
+   git pull origin claude/knowledge-and-inbox
+   npx supabase db push
+   npx supabase secrets set FACEBOOK_APP_ID=your_app_id_here
+   npx supabase secrets set FACEBOOK_APP_SECRET=your_app_secret_here
+   npx supabase secrets set FACEBOOK_WEBHOOK_VERIFY_TOKEN=pick-any-string-here
+   npx supabase secrets set FACEBOOK_APP_REDIRECT_URL=https://yourapp.vercel.app/settings/company
+   npx supabase functions deploy facebook-oauth-start
+   npx supabase functions deploy facebook-oauth-callback --no-verify-jwt
+   npx supabase functions deploy facebook-messenger-webhook --no-verify-jwt
+   npx supabase functions deploy channel-send-message
+   npx vercel --prod
+   ```
+   (`facebook-oauth-callback` needs `--no-verify-jwt` for the same reason
+   `xero-oauth-callback` does - it's a public GET reached by Facebook's own
+   redirect, no Supabase session/auth header at all. `facebook-messenger-
+   webhook` needs it too - Meta's GET verification handshake and POST
+   deliveries carry no Supabase auth header either.)
+7. Company Settings -> Channels -> Messenger -> "Connect to Facebook" ->
+   log in as an account with a role on this Meta App (step 4) -> pick the
+   Page to connect on Facebook's own consent screen -> confirm it
+   redirects back showing "Connected".
+8. Once ready to message the general public through client Pages: Meta for
+   Developers -> your app -> App Review -> request Advanced Access for
+   `pages_messaging` (and `pages_show_list`/`pages_manage_metadata`) - an
+   external submission (screencast, privacy policy, use-case description)
+   only the app's owner can make, can take days to weeks to come back.
+   Nothing in this app's own code changes when that comes through - the
+   same OAuth "Connect" flow just starts working for Pages outside the
+   app's own Admin/Developer/Tester roles.
+
+### When you're ready for Instagram
+
+Still a schema-only stub - Meta App Review for `instagram_manage_messages`
+is the real bottleneck (a separate permission/submission from Messenger's
+own `pages_messaging`), so start there: Meta for Developers -> your app ->
+App Review -> request `instagram_manage_messages`. Once approved, the
+OAuth "Connect" flow itself is close to Messenger's own above - an
+Instagram Business account's messaging token comes through the same
+Facebook Login for Business flow, just with a different scope and Graph
+API "list managed accounts" endpoint - closer to porting `facebook-oauth-
+start`/`facebook-oauth-callback` a second time than starting from
+nothing.
 
 ### Test it
 
@@ -8542,12 +8658,48 @@ already do.
 10. Attach a file to a reply (📎 next to the composer) -> Send -> confirm
     it arrives as a real WhatsApp/MMS attachment, and shows correctly in
     the conversation thread on both platforms afterward.
+11. Complete the Meta App + Messenger setup above -> Settings -> Channels
+    -> Messenger -> "Connect to Facebook" -> confirm it shows "Connected"
+    with your Page's name.
+12. From a Facebook account that also has a role on the Meta App, send a
+    message to that Page via Messenger -> confirm it appears in Channels
+    within a few seconds (no phone/email to auto-match by, so it always
+    shows as a new, unlinked conversation).
+13. Reply from the Channels panel -> confirm it arrives as a real
+    Messenger message on the sender's end.
+14. Attach a file to a Messenger reply -> Send -> confirm it arrives as a
+    real Messenger attachment.
 
 ### Known gaps / judgment calls
 
-- **Messenger/Instagram have no live send/receive** - by design, see
-  above (Meta App Review is the real bottleneck). Their Settings rows are
-  informational only.
+- **Instagram has no live send/receive** - by design, see above (Meta App
+  Review for `instagram_manage_messages` is the real bottleneck). Its
+  Settings row is informational only.
+- **Messenger only works for Pages/people covered by Standard Access
+  until Advanced Access is approved** - see the scoping note above. Until
+  then, connecting a client's own Facebook Page (one the app's operator
+  doesn't personally administer) will fail at the `/me/accounts` step of
+  `facebook-oauth-callback` with no Pages returned, or the Page simply
+  won't be able to message the general public even once connected.
+- **No client auto-match on Messenger** - a Messenger sender is only a
+  Page-Scoped ID (PSID), with no phone/email in the webhook payload to
+  match `clients` by the way SMS/WhatsApp can, so `client_id` always
+  starts null; linking is manual via "Create job"/"Create task".
+- **A Messenger reply with both text and an attachment sends as two
+  separate Graph API calls**, not one combined message the way Twilio's
+  `MediaUrl` allows - see `channel-send-message`'s own comment. A failure
+  on the second call after the first already succeeded means a partially-
+  sent reply; this hasn't come up in practice yet since it's untested
+  against a real Meta App (next gap).
+- **Messenger's OAuth flow and both its Edge Functions
+  (`facebook-oauth-start`/`facebook-oauth-callback`/`facebook-messenger-
+  webhook`) are built to the documented Graph API/Messenger Platform
+  shapes but not yet exercised against a real Meta App, a real Page
+  connection, or a live webhook delivery** - this sandbox has no way to
+  stand any of that up. Treat the Meta App setup and first live
+  connect/send/receive as the real test, the same way SMS and WhatsApp
+  both needed a live debugging pass against real Twilio Console/Supabase
+  log screenshots before they worked - budget for the same here.
 - **Outbound media is one attachment per reply** - added after this pass's
   original "text-only" limitation (see below), matching the WhatsApp UX
   it's mirroring: a caption-only, media-only, or text-only reply are all
@@ -8573,22 +8725,33 @@ already do.
   in an unusual format (extra punctuation, a landline written with
   brackets, etc.) won't auto-link; the admin can still link them manually
   via "Create job" using the same name.
-- Not tested against a live Twilio account, a real inbound SMS/MMS/
-  WhatsApp message, or a real device/EAS build - this sandbox has none of
-  those. Verified: `tsc --noEmit` clean across `packages/shared`,
-  `apps/desktop`, `apps/mobile`; all three new migrations (the original
-  Channels migration, the `knowledge_article` fix, and the WhatsApp column)
-  applied cleanly through the full migration chain against a real local
-  Postgres 16 instance (same stub-`auth`/`storage`/`net`/`cron` harness
-  used for every other migration this session), with the new tables/
-  policies/bucket verified by hand afterward. The three Twilio-facing Edge
-  Functions have no Deno runtime available in this sandbox to typecheck -
-  verified by careful review and structural brace/paren balance checks
-  instead, same limitation as every other Edge Function added this
-  session. Twilio's signature-verification algorithm is long-documented
-  and unchanged for years, unlike Resend's inbound shape, so it didn't
-  need a live round-trip to get right the way the Inbox email webhook did
-  - `twilio-whatsapp-webhook` is a close-enough duplicate of the already-
-  described `twilio-sms-webhook` that the same confidence carries over,
-  but neither is verified against a real Twilio request from this
-  sandbox, so treat your first live test send on each as the real check.
+- Not tested against a live Twilio account, a real Meta App, a real
+  inbound SMS/MMS/WhatsApp/Messenger message, or a real device/EAS build -
+  this sandbox has none of those. Verified: `tsc --noEmit` clean across
+  `packages/shared`, `apps/desktop`, `apps/mobile`; `pnpm --filter desktop
+  build` clean; every migration through `20260930000100_channels_
+  messenger.sql` (the full chain, 74 files) applied cleanly against a real
+  local Postgres 16 instance (same stub-`auth`/`storage`/`net`/`cron`
+  harness used for every other migration this session), with the new
+  tables/policies/RPCs verified by hand afterward - `facebook_connections`/
+  `facebook_oauth_states` confirmed RLS-enabled with zero anon/authenticated
+  grants (service-role only, matching `xero_connections`), and a full
+  connect -> `get_facebook_connection_status()` -> `disconnect_facebook()`
+  round trip run against real rows (temporarily stubbing `auth.uid()` to a
+  test admin inside a rolled-back transaction, since the harness's own
+  `auth.uid()` always returns null) confirmed the status JSON, the
+  `channel_connections` mirror, and the row deletion all behave correctly.
+  Every Edge Function added or changed this pass (`facebook-oauth-start`,
+  `facebook-oauth-callback`, `facebook-messenger-webhook`, the extended
+  `channel-send-message`) passed `node --check` against Node 22's own
+  TypeScript syntax stripping - real syntax validation this time, not just
+  a manual brace/paren review like earlier Edge Functions in this doc
+  needed, though it's still not the Deno runtime and proves nothing about
+  runtime behavior against Meta's actual API. Twilio's own signature-
+  verification algorithm is long-documented and unchanged for years,
+  unlike Resend's inbound shape, so SMS/WhatsApp didn't need a live
+  round-trip to get right the way the Inbox email webhook did - Messenger
+  is the opposite case, with three genuinely new integration points (OAuth
+  token exchange, webhook signature scheme, Send API shape) none of which
+  have run against the real Meta Graph API from this sandbox, so treat the
+  Meta App setup and first live connect/send/receive as the real test.

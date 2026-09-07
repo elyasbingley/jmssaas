@@ -4,10 +4,12 @@
 // --no-verify-jwt, since - unlike the inbound webhooks - this is only ever
 // invoked by a real app user, never by an external provider.
 //
-// SMS and WhatsApp (both via Twilio's Messages API - WhatsApp is the same
-// endpoint with a "whatsapp:" prefix on From/To) - Messenger/Instagram
-// still need Meta App Review finished first before there's anywhere to
-// actually send to; see docs/SETUP.md.
+// SMS and WhatsApp both via Twilio's Messages API (WhatsApp is the same
+// endpoint with a "whatsapp:" prefix on From/To). Messenger via Meta's
+// Graph API Send API, using the tenant's own connected Page's access
+// token (facebook_connections, set up via facebook-oauth-start/callback).
+// Instagram still needs Meta App Review finished first before there's
+// anywhere to actually send to; see docs/SETUP.md.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -16,6 +18,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
+const GRAPH_API_VERSION = "v21.0";
 const MEDIA_BUCKET = "channel-media";
 
 const CORS_HEADERS = {
@@ -52,6 +55,54 @@ async function sendViaTwilio(params: { from: string; to: string; body?: string; 
     return { error: responseBody?.message ?? "twilio_send_failed" };
   }
   return { sid: responseBody.sid };
+}
+
+// Meta's Send API takes one message content per call (text OR an
+// attachment, never both) - unlike Twilio's single request with an
+// optional MediaUrl. When a reply has both body and media, the caller
+// below sends two requests and records both under the one channel_messages
+// row it inserts; a failure on the second leaves the first already
+// delivered (there is no atomic "send both" to fall back to here).
+// `messaging_type: "RESPONSE"` is Meta's own required send-context tag -
+// only valid within its own 24-hour window since the contact's last
+// message (or with template approval most SaaS apps won't have set up),
+// same real-world limitation WhatsApp's own session window already has.
+async function sendViaMessenger(params: { pageAccessToken: string; recipientId: string; text?: string; media?: { url: string; mimeType: string | null } }): Promise<{ mid: string } | { error: string }> {
+  let lastMid: string | undefined;
+  if (params.text) {
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/me/messages?access_token=${encodeURIComponent(params.pageAccessToken)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient: { id: params.recipientId }, messaging_type: "RESPONSE", message: { text: params.text } }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      console.error("[channel-send-message] Messenger text send failed", res.status, body);
+      return { error: body?.error?.message ?? "messenger_send_failed" };
+    }
+    lastMid = body.message_id;
+  }
+  if (params.media) {
+    const mimeType = params.media.mimeType ?? "";
+    const attachmentType = mimeType.startsWith("image") ? "image" : mimeType.startsWith("video") ? "video" : mimeType.startsWith("audio") ? "audio" : "file";
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/me/messages?access_token=${encodeURIComponent(params.pageAccessToken)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: params.recipientId },
+        messaging_type: "RESPONSE",
+        message: { attachment: { type: attachmentType, payload: { url: params.media.url, is_reusable: false } } },
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      console.error("[channel-send-message] Messenger attachment send failed", res.status, body);
+      return { error: body?.error?.message ?? "messenger_send_failed" };
+    }
+    lastMid = body.message_id;
+  }
+  if (!lastMid) return { error: "messenger_send_failed" };
+  return { mid: lastMid };
 }
 
 Deno.serve(async (req: Request) => {
@@ -94,22 +145,14 @@ Deno.serve(async (req: Request) => {
   // verified profile row above), never anything the request body claims.
   if (conversation.tenant_id !== callerProfile.tenant_id) return json({ error: "not_found" }, 404);
 
-  if (conversation.channel_type !== "sms" && conversation.channel_type !== "whatsapp") {
+  if (conversation.channel_type !== "sms" && conversation.channel_type !== "whatsapp" && conversation.channel_type !== "messenger") {
     return json({ error: "channel_not_connected", message: "Sending isn't available on this channel yet." }, 400);
   }
-  const isWhatsapp = conversation.channel_type === "whatsapp";
 
-  const { data: tenant } = await admin
-    .from("tenants")
-    .select("sms_phone_number, whatsapp_phone_number")
-    .eq("id", conversation.tenant_id)
-    .single();
-  const fromNumber = isWhatsapp ? tenant?.whatsapp_phone_number : tenant?.sms_phone_number;
-  if (!fromNumber) return json({ error: isWhatsapp ? "whatsapp_not_configured" : "sms_not_configured" }, 400);
-
-  // Twilio fetches the media itself, so a private-bucket path has to become
-  // a URL it can reach with no auth of its own - a signed URL, generous
-  // enough (1 hour) that a slow Twilio fetch or retry doesn't race it.
+  // Twilio and Messenger both fetch media themselves rather than accepting
+  // raw bytes, so a private-bucket path has to become a URL either can
+  // reach with no auth of its own - a signed URL, generous enough (1 hour)
+  // that a slow fetch or retry doesn't race it.
   let mediaUrl: string | undefined;
   if (payload.media) {
     const { data: signed, error: signError } = await admin.storage.from(MEDIA_BUCKET).createSignedUrl(payload.media.storage_path, 3600);
@@ -120,8 +163,37 @@ Deno.serve(async (req: Request) => {
     mediaUrl = signed.signedUrl;
   }
 
-  const result = await sendViaTwilio({ from: fromNumber, to: conversation.external_contact, body: bodyText, mediaUrl, viaWhatsapp: isWhatsapp });
-  if ("error" in result) return json({ error: "send_failed", message: result.error }, 502);
+  let externalMessageId: string;
+  if (conversation.channel_type === "messenger") {
+    const { data: fbConnection } = await admin
+      .from("facebook_connections")
+      .select("page_access_token")
+      .eq("tenant_id", conversation.tenant_id)
+      .maybeSingle();
+    if (!fbConnection) return json({ error: "messenger_not_configured" }, 400);
+
+    const result = await sendViaMessenger({
+      pageAccessToken: fbConnection.page_access_token,
+      recipientId: conversation.external_contact,
+      text: bodyText,
+      media: mediaUrl ? { url: mediaUrl, mimeType: payload.media?.mime_type ?? null } : undefined,
+    });
+    if ("error" in result) return json({ error: "send_failed", message: result.error }, 502);
+    externalMessageId = result.mid;
+  } else {
+    const isWhatsapp = conversation.channel_type === "whatsapp";
+    const { data: tenant } = await admin
+      .from("tenants")
+      .select("sms_phone_number, whatsapp_phone_number")
+      .eq("id", conversation.tenant_id)
+      .single();
+    const fromNumber = isWhatsapp ? tenant?.whatsapp_phone_number : tenant?.sms_phone_number;
+    if (!fromNumber) return json({ error: isWhatsapp ? "whatsapp_not_configured" : "sms_not_configured" }, 400);
+
+    const result = await sendViaTwilio({ from: fromNumber, to: conversation.external_contact, body: bodyText, mediaUrl, viaWhatsapp: isWhatsapp });
+    if ("error" in result) return json({ error: "send_failed", message: result.error }, 502);
+    externalMessageId = result.sid;
+  }
 
   const { data: message, error: insertError } = await admin
     .from("channel_messages")
@@ -131,14 +203,14 @@ Deno.serve(async (req: Request) => {
       direction: "outbound",
       body: bodyText ?? null,
       media: payload.media ? [payload.media] : [],
-      external_message_id: result.sid,
+      external_message_id: externalMessageId,
       status: "sent",
       sent_by: authData.user.id,
     })
     .select("id")
     .single();
   if (insertError) {
-    console.error("[channel-send-message] Sent via Twilio but failed to record the message", insertError);
+    console.error("[channel-send-message] Sent but failed to record the message", insertError);
     return json({ error: "server_error" }, 500);
   }
 

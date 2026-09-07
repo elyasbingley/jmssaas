@@ -19,6 +19,12 @@ interface XeroStatus {
   connected_at?: string;
 }
 
+interface FacebookStatus {
+  connected: boolean;
+  page_name?: string;
+  connected_at?: string;
+}
+
 // Minimal, single-screen settings - just the fields the Phase 5 PDF export
 // needs (company name, ABN, business address, license number, bank
 // details). A real Settings tab/section is deliberately not built yet
@@ -139,6 +145,56 @@ export default function CompanySettingsScreen() {
       setXeroConnectError(getErrorMessage(e, "Failed to disconnect"));
     } finally {
       setXeroDisconnecting(false);
+    }
+  };
+
+  // Facebook Messenger connection status - same "RPC + refetch on focus"
+  // shape as Xero's above (facebook_connections is service-role only, no
+  // PowerSync grants), and connecting opens the OAuth flow in the device
+  // browser the same way.
+  const { data: facebookStatus, refetch: refetchFacebookStatus } = useSupabaseFetch<FacebookStatus>(async () => {
+    const { data, error } = await supabase.rpc("get_facebook_connection_status");
+    if (error) throw error;
+    return data as FacebookStatus;
+  }, [profile?.tenant_id, isOnline]);
+  useRefetchOnFocus(refetchFacebookStatus);
+  const [facebookConnecting, setFacebookConnecting] = useState(false);
+  const [facebookDisconnecting, setFacebookDisconnecting] = useState(false);
+  const [facebookConnectError, setFacebookConnectError] = useState<string | null>(null);
+
+  const connectFacebook = async () => {
+    setFacebookConnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/facebook-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Facebook connection");
+      await Linking.openURL(resBody.url as string);
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to start Facebook connection"));
+    } finally {
+      setFacebookConnecting(false);
+    }
+  };
+
+  const disconnectFacebook = async () => {
+    setFacebookDisconnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const { error } = await supabase.rpc("disconnect_facebook");
+      if (error) throw error;
+      refetchFacebookStatus();
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to disconnect"));
+    } finally {
+      setFacebookDisconnecting(false);
     }
   };
 
@@ -398,8 +454,41 @@ export default function CompanySettingsScreen() {
         {whatsappError ? <Text style={styles.error}>{whatsappError}</Text> : null}
       </View>
 
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>🔵 Messenger</Text>
+          <View style={[styles.channelBadge, facebookStatus?.connected ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={facebookStatus?.connected ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {facebookStatus?.connected ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        {facebookStatus?.connected ? (
+          <>
+            <Text style={styles.xeroMeta}>
+              Connected to {facebookStatus.page_name || "your Facebook Page"}
+              {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
+            </Text>
+            <Pressable onPress={disconnectFacebook} disabled={facebookDisconnecting} style={{ marginTop: 8 }}>
+              <Text style={styles.xeroDisconnectLink}>{facebookDisconnecting ? "Disconnecting..." : "Disconnect Messenger"}</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.inboxCardHint}>
+              Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
+              Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
+              section.
+            </Text>
+            <Pressable style={styles.xeroConnectButton} onPress={connectFacebook} disabled={facebookConnecting}>
+              <Text style={styles.xeroConnectButtonText}>{facebookConnecting ? "Opening Facebook..." : "Connect to Facebook"}</Text>
+            </Pressable>
+          </>
+        )}
+        {facebookConnectError ? <Text style={styles.error}>{facebookConnectError}</Text> : null}
+      </View>
+
       {[
-        { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
         { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
       ].map((channel) => (
         <View key={channel.label} style={styles.inboxCard}>

@@ -210,7 +210,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
 
   if (!conversation) return <View style={styles.container} />;
 
-  const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp";
+  const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "messenger";
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
 
   return (
