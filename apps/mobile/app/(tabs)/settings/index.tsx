@@ -22,6 +22,10 @@ const SETTINGS_ITEMS = [
   { href: "/reports", label: "Reports & Safety", emoji: "📋" },
   { href: "/subcontractors", label: "Subcontractors", emoji: "🧰" },
   { href: "/b2b-referrals", label: "B2B & Referrals", emoji: "🤝" },
+  // Office intake queue (attach an inbound email's files to a job, review
+  // an AI-drafted job suggestion) - admin-scoped like everything else in
+  // this list, same reasoning as Subcontractors/B2B above.
+  { href: "/inbox", label: "Inbox", emoji: "📥" },
 ] as const;
 
 // Unlike the items above, these are per-user rather than admin-only - every
@@ -29,10 +33,14 @@ const SETTINGS_ITEMS = [
 // (tabs)/index.tsx) and connects their own Google Calendar, same "own
 // profile row" RLS as everything else these two screens touch - so both
 // tiles are shown regardless of role, same reasoning as company-settings.tsx
-// vs. this always-visible pair.
+// vs. this always-visible pair. Knowledge joins them for the same reason:
+// "accessible on site" (the spec's own wording) means every technician,
+// not just admins, even though authoring an article stays desktop/
+// admin-only.
 const PERSONAL_SETTINGS_ITEMS = [
   { href: "/dashboard-settings", label: "Dashboard", emoji: "📊" },
   { href: "/google-calendar-settings", label: "Google Calendar", emoji: "📅" },
+  { href: "/knowledge", label: "Knowledge", emoji: "📚" },
 ] as const;
 
 export default function SettingsScreen() {

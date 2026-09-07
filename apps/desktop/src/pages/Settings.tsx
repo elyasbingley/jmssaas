@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
+  updateSmsPhoneNumberSchema,
+  updateWhatsappPhoneNumberSchema,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
   type CalendarCategoryColors,
   type CalendarEventCategory,
@@ -35,6 +37,18 @@ async function fetchXeroStatus(): Promise<XeroStatus> {
   return data as XeroStatus;
 }
 
+interface FacebookStatus {
+  connected: boolean;
+  page_name?: string;
+  connected_at?: string;
+}
+
+async function fetchFacebookStatus(): Promise<FacebookStatus> {
+  const { data, error } = await supabase.rpc("get_facebook_connection_status");
+  if (error) throw error;
+  return data as FacebookStatus;
+}
+
 async function fetchGoogleCalendarStatus(): Promise<GoogleCalendarConnectionStatus> {
   const { data, error } = await supabase.rpc("get_google_calendar_connection_status");
   if (error) throw error;
@@ -56,6 +70,7 @@ export default function SettingsPage() {
     enabled: !!profile,
   });
   const { data: xeroStatus } = useQuery({ queryKey: ["xero-status"], queryFn: fetchXeroStatus, enabled: !!profile });
+  const { data: facebookStatus } = useQuery({ queryKey: ["facebook-status"], queryFn: fetchFacebookStatus, enabled: !!profile });
   const { data: googleStatus } = useQuery({
     queryKey: ["google-calendar-status"],
     queryFn: fetchGoogleCalendarStatus,
@@ -86,10 +101,19 @@ export default function SettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [inboxAddressCopied, setInboxAddressCopied] = useState(false);
+  const [smsPhoneNumberInput, setSmsPhoneNumberInput] = useState("");
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsSaved, setSmsSaved] = useState(false);
+  const [whatsappPhoneNumberInput, setWhatsappPhoneNumberInput] = useState("");
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappSaved, setWhatsappSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
+      setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
+      setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -161,6 +185,58 @@ export default function SettingsPage() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["xero-status"] }),
     onError: (e) => setXeroConnectError(getErrorMessage(e, "Failed to disconnect")),
+  });
+
+  // Facebook Messenger connect/disconnect - same shape as Xero's above,
+  // see facebook-oauth-start's own comment for why this needs a
+  // bearer-token POST rather than a static link.
+  const [facebookConnectError, setFacebookConnectError] = useState<string | null>(null);
+  const [facebookConnecting, setFacebookConnecting] = useState(false);
+
+  useEffect(() => {
+    const facebookResult = searchParams.get("facebook");
+    if (!facebookResult) return;
+    if (facebookResult === "error") {
+      setFacebookConnectError(searchParams.get("facebook_message") || "Failed to connect to Facebook");
+    } else if (facebookResult === "connected") {
+      queryClient.invalidateQueries({ queryKey: ["facebook-status"] });
+    }
+    setSearchParams((params) => {
+      params.delete("facebook");
+      params.delete("facebook_message");
+      return params;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const connectFacebook = async () => {
+    setFacebookConnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/facebook-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Facebook connection");
+      window.location.href = resBody.url as string;
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to start Facebook connection"));
+      setFacebookConnecting(false);
+    }
+  };
+
+  const disconnectFacebook = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("disconnect_facebook");
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["facebook-status"] }),
+    onError: (e) => setFacebookConnectError(getErrorMessage(e, "Failed to disconnect")),
   });
 
   // Membership Stripe Connect - unlike Xero/Google's OAuth redirect (a
@@ -322,6 +398,40 @@ export default function SettingsPage() {
     onError: (e) => setLogoError(getErrorMessage(e, "Failed to remove logo")),
   });
 
+  const saveSmsPhoneNumber = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const result = updateSmsPhoneNumberSchema.safeParse({ sms_phone_number: smsPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ sms_phone_number: result.data.sms_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateTenant();
+      setSmsError(null);
+      setSmsSaved(true);
+      setTimeout(() => setSmsSaved(false), 3000);
+    },
+    onError: (e) => setSmsError(getErrorMessage(e, "Failed to save phone number")),
+  });
+
+  const saveWhatsappPhoneNumber = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const result = updateWhatsappPhoneNumberSchema.safeParse({ whatsapp_phone_number: whatsappPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ whatsapp_phone_number: result.data.whatsapp_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateTenant();
+      setWhatsappError(null);
+      setWhatsappSaved(true);
+      setTimeout(() => setWhatsappSaved(false), 3000);
+    },
+    onError: (e) => setWhatsappError(getErrorMessage(e, "Failed to save phone number")),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const result = updateCompanySettingsSchema.safeParse({
@@ -415,6 +525,160 @@ export default function SettingsPage() {
         ) : null}
       </div>
       {logoError ? <p className="mb-4 text-sm text-red-600">{logoError}</p> : null}
+
+      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Inbox</h2>
+      {tenant?.inbox_local_part && import.meta.env.VITE_INBOX_DOMAIN ? (
+        <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4">
+          <p className="mb-1 text-sm text-gray-600">
+            Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
+            review an AI-drafted job.
+          </p>
+          <div className="flex items-center gap-3">
+            <code className="rounded bg-white px-2 py-1 text-sm font-semibold text-gray-900">
+              {tenant.inbox_local_part}@{import.meta.env.VITE_INBOX_DOMAIN}
+            </code>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(`${tenant.inbox_local_part}@${import.meta.env.VITE_INBOX_DOMAIN}`);
+                setInboxAddressCopied(true);
+                setTimeout(() => setInboxAddressCopied(false), 2000);
+              }}
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
+              {inboxAddressCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mb-6 text-sm text-gray-500">
+          Not configured yet - set <code>VITE_INBOX_DOMAIN</code> to your verified Resend inbound domain (see
+          docs/SETUP.md's Inbox section).
+        </p>
+      )}
+
+      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Channels</h2>
+      <p className="mb-3 text-sm text-gray-500">
+        Connect a phone number/account for each channel - see the Channels screen to view and reply to
+        conversations, or create a job/task from one.
+      </p>
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">💬 SMS</p>
+          {tenant?.sms_phone_number ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        <p className="mb-2 text-sm text-gray-500">
+          The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
+          section) - E.164 or local format both work, e.g. 0491 570 156.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="tel"
+            value={smsPhoneNumberInput}
+            onChange={(e) => setSmsPhoneNumberInput(e.target.value)}
+            placeholder="0491 570 156"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => saveSmsPhoneNumber.mutate()}
+            disabled={saveSmsPhoneNumber.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveSmsPhoneNumber.isPending ? "Saving..." : smsSaved ? "Saved!" : "Save"}
+          </button>
+        </div>
+        {smsError ? <p className="mt-2 text-sm text-red-600">{smsError}</p> : null}
+      </div>
+
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">🟢 WhatsApp</p>
+          {tenant?.whatsapp_phone_number ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        <p className="mb-2 text-sm text-gray-500">
+          A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
+          messaging real clients first needs Meta Business verification and an approved template. See
+          docs/SETUP.md's Channels section.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="tel"
+            value={whatsappPhoneNumberInput}
+            onChange={(e) => setWhatsappPhoneNumberInput(e.target.value)}
+            placeholder="0491 570 156"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => saveWhatsappPhoneNumber.mutate()}
+            disabled={saveWhatsappPhoneNumber.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveWhatsappPhoneNumber.isPending ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}
+          </button>
+        </div>
+        {whatsappError ? <p className="mt-2 text-sm text-red-600">{whatsappError}</p> : null}
+      </div>
+
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">🔵 Messenger</p>
+          {facebookStatus?.connected ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        {facebookStatus?.connected ? (
+          <>
+            <p className="mb-2 text-sm text-gray-500">
+              Connected to {facebookStatus.page_name || "your Facebook Page"}
+              {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
+            </p>
+            <button onClick={() => disconnectFacebook.mutate()} disabled={disconnectFacebook.isPending} className="text-sm font-semibold text-red-600">
+              {disconnectFacebook.isPending ? "Disconnecting..." : "Disconnect Messenger"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mb-2 text-sm text-gray-500">
+              Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
+              Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
+              section.
+            </p>
+            <button
+              onClick={connectFacebook}
+              disabled={facebookConnecting}
+              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+            >
+              {facebookConnecting ? "Redirecting to Facebook..." : "Connect to Facebook"}
+            </button>
+          </>
+        )}
+        {facebookConnectError ? <p className="mt-2 text-sm text-red-600">{facebookConnectError}</p> : null}
+      </div>
+
+      {(
+        [
+          { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
+        ] as const
+      ).map((channel) => (
+        <div key={channel.label} className="mb-3 rounded-md border border-gray-200 p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-900">
+              {channel.icon} {channel.label}
+            </p>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          </div>
+          <p className="text-sm text-gray-500">{channel.note}</p>
+        </div>
+      ))}
 
       <FormField label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
       <FormField label="ABN" value={abn} onChange={(e) => setAbn(e.target.value)} placeholder="e.g. 12 345 678 901" />

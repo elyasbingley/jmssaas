@@ -2244,21 +2244,34 @@ this lives):
    whatever project serves `bingleyroof.com.au` - same account, different
    project, since it's a different app on presumably a different
    subdomain, e.g. `app.bingleytrades.com.au`).
-2. **Root Directory**: `apps/desktop` (Vercel dashboard -> Project
-   Settings -> General). Vercel auto-detects the Vite framework preset
-   from that directory and pre-fills Build Command
-   (`vite build`)/Output Directory (`dist`) - leave those as detected.
-3. Because this is a pnpm workspace, the install step needs to happen from
-   the repo root, not `apps/desktop`. Vercel's monorepo support handles
-   this automatically once it detects `pnpm-lock.yaml` at the repo root -
-   no override needed under **Install Command**. If a deploy ever fails
-   with "workspace:* not found" or similar, that's this step not running
-   from the root - check the build log's install step.
-4. **Environment Variables**: `VITE_SUPABASE_URL` and
+2. **Root Directory**: leave it **blank** (the repo root) - do NOT set it
+   to `apps/desktop`. The repo-root `vercel.json` now carries explicit
+   `installCommand`/`buildCommand`/`outputDirectory` (`pnpm install` /
+   `pnpm --filter desktop build` / `apps/desktop/dist`), all resolved
+   relative to the repo root, so Vercel never needs to be told to treat a
+   subdirectory as its own project root at all.
+   ~~Root Directory: `apps/desktop`, plus the dashboard's "Include source
+   files outside of the Root Directory in the Build Step" checkbox~~ -
+   **this was the original approach and it's fragile**: it depends on
+   that checkbox actually being saved/staying on, and a CLI `vercel
+   --prod` run doesn't apply it the same way a Root Directory setting
+   would when your shell's cwd is already inside `apps/desktop` - both
+   failure modes were hit live (`ERR_PNPM_NO_MATCHING_VERSION_INSIDE_WORKSPACE`
+   for `@jmssaas/shared` on a Git-triggered build, then "No Output
+   Directory named 'dist' found" on two different CLI-triggered deploys,
+   one run from `apps/desktop` and one from the repo root - same
+   underlying cause of the workspace package or the build output not
+   being where Vercel expected either way). Root Directory blank + an
+   explicit `vercel.json` removes the ambiguity for good: works
+   identically whether triggered by a GitHub push or `npx vercel --prod`,
+   and whether your shell happens to be in the repo root or not, since
+   `vercel.json` always resolves its paths relative to the repo root
+   regardless of local cwd.
+3. **Environment Variables**: `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY`, same values as `apps/mobile/.env` - safe to
    expose in the client bundle (anon key, meaningless without a valid
    RLS-scoped session).
-5. Every push to `main` deploys to production; every PR gets its own
+4. Every push to `main` deploys to production; every PR gets its own
    preview URL - same flow `bingleyroof.com.au` already uses.
 
 ### Known gaps / judgment calls
@@ -8060,3 +8073,685 @@ already installed from a prior build.
   verified by careful review and structural brace/paren balance checks
   instead, same limitation as every other Edge Function added this
   session.
+
+## 62. Knowledge base and Inbox
+
+Two independent features, requested together: **Knowledge** (SOP/how-to
+articles with text, images and embedded videos, downloadable/emailable as a
+PDF) and **Inbox** (a per-tenant email address - forwarded from the
+tenant's own real inbox - that turns attachments into job files and
+text-only requests into an AI-drafted job suggestion for review).
+
+### Knowledge
+
+Fully self-contained - no new third-party service, no new secret.
+
+- **Database** (`supabase/migrations/20260925000100_knowledge_base.sql`):
+  `knowledge_categories` and `knowledge_articles` (tenant read, admin
+  write; an article is only tenant-readable once `is_published`, always
+  admin-readable) plus a private `knowledge-files` storage bucket for
+  in-article images. `content_blocks` is a `jsonb` array of the same
+  discriminated-union-blob pattern used elsewhere in this repo (e.g.
+  `report_templates.structure_schema`) - Postgres doesn't validate the
+  internal shape, `knowledgeBlockSchema` (zod, `packages/shared/src/schemas.ts`)
+  validates it client-side, and the editor only ever constructs the three
+  known variants (text / image / video_embed).
+- **Video embeds** default to linking out to YouTube/Vimeo/Loom
+  (`toEmbedUrl` in `packages/shared/src/knowledge.ts` normalises a pasted
+  URL into its embeddable player form) rather than self-hosted upload -
+  keeps this pass storage-cheap and avoids building a video transcoding
+  pipeline nobody asked for. Revisit if a tenant specifically wants
+  self-hosted video.
+- **Desktop** (`apps/desktop/src/pages/Knowledge{Base,Category,Article}.tsx`):
+  full authoring - category tiles, article list per category, and a block
+  editor (add/reorder/remove text, image, video blocks; publish toggle;
+  Download PDF / Email PDF via `lib/knowledge-pdf.ts`'s jsPDF builder, same
+  `PdfCursor` pattern as `report-pdf.ts`).
+- **Mobile** (`apps/mobile/app/knowledge/*`): **read-only** - browse
+  categories/articles, view blocks (images via signed URL, videos via
+  `Linking.openURL`), Download PDF / Email PDF via `lib/knowledge-pdf.ts`'s
+  HTML-string builder (`expo-print`, same pattern as `lib/report-pdf.ts`).
+  Authoring stays desktop-only, matching Reports/Real Estate/Job
+  Templates - office builds it, the field reads it. Not a PowerSync table,
+  so (like Reports/Calendar/Quotes) it's Supabase-direct and needs a
+  connection.
+
+### Inbox
+
+Needs one thing only this environment can't set up: a domain verified
+with Resend for **inbound** email (a different capability from the
+outbound sending this app already uses `RESEND_API_KEY`/`RESEND_FROM_EMAIL`
+for - see the existing Resend setup earlier in this doc).
+
+**How it works**: every tenant gets a unique `inbox_local_part` (an
+auto-generated slug from their company name, e.g. `acme-plumbing`,
+editable in Company Settings), giving them the address
+`<inbox_local_part>@<your-verified-inbound-domain>`. The **decision made
+for this pass**: a tenant forwards mail from their own real business
+inbox to that generated address (a simple "forward to" filter rule in
+Gmail/Outlook/etc, one-time setup) rather than the platform trying to
+provision a real inbox per tenant on their own domain - far simpler to
+operate, and the tenant keeps using the email address their clients
+already have. Resend receives it and POSTs to `resend-inbound-webhook`,
+which:
+1. Verifies the Svix signature (Resend signs inbound webhooks the same
+   way as their other webhook types - `svix-id`/`svix-timestamp`/
+   `svix-signature` headers, HMAC-SHA256 over
+   `"{svix-id}.{svix-timestamp}.{raw_body}"`), same hand-rolled
+   Web-Crypto verification `xero-webhook`/`stripe-webhook` already use.
+2. Matches the recipient local-part to a tenant, stores the message
+   (`inbox_messages`) and any attachments (uploaded to the private
+   `inbox-attachments` bucket, one `inbox_attachments` row each).
+3. If there are **no** attachments and the body has actual text, fires
+   `process-inbox-ai-parse` (fire-and-forget) to draft a job suggestion.
+
+`process-inbox-ai-parse` calls Claude (`claude-opus-5`, forced tool use
+with `strict: true` on an `extract_job_suggestion` tool so the response is
+guaranteed to match `InboxJobSuggestion`'s shape) and writes the result to
+`inbox_messages.parsed_job_suggestion` + `status: 'needs_review'`. **This
+never creates a job by itself** - per the explicit decision for this pass,
+an admin always reviews/edits the draft and clicks Create on the Inbox
+screen (desktop `InboxMessage.tsx` / mobile `inbox/[id].tsx`) before
+anything lands in `job_cards`. Attaching a message's files to a job (new
+or existing) copies them out of `inbox-attachments` into `job-files` (a
+real copy, not a repointed path - `job_files` rows always point into the
+`job-files` bucket) and marks the message `attached` with `linked_job_id`
+set.
+
+- **Database** (`supabase/migrations/20260926000100_inbox.sql`):
+  `tenants.inbox_local_part` (unique, auto-slugified from company name on
+  insert via a trigger, with a backfill for existing tenants), an
+  `inbox_message_status` enum, `inbox_messages` and `inbox_attachments`
+  (tenant read; only an admin can update/delete a message - e.g. dismiss
+  or the attach/create actions; the attachments bucket has no
+  authenticated write policy at all, only the service-role webhook writes
+  to it).
+- **Edge Functions**: `resend-inbound-webhook` (public, Svix-verified, no
+  `--no-verify-jwt` needed since Resend never sends a Supabase JWT - same
+  category as `xero-webhook`/`stripe-webhook`) and `process-inbox-ai-parse`
+  (internal-only, bearer-checked against the service role key, called
+  exclusively by the webhook function above - never invoke it directly
+  from either app).
+- **Desktop** (`apps/desktop/src/pages/Inbox.tsx`, `InboxMessage.tsx`):
+  Queue/Attached/Dismissed tabs; a message screen showing the body and
+  attachments (signed URLs), an "attach to existing job" picker, and a
+  "create job" form pre-filled from the AI draft when one exists (shows
+  its confidence level), or from the subject/body otherwise.
+- **Mobile** (`apps/mobile/app/inbox/*`): same triage capability as
+  desktop (not read-only, unlike Knowledge) - Inbox is a per-message admin
+  action queue, not authored content, and admins are exactly the audience
+  already gated to it in Settings. `inbox_messages`/`inbox_attachments`
+  aren't PowerSync tables, so (like Knowledge) it's Supabase-direct and
+  needs a connection; creating a job/client here is a direct
+  `supabase.from(...).insert()` (not a `powersync.execute` local insert)
+  since the whole screen already requires connectivity - the new rows flow
+  back down to every device's local PowerSync copy on the next sync tick,
+  same as any other device's write would.
+
+### Resend inbound domain setup (one-time, do this in the Resend dashboard)
+
+1. Resend dashboard -> Domains -> Add Domain. Use a domain (or subdomain,
+   e.g. `inbox.yourcompany.com`) you control - **this can be the same
+   domain already verified for outbound**, Resend supports both directions
+   on one domain.
+2. Add the DNS records Resend shows you (SPF/DKIM as usual for outbound;
+   inbound additionally needs an **MX record** pointed at Resend's inbound
+   mail servers - the dashboard gives you the exact host/value once you
+   enable "Receiving" for that domain).
+3. Domains -> your domain -> Webhooks (or the top-level Webhooks section,
+   scoped to "Inbound Email" events) -> add an endpoint pointed at:
+   `https://<project-ref>.supabase.co/functions/v1/resend-inbound-webhook`
+4. Copy the endpoint's signing secret (`whsec_...`) and set it below.
+5. Tell each tenant their address is
+   `<their inbox_local_part>@<your inbound domain>` (visible in Company
+   Settings once built into that screen, or read directly from
+   `tenants.inbox_local_part` for now) and to add a forwarding rule in
+   their own mailbox pointed at it.
+
+### Deploy
+
+```powershell
+git pull origin claude/knowledge-and-inbox
+npx supabase db push
+npx supabase secrets set RESEND_INBOUND_WEBHOOK_SECRET=whsec_your_inbound_endpoint_secret_here
+npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-your-key-here
+npx supabase functions deploy resend-inbound-webhook --no-verify-jwt
+npx supabase functions deploy process-inbox-ai-parse --no-verify-jwt
+npx vercel --prod
+```
+
+Also set `VITE_INBOX_DOMAIN` in `apps/desktop/.env` (and
+`EXPO_PUBLIC_INBOX_DOMAIN` in `apps/mobile/.env`) to the domain verified
+with Resend for inbound (e.g. `inbox.yourcompany.com.au`) - Company
+Settings combines it with each tenant's `inbox_local_part` column to show
+and let admins copy their full Inbox address. Leave unset and Company
+Settings shows a "not configured yet" note instead of a broken address.
+
+A new EAS build is needed for the mobile changes here to reach devices
+already installed from a prior build.
+
+### Test it
+
+1. Knowledge -> new category -> new article -> add a text block, an image
+   block (upload an image), and a video block (paste a YouTube URL) ->
+   Save -> confirm all three render. Toggle Published -> confirm it now
+   shows for a non-admin. Download PDF and Email PDF -> confirm the PDF
+   contains all three blocks and the email arrives.
+2. Mobile -> Settings -> Knowledge -> confirm the same article reads
+   correctly (image loads, video link opens, PDF actions work).
+3. Set up the Resend inbound domain (above), forward a test email with a
+   PDF attached to a tenant's inbox address -> confirm it appears in
+   Inbox -> Queue with the attachment, "Attach to existing job" works, and
+   "Create job" (no AI draft, since it has an attachment) pre-fills from
+   the subject/body.
+4. Forward a text-only email describing a job (e.g. "Hi, I need a leaking
+   tap fixed at 12 Smith St, Newtown NSW 2042, my number is 0400 000 000")
+   with no attachment -> confirm it lands as `needs_review` with a
+   populated `parsed_job_suggestion` and the Inbox screen shows the
+   AI-drafted form pre-filled with a confidence badge -> edit if needed ->
+   Create job -> confirm the client/job are created correctly.
+5. Mobile -> Settings -> Inbox (admin only) -> repeat the attach/create
+   flows there.
+6. Company Settings (desktop and mobile) -> confirm the Inbox card shows
+   `<inbox_local_part>@<VITE_INBOX_DOMAIN>` and Copy works.
+
+### Known gaps / judgment calls
+
+- **`resend-inbound-webhook`'s content-fetching chain - fully resolved live,
+  took four rounds to nail down since this sandbox has no network access to
+  Resend's docs**. `payload.data` on the `email.received` webhook itself is
+  metadata-only (from/subject/attachment id+filename+content_type+
+  content_id, confirmed correct from round one) - it never carries a
+  `text`/`html` body or attachment `content`, even when the source email
+  genuinely had both, because the webhook is just an "an email arrived"
+  notification. `GET /emails/{id}` (Resend's documented "retrieve a sent
+  email" endpoint, the obvious first guess) 404s for a received email's id
+  - that path is for emails sent through Resend, not received ones.
+  `GET /emails/receiving/{id}` (using the webhook's own `data.email_id`) is
+  the right one - confirmed live, its `text`/`html` fields are the real
+  body. Its own `attachments[]` is metadata-only too, but it carries a
+  `raw.download_url` - a signed URL (no Resend auth needed) to the complete
+  original RFC 822 email - which `extractAttachmentBase64` reads directly:
+  a small hand-rolled reader that finds one attachment's base64 body by
+  matching its Content-ID or filename in the raw MIME, not a full parser,
+  but sufficient for the standard multipart/mixed structure every normal
+  mail client produces. `fetchFullEmail` reuses the existing
+  `RESEND_API_KEY` secret every other function's outbound sends already
+  use. Every fetch in this chain is still logged unconditionally (Supabase
+  Dashboard -> Edge Functions -> `resend-inbound-webhook` -> Logs) in case
+  a future edge case (a different mail client's MIME structure, say) needs
+  adjusting `extractAttachmentBase64`. `htmlToPlainText` (tag-stripping
+  fallback for an HTML-only body) is kept as a defensive fallback even
+  though live testing never actually hit it once the real `text` field was
+  in hand.
+- **AI drafting only runs for text-only messages** (no attachment) - per
+  the original ask ("if you send an email with just a text body..."). A
+  message with both a text body and an attachment goes straight to the
+  attach/create flow with no AI pre-fill; the subject/body is still used
+  as the create-job form's fallback default.
+- Knowledge video embeds are external links only (no self-hosted upload) -
+  see the note above.
+- Not tested against a live Resend inbound domain, a live Anthropic API
+  key, or a real device/EAS build - this sandbox has none of those.
+  Verified: `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
+  `apps/mobile`. The two new Edge Functions have no Deno runtime available
+  in this sandbox to typecheck - verified by careful review and structural
+  brace/paren balance checks instead, same limitation as every other Edge
+  Function added this session.
+
+## 63. Channels - a consolidated per-client communications hub
+
+A CRM-style upgrade: one place to see and reply to every way a client
+talks to the business - SMS, WhatsApp, Facebook Messenger, Instagram DMs -
+plus the existing Inbox emails folded into the same list, and "create a
+job/task from this conversation" the same way Inbox already lets you
+create a job from an email. Reachable from the desktop nav and, per the
+original ask, as its own bottom tab on mobile (not tucked under Settings).
+
+**Scoped in three passes.** The first pass wired SMS all the way through
+and left WhatsApp/Messenger/Instagram as schema-only stubs, on the
+assumption all three needed an external approval before any code could
+even be tested. That assumption was wrong for WhatsApp and Messenger:
+
+- **WhatsApp via Twilio uses the exact same Messages API and inbound-
+  webhook shape as SMS** (see `twilio-whatsapp-webhook`), just with a
+  `whatsapp:` prefix on the numbers - there's no Meta App Review wall the
+  way there is for messaging through someone else's Facebook Page/
+  Instagram account. Twilio also has a free **Sandbox** number that lets
+  you test send/receive immediately, before a permanent Business-verified
+  sender is approved. So WhatsApp is fully wired in the second pass below
+  - same live status as SMS.
+- **Messenger** turns out to have the same kind of early-testing path as
+  WhatsApp's Sandbox: Facebook Login permissions like `pages_messaging`
+  are **Standard Access** (works immediately, no review, for a Page and
+  the people messaging it that are all "owned" by the app - in practice, a
+  Page the OAuth-granting Facebook user personally administers, tested by
+  messaging it from an account that also has an Admin/Developer/Tester
+  role on the Meta App) until Meta App Review upgrades the permission to
+  **Advanced Access** (any Page, any tenant, any real customer messaging
+  it). So Messenger is fully wired in the third pass below via a
+  per-tenant OAuth "Connect" flow, the same shape as Xero's - built to the
+  documented Send/Receive API shape but **not yet exercised against a real
+  Meta App or a live webhook delivery** (this sandbox has no way to stand
+  one up), so budget for a debugging pass against real Meta Console
+  screenshots the same way SMS/WhatsApp needed one - see the Test It
+  section below.
+- **Instagram** still needs **Meta App Review** for `instagram_manage_
+  messages` before this app can message through even a Standard-Access
+  test account the same way - that's a separate permission from
+  Messenger's, and remains a schema-only stub with a "Not connected" row
+  in Settings.
+
+### Why SMS is worth trying again
+
+`docs/SETUP.md`'s own "SMS removed" section (search for it above) names
+the two real bugs from last time: wrong Twilio credentials/From number,
+and phone numbers stored in local AU format instead of E.164 - both
+process/data-hygiene bugs, not a reason SMS can't work. This pass adds
+`toE164` (`packages/shared/src/channels.ts`) so every phone number is
+normalised before it's ever stored or sent, and there was never an inbound
+SMS webhook before at all - `twilio-sms-webhook` is genuinely new, not a
+resurrection of deleted code.
+
+### Database (`supabase/migrations/20260927000100_channels.sql` +
+`20260928000100_channels_whatsapp.sql` + `20260930000100_channels_
+messenger.sql`)
+
+`channel_connections` (one row per tenant per non-email channel type,
+tracks connected/not_connected + a jsonb `config` blob), `channel_
+conversations` (one row per external contact per channel - a phone number
+for sms/whatsapp, a Page-Scoped ID for messenger, an Instagram-Scoped ID
+for instagram - optionally linked to a `client_id`), `channel_messages`
+(the thread, inbound/outbound, with a `media` jsonb array for MMS/WhatsApp
+attachments). A private `channel-media` storage bucket. `tenants.sms_
+phone_number` (E.164, unique) is how the inbound webhook finds the right
+tenant - same "look up tenant by the address a message arrived at" shape
+as `inbox_local_part`. `tenants.whatsapp_phone_number` is the same idea for
+WhatsApp, as its own column rather than reusing `sms_phone_number` - a
+tenant's WhatsApp sender (a Twilio Sandbox number for testing, or a
+Business-verified sender once approved) is very likely a different number
+in practice. RLS: tenant read, admin write - same convention as every
+other admin-scoped module.
+
+**Email is deliberately NOT one of these tables.** It's folded into the
+Channels UI from the existing `inbox_messages` table at query time
+(grouped by `from_email` into a virtual conversation), so there's exactly
+one source of truth for email and no risk of the two ever drifting apart.
+
+`facebook_connections` (one row per tenant, holds the Page Access Token
+from a completed OAuth connect) and `facebook_oauth_states` (short-lived
+CSRF-protection rows for the handshake) are a straight port of `xero_
+connections`/`xero_oauth_states`' own shape - same lockdown too: RLS
+enabled with zero grants to anon/authenticated, service-role only, never
+read directly by the app (only via the `get_facebook_connection_status()`/
+`disconnect_facebook()` SECURITY DEFINER RPCs, which never return the
+token itself). `disconnect_facebook()` also resets the tenant's `channel_
+connections` row for `channel_type = 'messenger'` back to `not_connected`
+- the OAuth callback mirrors a connection's `page_id`/`page_name` into
+that table's `config` jsonb on connect (see that table's own comment in
+the original migration for why it exists at all - this is the first
+channel type to actually use it, rather than just reserve the shape).
+
+Also in this migration set: `supabase/migrations/20260927000200_fix_
+knowledge_article_entity_type.sql` - an unrelated bug found while building
+this, worth fixing immediately rather than leaving it: the Knowledge
+feature's "Email PDF" button has always inserted a `scheduled_
+communications` row with `entity_type: 'knowledge_article'`, but the
+database's own check constraint was never extended to allow that value
+(every other feature that added a new `entity_type` did this same
+drop+add - this one was simply missed). Every "Email PDF" send on a
+Knowledge article was failing outright until this migration.
+
+### Edge Functions
+
+- `twilio-sms-webhook` (public, `--no-verify-jwt`, Twilio's own request-
+  signature verification instead - HMAC-SHA1 of the exact webhook URL,
+  stable/documented for years unlike Resend's inbound shape): looks up the
+  tenant by the `To` number, upserts the conversation (auto-linking an
+  existing client by normalising `clients.phone` and comparing to the
+  sender's E.164 number, since that column has never been validated as
+  E.164 anywhere in the app), stores any MMS media into `channel-media`.
+- `twilio-whatsapp-webhook` - a near-duplicate of `twilio-sms-webhook`
+  (same signature verification, same media handling, same client auto-
+  match), adjusted for two WhatsApp-specific things: `From`/`To` arrive as
+  `whatsapp:+61...` (stripped before storing/matching, so
+  `external_contact` stays a plain E.164 number either way) and the
+  sender's WhatsApp display name (`ProfileName`) is captured as
+  `contact_name` on a new conversation, which plain SMS never provides.
+- `channel-send-message` (called by the app with the signed-in admin's own
+  bearer token, same auth pattern as `xero-oauth-start` - verifies the
+  caller is an admin belonging to the conversation's tenant, then sends
+  via Twilio's Messages API and records the outbound message). Handles
+  `channel_type: 'sms'`, `'whatsapp'` (both via Twilio, the latter just
+  prefixing both numbers `whatsapp:` before the same API call), and
+  `'messenger'` (via Meta's Graph API Send API, using the tenant's own
+  `facebook_connections.page_access_token`) - it 400s for Instagram with a
+  clear "not connected yet" message. Meta's Send API takes one message
+  content per call (text OR an attachment, never combined the way
+  Twilio's single request with an optional `MediaUrl` does), so a reply
+  with both body and media sends two Graph API calls under the one
+  `channel_messages` row this function still inserts.
+- `facebook-oauth-start`/`facebook-oauth-callback` - a direct port of
+  `xero-oauth-start`/`xero-oauth-callback`'s pattern (see that section of
+  this doc for the overall two-step shape). The token exchange is a
+  three-step dance Xero's isn't: short-lived user token -> long-lived user
+  token -> `/me/accounts` for the Page(s) that user manages and each
+  Page's own (long-lived, effectively non-expiring) access token. Takes
+  the first Page returned - same "no picker in Phase 1" limitation as
+  Xero's "first Xero organisation" - and explicitly subscribes that Page
+  to this app's webhook (`POST /{page-id}/subscribed_apps`) before storing
+  the connection, since a Page token alone does not make Meta start
+  calling the webhook below.
+- `facebook-messenger-webhook` - Messenger's inbound webhook. A GET
+  handshake (`?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...`,
+  echoed back only if the verify token matches `FACEBOOK_WEBHOOK_VERIFY_
+  TOKEN`) plus POST delivery signed via `X-Hub-Signature-256` (HMAC-SHA256
+  of the raw body, keyed with the Meta App Secret) - a completely
+  different mechanism from Twilio's per-field HMAC-SHA1 scheme, see that
+  function's own comment. Looks up the tenant by the Page ID in `facebook_
+  connections`, stores the conversation keyed by the sender's Page-Scoped
+  ID (PSID) - there's no phone/email to auto-match a client by the way
+  SMS/WhatsApp can, so `client_id` always starts null here - and best-
+  effort fetches the sender's display name via Meta's own User Profile
+  API (wrapped so a failure there doesn't fail the whole webhook, since
+  that API's availability has shifted under Meta policy independently of
+  this app more than once).
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Channels.tsx` (the unified list - real conversations plus the
+virtual email rows) and `pages/ChannelConversationDetail.tsx` (message
+thread, reply composer gated on `channel_type === 'sms' || 'whatsapp' ||
+'messenger'`, and a "Create job"/"Create task" section) open in a
+right-side panel, replicating `Tasks.tsx`'s own nested-route + `useMatch` +
+overlay pattern - extracted this time into a small reusable
+`components/SidePanel.tsx` rather than a second copy-paste, since this is
+now the second place that exact shape is needed (Tasks.tsx itself was left
+untouched rather than retrofitted, to avoid risking a regression in an
+already-working screen for the sake of symmetry). `lib/channels.ts` has
+the `sendChannelMessage` fetch helper (same shape as `lib/dispatch-
+now.ts`). Settings gained a "Channels" section: SMS and WhatsApp phone
+number fields (each saves immediately, not part of the big Company
+Settings form), a Messenger "Connect to Facebook"/"Disconnect Messenger"
+card (same `get_facebook_connection_status()` RPC + bearer-token POST to
+`facebook-oauth-start` pattern as Xero's own connect button), and one
+remaining "Not connected" informational row for Instagram.
+
+The email virtual-conversation panel is intentionally lighter than a real
+channel's: it shows the message history and links each one to the
+existing Inbox screen (`/inbox/:id`) for attaching a file, creating a job
+from an AI draft, or dismissing - Inbox itself has never had a "reply by
+email" feature, so Channels doesn't invent one just for symmetry; it
+folds in **visibility**, not net-new email capability. Create job/task
+from the email panel works the same as a real channel's, though.
+
+### Mobile (`apps/mobile`)
+
+A new **Channels** bottom tab (💬, between Home and Sales) - the user's
+original ask was explicit that this needs to be its own tab, not folded
+into Settings the way Inbox/Knowledge were. `app/(tabs)/channels/_layout.tsx`
++ `index.tsx` (list) + `[id].tsx` (detail) - the detail screen is a plain
+pushed Stack screen, matching how Tasks' own `[id].tsx` opens on mobile
+(full screen, header + back button) rather than a new modal/bottom-sheet
+pattern nothing else in this app uses (confirmed by checking - there is no
+existing `presentation: "modal"` anywhere in `apps/mobile`). Company
+Settings gained the same SMS/WhatsApp number fields + Messenger connect
+card + Instagram informational row as desktop, opening the OAuth flow via
+`Linking.openURL` the same way `connectXero` already does (there's no
+in-app webview flow here - see that function's own comment on why
+refetching on focus is enough to pick up a mobile-initiated connection's
+result).
+
+### Twilio setup - SMS (one-time, in the Twilio Console)
+
+1. Create a Twilio account (or use the platform's existing one, if any -
+   check Console > Account first) and note the Account SID + Auth Token
+   from the Console dashboard.
+2. Buy a phone number capable of SMS (Phone Numbers -> Buy a number -> AU,
+   SMS capability). This becomes the platform's shared Twilio account, but
+   is used by exactly one tenant - paste it (any format - the app
+   normalises it) into that tenant's Company Settings -> Channels -> SMS.
+3. Phone Numbers -> Manage -> your number -> Messaging configuration ->
+   set "A message comes in" to Webhook, HTTP POST, pointed at:
+   `https://<project-ref>.supabase.co/functions/v1/twilio-sms-webhook`
+   **This exact URL matters** - it's hashed into Twilio's signature
+   verification, so a mismatch (trailing slash, wrong project ref) fails
+   every inbound message's signature check.
+4. Set secrets and deploy:
+   ```powershell
+   git pull origin claude/knowledge-and-inbox
+   npx supabase db push
+   npx supabase secrets set TWILIO_ACCOUNT_SID=ACyour_account_sid_here
+   npx supabase secrets set TWILIO_AUTH_TOKEN=your_auth_token_here
+   npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+   npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
+   npx supabase functions deploy channel-send-message
+   npx vercel --prod
+   ```
+   (`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` are shared by both webhooks -
+   no separate secrets needed for WhatsApp. `channel-send-message` is
+   called by the app with the user's own session, not Twilio, so it keeps
+   the platform's default JWT verification - no `--no-verify-jwt`.)
+5. A new EAS build is needed for the mobile changes here to reach devices
+   already installed from a prior build.
+
+### Twilio setup - WhatsApp (one-time, in the Twilio Console)
+
+Two paths, and you can start with the first today with zero approval
+wait:
+
+**Option A - Sandbox (test immediately, no Meta verification needed):**
+
+1. Twilio Console -> Messaging -> Try it out -> Send a WhatsApp message ->
+   note the Sandbox number shown (a shared Twilio number, e.g.
+   `+1 415 523 8886`) and the join code (e.g. "join some-word").
+2. From your own phone's WhatsApp, send that join code as a message to the
+   Sandbox number - this opts your number into the sandbox for testing
+   (each tester has to do this once; it's Twilio's own restriction, not
+   this app's).
+3. Sandbox Settings (same Messaging page) -> set "WHEN A MESSAGE COMES IN"
+   to `https://<project-ref>.supabase.co/functions/v1/twilio-whatsapp-webhook`,
+   HTTP POST.
+4. Paste the Sandbox number (whatever format - the app normalises it) into
+   Company Settings -> Channels -> WhatsApp.
+5. Deploy `twilio-whatsapp-webhook` (see the SMS section's deploy block
+   above - it's the same commands).
+
+**Option B - a permanent Business-verified sender (for real customers):**
+
+Phone Numbers -> Senders -> WhatsApp senders -> Twilio's Console walks you
+through Meta Business verification and (if you want to message a customer
+first, rather than only replying within 24 hours of their last message)
+submitting a message template for approval. Once approved, same steps as
+the Sandbox above (webhook URL + paste the number into Settings) but with
+your own permanent number instead of the shared Sandbox one - budget for
+Meta's verification timeline before this path is usable.
+
+### Meta App + Messenger setup (one-time, in the Meta Developer Portal)
+
+1. developers.facebook.com -> My Apps -> Create App (type "Business") ->
+   note the App ID and App Secret (App Settings -> Basic).
+2. Add the **Facebook Login for Business** and **Messenger** products to
+   the app (App Dashboard -> Add Product).
+3. Facebook Login for Business -> Settings -> Valid OAuth Redirect URIs ->
+   add `https://<project-ref>.supabase.co/functions/v1/facebook-oauth-callback`.
+4. App Roles -> Roles -> add every Facebook account that should be able to
+   test-connect a Page (yourself, plus anyone else testing) as an Admin,
+   Developer, or Tester on this Meta App - required for Standard Access to
+   work at all before App Review, see the scoping note above.
+5. Messenger -> Settings -> Webhooks -> Add Callback URL:
+   `https://<project-ref>.supabase.co/functions/v1/facebook-messenger-webhook`,
+   Verify Token: any string you pick (this becomes `FACEBOOK_WEBHOOK_
+   VERIFY_TOKEN` below - it only has to match what you set as a secret).
+   Subscribe the app-level webhook to the `messages` and `messaging_
+   postbacks` fields - separate from the per-Page subscription `facebook-
+   oauth-callback` already does automatically on connect.
+6. Set secrets and deploy:
+   ```powershell
+   git pull origin claude/knowledge-and-inbox
+   npx supabase db push
+   npx supabase secrets set FACEBOOK_APP_ID=your_app_id_here
+   npx supabase secrets set FACEBOOK_APP_SECRET=your_app_secret_here
+   npx supabase secrets set FACEBOOK_WEBHOOK_VERIFY_TOKEN=pick-any-string-here
+   npx supabase secrets set FACEBOOK_APP_REDIRECT_URL=https://yourapp.vercel.app/settings/company
+   npx supabase functions deploy facebook-oauth-start
+   npx supabase functions deploy facebook-oauth-callback --no-verify-jwt
+   npx supabase functions deploy facebook-messenger-webhook --no-verify-jwt
+   npx supabase functions deploy channel-send-message
+   npx vercel --prod
+   ```
+   (`facebook-oauth-callback` needs `--no-verify-jwt` for the same reason
+   `xero-oauth-callback` does - it's a public GET reached by Facebook's own
+   redirect, no Supabase session/auth header at all. `facebook-messenger-
+   webhook` needs it too - Meta's GET verification handshake and POST
+   deliveries carry no Supabase auth header either.)
+7. Company Settings -> Channels -> Messenger -> "Connect to Facebook" ->
+   log in as an account with a role on this Meta App (step 4) -> pick the
+   Page to connect on Facebook's own consent screen -> confirm it
+   redirects back showing "Connected".
+8. Once ready to message the general public through client Pages: Meta for
+   Developers -> your app -> App Review -> request Advanced Access for
+   `pages_messaging` (and `pages_show_list`/`pages_manage_metadata`) - an
+   external submission (screencast, privacy policy, use-case description)
+   only the app's owner can make, can take days to weeks to come back.
+   Nothing in this app's own code changes when that comes through - the
+   same OAuth "Connect" flow just starts working for Pages outside the
+   app's own Admin/Developer/Tester roles.
+
+### When you're ready for Instagram
+
+Still a schema-only stub - Meta App Review for `instagram_manage_messages`
+is the real bottleneck (a separate permission/submission from Messenger's
+own `pages_messaging`), so start there: Meta for Developers -> your app ->
+App Review -> request `instagram_manage_messages`. Once approved, the
+OAuth "Connect" flow itself is close to Messenger's own above - an
+Instagram Business account's messaging token comes through the same
+Facebook Login for Business flow, just with a different scope and Graph
+API "list managed accounts" endpoint - closer to porting `facebook-oauth-
+start`/`facebook-oauth-callback` a second time than starting from
+nothing.
+
+### Test it
+
+1. Settings -> Channels -> save an SMS phone number -> confirm it shows
+   "Connected".
+2. Text that number from your own phone -> confirm it appears in Channels
+   (desktop and mobile) within a few seconds, auto-linked to an existing
+   client if the phone number matches one.
+3. Reply from the Channels panel -> confirm it arrives as a real SMS on
+   your phone.
+4. Text a photo to that number (MMS) -> confirm it shows up as an
+   attachment in the conversation.
+5. Open a conversation with no matching client -> "Create job" -> confirm
+   a new client + job are created and the conversation is now linked to
+   that client.
+6. Channels -> Email filter -> confirm your existing Inbox messages show
+   up grouped by sender, and "Open in Inbox" on one takes you to the
+   existing Inbox message screen.
+7. Settings -> Channels -> save the Twilio Sandbox (or your verified)
+   WhatsApp number -> confirm it shows "Connected".
+8. Send a WhatsApp message to that number (join the Sandbox first if using
+   Option A above) -> confirm it appears in Channels, with the sender's
+   WhatsApp display name as the conversation title if they have one set.
+9. Reply from the Channels panel -> confirm it arrives as a real WhatsApp
+   message.
+10. Attach a file to a reply (📎 next to the composer) -> Send -> confirm
+    it arrives as a real WhatsApp/MMS attachment, and shows correctly in
+    the conversation thread on both platforms afterward.
+11. Complete the Meta App + Messenger setup above -> Settings -> Channels
+    -> Messenger -> "Connect to Facebook" -> confirm it shows "Connected"
+    with your Page's name.
+12. From a Facebook account that also has a role on the Meta App, send a
+    message to that Page via Messenger -> confirm it appears in Channels
+    within a few seconds (no phone/email to auto-match by, so it always
+    shows as a new, unlinked conversation).
+13. Reply from the Channels panel -> confirm it arrives as a real
+    Messenger message on the sender's end.
+14. Attach a file to a Messenger reply -> Send -> confirm it arrives as a
+    real Messenger attachment.
+
+### Known gaps / judgment calls
+
+- **Instagram has no live send/receive** - by design, see above (Meta App
+  Review for `instagram_manage_messages` is the real bottleneck). Its
+  Settings row is informational only.
+- **Messenger only works for Pages/people covered by Standard Access
+  until Advanced Access is approved** - see the scoping note above. Until
+  then, connecting a client's own Facebook Page (one the app's operator
+  doesn't personally administer) will fail at the `/me/accounts` step of
+  `facebook-oauth-callback` with no Pages returned, or the Page simply
+  won't be able to message the general public even once connected.
+- **No client auto-match on Messenger** - a Messenger sender is only a
+  Page-Scoped ID (PSID), with no phone/email in the webhook payload to
+  match `clients` by the way SMS/WhatsApp can, so `client_id` always
+  starts null; linking is manual via "Create job"/"Create task".
+- **A Messenger reply with both text and an attachment sends as two
+  separate Graph API calls**, not one combined message the way Twilio's
+  `MediaUrl` allows - see `channel-send-message`'s own comment. A failure
+  on the second call after the first already succeeded means a partially-
+  sent reply; this hasn't come up in practice yet since it's untested
+  against a real Meta App (next gap).
+- **Messenger's OAuth flow and both its Edge Functions
+  (`facebook-oauth-start`/`facebook-oauth-callback`/`facebook-messenger-
+  webhook`) are built to the documented Graph API/Messenger Platform
+  shapes but not yet exercised against a real Meta App, a real Page
+  connection, or a live webhook delivery** - this sandbox has no way to
+  stand any of that up. Treat the Meta App setup and first live
+  connect/send/receive as the real test, the same way SMS and WhatsApp
+  both needed a live debugging pass against real Twilio Console/Supabase
+  log screenshots before they worked - budget for the same here.
+- **Outbound media is one attachment per reply** - added after this pass's
+  original "text-only" limitation (see below), matching the WhatsApp UX
+  it's mirroring: a caption-only, media-only, or text-only reply are all
+  valid, but not several files at once. Desktop accepts any file type
+  (plain `<input type="file">`); mobile is images only (`expo-image-
+  picker`, matching the existing Company Settings logo-upload pattern -
+  a native document picker would be a separate library this app doesn't
+  otherwise depend on). `channel-send-message` signs the uploaded object
+  (1 hour, `channel-media` bucket) and hands that URL to Twilio as
+  `MediaUrl` - the same parameter name/behavior Twilio uses for both
+  MMS and WhatsApp media, so one code path covers both channel types.
+  Sending it requires the new `channel-media: admin upload` storage
+  policy (`20260929000100_channels_outbound_media.sql`) - previously that
+  bucket only had a tenant-read policy, since every object was written by
+  the inbound webhook (service role, bypassing RLS) until now.
+- **Email in Channels is read + link-out only**, not a new reply surface -
+  see the desktop section above for why. Attaching files/creating a job
+  from an AI draft/dismissing all still happen on the existing Inbox
+  screens.
+- **`clients.phone` auto-match is best-effort** - it's free text, never
+  validated as E.164 anywhere in the app (including the client
+  create/edit forms themselves), so a client whose phone number was typed
+  in an unusual format (extra punctuation, a landline written with
+  brackets, etc.) won't auto-link; the admin can still link them manually
+  via "Create job" using the same name.
+- Not tested against a live Twilio account, a real Meta App, a real
+  inbound SMS/MMS/WhatsApp/Messenger message, or a real device/EAS build -
+  this sandbox has none of those. Verified: `tsc --noEmit` clean across
+  `packages/shared`, `apps/desktop`, `apps/mobile`; `pnpm --filter desktop
+  build` clean; every migration through `20260930000100_channels_
+  messenger.sql` (the full chain, 74 files) applied cleanly against a real
+  local Postgres 16 instance (same stub-`auth`/`storage`/`net`/`cron`
+  harness used for every other migration this session), with the new
+  tables/policies/RPCs verified by hand afterward - `facebook_connections`/
+  `facebook_oauth_states` confirmed RLS-enabled with zero anon/authenticated
+  grants (service-role only, matching `xero_connections`), and a full
+  connect -> `get_facebook_connection_status()` -> `disconnect_facebook()`
+  round trip run against real rows (temporarily stubbing `auth.uid()` to a
+  test admin inside a rolled-back transaction, since the harness's own
+  `auth.uid()` always returns null) confirmed the status JSON, the
+  `channel_connections` mirror, and the row deletion all behave correctly.
+  Every Edge Function added or changed this pass (`facebook-oauth-start`,
+  `facebook-oauth-callback`, `facebook-messenger-webhook`, the extended
+  `channel-send-message`) passed `node --check` against Node 22's own
+  TypeScript syntax stripping - real syntax validation this time, not just
+  a manual brace/paren review like earlier Edge Functions in this doc
+  needed, though it's still not the Deno runtime and proves nothing about
+  runtime behavior against Meta's actual API. Twilio's own signature-
+  verification algorithm is long-documented and unchanged for years,
+  unlike Resend's inbound shape, so SMS/WhatsApp didn't need a live
+  round-trip to get right the way the Inbox email webhook did - Messenger
+  is the opposite case, with three genuinely new integration points (OAuth
+  token exchange, webhook signature scheme, Send API shape) none of which
+  have run against the real Meta Graph API from this sandbox, so treat the
+  Meta App setup and first live connect/send/receive as the real test.

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ReportFieldType } from "./reports";
 import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
+import { toE164 } from "./channels";
 
 export const createClientSchema = z.object({
   // "Individual" (regular COD homeowner): `name` is their own full name.
@@ -1015,3 +1016,120 @@ export const createLabourCostEntrySchema = z
     path: ["name"],
   });
 export type CreateLabourCostEntryInput = z.infer<typeof createLabourCostEntrySchema>;
+
+// ---------------------------------------------------------------------------
+// Knowledge base
+// ---------------------------------------------------------------------------
+
+export const createKnowledgeCategorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateKnowledgeCategoryInput = z.infer<typeof createKnowledgeCategorySchema>;
+
+// Discriminated by `type`, matching KnowledgeBlock in knowledge.ts exactly -
+// the editor UI only ever constructs one of these three shapes, so this
+// only needs to validate the outer per-type shape, same tradeoff every
+// other jsonb-blob field in this file makes.
+export const knowledgeBlockSchema = z.discriminatedUnion("type", [
+  z.object({ id: z.string().min(1), type: z.literal("text"), body: z.string() }),
+  z.object({ id: z.string().min(1), type: z.literal("image"), storagePath: z.string().min(1), caption: z.string().optional() }),
+  z.object({ id: z.string().min(1), type: z.literal("video_embed"), url: z.string().url("Enter a valid video URL"), caption: z.string().optional() }),
+]);
+
+export const createKnowledgeArticleSchema = z.object({
+  category_id: z.string().uuid().optional().or(z.literal("")),
+  title: z.string().min(1, "Title is required"),
+  content_blocks: z.array(knowledgeBlockSchema).default([]),
+  is_published: z.boolean().default(false),
+});
+export type CreateKnowledgeArticleInput = z.infer<typeof createKnowledgeArticleSchema>;
+
+// ---------------------------------------------------------------------------
+// Inbox
+// ---------------------------------------------------------------------------
+
+// A tenant's generated Inbox local-part, editable once from Settings if
+// the auto-generated one (from the company name) isn't what they want to
+// give out - same character set slugify_for_inbox produces in Postgres,
+// enforced here too so the app can reject an invalid edit before it ever
+// reaches the database's unique constraint.
+export const updateInboxLocalPartSchema = z.object({
+  inbox_local_part: z
+    .string()
+    .min(1, "Required")
+    .max(64)
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Lowercase letters, numbers and hyphens only"),
+});
+export type UpdateInboxLocalPartInput = z.infer<typeof updateInboxLocalPartSchema>;
+
+// The review form an admin fills in before an AI job suggestion (or a
+// blank "create from this message" flow with no suggestion at all)
+// actually becomes a job - always a real client_id by the time this
+// submits (the form creates a new client first if the admin didn't pick
+// an existing one), same requirement createJobCardSchema already has.
+export const createJobFromInboxSchema = z.object({
+  message_id: z.string().uuid(),
+  client_id: z.string().uuid(),
+  site_id: z.string().uuid().optional(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+});
+export type CreateJobFromInboxInput = z.infer<typeof createJobFromInboxSchema>;
+
+// ---------------------------------------------------------------------------
+// Channels
+// ---------------------------------------------------------------------------
+
+// The Company Settings SMS number field - normalises whatever format the
+// admin typed (local AU or already-E.164) before it's ever saved, so a
+// malformed value can't reach tenants.sms_phone_number - see toE164's own
+// comment on why this validation exists at all.
+export const updateSmsPhoneNumberSchema = z.object({
+  sms_phone_number: z.string().transform((val, ctx) => {
+    const normalized = toE164(val);
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid phone number, e.g. 0491 570 156" });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
+});
+export type UpdateSmsPhoneNumberInput = z.infer<typeof updateSmsPhoneNumberSchema>;
+
+// Same validation as the SMS number field, for the Channels WhatsApp
+// sender (tenants.whatsapp_phone_number).
+export const updateWhatsappPhoneNumberSchema = z.object({
+  whatsapp_phone_number: z.string().transform((val, ctx) => {
+    const normalized = toE164(val);
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid phone number, e.g. 0491 570 156" });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
+});
+export type UpdateWhatsappPhoneNumberInput = z.infer<typeof updateWhatsappPhoneNumberSchema>;
+
+export const sendChannelMessageSchema = z.object({
+  conversation_id: z.string().uuid(),
+  body: z.string().min(1, "Message can't be empty"),
+});
+export type SendChannelMessageInput = z.infer<typeof sendChannelMessageSchema>;
+
+// Same shape/intent as createJobFromInboxSchema - always a real client_id
+// by submit time (the form creates a new client first if needed).
+export const createJobFromChannelSchema = z.object({
+  conversation_id: z.string().uuid(),
+  client_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+});
+export type CreateJobFromChannelInput = z.infer<typeof createJobFromChannelSchema>;
+
+export const createTaskFromChannelSchema = z.object({
+  conversation_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+});
+export type CreateTaskFromChannelInput = z.infer<typeof createTaskFromChannelSchema>;

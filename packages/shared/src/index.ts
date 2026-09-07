@@ -8,4 +8,7 @@ export * from "./email-recipients";
 export * from "./dashboard";
 export * from "./calendar-recurrence";
 export * from "./cost-of-ops";
+export * from "./knowledge";
+export * from "./inbox";
+export * from "./channels";
 export * from "./powersync/schema";

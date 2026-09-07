@@ -3,6 +3,8 @@
 // once the schema stabilises.
 
 import type { ReportFormData, ReportStructureSchema } from "./reports";
+import type { KnowledgeBlock } from "./knowledge";
+import type { InboxJobSuggestion } from "./inbox";
 
 export type UserRole = "admin" | "technician";
 
@@ -63,6 +65,22 @@ export interface Tenant {
   // STRIPE_SECRET_KEY the existing invoice-payment Stripe code uses.
   stripe_connect_account_id: string | null;
   stripe_connect_onboarded: boolean;
+  // The local-part (before the @) of this tenant's generated Inbox
+  // address - see the inbox migration's own comment on why it's just the
+  // local-part (the domain is a platform-level constant, not per-tenant
+  // data) and why a tenant forwards their own inbox to it rather than
+  // giving it out directly.
+  inbox_local_part: string;
+  // E.164 (e.g. "+61491570156") - the Channels SMS number a tenant bought/
+  // ported in the platform's Twilio account, or null until they've set
+  // one. See the channels migration's own comment on why it's stored
+  // pre-normalised rather than in whatever format was typed.
+  sms_phone_number: string | null;
+  // E.164 - the Channels WhatsApp sender (a Twilio Sandbox number for
+  // testing, or a Business-verified sender once approved) - see the
+  // channels_whatsapp migration's own comment on why this is a separate
+  // column from sms_phone_number rather than reused.
+  whatsapp_phone_number: string | null;
   created_at: string;
 }
 
@@ -1252,7 +1270,8 @@ export type ScheduledCommunicationEntityType =
   | "report"
   | "purchase_order"
   | "subcontractor"
-  | "client_membership";
+  | "client_membership"
+  | "knowledge_article";
 export type ScheduledCommunicationStatus = "pending" | "sent" | "cancelled" | "failed";
 
 // One row per seeded trigger_key (quote_stage_1, quote_stage_2,
@@ -1717,4 +1736,121 @@ export interface LabourCostEntry {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge base - mirrors the knowledge_base migration. See knowledge.ts
+// for KnowledgeBlock (content_blocks' element shape).
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeCategory {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeArticle {
+  id: string;
+  tenant_id: string;
+  category_id: string | null;
+  title: string;
+  content_blocks: KnowledgeBlock[];
+  is_published: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Inbox - mirrors the inbox migration. See inbox.ts for
+// InboxJobSuggestion (parsed_job_suggestion's shape).
+// ---------------------------------------------------------------------------
+
+export type InboxMessageStatus = "unprocessed" | "needs_review" | "attached" | "dismissed";
+
+export interface InboxMessage {
+  id: string;
+  tenant_id: string;
+  from_email: string;
+  from_name: string | null;
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  received_at: string;
+  status: InboxMessageStatus;
+  linked_job_id: string | null;
+  parsed_job_suggestion: InboxJobSuggestion | null;
+  parsed_at: string | null;
+  created_at: string;
+}
+
+export interface InboxAttachment {
+  id: string;
+  tenant_id: string;
+  message_id: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Channels - mirrors the channels migration. See channels.ts for
+// ChannelTypeOrEmail (the UI-only widened type that also covers Email) and
+// the toE164 phone helper.
+// ---------------------------------------------------------------------------
+
+export type ChannelType = "sms" | "whatsapp" | "messenger" | "instagram";
+export type ChannelConnectionStatus = "not_connected" | "connected";
+export type ChannelMessageDirection = "inbound" | "outbound";
+export type ChannelMessageStatus = "sent" | "delivered" | "failed" | "received";
+
+export interface ChannelConnection {
+  id: string;
+  tenant_id: string;
+  channel_type: ChannelType;
+  status: ChannelConnectionStatus;
+  config: Record<string, unknown>;
+  connected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelMediaItem {
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+}
+
+export interface ChannelConversation {
+  id: string;
+  tenant_id: string;
+  channel_type: ChannelType;
+  // A phone number (E.164) for sms/whatsapp, a Page-Scoped ID for
+  // messenger, an Instagram-Scoped ID for instagram - whatever that
+  // channel's stable per-contact handle is.
+  external_contact: string;
+  contact_name: string | null;
+  client_id: string | null;
+  last_message_at: string;
+  last_message_preview: string | null;
+  unread_count: number;
+  created_at: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  conversation_id: string;
+  tenant_id: string;
+  direction: ChannelMessageDirection;
+  body: string | null;
+  media: ChannelMediaItem[];
+  external_message_id: string | null;
+  status: ChannelMessageStatus;
+  sent_by: string | null;
+  created_at: string;
 }
