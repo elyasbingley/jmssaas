@@ -11,21 +11,21 @@
 // with the base64 portion of the whsec_... secret, compared against each
 // "v1,<base64 sig>" entry in the space-separated svix-signature header.
 //
-// CONFIRMED LIVE (two real test sends, one with a body and a real PDF
-// attachment): the `email.received` webhook itself is a lightweight
-// notification only - `payload.data` has from/to/subject/attachment
-// metadata (id/filename/content_type, no `content`), but never a text/html
-// body, even when the source email genuinely had one. The actual content
-// has to be fetched with a follow-up call to Resend's API using the
-// webhook's own `data.email_id` - see fetchFullEmail below. That follow-up
-// call's own response shape is a best-effort guess (this sandbox has no
-// network access to Resend's docs to confirm it, and Resend's outbound
-// "retrieve a sent email" endpoint - the closest documented analog - may
-// not exactly match the receiving shape), so it's logged unconditionally
-// the same way the raw webhook payload is: check Supabase Dashboard ->
-// Edge Functions -> resend-inbound-webhook -> Logs after a test send if a
-// field ever comes through wrong/empty, and adjust fetchFullEmail's
-// extraction to match what's actually there.
+// CONFIRMED LIVE (three real test sends so far): the `email.received`
+// webhook itself is a lightweight notification only - `payload.data` has
+// from/to/subject/attachment metadata (id/filename/content_type, no
+// `content`), never a text/html body, even when the source email genuinely
+// had one. The actual content needs a follow-up call to Resend's API using
+// the webhook's own `data.email_id` - see fetchFullEmail below. Also
+// confirmed live: `GET /emails/{id}` (Resend's documented "retrieve a sent
+// email" endpoint) 404s for a received email's id - that path is for
+// emails sent through Resend, not received ones, so fetchFullEmail tries
+// several other plausible paths instead (no network access to Resend's
+// docs from this sandbox to look up the real one). Every attempt is
+// logged unconditionally, same as the raw webhook payload: check Supabase
+// Dashboard -> Edge Functions -> resend-inbound-webhook -> Logs after a
+// test send to see which path actually works (or none did), and adjust
+// CANDIDATE_RECEIVED_EMAIL_PATHS/fetchFullEmail's extraction to match.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -147,41 +147,58 @@ function parseResendPayload(payload: any): ParsedInboundEmail | null {
   };
 }
 
-// See the top-of-file comment - the webhook itself never carries body/
-// attachment content, only metadata, so this fetches the real thing from
-// Resend's API. Response shape is an educated guess, logged unconditionally
-// so it can be corrected against what Resend actually returns.
+// GET /emails/{id} (Resend's documented "retrieve a sent email" endpoint)
+// returned a hard 404 "Email not found" for a real received email's
+// email_id - confirmed live, that path is scoped to emails sent through
+// Resend, not ones received. No network access to Resend's docs from this
+// sandbox to find the right one, so this tries several plausible shapes in
+// one round instead of guessing a single path again - REST convention
+// (nesting "receiving" as its own resource, or as a sub-path of /emails)
+// covers the likely options. Every attempt is logged with its own URL and
+// status, so whichever one 200s (or the fact that none did) is a single
+// log line away instead of another blind guess.
+const CANDIDATE_RECEIVED_EMAIL_PATHS = [
+  (id: string) => `https://api.resend.com/emails/receiving/${id}`,
+  (id: string) => `https://api.resend.com/receiving/emails/${id}`,
+  (id: string) => `https://api.resend.com/inbound-emails/${id}`,
+  (id: string) => `https://api.resend.com/emails/inbound/${id}`,
+];
+
 async function fetchFullEmail(emailId: string): Promise<FullReceivedEmail | null> {
   if (!RESEND_API_KEY) {
     console.error("[resend-inbound-webhook] RESEND_API_KEY not set - cannot fetch full email content");
     return null;
   }
-  try {
-    const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
-    });
-    const bodyText = await res.text();
-    console.log("[resend-inbound-webhook] fetched full email", emailId, res.status, bodyText);
-    if (!res.ok) return null;
 
-    const full = JSON.parse(bodyText);
-    const data = full?.data ?? full;
-    const attachmentContentById: Record<string, string> = {};
-    for (const a of data?.attachments ?? []) {
-      const attachmentId = a?.id ?? a?.attachment_id;
-      const content = a?.content ?? a?.content_base64 ?? a?.base64 ?? null;
-      if (attachmentId && content) attachmentContentById[attachmentId] = content;
+  for (const buildUrl of CANDIDATE_RECEIVED_EMAIL_PATHS) {
+    const url = buildUrl(emailId);
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${RESEND_API_KEY}` } });
+      const bodyText = await res.text();
+      console.log("[resend-inbound-webhook] fetched full email", url, res.status, bodyText);
+      if (!res.ok) continue;
+
+      const full = JSON.parse(bodyText);
+      const data = full?.data ?? full;
+      const attachmentContentById: Record<string, string> = {};
+      for (const a of data?.attachments ?? []) {
+        const attachmentId = a?.id ?? a?.attachment_id;
+        const content = a?.content ?? a?.content_base64 ?? a?.base64 ?? null;
+        if (attachmentId && content) attachmentContentById[attachmentId] = content;
+      }
+
+      return {
+        text: data?.text ?? null,
+        html: data?.html ?? null,
+        attachmentContentById,
+      };
+    } catch (e) {
+      console.error("[resend-inbound-webhook] Failed to fetch full email", url, e);
     }
-
-    return {
-      text: data?.text ?? null,
-      html: data?.html ?? null,
-      attachmentContentById,
-    };
-  } catch (e) {
-    console.error("[resend-inbound-webhook] Failed to fetch full email", emailId, e);
-    return null;
   }
+
+  console.error("[resend-inbound-webhook] No candidate endpoint returned the full email", emailId);
+  return null;
 }
 
 Deno.serve(async (req: Request) => {
