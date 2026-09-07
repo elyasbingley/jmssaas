@@ -71,6 +71,11 @@ export interface Tenant {
   // data) and why a tenant forwards their own inbox to it rather than
   // giving it out directly.
   inbox_local_part: string;
+  // E.164 (e.g. "+61491570156") - the Channels SMS number a tenant bought/
+  // ported in the platform's Twilio account, or null until they've set
+  // one. See the channels migration's own comment on why it's stored
+  // pre-normalised rather than in whatever format was typed.
+  sms_phone_number: string | null;
   created_at: string;
 }
 
@@ -1785,5 +1790,62 @@ export interface InboxAttachment {
   file_name: string;
   mime_type: string | null;
   size_bytes: number | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Channels - mirrors the channels migration. See channels.ts for
+// ChannelTypeOrEmail (the UI-only widened type that also covers Email) and
+// the toE164 phone helper.
+// ---------------------------------------------------------------------------
+
+export type ChannelType = "sms" | "whatsapp" | "messenger" | "instagram";
+export type ChannelConnectionStatus = "not_connected" | "connected";
+export type ChannelMessageDirection = "inbound" | "outbound";
+export type ChannelMessageStatus = "sent" | "delivered" | "failed" | "received";
+
+export interface ChannelConnection {
+  id: string;
+  tenant_id: string;
+  channel_type: ChannelType;
+  status: ChannelConnectionStatus;
+  config: Record<string, unknown>;
+  connected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelMediaItem {
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+}
+
+export interface ChannelConversation {
+  id: string;
+  tenant_id: string;
+  channel_type: ChannelType;
+  // A phone number (E.164) for sms/whatsapp, a Page-Scoped ID for
+  // messenger, an Instagram-Scoped ID for instagram - whatever that
+  // channel's stable per-contact handle is.
+  external_contact: string;
+  contact_name: string | null;
+  client_id: string | null;
+  last_message_at: string;
+  last_message_preview: string | null;
+  unread_count: number;
+  created_at: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  conversation_id: string;
+  tenant_id: string;
+  direction: ChannelMessageDirection;
+  body: string | null;
+  media: ChannelMediaItem[];
+  external_message_id: string | null;
+  status: ChannelMessageStatus;
+  sent_by: string | null;
   created_at: string;
 }

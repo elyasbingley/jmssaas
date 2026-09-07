@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { updateCompanySettingsSchema, type Tenant } from "@jmssaas/shared";
+import { updateCompanySettingsSchema, updateSmsPhoneNumberSchema, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
@@ -75,10 +75,15 @@ export default function CompanySettingsScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [smsPhoneNumberInput, setSmsPhoneNumberInput] = useState("");
+  const [savingSms, setSavingSms] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsSaved, setSmsSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
+      setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -195,6 +200,25 @@ export default function CompanySettingsScreen() {
     }
   };
 
+  const saveSmsPhoneNumber = async () => {
+    if (!profile) return;
+    setSavingSms(true);
+    setSmsError(null);
+    try {
+      const result = updateSmsPhoneNumberSchema.safeParse({ sms_phone_number: smsPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ sms_phone_number: result.data.sms_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+      refetch();
+      setSmsSaved(true);
+      setTimeout(() => setSmsSaved(false), 3000);
+    } catch (e) {
+      setSmsError(getErrorMessage(e, "Failed to save phone number"));
+    } finally {
+      setSavingSms(false);
+    }
+  };
+
   const handleSave = async () => {
     const result = updateCompanySettingsSchema.safeParse({
       name,
@@ -307,6 +331,44 @@ export default function CompanySettingsScreen() {
           docs/SETUP.md's Inbox section).
         </Text>
       )}
+
+      <Text style={styles.sectionTitle}>Channels</Text>
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>💬 SMS</Text>
+          <View style={[styles.channelBadge, tenant?.sms_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={tenant?.sms_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {tenant?.sms_phone_number ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.inboxCardHint}>
+          The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
+          section) - E.164 or local format both work, e.g. 0491 570 156.
+        </Text>
+        <FormField label="Phone number" placeholder="0491 570 156" value={smsPhoneNumberInput} onChangeText={setSmsPhoneNumberInput} keyboardType="phone-pad" />
+        <Pressable style={styles.logoButton} onPress={saveSmsPhoneNumber} disabled={savingSms}>
+          <Text style={styles.logoButtonText}>{savingSms ? "Saving..." : smsSaved ? "Saved!" : "Save"}</Text>
+        </Pressable>
+        {smsError ? <Text style={styles.error}>{smsError}</Text> : null}
+      </View>
+      {[
+        { icon: "🟢", label: "WhatsApp", note: "Needs Meta Business verification and an approved message template before you can message someone first." },
+        { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
+        { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
+      ].map((channel) => (
+        <View key={channel.label} style={styles.inboxCard}>
+          <View style={styles.channelHeaderRow}>
+            <Text style={styles.channelLabel}>
+              {channel.icon} {channel.label}
+            </Text>
+            <View style={[styles.channelBadge, styles.channelBadgeNotConnected]}>
+              <Text style={styles.channelBadgeTextNotConnected}>Not connected</Text>
+            </View>
+          </View>
+          <Text style={styles.inboxCardHint}>{channel.note}</Text>
+        </View>
+      ))}
 
       <View style={styles.fieldSpacing}>
         <FormField label="Company name" value={name} onChangeText={setName} />
@@ -433,4 +495,11 @@ const styles = StyleSheet.create({
   inboxCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 8, marginBottom: 8 },
   inboxCardHint: { fontSize: 13, color: "#6b7280" },
   inboxAddress: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  channelHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  channelLabel: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  channelBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  channelBadgeConnected: { backgroundColor: "#dcfce7" },
+  channelBadgeNotConnected: { backgroundColor: "#f3f4f6" },
+  channelBadgeTextConnected: { fontSize: 11, fontWeight: "700", color: "#15803d" },
+  channelBadgeTextNotConnected: { fontSize: 11, fontWeight: "700", color: "#6b7280" },
 });

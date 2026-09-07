@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
+  updateSmsPhoneNumberSchema,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
   type CalendarCategoryColors,
   type CalendarEventCategory,
@@ -87,10 +88,14 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [inboxAddressCopied, setInboxAddressCopied] = useState(false);
+  const [smsPhoneNumberInput, setSmsPhoneNumberInput] = useState("");
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsSaved, setSmsSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
+      setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -323,6 +328,23 @@ export default function SettingsPage() {
     onError: (e) => setLogoError(getErrorMessage(e, "Failed to remove logo")),
   });
 
+  const saveSmsPhoneNumber = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const result = updateSmsPhoneNumberSchema.safeParse({ sms_phone_number: smsPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ sms_phone_number: result.data.sms_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateTenant();
+      setSmsError(null);
+      setSmsSaved(true);
+      setTimeout(() => setSmsSaved(false), 3000);
+    },
+    onError: (e) => setSmsError(getErrorMessage(e, "Failed to save phone number")),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const result = updateCompanySettingsSchema.safeParse({
@@ -446,6 +468,60 @@ export default function SettingsPage() {
           docs/SETUP.md's Inbox section).
         </p>
       )}
+
+      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Channels</h2>
+      <p className="mb-3 text-sm text-gray-500">
+        Connect a phone number/account for each channel - see the Channels screen to view and reply to
+        conversations, or create a job/task from one.
+      </p>
+      <div className="mb-3 rounded-md border border-gray-200 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-900">💬 SMS</p>
+          {tenant?.sms_phone_number ? (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          )}
+        </div>
+        <p className="mb-2 text-sm text-gray-500">
+          The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
+          section) - E.164 or local format both work, e.g. 0491 570 156.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="tel"
+            value={smsPhoneNumberInput}
+            onChange={(e) => setSmsPhoneNumberInput(e.target.value)}
+            placeholder="0491 570 156"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => saveSmsPhoneNumber.mutate()}
+            disabled={saveSmsPhoneNumber.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveSmsPhoneNumber.isPending ? "Saving..." : smsSaved ? "Saved!" : "Save"}
+          </button>
+        </div>
+        {smsError ? <p className="mt-2 text-sm text-red-600">{smsError}</p> : null}
+      </div>
+      {(
+        [
+          { icon: "🟢", label: "WhatsApp", note: "Needs Meta Business verification and an approved message template before you can message someone first." },
+          { icon: "🔵", label: "Messenger", note: "Needs Meta App Review before this app can message through your Facebook Page - see docs/SETUP.md." },
+          { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
+        ] as const
+      ).map((channel) => (
+        <div key={channel.label} className="mb-3 rounded-md border border-gray-200 p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-900">
+              {channel.icon} {channel.label}
+            </p>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+          </div>
+          <p className="text-sm text-gray-500">{channel.note}</p>
+        </div>
+      ))}
 
       <FormField label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
       <FormField label="ABN" value={abn} onChange={(e) => setAbn(e.target.value)} placeholder="e.g. 12 345 678 901" />

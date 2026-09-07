@@ -56,6 +56,8 @@ import KnowledgeCategoryPage from "./pages/KnowledgeCategory";
 import KnowledgeArticlePage from "./pages/KnowledgeArticle";
 import InboxPage from "./pages/Inbox";
 import InboxMessagePage from "./pages/InboxMessage";
+import ChannelsPage from "./pages/Channels";
+import ChannelConversationDetailPage from "./pages/ChannelConversationDetail";
 
 export default function App() {
   return (
@@ -70,6 +72,9 @@ export default function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/inbox" element={<InboxPage />} />
                 <Route path="/inbox/:id" element={<InboxMessagePage />} />
+                <Route path="/channels" element={<ChannelsPage />}>
+                  <Route path=":id" element={<ChannelConversationDetailPage />} />
+                </Route>
                 <Route path="/knowledge" element={<KnowledgeBasePage />} />
                 <Route path="/knowledge/categories/:id" element={<KnowledgeCategoryPage />} />
                 <Route path="/knowledge/articles/:id" element={<KnowledgeArticlePage />} />

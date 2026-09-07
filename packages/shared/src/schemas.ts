@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ReportFieldType } from "./reports";
 import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
+import { toE164 } from "./channels";
 
 export const createClientSchema = z.object({
   // "Individual" (regular COD homeowner): `name` is their own full name.
@@ -1075,3 +1076,46 @@ export const createJobFromInboxSchema = z.object({
   description: z.string().optional(),
 });
 export type CreateJobFromInboxInput = z.infer<typeof createJobFromInboxSchema>;
+
+// ---------------------------------------------------------------------------
+// Channels
+// ---------------------------------------------------------------------------
+
+// The Company Settings SMS number field - normalises whatever format the
+// admin typed (local AU or already-E.164) before it's ever saved, so a
+// malformed value can't reach tenants.sms_phone_number - see toE164's own
+// comment on why this validation exists at all.
+export const updateSmsPhoneNumberSchema = z.object({
+  sms_phone_number: z.string().transform((val, ctx) => {
+    const normalized = toE164(val);
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid phone number, e.g. 0491 570 156" });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
+});
+export type UpdateSmsPhoneNumberInput = z.infer<typeof updateSmsPhoneNumberSchema>;
+
+export const sendChannelMessageSchema = z.object({
+  conversation_id: z.string().uuid(),
+  body: z.string().min(1, "Message can't be empty"),
+});
+export type SendChannelMessageInput = z.infer<typeof sendChannelMessageSchema>;
+
+// Same shape/intent as createJobFromInboxSchema - always a real client_id
+// by submit time (the form creates a new client first if needed).
+export const createJobFromChannelSchema = z.object({
+  conversation_id: z.string().uuid(),
+  client_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+});
+export type CreateJobFromChannelInput = z.infer<typeof createJobFromChannelSchema>;
+
+export const createTaskFromChannelSchema = z.object({
+  conversation_id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+});
+export type CreateTaskFromChannelInput = z.infer<typeof createTaskFromChannelSchema>;

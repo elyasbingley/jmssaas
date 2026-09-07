@@ -8298,3 +8298,236 @@ already installed from a prior build.
   in this sandbox to typecheck - verified by careful review and structural
   brace/paren balance checks instead, same limitation as every other Edge
   Function added this session.
+
+## 63. Channels - a consolidated per-client communications hub
+
+A CRM-style upgrade: one place to see and reply to every way a client
+talks to the business - SMS, WhatsApp, Facebook Messenger, Instagram DMs -
+plus the existing Inbox emails folded into the same list, and "create a
+job/task from this conversation" the same way Inbox already lets you
+create a job from an email. Reachable from the desktop nav and, per the
+original ask, as its own bottom tab on mobile (not tucked under Settings).
+
+**Scoped deliberately for this pass** - three of the four real channels
+need an external, provider-side step only the account owner can do before
+they can go live at all, so building their full send/receive plumbing now
+would just be dead code sitting behind a wall only you can open:
+
+- **WhatsApp** needs Meta Business verification and, before you can
+  message a NEW contact first (rather than just replying within 24 hours
+  of their last message), an approved message template - both are
+  Meta/WhatsApp account-level steps, not something this codebase can do
+  for you.
+- **Messenger** and **Instagram** both need **Meta App Review** before a
+  SaaS like this can message through a business's own Facebook Page or
+  Instagram account at all (not just your own - the whole point is other
+  tenants connecting their own accounts). That's an external submission
+  (screencast, privacy policy, use-case description) only the app's owner
+  can make in the Meta Developer Portal, and can take days to weeks to
+  come back.
+
+So this pass wires **SMS all the way through** (inbound + outbound, via
+Twilio - the same provider a previous, since-removed SMS attempt used;
+see the channels migration's own comment on why this attempt is
+different), and gives WhatsApp/Messenger/Instagram their `channel_type`
+in the schema plus a "Not connected" row in Settings explaining what each
+one is waiting on - no OAuth flow or webhook exists for those three yet,
+so the schema doesn't need to change again once they are.
+
+### Why SMS is worth trying again
+
+`docs/SETUP.md`'s own "SMS removed" section (search for it above) names
+the two real bugs from last time: wrong Twilio credentials/From number,
+and phone numbers stored in local AU format instead of E.164 - both
+process/data-hygiene bugs, not a reason SMS can't work. This pass adds
+`toE164` (`packages/shared/src/channels.ts`) so every phone number is
+normalised before it's ever stored or sent, and there was never an inbound
+SMS webhook before at all - `twilio-sms-webhook` is genuinely new, not a
+resurrection of deleted code.
+
+### Database (`supabase/migrations/20260927000100_channels.sql`)
+
+`channel_connections` (one row per tenant per non-email channel type,
+tracks connected/not_connected + a jsonb `config` blob), `channel_
+conversations` (one row per external contact per channel - a phone number
+for sms/whatsapp, a Page-Scoped ID for messenger, an Instagram-Scoped ID
+for instagram - optionally linked to a `client_id`), `channel_messages`
+(the thread, inbound/outbound, with a `media` jsonb array for MMS/WhatsApp
+attachments). A private `channel-media` storage bucket. `tenants.sms_
+phone_number` (E.164, unique) is how the inbound webhook finds the right
+tenant - same "look up tenant by the address a message arrived at" shape
+as `inbox_local_part`. RLS: tenant read, admin write - same convention as
+every other admin-scoped module.
+
+**Email is deliberately NOT one of these tables.** It's folded into the
+Channels UI from the existing `inbox_messages` table at query time
+(grouped by `from_email` into a virtual conversation), so there's exactly
+one source of truth for email and no risk of the two ever drifting apart.
+
+Also in this migration set: `supabase/migrations/20260927000200_fix_
+knowledge_article_entity_type.sql` - an unrelated bug found while building
+this, worth fixing immediately rather than leaving it: the Knowledge
+feature's "Email PDF" button has always inserted a `scheduled_
+communications` row with `entity_type: 'knowledge_article'`, but the
+database's own check constraint was never extended to allow that value
+(every other feature that added a new `entity_type` did this same
+drop+add - this one was simply missed). Every "Email PDF" send on a
+Knowledge article was failing outright until this migration.
+
+### Edge Functions
+
+- `twilio-sms-webhook` (public, `--no-verify-jwt`, Twilio's own request-
+  signature verification instead - HMAC-SHA1 of the exact webhook URL,
+  stable/documented for years unlike Resend's inbound shape): looks up the
+  tenant by the `To` number, upserts the conversation (auto-linking an
+  existing client by normalising `clients.phone` and comparing to the
+  sender's E.164 number, since that column has never been validated as
+  E.164 anywhere in the app), stores any MMS media into `channel-media`.
+- `channel-send-message` (called by the app with the signed-in admin's own
+  bearer token, same auth pattern as `xero-oauth-start` - verifies the
+  caller is an admin belonging to the conversation's tenant, then sends
+  via Twilio's Messages API and records the outbound message). Only
+  `channel_type: 'sms'` actually sends for now - it 400s for anything
+  else with a clear "not connected yet" message.
+
+### Desktop (`apps/desktop/src`)
+
+`pages/Channels.tsx` (the unified list - real conversations plus the
+virtual email rows) and `pages/ChannelConversationDetail.tsx` (message
+thread, reply composer gated on `channel_type === 'sms'`, and a "Create
+job"/"Create task" section) open in a right-side panel, replicating
+`Tasks.tsx`'s own nested-route + `useMatch` + overlay pattern - extracted
+this time into a small reusable `components/SidePanel.tsx` rather than a
+second copy-paste, since this is now the second place that exact shape is
+needed (Tasks.tsx itself was left untouched rather than retrofitted, to
+avoid risking a regression in an already-working screen for the sake of
+symmetry). `lib/channels.ts` has the `sendChannelMessage` fetch helper
+(same shape as `lib/dispatch-now.ts`). Settings gained a "Channels"
+section: an SMS phone number field (saves immediately, not part of the
+big Company Settings form) plus three "Not connected" informational rows
+for WhatsApp/Messenger/Instagram naming what each needs.
+
+The email virtual-conversation panel is intentionally lighter than a real
+channel's: it shows the message history and links each one to the
+existing Inbox screen (`/inbox/:id`) for attaching a file, creating a job
+from an AI draft, or dismissing - Inbox itself has never had a "reply by
+email" feature, so Channels doesn't invent one just for symmetry; it
+folds in **visibility**, not net-new email capability. Create job/task
+from the email panel works the same as a real channel's, though.
+
+### Mobile (`apps/mobile`)
+
+A new **Channels** bottom tab (💬, between Home and Sales) - the user's
+original ask was explicit that this needs to be its own tab, not folded
+into Settings the way Inbox/Knowledge were. `app/(tabs)/channels/_layout.tsx`
++ `index.tsx` (list) + `[id].tsx` (detail) - the detail screen is a plain
+pushed Stack screen, matching how Tasks' own `[id].tsx` opens on mobile
+(full screen, header + back button) rather than a new modal/bottom-sheet
+pattern nothing else in this app uses (confirmed by checking - there is no
+existing `presentation: "modal"` anywhere in `apps/mobile`). Company
+Settings gained the same SMS number field + WhatsApp/Messenger/Instagram
+rows as desktop.
+
+### Twilio setup (one-time, in the Twilio Console)
+
+1. Create a Twilio account (or use the platform's existing one, if any -
+   check Console > Account first) and note the Account SID + Auth Token
+   from the Console dashboard.
+2. Buy a phone number capable of SMS (Phone Numbers -> Buy a number -> AU,
+   SMS capability). This becomes the platform's shared Twilio account, but
+   is used by exactly one tenant - paste it (any format - the app
+   normalises it) into that tenant's Company Settings -> Channels -> SMS.
+3. Phone Numbers -> Manage -> your number -> Messaging configuration ->
+   set "A message comes in" to Webhook, HTTP POST, pointed at:
+   `https://<project-ref>.supabase.co/functions/v1/twilio-sms-webhook`
+   **This exact URL matters** - it's hashed into Twilio's signature
+   verification, so a mismatch (trailing slash, wrong project ref) fails
+   every inbound message's signature check.
+4. Set secrets and deploy:
+   ```powershell
+   git pull origin claude/knowledge-and-inbox
+   npx supabase db push
+   npx supabase secrets set TWILIO_ACCOUNT_SID=ACyour_account_sid_here
+   npx supabase secrets set TWILIO_AUTH_TOKEN=your_auth_token_here
+   npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+   npx supabase functions deploy channel-send-message
+   npx vercel --prod
+   ```
+   (`channel-send-message` is called by the app with the user's own
+   session, not Twilio, so it keeps the platform's default JWT
+   verification - no `--no-verify-jwt`.)
+5. A new EAS build is needed for the mobile changes here to reach devices
+   already installed from a prior build.
+
+### When you're ready for WhatsApp/Messenger/Instagram
+
+Not built yet (see the scoping note above) - when you want to tackle one:
+
+- **WhatsApp**: either add it as a Twilio "WhatsApp Sender" (Twilio's
+  Console walks you through Meta Business verification and template
+  submission as part of that flow) or go direct to Meta's WhatsApp Cloud
+  API - either way, budget for the verification step's own timeline
+  before writing any code.
+- **Messenger/Instagram**: start the Meta App Review submission first
+  (Meta for Developers -> your app -> App Review -> request
+  `pages_messaging` for Messenger, `instagram_manage_messages` for
+  Instagram) since that clock is the actual bottleneck - the OAuth
+  "Connect" flow itself, once approved, is a straightforward port of the
+  existing `xero-oauth-start`/`xero-oauth-callback` pattern (see that
+  section of this doc), storing tokens in a new connections table the
+  same never-exposed-to-the-client way `xero_connections`/`google_
+  calendar_connections` already do.
+
+### Test it
+
+1. Settings -> Channels -> save an SMS phone number -> confirm it shows
+   "Connected".
+2. Text that number from your own phone -> confirm it appears in Channels
+   (desktop and mobile) within a few seconds, auto-linked to an existing
+   client if the phone number matches one.
+3. Reply from the Channels panel -> confirm it arrives as a real SMS on
+   your phone.
+4. Text a photo to that number (MMS) -> confirm it shows up as an
+   attachment in the conversation.
+5. Open a conversation with no matching client -> "Create job" -> confirm
+   a new client + job are created and the conversation is now linked to
+   that client.
+6. Channels -> Email filter -> confirm your existing Inbox messages show
+   up grouped by sender, and "Open in Inbox" on one takes you to the
+   existing Inbox message screen.
+
+### Known gaps / judgment calls
+
+- **WhatsApp/Messenger/Instagram have no live send/receive** - by design
+  for this pass, see above. Their Settings rows are informational only.
+- **Outbound is text-only** - no MMS/media attachment on a reply sent from
+  Channels (inbound MMS is fully supported). Not asked for, and adding it
+  means either accepting arbitrary attachment uploads through
+  `channel-send-message` or building a signed-upload flow first - left for
+  when there's an actual need.
+- **Email in Channels is read + link-out only**, not a new reply surface -
+  see the desktop section above for why. Attaching files/creating a job
+  from an AI draft/dismissing all still happen on the existing Inbox
+  screens.
+- **`clients.phone` auto-match is best-effort** - it's free text, never
+  validated as E.164 anywhere in the app (including the client
+  create/edit forms themselves), so a client whose phone number was typed
+  in an unusual format (extra punctuation, a landline written with
+  brackets, etc.) won't auto-link; the admin can still link them manually
+  via "Create job" using the same name.
+- Not tested against a live Twilio account, a real inbound SMS/MMS, or a
+  real device/EAS build - this sandbox has none of those. Verified:
+  `tsc --noEmit` clean across `packages/shared`, `apps/desktop`,
+  `apps/mobile`; both new migrations applied cleanly through the full
+  74-migration chain against a real local Postgres 16 instance (same
+  stub-`auth`/`storage`/`net`/`cron` harness used for every other
+  migration this session), with the new tables/policies/bucket verified
+  by hand afterward. The two new Edge Functions have no Deno runtime
+  available in this sandbox to typecheck - verified by careful review and
+  structural brace/paren balance checks instead, same limitation as every
+  other Edge Function added this session. Twilio's signature-verification
+  algorithm (`twilio-sms-webhook`) is long-documented and unchanged for
+  years, unlike Resend's inbound shape, so it didn't need a live
+  round-trip to get right the way the Inbox email webhook did - but it is
+  still unverified against a real Twilio request from this sandbox, so
+  treat the very first live test send as the real check.
