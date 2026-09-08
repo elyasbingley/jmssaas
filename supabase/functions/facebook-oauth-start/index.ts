@@ -86,6 +86,14 @@ Deno.serve(async (req: Request) => {
   authorizeUrl.searchParams.set("redirect_uri", REDIRECT_URI);
   authorizeUrl.searchParams.set("config_id", FACEBOOK_LOGIN_CONFIG_ID);
   authorizeUrl.searchParams.set("state", state);
+  // Forces Facebook to show the permission/Page-picker dialog fresh every
+  // time, rather than silently reusing a previous grant for this app (e.g.
+  // one made before FACEBOOK_LOGIN_CONFIG_ID existed, which would have
+  // granted no Page access at all) - without this, a stale prior
+  // authorization can make /me/accounts come back empty in
+  // facebook-oauth-callback with no indication a consent screen was even
+  // skipped.
+  authorizeUrl.searchParams.set("auth_type", "rerequest");
 
   return json({ ok: true, url: authorizeUrl.toString() });
 });
