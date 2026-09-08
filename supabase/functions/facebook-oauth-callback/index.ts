@@ -53,6 +53,20 @@ Deno.serve(async (req: Request) => {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const facebookError = url.searchParams.get("error");
+  const facebookErrorDescription = url.searchParams.get("error_description");
+
+  // Logged unconditionally, before any early return - a failure here
+  // previously showed nothing at all in Supabase's own logs (just the
+  // runtime's own Boot/Shutdown lines), making it indistinguishable from
+  // "never called" the same way the Twilio webhooks were before they got
+  // this same fix. Query params only - `code`/`state` are single-use and
+  // about to be burned anyway, not worth redacting further here.
+  console.log("[facebook-oauth-callback] received request", {
+    hasCode: !!code,
+    hasState: !!state,
+    facebookError,
+    facebookErrorDescription,
+  });
 
   if (facebookError) return redirect("error", facebookError);
   if (!code || !state) return redirect("error", "missing_code_or_state");
@@ -72,10 +86,17 @@ Deno.serve(async (req: Request) => {
   codeExchangeUrl.searchParams.set("client_secret", FACEBOOK_APP_SECRET);
   codeExchangeUrl.searchParams.set("redirect_uri", REDIRECT_URI);
   codeExchangeUrl.searchParams.set("code", code);
-  const shortLivedRes = await fetch(codeExchangeUrl.toString());
-  const shortLivedBody = await shortLivedRes.json();
-  if (!shortLivedRes.ok || !shortLivedBody.access_token) {
-    console.error("[facebook-oauth-callback] Code exchange failed", shortLivedBody);
+  let shortLivedBody: Record<string, unknown>;
+  try {
+    const shortLivedRes = await fetch(codeExchangeUrl.toString());
+    shortLivedBody = await shortLivedRes.json();
+    console.log("[facebook-oauth-callback] short-lived token exchange", { ok: shortLivedRes.ok, status: shortLivedRes.status, body: shortLivedBody });
+    if (!shortLivedRes.ok || !shortLivedBody.access_token) {
+      console.error("[facebook-oauth-callback] Code exchange failed", shortLivedBody);
+      return redirect("error", "token_exchange_failed");
+    }
+  } catch (e) {
+    console.error("[facebook-oauth-callback] Code exchange threw", e);
     return redirect("error", "token_exchange_failed");
   }
 
@@ -83,11 +104,18 @@ Deno.serve(async (req: Request) => {
   longLivedUrl.searchParams.set("grant_type", "fb_exchange_token");
   longLivedUrl.searchParams.set("client_id", FACEBOOK_APP_ID);
   longLivedUrl.searchParams.set("client_secret", FACEBOOK_APP_SECRET);
-  longLivedUrl.searchParams.set("fb_exchange_token", shortLivedBody.access_token);
-  const longLivedRes = await fetch(longLivedUrl.toString());
-  const longLivedBody = await longLivedRes.json();
-  if (!longLivedRes.ok || !longLivedBody.access_token) {
-    console.error("[facebook-oauth-callback] Long-lived token exchange failed", longLivedBody);
+  longLivedUrl.searchParams.set("fb_exchange_token", shortLivedBody.access_token as string);
+  let longLivedBody: Record<string, unknown>;
+  try {
+    const longLivedRes = await fetch(longLivedUrl.toString());
+    longLivedBody = await longLivedRes.json();
+    console.log("[facebook-oauth-callback] long-lived token exchange", { ok: longLivedRes.ok, status: longLivedRes.status, body: longLivedBody });
+    if (!longLivedRes.ok || !longLivedBody.access_token) {
+      console.error("[facebook-oauth-callback] Long-lived token exchange failed", longLivedBody);
+      return redirect("error", "token_exchange_failed");
+    }
+  } catch (e) {
+    console.error("[facebook-oauth-callback] Long-lived token exchange threw", e);
     return redirect("error", "token_exchange_failed");
   }
 
@@ -97,9 +125,10 @@ Deno.serve(async (req: Request) => {
   // the wrong one ends up connected, disconnect and reconnect, granting
   // only the correct Page next time - same "no org/Page picker in Phase 1"
   // limitation xero-oauth-callback already documents for Xero.
-  const pagesRes = await fetch(`${GRAPH_API_BASE}/me/accounts?access_token=${encodeURIComponent(longLivedBody.access_token)}`);
+  const pagesRes = await fetch(`${GRAPH_API_BASE}/me/accounts?access_token=${encodeURIComponent(longLivedBody.access_token as string)}`);
   const pagesBody = await pagesRes.json();
   const pages = pagesBody?.data;
+  console.log("[facebook-oauth-callback] managed Pages lookup", { ok: pagesRes.ok, status: pagesRes.status, body: pagesBody });
   if (!pagesRes.ok || !Array.isArray(pages) || pages.length === 0) {
     console.error("[facebook-oauth-callback] Failed to fetch managed Pages", pagesBody);
     return redirect("error", "no_facebook_page_authorised");
@@ -114,6 +143,7 @@ Deno.serve(async (req: Request) => {
   subscribeUrl.searchParams.set("access_token", page.access_token);
   const subscribeRes = await fetch(subscribeUrl.toString(), { method: "POST" });
   const subscribeBody = await subscribeRes.json();
+  console.log("[facebook-oauth-callback] Page webhook subscription", { ok: subscribeRes.ok, status: subscribeRes.status, body: subscribeBody });
   if (!subscribeRes.ok || !subscribeBody.success) {
     console.error("[facebook-oauth-callback] Failed to subscribe Page to webhook", subscribeBody);
     return redirect("error", "webhook_subscription_failed");
