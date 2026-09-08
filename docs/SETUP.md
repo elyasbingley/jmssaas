@@ -8433,15 +8433,20 @@ Knowledge article was failing outright until this migration.
   `channel_messages` row this function still inserts.
 - `facebook-oauth-start`/`facebook-oauth-callback` - a direct port of
   `xero-oauth-start`/`xero-oauth-callback`'s pattern (see that section of
-  this doc for the overall two-step shape). The token exchange is a
-  three-step dance Xero's isn't: short-lived user token -> long-lived user
-  token -> `/me/accounts` for the Page(s) that user manages and each
-  Page's own (long-lived, effectively non-expiring) access token. Takes
-  the first Page returned - same "no picker in Phase 1" limitation as
-  Xero's "first Xero organisation" - and explicitly subscribes that Page
-  to this app's webhook (`POST /{page-id}/subscribed_apps`) before storing
-  the connection, since a Page token alone does not make Meta start
-  calling the webhook below.
+  this doc for the overall two-step shape). The authorize dialog is built
+  with `config_id` (a Facebook Login for Business Configuration ID, see
+  the Meta App setup below), not a plain `scope` parameter - a
+  business-portfolio app silently grants no Page permissions at all with
+  `scope` alone, discovered live: the login "succeeded" but `/me/accounts`
+  came back empty (`no_facebook_page_authorised`) until this was fixed.
+  The token exchange itself is a three-step dance Xero's isn't: short-
+  lived user token -> long-lived user token -> `/me/accounts` for the
+  Page(s) that user manages and each Page's own (long-lived, effectively
+  non-expiring) access token. Takes the first Page returned - same "no
+  picker in Phase 1" limitation as Xero's "first Xero organisation" - and
+  explicitly subscribes that Page to this app's webhook (`POST /{page-id}/
+  subscribed_apps`) before storing the connection, since a Page token
+  alone does not make Meta start calling the webhook below.
 - `facebook-messenger-webhook` - Messenger's inbound webhook. A GET
   handshake (`?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...`,
   echoed back only if the verify token matches `FACEBOOK_WEBHOOK_VERIFY_
@@ -8579,37 +8584,58 @@ Meta's verification timeline before this path is usable.
    test-connect a Page (yourself, plus anyone else testing) as an Admin,
    Developer, or Tester on this Meta App - required for Standard Access to
    work at all before App Review, see the scoping note above.
-5. Messenger -> Settings -> Webhooks -> Add Callback URL:
+5. **If this app is tied to a Meta Business Portfolio/Business Suite
+   account** (check App Roles - a "Meta Business Suite account" card at
+   the top names the business, e.g. shows up automatically once the app
+   is created under a Business Manager): Facebook Login for Business ->
+   Configurations -> **Create configuration** -> asset type **Facebook
+   Page** -> permissions `pages_show_list`, `pages_messaging`,
+   `pages_manage_metadata` -> save it and copy the **Configuration ID**.
+   This is not optional for a business-owned app - a business-portfolio
+   app's login dialog silently ignores a plain `scope` parameter and
+   grants no Page access at all without a Configuration, which surfaces
+   later as `/me/accounts` returning zero Pages (`no_facebook_page_
+   authorised`) even though the login itself appeared to succeed. A
+   personal (non-business) app can skip this and use `scope` directly -
+   but if you got this app by following step 1 above and it shows a
+   Business Suite account, you need this step.
+6. Messenger -> Settings -> Webhooks -> Add Callback URL:
    `https://<project-ref>.supabase.co/functions/v1/facebook-messenger-webhook`,
    Verify Token: any string you pick (this becomes `FACEBOOK_WEBHOOK_
    VERIFY_TOKEN` below - it only has to match what you set as a secret).
    Subscribe the app-level webhook to the `messages` and `messaging_
    postbacks` fields - separate from the per-Page subscription `facebook-
    oauth-callback` already does automatically on connect.
-6. Set secrets and deploy:
+7. Set secrets and deploy (run the whole block below every time, even if
+   you've run some of it before - all of it is safe to re-run):
    ```powershell
    git pull origin claude/knowledge-and-inbox
    npx supabase db push
    npx supabase secrets set FACEBOOK_APP_ID=your_app_id_here
    npx supabase secrets set FACEBOOK_APP_SECRET=your_app_secret_here
+   npx supabase secrets set FACEBOOK_LOGIN_CONFIG_ID=your_login_config_id_here
    npx supabase secrets set FACEBOOK_WEBHOOK_VERIFY_TOKEN=pick-any-string-here
-   npx supabase secrets set FACEBOOK_APP_REDIRECT_URL=https://yourapp.vercel.app/settings/company
+   npx supabase secrets set FACEBOOK_APP_REDIRECT_URL=https://your-real-domain-here/settings/company
    npx supabase functions deploy facebook-oauth-start
    npx supabase functions deploy facebook-oauth-callback --no-verify-jwt
    npx supabase functions deploy facebook-messenger-webhook --no-verify-jwt
    npx supabase functions deploy channel-send-message
    npx vercel --prod
    ```
-   (`facebook-oauth-callback` needs `--no-verify-jwt` for the same reason
-   `xero-oauth-callback` does - it's a public GET reached by Facebook's own
-   redirect, no Supabase session/auth header at all. `facebook-messenger-
-   webhook` needs it too - Meta's GET verification handshake and POST
-   deliveries carry no Supabase auth header either.)
-7. Company Settings -> Channels -> Messenger -> "Connect to Facebook" ->
+   (`FACEBOOK_LOGIN_CONFIG_ID` is only needed for a business-portfolio app,
+   step 5 above - `facebook-oauth-start` 400s with `facebook_login_config_
+   not_set` if it's required and missing. `facebook-oauth-callback` needs
+   `--no-verify-jwt` for the same reason `xero-oauth-callback` does - it's
+   a public GET reached by Facebook's own redirect, no Supabase session/
+   auth header at all. `facebook-messenger-webhook` needs it too - Meta's
+   GET verification handshake and POST deliveries carry no Supabase auth
+   header either. `FACEBOOK_APP_REDIRECT_URL` must be your actual deployed
+   app URL, not a placeholder - the browser lands there after connecting.)
+8. Company Settings -> Channels -> Messenger -> "Connect to Facebook" ->
    log in as an account with a role on this Meta App (step 4) -> pick the
    Page to connect on Facebook's own consent screen -> confirm it
    redirects back showing "Connected".
-8. Once ready to message the general public through client Pages: Meta for
+9. Once ready to message the general public through client Pages: Meta for
    Developers -> your app -> App Review -> request Advanced Access for
    `pages_messaging` (and `pages_show_list`/`pages_manage_metadata`) - an
    external submission (screencast, privacy policy, use-case description)
