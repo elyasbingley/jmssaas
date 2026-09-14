@@ -78,6 +78,10 @@ function callPhone(phone: string) {
   Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`).catch(() => {});
 }
 
+function openInMaps(address: string) {
+  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`).catch(() => {});
+}
+
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
   in_progress: "In progress",
@@ -483,7 +487,7 @@ export default function JobDetailScreen() {
     refetchKeyLog();
   };
 
-  const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
   const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
   const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
   const isAdmin = profile?.role === "admin";
@@ -495,6 +499,11 @@ export default function JobDetailScreen() {
   const { order: actionOrder, quickActions, setOrder: setActionOrder } = useJobActionOrder();
   const [quickNoteModalVisible, setQuickNoteModalVisible] = useState(false);
   const [actionsSheetVisible, setActionsSheetVisible] = useState(false);
+  // Which channel's chooser is open (On The Way template vs. a custom
+  // message) - the Email/SMS quick actions both route through this instead
+  // of jumping straight to compose, since On The Way used to be its own
+  // standalone button and is now a template offered from both.
+  const [messageChoiceChannel, setMessageChoiceChannel] = useState<"email" | "sms" | null>(null);
 
   // Only fetched once the person actually opens Job Costing (not needed for
   // the Details tab's plain quote/invoice number lists above) - avoids a
@@ -1009,10 +1018,10 @@ export default function JobDetailScreen() {
           Alert.alert("No phone number", "This client has no phone number on file.");
           return;
         }
-        Linking.openURL(`sms:${client.phone.replace(/\s+/g, "")}`).catch(() => {});
+        setMessageChoiceChannel("sms");
         return;
       case "email":
-        setJobEmailModalVisible(true);
+        setMessageChoiceChannel("email");
         return;
       case "forms":
         setCreateReportSearch("");
@@ -1049,19 +1058,20 @@ export default function JobDetailScreen() {
           </Pressable>
         </View>
         <Text style={styles.title}>{job.title}</Text>
-        {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
-
-        <Pressable onPress={() => setJobEmailModalVisible(true)}>
-          <Text style={styles.link}>Email</Text>
-        </Pressable>
 
         {client ? (
           <Pressable style={styles.clientCard} onPress={() => router.push(`/sales/clients/${client.id}`)}>
             <Text style={styles.clientCardName}>{client.name}</Text>
-            {client.phone ? <Text style={styles.clientCardMeta}>{client.phone}</Text> : null}
-            {formatClientAddress(client) ? (
-              <Text style={styles.clientCardMeta}>{formatClientAddress(client)}</Text>
-            ) : null}
+          </Pressable>
+        ) : null}
+        {client?.phone ? (
+          <Pressable onPress={() => callPhone(client.phone as string)}>
+            <Text style={styles.clientCardMeta}>📞 {client.phone}</Text>
+          </Pressable>
+        ) : null}
+        {client && formatClientAddress(client) ? (
+          <Pressable onPress={() => openInMaps(formatClientAddress(client) as string)}>
+            <Text style={styles.clientCardMeta}>📍 {formatClientAddress(client)}</Text>
           </Pressable>
         ) : null}
 
@@ -1088,6 +1098,25 @@ export default function JobDetailScreen() {
           </Pressable>
         </View>
         <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+
+        <Pressable
+          style={styles.workdriveRow}
+          onPress={() => router.push({ pathname: "/sales/jobs/billing", params: { jobCardId: job.id } })}
+        >
+          <Text style={styles.workdriveLabel}>Billing</Text>
+          <Text style={styles.link}>
+            {(linkedQuotes ?? []).length + (linkedInvoices ?? []).length} item
+            {(linkedQuotes ?? []).length + (linkedInvoices ?? []).length === 1 ? "" : "s"} ›
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.workdriveRow}
+          onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })}
+        >
+          <Text style={styles.workdriveLabel}>Diary</Text>
+          <Text style={styles.link}>Notes · Photos · Files ›</Text>
+        </Pressable>
 
         {job.is_real_estate_job ? (
           <View style={styles.agencyCard}>
@@ -1150,67 +1179,7 @@ export default function JobDetailScreen() {
             <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
           </Pressable>
         ) : null}
-        <Pressable
-          style={[styles.tabButton, activeTab === "tools" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("tools")}
-        >
-          <Text style={[styles.tabButtonText, activeTab === "tools" && styles.tabButtonTextActive]}>Quote Tools</Text>
-        </Pressable>
       </View>
-
-      {activeTab === "tools" ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Roof Area</Text>
-          <MeasureRoofTool jobCardId={id} />
-
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Linear Measurer</Text>
-          <LinearMeasurerTool jobCardId={id} />
-
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Tally</Text>
-          <MaterialTallyCounter
-            jobCardId={id}
-            onTransferToOrder={(items) => setTransferredTallyItems(items)}
-          />
-
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Concrete Calculator</Text>
-          <ConcreteCalculatorTool jobCardId={id} />
-
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Order</Text>
-          <MaterialOrderFormTool
-            jobCardId={id}
-            prefillItems={transferredTallyItems}
-            onConsumedPrefill={() => setTransferredTallyItems(null)}
-          />
-
-          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Photo Markup</Text>
-          {markupPhoto ? (
-            <PhotoMarkupEditor
-              jobCardId={id}
-              photoUri={markupPhoto.local_uri!}
-              photoFileName={markupPhoto.file_name ?? "photo.jpg"}
-              onSaved={() => setMarkupPhoto(null)}
-              onCancel={() => setMarkupPhoto(null)}
-            />
-          ) : (
-            <>
-              <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
-              <View style={styles.markupGrid}>
-                {files.filter((f) => f.local_uri).length === 0 ? (
-                  <Text style={styles.empty}>No downloaded photos yet - add or open one from Photos below first.</Text>
-                ) : (
-                  files
-                    .filter((f) => f.local_uri)
-                    .map((f) => (
-                      <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
-                        <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
-                      </Pressable>
-                    ))
-                )}
-              </View>
-            </>
-          )}
-        </View>
-      ) : null}
 
       {activeTab === "costing" && isAdmin ? (
         !isOnline ? (
@@ -1271,94 +1240,47 @@ export default function JobDetailScreen() {
       {activeTab === "details" || !isAdmin ? (
         <>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notify client</Text>
-        <Pressable
-          style={styles.onTheWayButton}
-          onPress={() => {
-            setEtaMinutes("");
-            setOnTheWayError(null);
-            setOnTheWayModalVisible(true);
-          }}
-        >
-          <Text style={styles.onTheWayButtonText}>🚚 On The Way</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Category</Text>
-        <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
-          <View style={styles.pickerFieldRow}>
-            {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
-            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {category?.name ?? "No category"}
-            </Text>
-          </View>
-        </Pressable>
-        {category ? (
-          <Pressable onPress={() => handleCategoryChange(null)}>
-            <Text style={styles.clearLink}>Clear</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>Job Description</Text>
+          <Pressable onPress={openEditModal}>
+            <Text style={styles.link}>Edit</Text>
           </Pressable>
-        ) : null}
+        </View>
+        {job.description ? (
+          <Text style={styles.description}>{job.description}</Text>
+        ) : (
+          <Text style={styles.empty}>No description yet. Tap Edit to add one.</Text>
+        )}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Lifecycle stage</Text>
-        <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
-          <View style={styles.pickerFieldRow}>
-            {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
-            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {stage?.name ?? "No stage"}
-            </Text>
-          </View>
-        </Pressable>
-        {stage ? (
-          <Pressable onPress={() => handleStageChange(null)}>
-            <Text style={styles.clearLink}>Clear</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quotes</Text>
-        {(linkedQuotes ?? []).map((q) => (
-          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
-            <Text style={styles.linkedRowText}>{q.quote_number}</Text>
-            <Text style={styles.linkedRowTotal}>{formatCentsAsAud(q.total_cents)}</Text>
+        <Text style={styles.sectionTitle}>Tasks</Text>
+        {jobTasks.map((t) => (
+          <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
+            <Text style={styles.taskRowTitle}>{t.title}</Text>
+            <Pressable
+              style={styles.taskStatusBadge}
+              onPress={(e) => {
+                e.stopPropagation();
+                cycleTaskStatus(t);
+              }}
+            >
+              <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
+            </Pressable>
           </Pressable>
         ))}
-        {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
-        {!isOnline ? (
-          <Text style={styles.empty}>Connect to view or create quotes.</Text>
-        ) : profile?.role === "admin" ? (
-          <Pressable
-            style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-          >
-            <Text style={styles.linkButtonText}>+ New quote for this job</Text>
-          </Pressable>
+        {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
+        {profile?.role === "admin" ? (
+          <View style={styles.addTaskRow}>
+            <View style={{ flex: 1 }}>
+              <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
+            </View>
+            <Pressable style={styles.button} onPress={handleAddTask}>
+              <Text style={styles.buttonText}>Add</Text>
+            </Pressable>
+          </View>
         ) : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Invoices</Text>
-        {(linkedInvoices ?? []).map((inv) => (
-          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
-            <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
-            <Text style={styles.linkedRowTotal}>{formatCentsAsAud(inv.total_cents)}</Text>
-          </Pressable>
-        ))}
-        {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
-        {!isOnline ? (
-          <Text style={styles.empty}>Connect to view or create invoices.</Text>
-        ) : profile?.role === "admin" ? (
-          <Pressable
-            style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-          >
-            <Text style={styles.linkButtonText}>+ New invoice for this job</Text>
-          </Pressable>
-        ) : null}
+        {taskError ? <Text style={styles.error}>{taskError}</Text> : null}
       </View>
 
       <View style={styles.section}>
@@ -1397,6 +1319,56 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Job Tools</Text>
+        <Text style={styles.subtitle}>Roof Area</Text>
+        <MeasureRoofTool jobCardId={id} />
+
+        <Text style={[styles.subtitle, { marginTop: 20 }]}>Linear Measurer</Text>
+        <LinearMeasurerTool jobCardId={id} />
+
+        <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Tally</Text>
+        <MaterialTallyCounter jobCardId={id} onTransferToOrder={(items) => setTransferredTallyItems(items)} />
+
+        <Text style={[styles.subtitle, { marginTop: 20 }]}>Concrete Calculator</Text>
+        <ConcreteCalculatorTool jobCardId={id} />
+
+        <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Order</Text>
+        <MaterialOrderFormTool
+          jobCardId={id}
+          prefillItems={transferredTallyItems}
+          onConsumedPrefill={() => setTransferredTallyItems(null)}
+        />
+
+        <Text style={[styles.subtitle, { marginTop: 20 }]}>Photo Markup</Text>
+        {markupPhoto ? (
+          <PhotoMarkupEditor
+            jobCardId={id}
+            photoUri={markupPhoto.local_uri!}
+            photoFileName={markupPhoto.file_name ?? "photo.jpg"}
+            onSaved={() => setMarkupPhoto(null)}
+            onCancel={() => setMarkupPhoto(null)}
+          />
+        ) : (
+          <>
+            <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
+            <View style={styles.markupGrid}>
+              {files.filter((f) => f.local_uri).length === 0 ? (
+                <Text style={styles.empty}>No downloaded photos yet - add or open one from the Diary first.</Text>
+              ) : (
+                files
+                  .filter((f) => f.local_uri)
+                  .map((f) => (
+                    <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
+                      <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
+                    </Pressable>
+                  ))
+              )}
+            </View>
+          </>
+        )}
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Upcoming Bookings</Text>
         {(upcomingBookings ?? []).map((event) => (
           <Pressable key={event.id} style={styles.linkedRow} onPress={() => router.push(`/calendar/${event.id}`)}>
@@ -1424,7 +1396,40 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Reports & Safety</Text>
+        <Text style={styles.sectionTitle}>Job Details</Text>
+        <Text style={styles.workdriveLabel}>Category</Text>
+        <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
+            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {category?.name ?? "No category"}
+            </Text>
+          </View>
+        </Pressable>
+        {category ? (
+          <Pressable onPress={() => handleCategoryChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+
+        <Text style={[styles.workdriveLabel, { marginTop: 12 }]}>Status</Text>
+        <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
+            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {stage?.name ?? "No stage"}
+            </Text>
+          </View>
+        </Pressable>
+        {stage ? (
+          <Pressable onPress={() => handleStageChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Forms & Certificates</Text>
         {(linkedReports ?? []).map((r) => (
           <Pressable key={r.id} style={styles.linkedRow} onPress={() => router.push(`/reports/instance/${r.id}`)}>
             <Text style={styles.linkedRowText}>
@@ -1487,47 +1492,6 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tasks</Text>
-        {jobTasks.map((t) => (
-          <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
-            <Text style={styles.taskRowTitle}>{t.title}</Text>
-            <Pressable
-              style={styles.taskStatusBadge}
-              onPress={(e) => {
-                e.stopPropagation();
-                cycleTaskStatus(t);
-              }}
-            >
-              <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
-            </Pressable>
-          </Pressable>
-        ))}
-        {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
-        {profile?.role === "admin" ? (
-          <View style={styles.addTaskRow}>
-            <View style={{ flex: 1 }}>
-              <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
-            </View>
-            <Pressable style={styles.button} onPress={handleAddTask}>
-              <Text style={styles.buttonText}>Add</Text>
-            </Pressable>
-          </View>
-        ) : null}
-        {taskError ? <Text style={styles.error}>{taskError}</Text> : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Diary</Text>
-        <Pressable
-          style={styles.button}
-          onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })}
-        >
-          <Text style={styles.buttonText}>Open Diary</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>Notes, photos and files for this job all live in the Diary.</Text>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Communication Log</Text>
         <ThemedCommunicationLog
           entities={[
@@ -1579,6 +1543,38 @@ export default function JobDetailScreen() {
       onReorder={setActionOrder}
       onAction={runJobAction}
     />
+
+    <ThemedModal visible={messageChoiceChannel !== null} onClose={() => setMessageChoiceChannel(null)}>
+      <Text style={styles.modalTitle}>{messageChoiceChannel === "sms" ? "SMS" : "Email"}</Text>
+      <Pressable
+        style={styles.button}
+        onPress={() => {
+          setMessageChoiceChannel(null);
+          setEtaMinutes("");
+          setOnTheWayError(null);
+          setOnTheWayModalVisible(true);
+        }}
+      >
+        <Text style={styles.buttonText}>On The Way (ETA update)</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.button, { marginTop: 10 }]}
+        onPress={() => {
+          const channel = messageChoiceChannel;
+          setMessageChoiceChannel(null);
+          if (channel === "email") {
+            setJobEmailModalVisible(true);
+          } else if (channel === "sms" && client?.phone) {
+            Linking.openURL(`sms:${client.phone.replace(/\s+/g, "")}`).catch(() => {});
+          }
+        }}
+      >
+        <Text style={styles.buttonText}>{messageChoiceChannel === "sms" ? "Write a custom SMS" : "Write a custom email"}</Text>
+      </Pressable>
+      <Pressable onPress={() => setMessageChoiceChannel(null)} style={{ marginTop: 10, alignSelf: "center" }}>
+        <Text style={styles.link}>Cancel</Text>
+      </Pressable>
+    </ThemedModal>
 
     <ThemedModal visible={onTheWayModalVisible} onClose={() => setOnTheWayModalVisible(false)}>
       <Text style={styles.modalTitle}>On The Way</Text>
@@ -1968,9 +1964,6 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     button: { backgroundColor: tokens.accent, borderRadius: 3, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center" as const },
     buttonText: { color: tokens.background, fontWeight: "700" as const, letterSpacing: 0.5, textTransform: "uppercase" as const, ...mono },
     addNoteButton: { alignSelf: "flex-start" as const, marginTop: 10 },
-    measureHint: { color: tokens.textMuted, fontSize: font.label, marginTop: 8, ...mono },
-    onTheWayButton: { backgroundColor: tokens.accent, borderRadius: 3, padding: 14, alignItems: "center" as const },
-    onTheWayButtonText: { color: tokens.background, fontWeight: "700" as const, fontSize: font.body, letterSpacing: 0.5, textTransform: "uppercase" as const, ...mono },
     multiline: { minHeight: 70, textAlignVertical: "top" as const },
     error: { color: tokens.danger, marginTop: 6, fontSize: font.label, ...mono },
     noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: tokens.border },

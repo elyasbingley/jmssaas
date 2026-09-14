@@ -9,9 +9,9 @@ interface JobActionsBarProps {
 }
 
 // Persistent bottom bar - the user's 4 chosen quick-press actions as
-// icon-only buttons, plus a 5th "more" button opening JobActionsSheet for
-// the rest. See lib/job-actions.ts for how the quick set/order is chosen
-// and persisted.
+// icon-only buttons (no text labels, per spec), plus a 5th "more" button
+// opening JobActionsSheet for the rest. See lib/job-actions.ts for how the
+// quick set/order is chosen and persisted.
 export function JobActionsBar({ quickActions, onAction, onMore }: JobActionsBarProps) {
   const styles = useThemedStyles(createStyles);
   return (
@@ -21,21 +21,17 @@ export function JobActionsBar({ quickActions, onAction, onMore }: JobActionsBarP
         return (
           <Pressable key={id} style={styles.button} onPress={() => onAction(id)} hitSlop={6}>
             <Text style={styles.icon}>{action.icon}</Text>
-            <Text style={styles.label} numberOfLines={1}>
-              {action.label.toUpperCase()}
-            </Text>
           </Pressable>
         );
       })}
       <Pressable style={styles.button} onPress={onMore} hitSlop={6}>
         <Text style={styles.icon}>⋮</Text>
-        <Text style={styles.label}>MORE</Text>
       </Pressable>
     </View>
   );
 }
 
-function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+function createStyles({ tokens, font }: StyleTheme) {
   return {
     bar: {
       flexDirection: "row" as const,
@@ -52,14 +48,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
       // Meets the ~44pt/48dp minimum recommended touch target on a Pixel
       // 9 Pro XL's higher density display.
       minHeight: 56,
-      gap: 2,
     },
-    icon: { fontSize: font.title },
-    label: {
-      color: tokens.accent,
-      fontFamily: fontFamily.mobileFontFamily,
-      fontSize: font.label - 2,
-      letterSpacing: 0.5,
-    },
+    icon: { fontSize: font.title + 6, color: tokens.accent },
   };
 }

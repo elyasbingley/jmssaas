@@ -6,6 +6,7 @@ export default function JobsLayout() {
       <Stack.Screen name="index" options={{ title: "Jobs" }} />
       <Stack.Screen name="[id]" options={{ headerShown: false }} />
       <Stack.Screen name="diary" options={{ headerShown: false }} />
+      <Stack.Screen name="billing" options={{ headerShown: false }} />
     </Stack>
   );
 }
