@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { FlatList, Pressable, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -17,9 +19,11 @@ import {
 } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { formatClientAddress } from "../../../lib/format";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { CommunicationLog } from "../../../components/CommunicationLog";
-import { FormField } from "../../../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
+import { ThemedModal } from "../../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
+import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunicationLog";
 import { MembershipStatusCard } from "../../../components/MembershipStatusCard";
 
 export default function ClientDetailScreen() {
@@ -27,6 +31,7 @@ export default function ClientDetailScreen() {
   const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
 
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [id]);
   const client = clientRows[0];
@@ -332,135 +337,151 @@ export default function ClientDetailScreen() {
     setSiteModalVisible(false);
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Client</Text>
+      <Pressable style={styles.addButton} onPress={() => setModalVisible(true)} hitSlop={8}>
+        <Text style={styles.addButtonText}>+</Text>
+      </Pressable>
+    </View>
+  );
+
   if (!client) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Loading...</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
   const address = formatClientAddress(client);
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={jobCards}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/jobs/${item.id}`)}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.rowTitleRow}>
-                <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
-                <Text style={styles.rowTitle}>{item.title}</Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        <FlatList
+          data={jobCards}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <Pressable style={styles.row} onPress={() => router.push(`/jobs/${item.id}`)}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.rowTitleRow}>
+                  <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                </View>
               </View>
-            </View>
-            {stageById.get(item.lifecycle_stage_id ?? "") ? (
-              <Text style={styles.rowSubtitle}>{stageById.get(item.lifecycle_stage_id ?? "")!.name}</Text>
-            ) : null}
-          </Pressable>
-        )}
-        ListHeaderComponent={
-          <>
-            <View style={styles.clientHeader}>
-              <View style={styles.clientHeaderRow}>
-                <Text style={styles.clientName}>
-                  {client.client_type === "company" && client.company_name ? client.company_name : client.name}
-                </Text>
-                <Pressable onPress={openEditModal}>
-                  <Text style={styles.link}>Edit</Text>
-                </Pressable>
-              </View>
-              {client.client_type === "company" && client.company_name ? (
-                <Text style={styles.clientMeta}>{client.name}</Text>
+              {stageById.get(item.lifecycle_stage_id ?? "") ? (
+                <Text style={styles.rowSubtitle}>{stageById.get(item.lifecycle_stage_id ?? "")!.name}</Text>
               ) : null}
-              {client.phone ? <Text style={styles.clientMeta}>{client.phone}</Text> : null}
-              {client.email ? <Text style={styles.clientMeta}>{client.email}</Text> : null}
-              {address ? <Text style={styles.clientMeta}>{address}</Text> : null}
-              {client.notes ? <Text style={styles.clientNotes}>{client.notes}</Text> : null}
-            </View>
-
-            <View style={styles.subSection}>
-              <View style={styles.subSectionHeader}>
-                <Text style={styles.sectionTitle}>Contacts</Text>
-                <Pressable onPress={openNewContact}>
-                  <Text style={styles.link}>+ Add contact</Text>
-                </Pressable>
-              </View>
-              {contacts.length === 0 ? (
-                <Text style={styles.emptySmall}>No additional contacts on file.</Text>
-              ) : (
-                contacts.map((contact) => (
-                  <Pressable key={contact.id} style={styles.subRow} onPress={() => openEditContact(contact)}>
-                    <Text style={styles.subRowTitle}>
-                      {contact.name}
-                      {contact.is_primary ? " (Primary)" : ""}
-                      {contact.role ? ` - ${contact.role}` : ""}
-                    </Text>
-                    {contact.phone ? <Text style={styles.subRowMeta}>{contact.phone}</Text> : null}
-                    {contact.email ? <Text style={styles.subRowMeta}>{contact.email}</Text> : null}
+            </Pressable>
+          )}
+          ListHeaderComponent={
+            <>
+              <View style={styles.clientHeader}>
+                <View style={styles.clientHeaderRow}>
+                  <Text style={styles.clientName}>
+                    {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+                  </Text>
+                  <Pressable onPress={openEditModal}>
+                    <Text style={styles.link}>Edit</Text>
                   </Pressable>
-                ))
-              )}
-            </View>
-
-            <View style={styles.subSection}>
-              <View style={styles.subSectionHeader}>
-                <Text style={styles.sectionTitle}>Addresses</Text>
-                <Pressable onPress={openNewSite}>
-                  <Text style={styles.link}>+ Add address</Text>
-                </Pressable>
+                </View>
+                {client.client_type === "company" && client.company_name ? (
+                  <Text style={styles.clientMeta}>{client.name}</Text>
+                ) : null}
+                {client.phone ? <Text style={styles.clientMeta}>{client.phone}</Text> : null}
+                {client.email ? <Text style={styles.clientMeta}>{client.email}</Text> : null}
+                {address ? <Text style={styles.clientMeta}>{address}</Text> : null}
+                {client.notes ? <Text style={styles.clientNotes}>{client.notes}</Text> : null}
               </View>
-              {sites.length === 0 ? (
-                <Text style={styles.emptySmall}>No additional addresses on file.</Text>
-              ) : (
-                sites.map((site) => (
-                  <Pressable key={site.id} style={styles.subRow} onPress={() => openEditSite(site)}>
-                    <Text style={styles.subRowTitle}>
-                      {site.label || "Site"}
-                      {site.is_primary ? " (Primary)" : ""}
-                    </Text>
-                    <Text style={styles.subRowMeta}>{formatClientAddress(site)}</Text>
+
+              <View style={styles.subSection}>
+                <View style={styles.subSectionHeader}>
+                  <Text style={styles.sectionTitle}>Contacts</Text>
+                  <Pressable onPress={openNewContact}>
+                    <Text style={styles.link}>+ Add contact</Text>
                   </Pressable>
-                ))
-              )}
+                </View>
+                {contacts.length === 0 ? (
+                  <Text style={styles.emptySmall}>No additional contacts on file.</Text>
+                ) : (
+                  contacts.map((contact) => (
+                    <Pressable key={contact.id} style={styles.subRow} onPress={() => openEditContact(contact)}>
+                      <Text style={styles.subRowTitle}>
+                        {contact.name}
+                        {contact.is_primary ? " (Primary)" : ""}
+                        {contact.role ? ` - ${contact.role}` : ""}
+                      </Text>
+                      {contact.phone ? <Text style={styles.subRowMeta}>{contact.phone}</Text> : null}
+                      {contact.email ? <Text style={styles.subRowMeta}>{contact.email}</Text> : null}
+                    </Pressable>
+                  ))
+                )}
+              </View>
+
+              <View style={styles.subSection}>
+                <View style={styles.subSectionHeader}>
+                  <Text style={styles.sectionTitle}>Addresses</Text>
+                  <Pressable onPress={openNewSite}>
+                    <Text style={styles.link}>+ Add address</Text>
+                  </Pressable>
+                </View>
+                {sites.length === 0 ? (
+                  <Text style={styles.emptySmall}>No additional addresses on file.</Text>
+                ) : (
+                  sites.map((site) => (
+                    <Pressable key={site.id} style={styles.subRow} onPress={() => openEditSite(site)}>
+                      <Text style={styles.subRowTitle}>
+                        {site.label || "Site"}
+                        {site.is_primary ? " (Primary)" : ""}
+                      </Text>
+                      <Text style={styles.subRowMeta}>{formatClientAddress(site)}</Text>
+                    </Pressable>
+                  ))
+                )}
+              </View>
+
+              <View style={{ marginHorizontal: 16 }}>
+                <MembershipStatusCard clientId={id} />
+              </View>
+
+              <Text style={styles.sectionTitle}>Jobs</Text>
+            </>
+          }
+          ListEmptyComponent={<Text style={styles.empty}>No jobs yet for this client.</Text>}
+          contentContainerStyle={jobCards.length === 0 ? styles.emptyContainer : undefined}
+          ListFooterComponent={
+            // Scoped to this client's own jobs (On The Way/review-request
+            // messages) - quote/invoice follow-ups aren't included here since
+            // there's no locally-synced way to look up "which quotes/invoices
+            // belong to this client" offline (quotes/invoices are online-only,
+            // see docs/SETUP.md); the job detail screen shows those, since it
+            // already fetches its own linked quotes/invoices from Supabase.
+            <View style={styles.commLogSection}>
+              <Text style={styles.sectionTitle}>Communication Log</Text>
+              <ThemedCommunicationLog entities={jobCards.map((j) => ({ entityType: "job" as const, entityId: j.id }))} />
             </View>
+          }
+        />
+      </SafeAreaView>
 
-            <View style={{ marginHorizontal: 16 }}>
-              <MembershipStatusCard clientId={id} />
-            </View>
-
-            <Text style={styles.sectionTitle}>Jobs</Text>
-          </>
-        }
-        ListEmptyComponent={<Text style={styles.empty}>No jobs yet for this client.</Text>}
-        contentContainerStyle={jobCards.length === 0 ? styles.emptyContainer : undefined}
-        ListFooterComponent={
-          // Scoped to this client's own jobs (On The Way/review-request
-          // messages) - quote/invoice follow-ups aren't included here since
-          // there's no locally-synced way to look up "which quotes/invoices
-          // belong to this client" offline (quotes/invoices are online-only,
-          // see docs/SETUP.md); the job detail screen shows those, since it
-          // already fetches its own linked quotes/invoices from Supabase.
-          <View style={styles.commLogSection}>
-            <Text style={styles.sectionTitle}>Communication Log</Text>
-            <CommunicationLog entities={jobCards.map((j) => ({ entityType: "job" as const, entityId: j.id }))} />
-          </View>
-        }
-      />
-
-      <Pressable style={styles.fab} onPress={() => setModalVisible(true)}>
-        <Text style={styles.fabText}>+ New job</Text>
-      </Pressable>
-
-      <CenteredModal
+      <ThemedModal
         visible={modalVisible}
         onClose={() => {
           setModalVisible(false);
           setFormError(null);
         }}
       >
-        <Text style={styles.modalTitle}>New job</Text>
+        <Text style={styles.modalTitle}>New Job</Text>
         {/* Client details are auto-populated by the job_cards.client_id
             link (this same row shown above) rather than re-entered here -
             there's no separate copy of name/address/email/phone to keep in
@@ -472,8 +493,8 @@ export default function ClientDetailScreen() {
           {client.email ? <Text style={styles.clientSummarySub}>{client.email}</Text> : null}
           {address ? <Text style={styles.clientSummarySub}>{address}</Text> : null}
         </View>
-        <FormField label="Title" placeholder="e.g. Roof inspection" value={title} onChangeText={setTitle} />
-        <FormField
+        <ThemedFormField label="Title" placeholder="e.g. Roof inspection" value={title} onChangeText={setTitle} />
+        <ThemedFormField
           label="Description (optional)"
           placeholder="e.g. valley channel inspection, supply and install"
           value={description}
@@ -491,14 +512,12 @@ export default function ClientDetailScreen() {
           >
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleCreate}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleCreate} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
-        <Text style={styles.modalTitle}>Edit client</Text>
+      <ThemedModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit Client</Text>
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Company client</Text>
           <Switch
@@ -507,16 +526,16 @@ export default function ClientDetailScreen() {
           />
         </View>
         {editClientType === "company" ? (
-          <FormField label="Company name" placeholder="e.g. McGrath Estate Agents" value={editCompanyName} onChangeText={setEditCompanyName} />
+          <ThemedFormField label="Company name" placeholder="e.g. McGrath Estate Agents" value={editCompanyName} onChangeText={setEditCompanyName} />
         ) : null}
-        <FormField
+        <ThemedFormField
           label={editClientType === "company" ? "Primary contact name" : "Name"}
           placeholder="Client name"
           value={editName}
           onChangeText={setEditName}
         />
-        <FormField label="Phone" placeholder="Phone number" value={editPhone} onChangeText={setEditPhone} keyboardType="phone-pad" />
-        <FormField
+        <ThemedFormField label="Phone" placeholder="Phone number" value={editPhone} onChangeText={setEditPhone} keyboardType="phone-pad" />
+        <ThemedFormField
           label="Email"
           placeholder="client@example.com"
           value={editEmail}
@@ -524,20 +543,20 @@ export default function ClientDetailScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <FormField label="Address line 1" placeholder="Street address" value={editAddressLine1} onChangeText={setEditAddressLine1} />
-        <FormField label="Address line 2 (optional)" placeholder="Unit, floor, etc." value={editAddressLine2} onChangeText={setEditAddressLine2} />
+        <ThemedFormField label="Address line 1" placeholder="Street address" value={editAddressLine1} onChangeText={setEditAddressLine1} />
+        <ThemedFormField label="Address line 2 (optional)" placeholder="Unit, floor, etc." value={editAddressLine2} onChangeText={setEditAddressLine2} />
         <View style={styles.addressRow}>
           <View style={styles.addressRowItem}>
-            <FormField label="Suburb" placeholder="Suburb" value={editSuburb} onChangeText={setEditSuburb} />
+            <ThemedFormField label="Suburb" placeholder="Suburb" value={editSuburb} onChangeText={setEditSuburb} />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="State" placeholder="e.g. NSW" value={editState} onChangeText={setEditState} autoCapitalize="characters" />
+            <ThemedFormField label="State" placeholder="e.g. NSW" value={editState} onChangeText={setEditState} autoCapitalize="characters" />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="Postcode" placeholder="e.g. 2000" value={editPostcode} onChangeText={setEditPostcode} keyboardType="number-pad" />
+            <ThemedFormField label="Postcode" placeholder="e.g. 2000" value={editPostcode} onChangeText={setEditPostcode} keyboardType="number-pad" />
           </View>
         </View>
-        <FormField
+        <ThemedFormField
           label="Notes (optional)"
           placeholder="Notes"
           value={editNotes}
@@ -550,18 +569,16 @@ export default function ClientDetailScreen() {
           <Pressable onPress={() => setEditModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveEdit}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveEdit} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={contactModalVisible} onClose={() => setContactModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingContact ? "Edit contact" : "New contact"}</Text>
-        <FormField label="Name" placeholder="Contact name" value={contactName} onChangeText={setContactName} />
-        <FormField label="Role (optional)" placeholder="e.g. Property Manager" value={contactRole} onChangeText={setContactRole} />
-        <FormField label="Phone" placeholder="Phone number" value={contactPhone} onChangeText={setContactPhone} keyboardType="phone-pad" />
-        <FormField
+      <ThemedModal visible={contactModalVisible} onClose={() => setContactModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingContact ? "Edit Contact" : "New Contact"}</Text>
+        <ThemedFormField label="Name" placeholder="Contact name" value={contactName} onChangeText={setContactName} />
+        <ThemedFormField label="Role (optional)" placeholder="e.g. Property Manager" value={contactRole} onChangeText={setContactRole} />
+        <ThemedFormField label="Phone" placeholder="Phone number" value={contactPhone} onChangeText={setContactPhone} keyboardType="phone-pad" />
+        <ThemedFormField
           label="Email"
           placeholder="contact@example.com"
           value={contactEmail}
@@ -586,30 +603,28 @@ export default function ClientDetailScreen() {
             <Pressable onPress={() => setContactModalVisible(false)}>
               <Text style={styles.link}>Cancel</Text>
             </Pressable>
-            <Pressable style={styles.button} onPress={handleSaveContact}>
-              <Text style={styles.buttonText}>Save</Text>
-            </Pressable>
+            <ThemedButton label="Save" onPress={handleSaveContact} />
           </View>
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={siteModalVisible} onClose={() => setSiteModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingSite ? "Edit address" : "New address"}</Text>
-        <FormField label="Label (optional)" placeholder="e.g. Rental property" value={siteLabel} onChangeText={setSiteLabel} />
-        <FormField label="Address line 1" placeholder="Street address" value={siteAddressLine1} onChangeText={setSiteAddressLine1} />
-        <FormField label="Address line 2 (optional)" placeholder="Unit, floor, etc." value={siteAddressLine2} onChangeText={setSiteAddressLine2} />
+      <ThemedModal visible={siteModalVisible} onClose={() => setSiteModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingSite ? "Edit Address" : "New Address"}</Text>
+        <ThemedFormField label="Label (optional)" placeholder="e.g. Rental property" value={siteLabel} onChangeText={setSiteLabel} />
+        <ThemedFormField label="Address line 1" placeholder="Street address" value={siteAddressLine1} onChangeText={setSiteAddressLine1} />
+        <ThemedFormField label="Address line 2 (optional)" placeholder="Unit, floor, etc." value={siteAddressLine2} onChangeText={setSiteAddressLine2} />
         <View style={styles.addressRow}>
           <View style={styles.addressRowItem}>
-            <FormField label="Suburb" placeholder="Suburb" value={siteSuburb} onChangeText={setSiteSuburb} />
+            <ThemedFormField label="Suburb" placeholder="Suburb" value={siteSuburb} onChangeText={setSiteSuburb} />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="State" placeholder="e.g. NSW" value={siteState} onChangeText={setSiteState} autoCapitalize="characters" />
+            <ThemedFormField label="State" placeholder="e.g. NSW" value={siteState} onChangeText={setSiteState} autoCapitalize="characters" />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="Postcode" placeholder="e.g. 2000" value={sitePostcode} onChangeText={setSitePostcode} keyboardType="number-pad" />
+            <ThemedFormField label="Postcode" placeholder="e.g. 2000" value={sitePostcode} onChangeText={setSitePostcode} keyboardType="number-pad" />
           </View>
         </View>
-        <FormField label="Notes (optional)" placeholder="Access notes, etc." value={siteNotes} onChangeText={setSiteNotes} multiline style={styles.multiline} />
+        <ThemedFormField label="Notes (optional)" placeholder="Access notes, etc." value={siteNotes} onChangeText={setSiteNotes} multiline style={styles.multiline} />
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Primary address</Text>
           <Switch value={siteIsPrimary} onValueChange={setSiteIsPrimary} />
@@ -627,68 +642,104 @@ export default function ClientDetailScreen() {
             <Pressable onPress={() => setSiteModalVisible(false)}>
               <Text style={styles.link}>Cancel</Text>
             </Pressable>
-            <Pressable style={styles.button} onPress={handleSaveSite}>
-              <Text style={styles.buttonText}>Save</Text>
-            </Pressable>
+            <ThemedButton label="Save" onPress={handleSaveSite} />
           </View>
         </View>
-      </CenteredModal>
-    </View>
+      </ThemedModal>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  clientHeader: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db", gap: 4 },
-  clientHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  clientName: { fontSize: 20, fontWeight: "700" },
-  clientMeta: { color: "#6b7280" },
-  clientNotes: { marginTop: 8, color: "#374151" },
-  sectionTitle: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, fontWeight: "700", color: "#6b7280" },
-  commLogSection: { paddingHorizontal: 16, paddingBottom: 24 },
-  row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db", flexDirection: "row", alignItems: "center" },
-  rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
-  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
-  // flexShrink so a long lifecycle stage name (free text, admin-defined,
-  // no length cap) can't overflow past the row's edge next to the
-  // flex:1 title block - same fix shape as jobs/index.tsx's stageBadgeText.
-  rowSubtitle: { color: "#6b7280", marginTop: 2, flexShrink: 1, maxWidth: "40%", textAlign: "right" },
-  empty: { textAlign: "center", color: "#6b7280" },
-  emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  fab: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    backgroundColor: "#1d4ed8",
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  fabText: { color: "#fff", fontWeight: "700" },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  clientSummary: { backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, gap: 2 },
-  clientSummaryLabel: { fontSize: 12, fontWeight: "700", color: "#6b7280", marginBottom: 2 },
-  clientSummaryText: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  clientSummarySub: { fontSize: 13, color: "#6b7280" },
-  addressRow: { flexDirection: "row", gap: 8 },
-  addressRowItem: { flex: 2 },
-  addressRowItemSmall: { flex: 1 },
-  multiline: { minHeight: 80, textAlignVertical: "top" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  modalActionsSplit: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
-  modalActionsRight: { flexDirection: "row", alignItems: "center", gap: 20 },
-  deleteLink: { color: "#dc2626", fontWeight: "600" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  error: { color: "#dc2626" },
-  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, marginBottom: 8, gap: 12 },
-  switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1 },
-  subSection: { paddingHorizontal: 16 },
-  subSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
-  subRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  subRowTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  subRowMeta: { fontSize: 13, color: "#6b7280", marginTop: 1 },
-  emptySmall: { color: "#9ca3af", fontSize: 13, paddingVertical: 8 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 4,
+      gap: 6,
+    },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, flex: 1, ...mono },
+    addButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      backgroundColor: tokens.accentGlow,
+    },
+    addButtonText: { color: tokens.accent, fontSize: 22, fontWeight: "700" as const, marginTop: -2, ...mono },
+    clientHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: tokens.border, gap: 4 },
+    clientHeaderRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    clientName: { fontSize: font.title, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, ...mono },
+    clientMeta: { color: tokens.textMuted, fontSize: font.body - 1, ...mono },
+    clientNotes: { marginTop: 8, color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
+    sectionTitle: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 4,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      fontSize: font.label,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    commLogSection: { paddingHorizontal: 16, paddingBottom: 24 },
+    row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: tokens.border, flexDirection: "row" as const, alignItems: "center" as const },
+    rowTitleRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    rowNumber: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, flexShrink: 0, ...mono },
+    rowTitle: { fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    // flexShrink so a long lifecycle stage name (free text, admin-defined,
+    // no length cap) can't overflow past the row's edge next to the
+    // flex:1 title block - same fix shape as jobs/index.tsx's stageBadgeText.
+    rowSubtitle: { color: tokens.textMuted, marginTop: 2, flexShrink: 1, maxWidth: "40%" as const, textAlign: "right" as const, fontSize: font.label, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, ...mono },
+    emptyContainer: { flex: 1, justifyContent: "center" as const, padding: 24 },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    clientSummary: { backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, gap: 2 },
+    clientSummaryLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginBottom: 2,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    clientSummaryText: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    clientSummarySub: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    addressRow: { flexDirection: "row" as const, gap: 8 },
+    addressRowItem: { flex: 2 },
+    addressRowItemSmall: { flex: 1 },
+    multiline: { minHeight: 80, textAlignVertical: "top" as const },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    modalActionsSplit: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 8 },
+    modalActionsRight: { flexDirection: "row" as const, alignItems: "center" as const, gap: 20 },
+    deleteLink: { color: tokens.danger, fontWeight: "600" as const, ...mono },
+    error: { color: tokens.danger, ...mono },
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 4, marginBottom: 8, gap: 12 },
+    switchLabel: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    subSection: { paddingHorizontal: 16 },
+    subSectionHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 4 },
+    subRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    subRowTitle: { fontSize: font.label + 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    subRowMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 1, ...mono },
+    emptySmall: { color: tokens.textMuted, fontSize: font.label, paddingVertical: 8, ...mono },
+  };
+}
