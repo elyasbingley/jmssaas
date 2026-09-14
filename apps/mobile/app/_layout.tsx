@@ -63,15 +63,10 @@ function RootNavigator() {
   }
 
   // Outside the tab bar entirely: the (tabs) group (its own Tabs
-  // navigator, each tab wrapping its own native Stack - see
-  // app/(tabs)/_layout.tsx), login, and a couple of standalone admin
-  // screens (company-settings, schedule, team, job-setup) - see
-  // docs/SETUP.md for why Schedule/dispatch was placed this way instead of
-  // a new tab. company-settings/team/job-setup are now reached from the
-  // Settings tab's list (see (tabs)/settings/index.tsx) rather than a
-  // header link on Home - the route names/files are unchanged, only the
-  // header titles below were renamed to match that list's labels (Company
-  // Details/Team-Staff/Job Card Setup).
+  // navigator - just Home/Jobs/Notifications/More now, see
+  // app/(tabs)/_layout.tsx), login, and every other section - each with
+  // its own nested Stack/header, reached via a Home icon, a More button,
+  // or drilling into a job/client/etc, not its own tab.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
@@ -91,6 +86,11 @@ function RootNavigator() {
       <Stack.Screen name="b2b-referrals" />
       <Stack.Screen name="knowledge" />
       <Stack.Screen name="inbox" />
+      <Stack.Screen name="channels" />
+      <Stack.Screen name="tasks" />
+      <Stack.Screen name="calendar" />
+      <Stack.Screen name="settings" />
+      <Stack.Screen name="sales" />
     </Stack>
   );
 }

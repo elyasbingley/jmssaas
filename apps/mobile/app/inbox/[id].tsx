@@ -194,7 +194,7 @@ export default function InboxMessageScreen() {
       await copyAttachmentsToJob({ attachments: attachments ?? [], tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id });
       const { error: updateError } = await supabase.from("inbox_messages").update({ status: "attached", linked_job_id: job.id }).eq("id", id);
       if (updateError) throw updateError;
-      router.replace(`/sales/jobs/${job.id}`);
+      router.replace(`/jobs/${job.id}`);
     } catch (e) {
       setCreateError(getErrorMessage(e, "Failed to create job"));
     } finally {

@@ -322,7 +322,7 @@ export default function PurchaseOrderDetailScreen() {
         </View>
       </View>
       {job ? (
-        <Pressable onPress={() => router.push(`/sales/jobs/${po.job_card_id}`)}>
+        <Pressable onPress={() => router.push(`/jobs/${po.job_card_id}`)}>
           <Text style={styles.link}>Job: {job.title}</Text>
         </Pressable>
       ) : null}
