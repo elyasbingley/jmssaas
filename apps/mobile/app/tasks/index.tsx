@@ -1,14 +1,18 @@
 import { useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { FlatList, Pressable, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createTaskSchema, type Profile, type Task, type TaskPriority, type TaskProject, type TaskSection, type TaskStatus } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
-import { CenteredModal } from "../../components/CenteredModal";
-import { FormField } from "../../components/FormField";
-import { DateField } from "../../components/DateField";
-import { PickerModal } from "../../components/PickerModal";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../components/theme/ThemedDateField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -32,6 +36,7 @@ export default function TasksScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   // Every device syncs the whole tenant's tasks table (see
   // powersync/sync-rules.yaml), so unlike Postgres RLS this local query has
@@ -88,6 +93,11 @@ export default function TasksScreen() {
     setFormError(null);
   };
 
+  const closeModal = () => {
+    setModalVisible(false);
+    resetForm();
+  };
+
   const handleCreate = async () => {
     const result = createTaskSchema.safeParse({
       title,
@@ -131,113 +141,114 @@ export default function TasksScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.filterRow}>
-        <Pressable
-          style={[styles.filterChip, selectedProjectId === null && styles.filterChipActive]}
-          onPress={() => {
-            setSelectedProjectId(null);
-            setSelectedSectionId(null);
-          }}
-        >
-          <Text style={[styles.filterChipText, selectedProjectId === null && styles.filterChipTextActive]}>All Projects</Text>
-        </Pressable>
-        {projects.map((project) => (
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Tasks</Text>
+          {isAdmin ? (
+            <Pressable style={styles.addButton} onPress={() => setModalVisible(true)} hitSlop={8}>
+              <Text style={styles.addButtonText}>+</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.filterRow}>
           <Pressable
-            key={project.id}
-            style={[styles.filterChip, selectedProjectId === project.id && styles.filterChipActive]}
+            style={[styles.filterChip, selectedProjectId === null && styles.filterChipActive]}
             onPress={() => {
-              setSelectedProjectId(project.id);
+              setSelectedProjectId(null);
               setSelectedSectionId(null);
             }}
           >
-            <Text style={[styles.filterChipText, selectedProjectId === project.id && styles.filterChipTextActive]}>{project.name}</Text>
+            <Text style={[styles.filterChipText, selectedProjectId === null && styles.filterChipTextActive]}>All Projects</Text>
           </Pressable>
-        ))}
-      </View>
-
-      {selectedProjectId && sections.length > 0 ? (
-        <View style={styles.filterRow}>
-          <Pressable
-            style={[styles.filterChip, selectedSectionId === null && styles.filterChipActive]}
-            onPress={() => setSelectedSectionId(null)}
-          >
-            <Text style={[styles.filterChipText, selectedSectionId === null && styles.filterChipTextActive]}>All sections</Text>
-          </Pressable>
-          {sections.map((section) => (
+          {projects.map((project) => (
             <Pressable
-              key={section.id}
-              style={[styles.filterChip, selectedSectionId === section.id && styles.filterChipActive]}
-              onPress={() => setSelectedSectionId(section.id)}
+              key={project.id}
+              style={[styles.filterChip, selectedProjectId === project.id && styles.filterChipActive]}
+              onPress={() => {
+                setSelectedProjectId(project.id);
+                setSelectedSectionId(null);
+              }}
             >
-              <Text style={[styles.filterChipText, selectedSectionId === section.id && styles.filterChipTextActive]}>{section.name}</Text>
+              <Text style={[styles.filterChipText, selectedProjectId === project.id && styles.filterChipTextActive]}>{project.name}</Text>
             </Pressable>
           ))}
         </View>
-      ) : null}
 
-      <View style={styles.filterRow}>
-        {(["all", "mine", "due_today"] as QuickFilter[]).map((f) => (
-          <Pressable key={f} style={[styles.filterChip, quickFilter === f && styles.filterChipActive]} onPress={() => setQuickFilter(f)}>
-            <Text style={[styles.filterChipText, quickFilter === f && styles.filterChipTextActive]}>
-              {f === "all" ? "All" : f === "mine" ? "My Tasks" : "Due Today"}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+        {selectedProjectId && sections.length > 0 ? (
+          <View style={styles.filterRow}>
+            <Pressable
+              style={[styles.filterChip, selectedSectionId === null && styles.filterChipActive]}
+              onPress={() => setSelectedSectionId(null)}
+            >
+              <Text style={[styles.filterChipText, selectedSectionId === null && styles.filterChipTextActive]}>All sections</Text>
+            </Pressable>
+            {sections.map((section) => (
+              <Pressable
+                key={section.id}
+                style={[styles.filterChip, selectedSectionId === section.id && styles.filterChipActive]}
+                onPress={() => setSelectedSectionId(section.id)}
+              >
+                <Text style={[styles.filterChipText, selectedSectionId === section.id && styles.filterChipTextActive]}>{section.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
-      <View style={styles.filterRow}>
-        {(["all", ...STATUSES] as StatusFilter[]).map((status) => (
-          <Pressable
-            key={status}
-            style={[styles.filterChip, statusFilter === status && styles.filterChipActive]}
-            onPress={() => setStatusFilter(status)}
-          >
-            <Text style={[styles.filterChipText, statusFilter === status && styles.filterChipTextActive]}>
-              {status === "all" ? "All" : STATUS_LABELS[status]}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+        <View style={styles.filterRow}>
+          {(["all", "mine", "due_today"] as QuickFilter[]).map((f) => (
+            <Pressable key={f} style={[styles.filterChip, quickFilter === f && styles.filterChipActive]} onPress={() => setQuickFilter(f)}>
+              <Text style={[styles.filterChipText, quickFilter === f && styles.filterChipTextActive]}>
+                {f === "all" ? "All" : f === "mine" ? "My Tasks" : "Due Today"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
-      <FlatList
-        data={filteredTasks}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => router.push(`/tasks/${item.id}`)}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.rowTitleRow}>
-                <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
-                <Text style={styles.rowTitle}>
-                  {item.is_milestone ? "🔶 " : ""}
-                  {item.title}
-                </Text>
+        <View style={styles.filterRow}>
+          {(["all", ...STATUSES] as StatusFilter[]).map((status) => (
+            <Pressable
+              key={status}
+              style={[styles.filterChip, statusFilter === status && styles.filterChipActive]}
+              onPress={() => setStatusFilter(status)}
+            >
+              <Text style={[styles.filterChipText, statusFilter === status && styles.filterChipTextActive]}>
+                {status === "all" ? "All" : STATUS_LABELS[status]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <FlatList
+          style={styles.list}
+          data={filteredTasks}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <Pressable style={styles.row} onPress={() => router.push(`/tasks/${item.id}`)}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.rowTitleRow}>
+                  <Text style={styles.rowNumber}>{item.number ?? "Pending sync"}</Text>
+                  <Text style={styles.rowTitle} numberOfLines={1}>
+                    {item.is_milestone ? "🔶 " : ""}
+                    {item.title}
+                  </Text>
+                </View>
+                {item.due_date ? <Text style={styles.rowSubtitle}>Due {item.due_date}</Text> : null}
               </View>
-              {item.due_date ? <Text style={styles.rowSubtitle}>Due {item.due_date}</Text> : null}
-            </View>
-            <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
-          </Pressable>
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>No tasks here.</Text>}
-        contentContainerStyle={filteredTasks.length === 0 ? styles.emptyContainer : undefined}
-      />
+              <Text style={styles.statusBadge}>{STATUS_LABELS[item.status]}</Text>
+            </Pressable>
+          )}
+          ListEmptyComponent={<Text style={styles.empty}>No tasks here.</Text>}
+          contentContainerStyle={filteredTasks.length === 0 ? styles.emptyContainer : styles.listContent}
+        />
+      </SafeAreaView>
 
-      {isAdmin ? (
-        <Pressable style={styles.fab} onPress={() => setModalVisible(true)}>
-          <Text style={styles.fabText}>+ New task</Text>
-        </Pressable>
-      ) : null}
-
-      <CenteredModal
-        visible={modalVisible}
-        onClose={() => {
-          setModalVisible(false);
-          resetForm();
-        }}
-      >
-        <Text style={styles.modalTitle}>New task</Text>
-        <FormField label="Title" placeholder="Task title" value={title} onChangeText={setTitle} />
-        <FormField
+      <ThemedModal visible={modalVisible} onClose={closeModal}>
+        <Text style={styles.modalTitle}>New Task</Text>
+        <ThemedFormField label="Title" placeholder="Task title" value={title} onChangeText={setTitle} />
+        <ThemedFormField
           label="Description (optional)"
           placeholder="Description"
           value={description}
@@ -245,12 +256,12 @@ export default function TasksScreen() {
           multiline
           style={styles.multiline}
         />
-        <DateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+        <ThemedDateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
 
         <Text style={styles.fieldLabel}>Priority</Text>
         <View style={styles.priorityRow}>
           {PRIORITIES.map((p) => (
-            <Pressable key={p} style={[styles.priorityChip, priority === p && styles.filterChipActive]} onPress={() => setPriority(p)}>
+            <Pressable key={p} style={[styles.filterChip, priority === p && styles.filterChipActive]} onPress={() => setPriority(p)}>
               <Text style={[styles.filterChipText, priority === p && styles.filterChipTextActive]}>{PRIORITY_LABELS[p]}</Text>
             </Pressable>
           ))}
@@ -263,26 +274,19 @@ export default function TasksScreen() {
 
         <View style={styles.switchRow}>
           <Text style={styles.fieldLabel}>Milestone</Text>
-          <Switch value={isMilestone} onValueChange={setIsMilestone} />
+          <Switch value={isMilestone} onValueChange={setIsMilestone} trackColor={{ true: styles.switchOn.color }} />
         </View>
 
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
-          <Pressable
-            onPress={() => {
-              setModalVisible(false);
-              resetForm();
-            }}
-          >
+          <Pressable onPress={closeModal}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleCreate}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleCreate} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <PickerModal
+      <ThemedPickerModal
         visible={assigneePickerVisible}
         title="Select assignee"
         items={[null, ...profiles]}
@@ -291,52 +295,82 @@ export default function TasksScreen() {
         onSelect={setAssignee}
         onClose={() => setAssigneePickerVisible(false)}
       />
-    </View>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingTop: 12 },
-  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6" },
-  filterChipActive: { backgroundColor: "#111827" },
-  filterChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  filterChipTextActive: { color: "#fff" },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-  },
-  rowTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowNumber: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", flexShrink: 0 },
-  rowTitle: { fontSize: 16, fontWeight: "600", flex: 1 },
-  rowSubtitle: { color: "#6b7280", marginTop: 2 },
-  statusBadge: { color: "#1d4ed8", fontWeight: "600", fontSize: 12, flexShrink: 0 },
-  empty: { textAlign: "center", color: "#6b7280" },
-  emptyContainer: { flex: 1, justifyContent: "center", padding: 24 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  fab: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    backgroundColor: "#1d4ed8",
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  fabText: { color: "#fff", fontWeight: "700" },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  error: { color: "#dc2626" },
-  fieldLabel: { fontWeight: "600", color: "#374151", marginTop: 10, marginBottom: 6 },
-  priorityRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
-  priorityChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6" },
-  assigneeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
-  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+    },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    addButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      backgroundColor: tokens.accentGlow,
+    },
+    addButtonText: { color: tokens.accent, fontSize: 22, fontWeight: "700" as const, marginTop: -2, ...mono },
+    filterRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, paddingHorizontal: 12, paddingTop: 12 },
+    filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface },
+    filterChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    filterChipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    filterChipTextActive: { color: tokens.accent },
+    list: { flex: 1, marginTop: 8 },
+    listContent: { paddingBottom: 24 },
+    row: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      marginHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+      gap: 8,
+    },
+    rowTitleRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    rowNumber: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, flexShrink: 0, ...mono },
+    rowTitle: { fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    rowSubtitle: { color: tokens.textMuted, marginTop: 2, fontSize: font.label, ...mono },
+    statusBadge: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, flexShrink: 0, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, ...mono },
+    emptyContainer: { flex: 1, justifyContent: "center" as const, padding: 24 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    error: { color: tokens.danger, ...mono },
+    fieldLabel: {
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginTop: 10,
+      marginBottom: 6,
+      fontSize: font.label,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    priorityRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginBottom: 6 },
+    assigneeRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 4 },
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 10 },
+    switchOn: { color: tokens.accent },
+  };
+}

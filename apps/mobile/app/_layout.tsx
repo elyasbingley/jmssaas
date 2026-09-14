@@ -71,15 +71,15 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Details" }} />
-      <Stack.Screen name="dashboard-settings" options={{ headerShown: true, title: "Dashboard" }} />
+      <Stack.Screen name="company-settings" options={{ headerShown: false }} />
+      <Stack.Screen name="dashboard-settings" options={{ headerShown: false }} />
       <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
       <Stack.Screen name="team" options={{ headerShown: true, title: "Team/Staff" }} />
-      <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />
-      <Stack.Screen name="inventory-setup" options={{ headerShown: true, title: "Inventory Setup" }} />
+      <Stack.Screen name="job-setup" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory-setup" options={{ headerShown: false }} />
       <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
       <Stack.Screen name="ui-settings" options={{ headerShown: false }} />
-      <Stack.Screen name="google-calendar-settings" options={{ headerShown: true, title: "Google Calendar" }} />
+      <Stack.Screen name="google-calendar-settings" options={{ headerShown: false }} />
       <Stack.Screen name="real-estate" />
       <Stack.Screen name="reports" />
       <Stack.Screen name="subcontractors" />

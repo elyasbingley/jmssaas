@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -12,14 +15,15 @@ import {
   type InventorySupplier,
 } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
-import { CenteredModal } from "../components/CenteredModal";
-import { FormField } from "../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
-// Reached via a small admin-only "Inventory Setup" link in the Settings
-// tab, alongside "Job Card Setup" - same "occasional setup screen, not a
-// daily tool" reasoning, and the same PowerSync-synced (offline-capable)
-// shape as job-setup.tsx: reads via useQuery, writes via
-// powersync.execute(), no RequiresConnectionNotice gate.
+// Reached via Settings > Inventory Setup, alongside Job Card Setup - same
+// "occasional setup screen, not a daily tool" reasoning, and the same
+// PowerSync-synced (offline-capable) shape as job-setup.tsx: reads via
+// useQuery, writes via powersync.execute(), no connection gate.
 //
 // Manages the two-level category hierarchy (Material/Tools/First Aid
 // Kit -> Roofing/Plumbing/Tapware, ...) and the flat supplier list
@@ -29,9 +33,11 @@ import { FormField } from "../components/FormField";
 // only manages categories/stages), so this screen stays scoped to setup
 // data an item picks from, not items themselves.
 export default function InventorySetupScreen() {
+  const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: categories } = useQuery<InventoryCategory>(
     "SELECT * FROM inventory_categories ORDER BY sort_order, name"
@@ -256,100 +262,106 @@ export default function InventorySetupScreen() {
     ]);
   };
 
-  if (!isAdmin) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Only admins can manage inventory setup.</Text>
-      </View>
-    );
-  }
-
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.sectionTitle}>Categories</Text>
-        <Text style={styles.subtitle}>
-          "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
-        </Text>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+          <Text style={styles.title}>Inventory Setup</Text>
+        </View>
 
-        {categories.map((category) => {
-          const categorySubcategories = subcategories.filter((s) => s.category_id === category.id);
-          return (
-            <View key={category.id} style={styles.categoryBlock}>
-              <View style={styles.row}>
-                <View style={styles.rowLabel}>
-                  <View style={[styles.swatch, category.color ? { backgroundColor: category.color } : styles.swatchEmpty]} />
-                  <Text style={styles.rowText}>{category.name}</Text>
+        {!isAdmin ? (
+          <Text style={styles.empty}>Only admins can manage inventory setup.</Text>
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <Text style={styles.sectionTitle}>Categories</Text>
+            <Text style={styles.subtitle}>
+              "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
+            </Text>
+
+            {categories.map((category) => {
+              const categorySubcategories = subcategories.filter((s) => s.category_id === category.id);
+              return (
+                <View key={category.id} style={styles.categoryBlock}>
+                  <View style={styles.row}>
+                    <View style={styles.rowLabel}>
+                      <View style={[styles.swatch, category.color ? { backgroundColor: category.color } : styles.swatchEmpty]} />
+                      <Text style={styles.rowText}>{category.name}</Text>
+                    </View>
+                    <View style={styles.rowActions}>
+                      <Pressable onPress={() => openEditCategory(category)}>
+                        <Text style={styles.link}>Edit</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleDeleteCategory(category)}>
+                        <Text style={styles.deleteLink}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  {categorySubcategories.map((subcategory) => (
+                    <View key={subcategory.id} style={[styles.row, styles.subcategoryRow]}>
+                      <View style={styles.rowLabel}>
+                        <View
+                          style={[styles.swatch, subcategory.color ? { backgroundColor: subcategory.color } : styles.swatchEmpty]}
+                        />
+                        <Text style={styles.rowText}>{subcategory.name}</Text>
+                      </View>
+                      <View style={styles.rowActions}>
+                        <Pressable onPress={() => openEditSubcategory(subcategory)}>
+                          <Text style={styles.link}>Edit</Text>
+                        </Pressable>
+                        <Pressable onPress={() => handleDeleteSubcategory(subcategory)}>
+                          <Text style={styles.deleteLink}>Delete</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+
+                  <Pressable style={styles.addSubcategoryButton} onPress={() => openNewSubcategory(category.id)}>
+                    <Text style={styles.addSubcategoryButtonText}>+ Add subcategory</Text>
+                  </Pressable>
                 </View>
+              );
+            })}
+            {categories.length === 0 ? <Text style={styles.empty}>No categories yet.</Text> : null}
+
+            <Pressable style={styles.addButton} onPress={openNewCategory}>
+              <Text style={styles.addButtonText}>+ New Category</Text>
+            </Pressable>
+
+            <Text style={[styles.sectionTitle, styles.secondSection]}>Suppliers</Text>
+            <Text style={styles.subtitle}>Who you buy each item from - e.g. "Bunnings", "Reece".</Text>
+
+            {suppliers.map((supplier) => (
+              <View key={supplier.id} style={styles.row}>
+                <Text style={styles.rowText}>{supplier.name}</Text>
                 <View style={styles.rowActions}>
-                  <Pressable onPress={() => openEditCategory(category)}>
+                  <Pressable onPress={() => openEditSupplier(supplier)}>
                     <Text style={styles.link}>Edit</Text>
                   </Pressable>
-                  <Pressable onPress={() => handleDeleteCategory(category)}>
+                  <Pressable onPress={() => handleDeleteSupplier(supplier)}>
                     <Text style={styles.deleteLink}>Delete</Text>
                   </Pressable>
                 </View>
               </View>
+            ))}
+            {suppliers.length === 0 ? <Text style={styles.empty}>No suppliers yet.</Text> : null}
 
-              {categorySubcategories.map((subcategory) => (
-                <View key={subcategory.id} style={[styles.row, styles.subcategoryRow]}>
-                  <View style={styles.rowLabel}>
-                    <View
-                      style={[styles.swatch, subcategory.color ? { backgroundColor: subcategory.color } : styles.swatchEmpty]}
-                    />
-                    <Text style={styles.rowText}>{subcategory.name}</Text>
-                  </View>
-                  <View style={styles.rowActions}>
-                    <Pressable onPress={() => openEditSubcategory(subcategory)}>
-                      <Text style={styles.link}>Edit</Text>
-                    </Pressable>
-                    <Pressable onPress={() => handleDeleteSubcategory(subcategory)}>
-                      <Text style={styles.deleteLink}>Delete</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
+            <Pressable style={styles.addButton} onPress={openNewSupplier}>
+              <Text style={styles.addButtonText}>+ New Supplier</Text>
+            </Pressable>
+          </ScrollView>
+        )}
+      </SafeAreaView>
 
-              <Pressable style={styles.addSubcategoryButton} onPress={() => openNewSubcategory(category.id)}>
-                <Text style={styles.addSubcategoryButtonText}>+ Add subcategory</Text>
-              </Pressable>
-            </View>
-          );
-        })}
-        {categories.length === 0 ? <Text style={styles.empty}>No categories yet.</Text> : null}
-
-        <Pressable style={styles.addButton} onPress={openNewCategory}>
-          <Text style={styles.addButtonText}>+ New category</Text>
-        </Pressable>
-
-        <Text style={[styles.sectionTitle, styles.secondSection]}>Suppliers</Text>
-        <Text style={styles.subtitle}>Who you buy each item from - e.g. "Bunnings", "Reece".</Text>
-
-        {suppliers.map((supplier) => (
-          <View key={supplier.id} style={styles.row}>
-            <Text style={styles.rowText}>{supplier.name}</Text>
-            <View style={styles.rowActions}>
-              <Pressable onPress={() => openEditSupplier(supplier)}>
-                <Text style={styles.link}>Edit</Text>
-              </Pressable>
-              <Pressable onPress={() => handleDeleteSupplier(supplier)}>
-                <Text style={styles.deleteLink}>Delete</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
-        {suppliers.length === 0 ? <Text style={styles.empty}>No suppliers yet.</Text> : null}
-
-        <Pressable style={styles.addButton} onPress={openNewSupplier}>
-          <Text style={styles.addButtonText}>+ New supplier</Text>
-        </Pressable>
-      </ScrollView>
-
-      <CenteredModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingCategory ? "Edit category" : "New category"}</Text>
-        <FormField label="Name" placeholder="e.g. Material, Tools, First Aid Kit" value={categoryName} onChangeText={setCategoryName} />
+      <ThemedModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingCategory ? "Edit Category" : "New Category"}</Text>
+        <ThemedFormField label="Name" placeholder="e.g. Material, Tools, First Aid Kit" value={categoryName} onChangeText={setCategoryName} />
         <View style={styles.fieldSpacing}>
-          <FormField
+          <ThemedFormField
             label="Color (optional hex, e.g. #1d4ed8)"
             placeholder="#1d4ed8"
             value={categoryColor}
@@ -362,17 +374,15 @@ export default function InventorySetupScreen() {
           <Pressable onPress={() => setCategoryModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveCategory}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveCategory} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={subcategoryModalVisible} onClose={() => setSubcategoryModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingSubcategory ? "Edit subcategory" : "New subcategory"}</Text>
-        <FormField label="Name" placeholder="e.g. Roofing, Power Tools" value={subcategoryName} onChangeText={setSubcategoryName} />
+      <ThemedModal visible={subcategoryModalVisible} onClose={() => setSubcategoryModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingSubcategory ? "Edit Subcategory" : "New Subcategory"}</Text>
+        <ThemedFormField label="Name" placeholder="e.g. Roofing, Power Tools" value={subcategoryName} onChangeText={setSubcategoryName} />
         <View style={styles.fieldSpacing}>
-          <FormField
+          <ThemedFormField
             label="Color (optional hex, e.g. #1d4ed8)"
             placeholder="#1d4ed8"
             value={subcategoryColor}
@@ -385,61 +395,84 @@ export default function InventorySetupScreen() {
           <Pressable onPress={() => setSubcategoryModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveSubcategory}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveSubcategory} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={supplierModalVisible} onClose={() => setSupplierModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingSupplier ? "Edit supplier" : "New supplier"}</Text>
-        <FormField label="Name" placeholder="e.g. Bunnings, Reece" value={supplierName} onChangeText={setSupplierName} />
+      <ThemedModal visible={supplierModalVisible} onClose={() => setSupplierModalVisible(false)}>
+        <Text style={styles.modalTitle}>{editingSupplier ? "Edit Supplier" : "New Supplier"}</Text>
+        <ThemedFormField label="Name" placeholder="e.g. Bunnings, Reece" value={supplierName} onChangeText={setSupplierName} />
         {supplierError ? <Text style={styles.error}>{supplierError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setSupplierModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveSupplier}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveSupplier} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  sectionTitle: { fontSize: 17, fontWeight: "700", color: "#111827" },
-  secondSection: { marginTop: 28 },
-  subtitle: { color: "#6b7280", marginTop: 2, marginBottom: 16 },
-  categoryBlock: { marginBottom: 8 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-    gap: 8,
-  },
-  subcategoryRow: { paddingLeft: 20 },
-  rowLabel: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
-  swatch: { width: 14, height: 14, borderRadius: 7 },
-  swatchEmpty: { backgroundColor: "#e5e7eb" },
-  rowText: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  rowActions: { flexDirection: "row", alignItems: "center", gap: 14 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  deleteLink: { color: "#dc2626", fontWeight: "600" },
-  addSubcategoryButton: { paddingLeft: 20, paddingVertical: 8 },
-  addSubcategoryButtonText: { color: "#1d4ed8", fontWeight: "600", fontSize: 13 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 16 },
-  addButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 16 },
-  addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  fieldSpacing: { marginTop: 16 },
-  error: { color: "#dc2626", marginTop: 12 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    secondSection: { marginTop: 28 },
+    subtitle: { color: tokens.textMuted, marginTop: 2, marginBottom: 16, fontSize: font.body - 1, ...mono },
+    categoryBlock: { marginBottom: 8 },
+    row: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+      gap: 8,
+    },
+    subcategoryRow: { paddingLeft: 20 },
+    rowLabel: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexShrink: 1 },
+    swatch: { width: 14, height: 14, borderRadius: 7 },
+    swatchEmpty: { backgroundColor: tokens.border },
+    rowText: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    rowActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 14 },
+    deleteLink: { color: tokens.danger, fontWeight: "600" as const, ...mono },
+    addSubcategoryButton: { paddingLeft: 20, paddingVertical: 8 },
+    addSubcategoryButtonText: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 16, ...mono },
+    addButton: {
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentGlow,
+      borderRadius: 3,
+      padding: 14,
+      alignItems: "center" as const,
+      marginTop: 16,
+    },
+    addButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.body, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    fieldSpacing: { marginTop: 16 },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 16 },
+  };
+}

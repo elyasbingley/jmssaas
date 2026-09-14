@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
@@ -15,11 +17,13 @@ import {
 } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
 import { addTaskPhoto } from "../../lib/powersync";
-import { CenteredModal } from "../../components/CenteredModal";
-import { FormField } from "../../components/FormField";
-import { DateField } from "../../components/DateField";
-import { PickerModal } from "../../components/PickerModal";
-import { PhotoAttachments } from "../../components/PhotoAttachments";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../components/theme/ThemedDateField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedPhotoAttachments } from "../../components/theme/ThemedPhotoAttachments";
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
@@ -53,6 +57,7 @@ export default function TaskDetailScreen() {
   const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
 
   const { data: taskRows } = useQuery<Task>("SELECT * FROM tasks WHERE id = ?", [id]);
   const task = taskRows[0];
@@ -196,6 +201,7 @@ export default function TaskDetailScreen() {
   if (!task) {
     return (
       <View style={styles.container}>
+        <StatusBar style="light" />
         <Text style={styles.empty}>Loading...</Text>
       </View>
     );
@@ -203,218 +209,251 @@ export default function TaskDetailScreen() {
 
   return (
     <>
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <View style={styles.section}>
-        <View style={styles.titleRow}>
-          <Text style={styles.number}>{task.number ?? "Pending sync"}</Text>
-          <Pressable onPress={openEditModal}>
-            <Text style={styles.link}>Edit</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.title}>
-          {task.is_milestone ? "🔶 " : ""}
-          {task.title}
-        </Text>
-        {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
-        {task.start_date ? <Text style={styles.meta}>Starts {task.start_date}</Text> : null}
-        {task.due_date ? <Text style={styles.meta}>Due {task.due_date}</Text> : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Status</Text>
-        <View style={styles.statusRow}>
-          {STATUSES.map((status) => (
-            <Pressable
-              key={status}
-              style={[styles.statusChip, task.status === status && styles.statusChipActive]}
-              onPress={() => handleStatusChange(status)}
-            >
-              <Text style={[styles.statusChipText, task.status === status && styles.statusChipTextActive]}>
-                {STATUS_LABELS[status]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Priority</Text>
-        <View style={styles.statusRow}>
-          {PRIORITIES.map((p) => (
-            <Pressable key={p} style={[styles.statusChip, task.priority === p && styles.statusChipActive]} onPress={() => handlePriorityChange(p)}>
-              <Text style={[styles.statusChipText, task.priority === p && styles.statusChipTextActive]}>{PRIORITY_LABELS[p]}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Pressable style={styles.assigneeRow} onPress={() => setAssigneePickerVisible(true)}>
-          <Text style={styles.sectionTitle}>Assignee</Text>
-          <Text style={styles.link}>{assignedProfile?.full_name ?? "Unassigned"}</Text>
-        </Pressable>
-      </View>
-
-      {task.job_card_id ? (
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.section}>
-          <Pressable onPress={() => router.push(`/jobs/${task.job_card_id}`)}>
-            <Text style={styles.link}>View linked job</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      <View style={styles.section}>
-        <View style={styles.titleRow}>
-          <Text style={styles.sectionTitle}>Subtasks</Text>
-          {subtasks.length > 0 ? (
-            <Text style={styles.meta}>
-              {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
-            </Text>
-          ) : null}
-        </View>
-        {subtasks.map((sub) => (
-          <Pressable key={sub.id} style={styles.subtaskRow} onPress={() => router.push(`/tasks/${sub.id}`)}>
-            <Pressable
-              style={[styles.checkbox, sub.status === "done" && styles.checkboxChecked]}
-              onPress={(e) => {
-                e.stopPropagation();
-                handleToggleSubtask(sub.id, sub.status !== "done");
-              }}
-            >
-              {sub.status === "done" ? <Text style={styles.checkboxMark}>✓</Text> : null}
+          <View style={styles.titleRow}>
+            <Pressable onPress={() => router.back()} hitSlop={8}>
+              <Text style={styles.link}>‹ Back</Text>
             </Pressable>
-            <Text style={[styles.subtaskTitle, sub.status === "done" && styles.subtaskTitleDone]}>{sub.title}</Text>
-          </Pressable>
-        ))}
-        <View style={styles.addSubtaskRow}>
-          <TextInput
-            style={styles.subtaskInput}
-            placeholder="+ Add subtask"
-            value={subtaskTitle}
-            onChangeText={setSubtaskTitle}
-            onSubmitEditing={handleAddSubtask}
-          />
-          <Pressable style={styles.button} onPress={handleAddSubtask}>
-            <Text style={styles.buttonText}>Add</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Photos</Text>
-        <PhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notes</Text>
-        <FormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
-        {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
-        <Pressable style={[styles.button, styles.addNoteButton]} onPress={handleAddNote}>
-          <Text style={styles.buttonText}>Add note</Text>
-        </Pressable>
-
-        {notes.map((note) => (
-          <View key={note.id} style={styles.noteRow}>
-            <Text style={styles.noteBody}>{note.body}</Text>
-            <Text style={styles.noteMeta}>{new Date(note.created_at).toLocaleString()}</Text>
+            <Text style={styles.number}>{task.number ?? "Pending sync"}</Text>
+            <Pressable onPress={openEditModal}>
+              <Text style={styles.link}>Edit</Text>
+            </Pressable>
           </View>
-        ))}
-      </View>
+          <Text style={styles.title}>
+            {task.is_milestone ? "🔶 " : ""}
+            {task.title}
+          </Text>
+          {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
+          {task.start_date ? <Text style={styles.meta}>Starts {task.start_date}</Text> : null}
+          {task.due_date ? <Text style={styles.meta}>Due {task.due_date}</Text> : null}
+        </View>
 
-      {profile?.role === "admin" ? (
         <View style={styles.section}>
-          <Pressable style={styles.deleteButton} onPress={handleDelete}>
-            <Text style={styles.deleteButtonText}>Delete task</Text>
+          <Text style={styles.sectionTitle}>Status</Text>
+          <View style={styles.statusRow}>
+            {STATUSES.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.statusChip, task.status === status && styles.statusChipActive]}
+                onPress={() => handleStatusChange(status)}
+              >
+                <Text style={[styles.statusChipText, task.status === status && styles.statusChipTextActive]}>
+                  {STATUS_LABELS[status]}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Priority</Text>
+          <View style={styles.statusRow}>
+            {PRIORITIES.map((p) => (
+              <Pressable key={p} style={[styles.statusChip, task.priority === p && styles.statusChipActive]} onPress={() => handlePriorityChange(p)}>
+                <Text style={[styles.statusChipText, task.priority === p && styles.statusChipTextActive]}>{PRIORITY_LABELS[p]}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Pressable style={styles.assigneeRow} onPress={() => setAssigneePickerVisible(true)}>
+            <Text style={styles.sectionTitle}>Assignee</Text>
+            <Text style={styles.link}>{assignedProfile?.full_name ?? "Unassigned"}</Text>
           </Pressable>
         </View>
-      ) : null}
-    </ScrollView>
 
-    <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
-      <Text style={styles.modalTitle}>Edit task</Text>
-      <FormField label="Title" placeholder="Task title" value={editTitle} onChangeText={setEditTitle} />
-      <FormField
-        label="Description (optional)"
-        placeholder="Description"
-        value={editDescription}
-        onChangeText={setEditDescription}
-        multiline
-        style={styles.multiline}
+        {task.job_card_id ? (
+          <View style={styles.section}>
+            <Pressable onPress={() => router.push(`/jobs/${task.job_card_id}`)}>
+              <Text style={styles.link}>View linked job</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.section}>
+          <View style={styles.titleRow}>
+            <Text style={styles.sectionTitle}>Subtasks</Text>
+            {subtasks.length > 0 ? (
+              <Text style={styles.meta}>
+                {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
+              </Text>
+            ) : null}
+          </View>
+          {subtasks.map((sub) => (
+            <Pressable key={sub.id} style={styles.subtaskRow} onPress={() => router.push(`/tasks/${sub.id}`)}>
+              <Pressable
+                style={[styles.checkbox, sub.status === "done" && styles.checkboxChecked]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleToggleSubtask(sub.id, sub.status !== "done");
+                }}
+              >
+                {sub.status === "done" ? <Text style={styles.checkboxMark}>✓</Text> : null}
+              </Pressable>
+              <Text style={[styles.subtaskTitle, sub.status === "done" && styles.subtaskTitleDone]}>{sub.title}</Text>
+            </Pressable>
+          ))}
+          <View style={styles.addSubtaskRow}>
+            <TextInput
+              style={styles.subtaskInput}
+              placeholder="+ Add subtask"
+              placeholderTextColor={styles.subtaskInputPlaceholder.color}
+              value={subtaskTitle}
+              onChangeText={setSubtaskTitle}
+              onSubmitEditing={handleAddSubtask}
+            />
+            <ThemedButton label="Add" onPress={handleAddSubtask} />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Photos</Text>
+          <ThemedPhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notes</Text>
+          <ThemedFormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
+          {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
+          <View style={styles.addNoteButton}>
+            <ThemedButton label="Add note" onPress={handleAddNote} />
+          </View>
+
+          {notes.map((note) => (
+            <View key={note.id} style={styles.noteRow}>
+              <Text style={styles.noteBody}>{note.body}</Text>
+              <Text style={styles.noteMeta}>{new Date(note.created_at).toLocaleString()}</Text>
+            </View>
+          ))}
+        </View>
+
+        {profile?.role === "admin" ? (
+          <View style={styles.section}>
+            <Pressable style={styles.deleteButton} onPress={handleDelete}>
+              <Text style={styles.deleteButtonText}>Delete Task</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </ScrollView>
+      </SafeAreaView>
+
+      <ThemedModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit Task</Text>
+        <ThemedFormField label="Title" placeholder="Task title" value={editTitle} onChangeText={setEditTitle} />
+        <ThemedFormField
+          label="Description (optional)"
+          placeholder="Description"
+          value={editDescription}
+          onChangeText={setEditDescription}
+          multiline
+          style={styles.multiline}
+        />
+        <View style={styles.fieldSpacing}>
+          <ThemedDateField label="Start date (optional)" value={editStartDate} onChange={setEditStartDate} mode="date" />
+        </View>
+        <View style={styles.fieldSpacing}>
+          <ThemedDateField label="Due date (optional)" value={editDueDate} onChange={setEditDueDate} mode="date" />
+        </View>
+        {editError ? <Text style={styles.error}>{editError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setEditModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveEdit} />
+        </View>
+      </ThemedModal>
+
+      <ThemedPickerModal
+        visible={assigneePickerVisible}
+        title="Select assignee"
+        items={[null, ...profiles]}
+        getKey={(p) => p?.id ?? "none"}
+        getLabel={(p) => p?.full_name ?? "Unassigned"}
+        onSelect={handleAssigneeChange}
+        onClose={() => setAssigneePickerVisible(false)}
       />
-      <View style={styles.fieldSpacing}>
-        <DateField label="Start date (optional)" value={editStartDate} onChange={setEditStartDate} mode="date" />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <DateField label="Due date (optional)" value={editDueDate} onChange={setEditDueDate} mode="date" />
-      </View>
-      {editError ? <Text style={styles.error}>{editError}</Text> : null}
-      <View style={styles.modalActions}>
-        <Pressable onPress={() => setEditModalVisible(false)}>
-          <Text style={styles.link}>Cancel</Text>
-        </Pressable>
-        <Pressable style={styles.button} onPress={handleSaveEdit}>
-          <Text style={styles.buttonText}>Save</Text>
-        </Pressable>
-      </View>
-    </CenteredModal>
-
-    <PickerModal
-      visible={assigneePickerVisible}
-      title="Select assignee"
-      items={[null, ...profiles]}
-      getKey={(p) => p?.id ?? "none"}
-      getLabel={(p) => p?.full_name ?? "Unassigned"}
-      onSelect={handleAssigneeChange}
-      onClose={() => setAssigneePickerVisible(false)}
-    />
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
-  title: { fontSize: 20, fontWeight: "700" },
-  description: { marginTop: 6, color: "#374151" },
-  meta: { marginTop: 8, color: "#6b7280" },
-  fieldSpacing: { marginTop: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
-  statusChipActive: { backgroundColor: "#1d4ed8" },
-  statusChipText: { color: "#374151", fontWeight: "600" },
-  statusChipTextActive: { color: "#fff" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
-  error: { color: "#dc2626", marginTop: 6 },
-  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
-  noteBody: { fontSize: 15, color: "#111827" },
-  noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  deleteButton: { borderRadius: 8, padding: 14, alignItems: "center", backgroundColor: "#fef2f2" },
-  deleteButtonText: { color: "#dc2626", fontWeight: "700" },
-  assigneeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  subtaskRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "#d1d5db",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxChecked: { backgroundColor: "#16a34a", borderColor: "#16a34a" },
-  checkboxMark: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  subtaskTitle: { fontSize: 15, color: "#111827", flex: 1 },
-  subtaskTitleDone: { color: "#9ca3af", textDecorationLine: "line-through" },
-  addSubtaskRow: { flexDirection: "row", gap: 8, marginTop: 10, alignItems: "center" },
-  subtaskInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    section: { padding: 16, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    titleRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    number: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginBottom: 2, letterSpacing: 1, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    description: { marginTop: 6, color: tokens.textPrimary, ...mono },
+    meta: { marginTop: 8, color: tokens.textMuted, fontSize: font.label, ...mono },
+    fieldSpacing: { marginTop: 16 },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    sectionTitle: {
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 10,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      fontSize: font.label,
+      ...mono,
+    },
+    statusRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8 },
+    statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface },
+    statusChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    statusChipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.body - 1, ...mono },
+    statusChipTextActive: { color: tokens.accent },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    error: { color: tokens.danger, marginTop: 6, ...mono },
+    noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: tokens.border },
+    noteBody: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    noteMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 4, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    addNoteButton: { alignSelf: "flex-start" as const, marginTop: 10 },
+    deleteButton: { borderRadius: 3, padding: 14, alignItems: "center" as const, borderWidth: 1, borderColor: tokens.danger },
+    deleteButtonText: { color: tokens.danger, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    assigneeRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    subtaskRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, paddingVertical: 8 },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    checkboxChecked: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    checkboxMark: { color: tokens.background, fontWeight: "700" as const, fontSize: 13 },
+    subtaskTitle: { fontSize: font.body, color: tokens.textPrimary, flex: 1, ...mono },
+    subtaskTitleDone: { color: tokens.textMuted, textDecorationLine: "line-through" as const },
+    addSubtaskRow: { flexDirection: "row" as const, gap: 8, marginTop: 10, alignItems: "center" as const },
+    subtaskInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 3,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: font.body,
+      color: tokens.textPrimary,
+      backgroundColor: tokens.background,
+      ...mono,
+    },
+    subtaskInputPlaceholder: { color: tokens.textMuted },
+  };
+}
