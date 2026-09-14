@@ -40,8 +40,11 @@ import { queueAndSendEmail } from "../lib/send-email";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
 import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
-import { Modal } from "../components/Modal";
-import { FormField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedPanel } from "../components/theme/ThemedPanel";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
 import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
@@ -782,7 +785,11 @@ export default function JobDetailPage() {
   };
 
   if (!job) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>
+        Loading...
+      </div>
+    );
   }
 
   const jobSite = (clientSites ?? []).find((s) => s.id === job.site_id) ?? null;
@@ -814,16 +821,20 @@ export default function JobDetailPage() {
   const isNteExceeded = job.is_real_estate_job && job.nte_limit_cents != null && totalChargedCents > job.nte_limit_cents;
 
   return (
-    <div className="p-8">
-      <Link to="/jobs" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/jobs" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Jobs
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+      <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
-            <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
+            <span className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+              {job.number ?? "Pending"}
+            </span>
+            <h1 className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+              {job.title}
+            </h1>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
             <button
@@ -833,42 +844,60 @@ export default function JobDetailPage() {
                 setEditError(null);
                 setEditModalOpen(true);
               }}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="rounded px-3 py-1.5 font-semibold"
+              style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               Edit
             </button>
             <button
               onClick={() => setJobEmailModalOpen(true)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="rounded px-3 py-1.5 font-semibold"
+              style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               Email
             </button>
           </div>
         </div>
-        {job.description ? <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">{job.description}</p> : null}
-        {jobEmailError ? <p className="mb-2 text-sm text-red-600">{jobEmailError}</p> : null}
-        {jobEmailResult ? <p className="mb-2 text-sm text-green-700">{jobEmailResult}</p> : null}
+        {job.description ? (
+          <p className="mb-4 whitespace-pre-wrap" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            {job.description}
+          </p>
+        ) : null}
+        {jobEmailError ? (
+          <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {jobEmailError}
+          </p>
+        ) : null}
+        {jobEmailResult ? (
+          <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+            {jobEmailResult}
+          </p>
+        ) : null}
 
         {client ? (
-          <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
+          <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", fontSize: "var(--jms-font-body)" }}>
             <div className="flex items-start justify-between gap-3">
-              <p className="font-semibold text-gray-900">
+              <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
                 <Link to={`/clients/${client.id}`} className="hover:underline">
                   {client.client_type === "company" && client.company_name ? client.company_name : client.name}
                 </Link>
               </p>
-              <button onClick={openAddressModal} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+              <button
+                onClick={openAddressModal}
+                className="whitespace-nowrap font-semibold hover:underline"
+                style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+              >
                 Edit address
               </button>
             </div>
-            {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
+            {client.phone ? <p style={{ color: "var(--jms-text-muted)" }}>{client.phone}</p> : null}
             {address ? (
-              <p className="text-gray-600">
+              <p style={{ color: "var(--jms-text-muted)" }}>
                 {jobSite?.label ? `${jobSite.label}: ` : ""}
                 {address}
               </p>
             ) : (
-              <p className="text-gray-400">No address on file</p>
+              <p style={{ color: "var(--jms-text-muted)" }}>No address on file</p>
             )}
           </div>
         ) : null}
@@ -876,80 +905,107 @@ export default function JobDetailPage() {
         {!job.is_real_estate_job ? (
           <button
             onClick={() => setRealEstateModalOpen(true)}
-            className="mb-4 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+            className="mb-4 rounded px-3 py-1.5 font-semibold"
+            style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
           >
             Mark as real estate / strata job
           </button>
         ) : null}
 
-        <div className="mb-4 rounded-md border border-gray-300 p-3 text-sm">
+        <div className="mb-4 rounded p-3" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">WorkDrive</h3>
+            <h3 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              WorkDrive
+            </h3>
             <button
               onClick={() => {
                 setWorkdriveInput(job.workdrive_url ?? "");
                 setWorkdriveError(null);
                 setWorkdriveModalOpen(true);
               }}
-              className="text-xs font-semibold text-blue-700 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
             >
               {job.workdrive_url ? "Edit link" : "+ Add link"}
             </button>
           </div>
           {job.workdrive_url ? (
-            <a href={job.workdrive_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-700 hover:underline">
+            <a
+              href={job.workdrive_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block hover:underline"
+              style={{ color: "var(--jms-accent)" }}
+            >
               Open WorkDrive folder &rarr;
             </a>
           ) : (
-            <p className="mt-1 text-gray-400">No WorkDrive link for this job yet.</p>
+            <p className="mt-1" style={{ color: "var(--jms-text-muted)" }}>
+              No WorkDrive link for this job yet.
+            </p>
           )}
         </div>
 
-        <div className="mb-4 flex items-center justify-between rounded-md border border-gray-300 p-3 text-sm">
-          <span className="text-gray-600">
+        <div className="mb-4 flex items-center justify-between rounded p-3" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+          <span style={{ color: "var(--jms-text-muted)" }}>
             Lead source: {leadSource?.name ?? "None"}
             {leadSource?.is_referral_source ? ` - ${referralPartner ? referralPartnerLabel(referralPartner) : "no partner linked"}` : ""}
           </span>
-          <button onClick={() => setLeadSourceModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          <button
+            onClick={() => setLeadSourceModalOpen(true)}
+            className="font-semibold hover:underline"
+            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+          >
             {job.lead_source_id ? "Edit" : "+ Add"}
           </button>
         </div>
 
         {job.is_real_estate_job ? (
-          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm">
+          <div
+            className="mb-4 rounded p-3"
+            style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-accent-glow)", fontSize: "var(--jms-font-body)" }}
+          >
             <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
-                {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
+                <ThemedBadge label="Agency Job" />
+                {agency ? <span className="font-semibold" style={{ color: "var(--jms-text)" }}>{agency.name}</span> : null}
                 {propertyManager ? (
-                  <span className="text-gray-600">
+                  <span style={{ color: "var(--jms-text-muted)" }}>
                     PM: {propertyManager.first_name} {propertyManager.last_name}
                   </span>
                 ) : null}
               </div>
-              <button onClick={() => setRealEstateModalOpen(true)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+              <button
+                onClick={() => setRealEstateModalOpen(true)}
+                className="whitespace-nowrap font-semibold hover:underline"
+                style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+              >
                 Edit
               </button>
             </div>
             {property ? (
-              <p className="text-gray-600">
-                <Link to={`/real-estate/properties/${property.id}`} className="text-blue-700 hover:underline">
+              <p style={{ color: "var(--jms-text-muted)" }}>
+                <Link to={`/real-estate/properties/${property.id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                   {property.address_line1}, {property.suburb}
                 </Link>
                 {property.key_tag_number ? ` - 🔑 ${property.key_tag_number}` : ""}
               </p>
             ) : null}
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 text-gray-600">
+            <div className="mt-1 flex flex-wrap items-center gap-x-4" style={{ color: "var(--jms-text-muted)" }}>
               <span>
                 Work order: {job.work_order_number ?? "Not set"}{" "}
-                <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+                <button
+                  onClick={() => setWorkOrderModalOpen(true)}
+                  className="font-semibold hover:underline"
+                  style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                >
                   {job.work_order_number ? "Edit" : "+ Add"}
                 </button>
               </span>
               {job.nte_limit_cents != null ? <span>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</span> : null}
             </div>
             {isNteExceeded ? (
-              <p className="mt-1 font-semibold text-red-700">
+              <p className="mt-1 font-semibold" style={{ color: "var(--jms-danger)" }}>
                 {job.nte_exceeded_approved
                   ? "Over NTE limit - variation approved"
                   : "Over NTE limit - awaiting PM approval before this job can be completed"}
@@ -965,11 +1021,17 @@ export default function JobDetailPage() {
             enough room that long names stop getting cut off mid-word. */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Category</label>
+            <label
+              className="mb-1 block font-semibold uppercase tracking-wide"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              Category
+            </label>
             <select
               value={job.service_category_id ?? ""}
               onChange={(e) => updateJob.mutate({ service_category_id: e.target.value || null })}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+              className="w-full rounded border px-2 py-1.5"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               <option value="">None</option>
               {(categories ?? []).map((c) => (
@@ -980,11 +1042,17 @@ export default function JobDetailPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Stage</label>
+            <label
+              className="mb-1 block font-semibold uppercase tracking-wide"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              Stage
+            </label>
             <select
               value={job.lifecycle_stage_id ?? ""}
               onChange={(e) => handleStageChange(e.target.value)}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+              className="w-full rounded border px-2 py-1.5"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               <option value="">None</option>
               {(stages ?? []).map((s) => (
@@ -995,11 +1063,17 @@ export default function JobDetailPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Technician</label>
+            <label
+              className="mb-1 block font-semibold uppercase tracking-wide"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              Technician
+            </label>
             <select
               value={job.assigned_technician_id ?? ""}
               onChange={(e) => updateJob.mutate({ assigned_technician_id: e.target.value || null })}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+              className="w-full rounded border px-2 py-1.5"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               <option value="">Unassigned</option>
               {(technicians ?? []).map((t) => (
@@ -1012,26 +1086,38 @@ export default function JobDetailPage() {
         </div>
         <button
           onClick={openScheduleModal}
-          className="mt-3 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          className="mt-3 rounded px-3 py-1.5 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           + Add to calendar
         </button>
-        {reviewRequestError ? <p className="mt-3 text-sm text-red-600">{reviewRequestError}</p> : null}
-        {reviewRequestResult ? <p className="mt-3 text-sm text-green-700">{reviewRequestResult}</p> : null}
+        {reviewRequestError ? (
+          <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {reviewRequestError}
+          </p>
+        ) : null}
+        {reviewRequestResult ? (
+          <p className="mt-3" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+            {reviewRequestResult}
+          </p>
+        ) : null}
       </div>
 
-      <Modal open={scheduleModalOpen} onClose={() => setScheduleModalOpen(false)} title="Add to calendar">
-        <FormField label="Date" type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+      <ThemedModal open={scheduleModalOpen} onClose={() => setScheduleModalOpen(false)} title="Add to calendar">
+        <ThemedFormField label="Date" type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Start time" type="time" value={scheduleStartTime} onChange={(e) => setScheduleStartTime(e.target.value)} />
-          <FormField label="End time" type="time" value={scheduleEndTime} onChange={(e) => setScheduleEndTime(e.target.value)} />
+          <ThemedFormField label="Start time" type="time" value={scheduleStartTime} onChange={(e) => setScheduleStartTime(e.target.value)} />
+          <ThemedFormField label="End time" type="time" value={scheduleEndTime} onChange={(e) => setScheduleEndTime(e.target.value)} />
         </div>
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Technician</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Technician
+          </label>
           <select
             value={scheduleTechnicianId}
             onChange={(e) => setScheduleTechnicianId(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded border px-3 py-2"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">Unassigned</option>
             {(technicians ?? []).map((t) => (
@@ -1041,165 +1127,219 @@ export default function JobDetailPage() {
             ))}
           </select>
         </div>
-        {scheduleError ? <p className="mb-4 text-sm text-red-600">{scheduleError}</p> : null}
+        {scheduleError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {scheduleError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setScheduleModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setScheduleModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => scheduleToCalendar.mutate()}
-            disabled={scheduleToCalendar.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => scheduleToCalendar.mutate()} disabled={scheduleToCalendar.isPending}>
             {scheduleToCalendar.isPending ? "Adding..." : "Add to calendar"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-6">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quotes</h2>
+        <ThemedPanel
+          title="Quotes"
+          actions={
             <Link
               to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}${job.referral_partner_id ? `&referralPartnerId=${job.referral_partner_id}` : ""}`}
-              className="text-sm font-semibold text-blue-700 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
             >
               + New quote
             </Link>
-          </div>
+          }
+        >
           {!linkedQuotes || linkedQuotes.length === 0 ? (
-            <p className="text-sm text-gray-500">No quotes linked to this job.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No quotes linked to this job.</p>
           ) : (
             <div className="space-y-1">
               {linkedQuotes.map((q) => (
-                <Link key={q.id} to={`/quotes/${q.id}`} className="flex justify-between text-sm hover:underline">
-                  <span className="text-blue-700">{q.quote_number}</span>
-                  <span className="text-gray-600">{formatCentsAsAud(q.total_cents)}</span>
+                <Link
+                  key={q.id}
+                  to={`/quotes/${q.id}`}
+                  className="flex justify-between hover:underline"
+                  style={{ fontSize: "var(--jms-font-body)" }}
+                >
+                  <span style={{ color: "var(--jms-accent)" }}>{q.quote_number}</span>
+                  <span style={{ color: "var(--jms-text-muted)" }}>{formatCentsAsAud(q.total_cents)}</span>
                 </Link>
               ))}
             </div>
           )}
-        </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-6">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Invoices</h2>
-            <Link to={`/invoices/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
+        </ThemedPanel>
+        <ThemedPanel
+          title="Invoices"
+          actions={
+            <Link
+              to={`/invoices/new?clientId=${job.client_id}&jobCardId=${job.id}`}
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+            >
               + New invoice
             </Link>
-          </div>
+          }
+        >
           {!linkedInvoices || linkedInvoices.length === 0 ? (
-            <p className="text-sm text-gray-500">No invoices linked to this job.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No invoices linked to this job.</p>
           ) : (
             <div className="space-y-1">
               {linkedInvoices.map((inv) => (
-                <Link key={inv.id} to={`/invoices/${inv.id}`} className="flex justify-between text-sm hover:underline">
-                  <span className="text-blue-700">{inv.invoice_number}</span>
-                  <span className="text-gray-600">{formatCentsAsAud(inv.total_cents)}</span>
+                <Link
+                  key={inv.id}
+                  to={`/invoices/${inv.id}`}
+                  className="flex justify-between hover:underline"
+                  style={{ fontSize: "var(--jms-font-body)" }}
+                >
+                  <span style={{ color: "var(--jms-accent)" }}>{inv.invoice_number}</span>
+                  <span style={{ color: "var(--jms-text-muted)" }}>{formatCentsAsAud(inv.total_cents)}</span>
                 </Link>
               ))}
             </div>
           )}
-        </div>
+        </ThemedPanel>
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Job Costing</h2>
-        {!hasCostingDocs ? (
-          <p className="text-sm text-gray-500">No quotes or invoices linked to this job yet.</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div>
-                <p className="text-xs text-gray-500">Labour cost</p>
-                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalLabourCents)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Material cost</p>
-                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalMaterialCents)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Total charged</p>
-                <p className="text-sm font-semibold text-gray-900">{formatCentsAsAud(totalChargedCents)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Margin</p>
-                <p className="text-sm font-bold text-gray-900">
-                  {formatCentsAsAud(marginCents)} <span className="font-normal text-gray-500">({marginPercent.toFixed(1)}%)</span>
-                </p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-gray-400">
-              Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
-              overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
-              summed twice here, same as the cross-job{" "}
-              <Link to="/job-costing" className="underline">
-                Job Costing
-              </Link>{" "}
-              report.
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Files</h2>
-          <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
-            {uploadFiles.isPending ? "Uploading..." : "+ Upload files"}
-            <input
-              type="file"
-              multiple
-              className="hidden"
-              disabled={uploadFiles.isPending}
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) uploadFiles.mutate(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        </div>
-        {photoError ? <p className="mb-3 text-sm text-red-600">{photoError}</p> : null}
-        {!files || files.length === 0 ? (
-          <p className="text-sm text-gray-500">No files yet.</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-            {files.map((f) => {
-              // mime_type isn't reliably populated for every upload (some
-              // browsers/file pickers hand back an empty File.type for a
-              // perfectly normal .jpg) - falling back to the extension
-              // means a real photo still renders as a thumbnail instead of
-              // the generic file icon just because its mime_type is blank.
-              const isImage = (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
-              return (
-                <div key={f.id} className="group relative aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100">
-                  <a href={fileUrls?.[f.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title={f.file_name}>
-                    {isImage && fileUrls?.[f.id] ? (
-                      <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
-                        <span className="text-2xl">📄</span>
-                        <span className="line-clamp-2 break-all text-xs text-gray-600">{f.file_name}</span>
-                      </div>
-                    )}
-                  </a>
-                  {isAdmin ? (
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (window.confirm(`Delete ${f.file_name}?`)) deleteFile.mutate(f);
-                      }}
-                      disabled={deleteFile.isPending}
-                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white opacity-0 transition-opacity hover:bg-red-600 disabled:opacity-100 group-hover:opacity-100"
-                      title="Delete file"
-                    >
-                      &times;
-                    </button>
-                  ) : null}
+      <div className="mb-6">
+        <ThemedPanel title="Job Costing">
+          {!hasCostingDocs ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No quotes or invoices linked to this job yet.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Labour cost</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalLabourCents)}
+                  </p>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Material cost</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalMaterialCents)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total charged</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalChargedCents)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Margin</p>
+                  <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(marginCents)}{" "}
+                    <span className="font-normal" style={{ color: "var(--jms-text-muted)" }}>
+                      ({marginPercent.toFixed(1)}%)
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
+                overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
+                summed twice here, same as the cross-job{" "}
+                <Link to="/job-costing" className="underline">
+                  Job Costing
+                </Link>{" "}
+                report.
+              </p>
+            </>
+          )}
+        </ThemedPanel>
+      </div>
+
+      <div className="mb-6">
+        <ThemedPanel
+          title="Files"
+          actions={
+            <label
+              className="cursor-pointer rounded px-3 py-1.5 font-semibold uppercase tracking-wide"
+              style={{
+                backgroundColor: "var(--jms-accent)",
+                color: "var(--jms-bg)",
+                fontSize: "var(--jms-font-label)",
+                boxShadow: "0 0 10px var(--jms-accent-glow)",
+              }}
+            >
+              {uploadFiles.isPending ? "Uploading..." : "+ Upload files"}
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                disabled={uploadFiles.isPending}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) uploadFiles.mutate(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          }
+        >
+          {photoError ? (
+            <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {photoError}
+            </p>
+          ) : null}
+          {!files || files.length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No files yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
+              {files.map((f) => {
+                // mime_type isn't reliably populated for every upload (some
+                // browsers/file pickers hand back an empty File.type for a
+                // perfectly normal .jpg) - falling back to the extension
+                // means a real photo still renders as a thumbnail instead of
+                // the generic file icon just because its mime_type is blank.
+                const isImage = (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
+                return (
+                  <div
+                    key={f.id}
+                    className="group relative aspect-square overflow-hidden rounded"
+                    style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
+                  >
+                    <a href={fileUrls?.[f.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title={f.file_name}>
+                      {isImage && fileUrls?.[f.id] ? (
+                        <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                          <span className="text-2xl">📄</span>
+                          <span
+                            className="line-clamp-2 break-all"
+                            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                          >
+                            {f.file_name}
+                          </span>
+                        </div>
+                      )}
+                    </a>
+                    {isAdmin ? (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (window.confirm(`Delete ${f.file_name}?`)) deleteFile.mutate(f);
+                        }}
+                        disabled={deleteFile.isPending}
+                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold opacity-0 transition-opacity disabled:opacity-100 group-hover:opacity-100"
+                        style={{ backgroundColor: "rgba(0,0,0,0.6)", color: "var(--jms-text)" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--jms-danger)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.6)")}
+                        title="Delete file"
+                      >
+                        &times;
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ThemedPanel>
       </div>
 
       <AssetsSection
@@ -1213,152 +1353,181 @@ export default function JobDetailPage() {
         <JobMembershipBenefitSection jobCardId={id!} clientId={job.client_id} />
       </div>
 
-      <div className="rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Notes</h2>
+      <ThemedPanel title="Notes">
         <div className="mb-4">
-          <TextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
-          {noteError ? <p className="mb-2 text-sm text-red-600">{noteError}</p> : null}
-          <button
-            onClick={() => addNote.mutate()}
-            disabled={addNote.isPending || !noteBody.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedTextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
+          {noteError ? (
+            <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {noteError}
+            </p>
+          ) : null}
+          <ThemedButton onClick={() => addNote.mutate()} disabled={addNote.isPending || !noteBody.trim()}>
             {addNote.isPending ? "Adding..." : "Add note"}
-          </button>
+          </ThemedButton>
         </div>
         <div className="space-y-3">
           {(notes ?? []).map((note) =>
             editingNoteId === note.id ? (
-              <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
-                <TextAreaField label="Note" labelHidden rows={2} value={editingNoteBody} onChange={(e) => setEditingNoteBody(e.target.value)} />
-                {editNoteError ? <p className="mb-2 text-sm text-red-600">{editNoteError}</p> : null}
+              <div key={note.id} className="pt-3" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+                <ThemedTextAreaField label="Note" labelHidden rows={2} value={editingNoteBody} onChange={(e) => setEditingNoteBody(e.target.value)} />
+                {editNoteError ? (
+                  <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                    {editNoteError}
+                  </p>
+                ) : null}
                 <div className="flex gap-2">
                   <button
                     onClick={() => updateNote.mutate()}
                     disabled={updateNote.isPending || !editingNoteBody.trim()}
-                    className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                    className="rounded px-3 py-1.5 font-semibold disabled:opacity-60"
+                    style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-label)" }}
                   >
                     {updateNote.isPending ? "Saving..." : "Save"}
                   </button>
-                  <button onClick={() => setEditingNoteId(null)} className="px-3 py-1.5 text-xs font-semibold text-gray-600">
+                  <button
+                    onClick={() => setEditingNoteId(null)}
+                    className="px-3 py-1.5 font-semibold"
+                    style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              <div key={note.id} className="group border-t border-gray-200 pt-3 text-sm">
+              <div key={note.id} className="group pt-3" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
                 <div className="flex items-start justify-between gap-2">
-                  <p className="whitespace-pre-wrap text-gray-800">{note.body}</p>
+                  <p className="whitespace-pre-wrap" style={{ color: "var(--jms-text)" }}>
+                    {note.body}
+                  </p>
                   <button
                     onClick={() => startEditNote(note)}
-                    className="flex-shrink-0 text-xs font-semibold text-blue-700 opacity-0 hover:underline group-hover:opacity-100"
+                    className="flex-shrink-0 font-semibold opacity-0 hover:underline group-hover:opacity-100"
+                    style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                   >
                     Edit
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
+                <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  {new Date(note.created_at).toLocaleString()}
+                </p>
               </div>
             )
           )}
-          {notes && notes.length === 0 ? <p className="text-sm text-gray-500">No notes yet.</p> : null}
+          {notes && notes.length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No notes yet.</p>
+          ) : null}
         </div>
-      </div>
+      </ThemedPanel>
 
-      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Reports & Safety</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setLinkReportModalOpen(true)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              Link Existing Report
-            </button>
-            <button
-              onClick={() => setCreateReportModalOpen(true)}
-              className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              + Create New Report
-            </button>
-          </div>
-        </div>
-        {!linkedReports || linkedReports.length === 0 ? (
-          <p className="text-sm text-gray-500">No reports linked to this job yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {linkedReports.map((report) => {
-              const template = (allReportTemplates ?? []).find((t) => t.id === report.template_id);
-              return (
-                <Link
-                  key={report.id}
-                  to={`/reports/instances/${report.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
-                >
-                  <span className="font-medium text-blue-700">{template?.title ?? "Report"}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      report.status === "draft" ? "bg-amber-100 text-amber-800" : report.status === "completed" ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-600"
-                    }`}
+      <div className="mt-6">
+        <ThemedPanel
+          title="Reports & Safety"
+          actions={
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLinkReportModalOpen(true)}
+                className="rounded px-3 py-1.5 font-semibold"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+              >
+                Link Existing Report
+              </button>
+              <ThemedButton onClick={() => setCreateReportModalOpen(true)}>+ Create New Report</ThemedButton>
+            </div>
+          }
+        >
+          {!linkedReports || linkedReports.length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No reports linked to this job yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {linkedReports.map((report) => {
+                const template = (allReportTemplates ?? []).find((t) => t.id === report.template_id);
+                const statusColor =
+                  report.status === "draft" ? "var(--jms-warning)" : report.status === "completed" ? "var(--jms-accent)" : "var(--jms-text-muted)";
+                return (
+                  <Link
+                    key={report.id}
+                    to={`/reports/instances/${report.id}`}
+                    className="flex items-center justify-between rounded px-3 py-2 hover:bg-[var(--jms-bg)]"
+                    style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
                   >
-                    {report.status.charAt(0).toUpperCase() + report.status.slice(1)}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Subcontractors</h2>
-          <button
-            onClick={() => setAssignSubModalOpen(true)}
-            className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            + Assign Subcontractor
-          </button>
-        </div>
-        {!linkedPurchaseOrders || linkedPurchaseOrders.length === 0 ? (
-          <p className="text-sm text-gray-500">No subcontractor work orders or quote requests for this job yet.</p>
-        ) : (
-          <div className="space-y-1">
-            {linkedPurchaseOrders.map((po) => {
-              const sub = (allSubcontractors ?? []).find((s) => s.id === po.subcontractor_id);
-              return (
-                <Link
-                  key={po.id}
-                  to={`/subcontractors/purchase-orders/${po.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
-                >
-                  <span>
-                    <span className="font-medium text-blue-700">{po.po_number ?? "Pending"}</span>{" "}
-                    <span className="text-gray-500">
-                      {sub?.company_name ?? "Unknown subcontractor"} - {po.is_quote_request ? "Quote Request" : "Work Order"}
+                    <span className="font-medium" style={{ color: "var(--jms-accent)" }}>
+                      {template?.title ?? "Report"}
                     </span>
-                  </span>
-                  <span className="text-gray-600">{formatCentsAsAud(po.total_cost_cents)}</span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+                    <span
+                      className="rounded-full border px-2 py-0.5 font-semibold"
+                      style={{ borderColor: statusColor, color: statusColor, fontSize: "var(--jms-font-label)" }}
+                    >
+                      {report.status.charAt(0).toUpperCase() + report.status.slice(1)}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </ThemedPanel>
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
-        <CommunicationLog
-          entities={[
-            { entityType: "job", entityId: job.id },
-            ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
-            ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
-          ]}
+      <div className="mt-6">
+        <ThemedPanel
+          title="Subcontractors"
+          actions={<ThemedButton onClick={() => setAssignSubModalOpen(true)}>+ Assign Subcontractor</ThemedButton>}
+        >
+          {!linkedPurchaseOrders || linkedPurchaseOrders.length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              No subcontractor work orders or quote requests for this job yet.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {linkedPurchaseOrders.map((po) => {
+                const sub = (allSubcontractors ?? []).find((s) => s.id === po.subcontractor_id);
+                return (
+                  <Link
+                    key={po.id}
+                    to={`/subcontractors/purchase-orders/${po.id}`}
+                    className="flex items-center justify-between rounded px-3 py-2 hover:bg-[var(--jms-bg)]"
+                    style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+                  >
+                    <span>
+                      <span className="font-medium" style={{ color: "var(--jms-accent)" }}>
+                        {po.po_number ?? "Pending"}
+                      </span>{" "}
+                      <span style={{ color: "var(--jms-text-muted)" }}>
+                        {sub?.company_name ?? "Unknown subcontractor"} - {po.is_quote_request ? "Quote Request" : "Work Order"}
+                      </span>
+                    </span>
+                    <span style={{ color: "var(--jms-text-muted)" }}>{formatCentsAsAud(po.total_cost_cents)}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </ThemedPanel>
+      </div>
+
+      <div className="mt-6">
+        <ThemedPanel title="Communication Log">
+          <CommunicationLog
+            entities={[
+              { entityType: "job", entityId: job.id },
+              ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
+              ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
+            ]}
+          />
+        </ThemedPanel>
+      </div>
+
+      <ThemedModal open={createReportModalOpen} onClose={() => setCreateReportModalOpen(false)} title="Create new report">
+        <ThemedFormField
+          label="Search templates"
+          value={createReportSearch}
+          onChange={(e) => setCreateReportSearch(e.target.value)}
+          placeholder="Search by title..."
         />
-      </div>
-
-      <Modal open={createReportModalOpen} onClose={() => setCreateReportModalOpen(false)} title="Create new report">
-        <FormField label="Search templates" value={createReportSearch} onChange={(e) => setCreateReportSearch(e.target.value)} placeholder="Search by title..." />
-        {createReportError ? <p className="mb-4 text-sm text-red-600">{createReportError}</p> : null}
+        {createReportError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {createReportError}
+          </p>
+        ) : null}
         <div className="max-h-80 space-y-1 overflow-y-auto">
           {(activeReportTemplates ?? [])
             .filter((t) => t.title.toLowerCase().includes(createReportSearch.trim().toLowerCase()))
@@ -1366,28 +1535,33 @@ export default function JobDetailPage() {
               <button
                 key={template.id}
                 onClick={() => startReportForJob(template.id)}
-                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                className="flex w-full items-center justify-between rounded px-3 py-2 text-left hover:bg-[var(--jms-bg)]"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
               >
-                <span className="font-medium text-gray-900">{template.title}</span>
-                {template.is_swms ? (
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-800">SWMS</span>
-                ) : null}
+                <span className="font-medium" style={{ color: "var(--jms-text)" }}>
+                  {template.title}
+                </span>
+                {template.is_swms ? <ThemedBadge label="SWMS" color="var(--jms-warning)" /> : null}
               </button>
             ))}
           {(activeReportTemplates ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               No report templates yet -{" "}
-              <Link to="/reports" className="text-blue-700 hover:underline">
+              <Link to="/reports" className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                 build one in the Template Studio
               </Link>
               .
             </p>
           ) : null}
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={linkReportModalOpen} onClose={() => setLinkReportModalOpen(false)} title="Link existing report">
-        {linkReportError ? <p className="mb-4 text-sm text-red-600">{linkReportError}</p> : null}
+      <ThemedModal open={linkReportModalOpen} onClose={() => setLinkReportModalOpen(false)} title="Link existing report">
+        {linkReportError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {linkReportError}
+          </p>
+        ) : null}
         <div className="max-h-80 space-y-1 overflow-y-auto">
           {(unlinkedReports ?? []).map((report) => {
             const template = (allReportTemplates ?? []).find((t) => t.id === report.template_id);
@@ -1396,24 +1570,34 @@ export default function JobDetailPage() {
                 key={report.id}
                 onClick={() => linkExistingReport.mutate(report.id)}
                 disabled={linkExistingReport.isPending}
-                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
+                className="flex w-full items-center justify-between rounded px-3 py-2 text-left hover:bg-[var(--jms-bg)] disabled:opacity-60"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
               >
-                <span className="font-medium text-gray-900">{template?.title ?? "Report"}</span>
-                <span className="text-xs text-gray-400">{new Date(report.created_at).toLocaleDateString("en-AU")}</span>
+                <span className="font-medium" style={{ color: "var(--jms-text)" }}>
+                  {template?.title ?? "Report"}
+                </span>
+                <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  {new Date(report.created_at).toLocaleDateString("en-AU")}
+                </span>
               </button>
             );
           })}
-          {(unlinkedReports ?? []).length === 0 ? <p className="text-sm text-gray-500">No unlinked standalone reports.</p> : null}
+          {(unlinkedReports ?? []).length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No unlinked standalone reports.</p>
+          ) : null}
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={assignSubModalOpen} onClose={() => setAssignSubModalOpen(false)} title="Assign subcontractor">
+      <ThemedModal open={assignSubModalOpen} onClose={() => setAssignSubModalOpen(false)} title="Assign subcontractor">
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Filter by trade</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Filter by trade
+          </label>
           <select
             value={assignSubTradeFilter}
             onChange={(e) => setAssignSubTradeFilter(e.target.value as SubcontractorTrade | "")}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+            className="w-full rounded border px-3 py-2"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">All trades</option>
             {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
@@ -1430,13 +1614,23 @@ export default function JobDetailPage() {
             .map((sub) => {
               const onHold = sub.status === "compliance_hold";
               return (
-                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-200"}`}>
+                <div
+                  key={sub.id}
+                  className="rounded p-3"
+                  style={
+                    onHold
+                      ? { border: "1px solid var(--jms-danger)", backgroundColor: "var(--jms-bg)" }
+                      : { border: "1px solid var(--jms-border)" }
+                  }
+                >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className={`font-medium ${onHold ? "text-gray-400" : "text-gray-900"}`}>{sub.company_name}</span>
-                    <span className="text-xs text-gray-500">{TIER_LABELS[sub.preference_tier]}</span>
+                    <span className="font-medium" style={{ color: onHold ? "var(--jms-text-muted)" : "var(--jms-text)" }}>
+                      {sub.company_name}
+                    </span>
+                    <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{TIER_LABELS[sub.preference_tier]}</span>
                   </div>
                   {onHold ? (
-                    <p className="mb-2 text-xs text-red-700">
+                    <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                       On compliance hold - expired documents must be renewed before new work can be issued.
                     </p>
                   ) : null}
@@ -1444,18 +1638,29 @@ export default function JobDetailPage() {
                     <Link
                       to={`/subcontractors/purchase-orders/new?subcontractorId=${sub.id}&quoteRequest=true&jobCardId=${id}`}
                       onClick={(e) => onHold && e.preventDefault()}
-                      className={`flex-1 rounded-md px-3 py-1.5 text-center text-xs font-semibold ${
-                        onHold ? "cursor-not-allowed bg-gray-100 text-gray-400" : "border border-gray-300 text-gray-700 hover:bg-gray-50"
-                      }`}
+                      className="flex-1 rounded px-3 py-1.5 text-center font-semibold"
+                      style={
+                        onHold
+                          ? { cursor: "not-allowed", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                          : { border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }
+                      }
                     >
                       Request Quote
                     </Link>
                     <Link
                       to={`/subcontractors/purchase-orders/new?subcontractorId=${sub.id}&quoteRequest=false&jobCardId=${id}`}
                       onClick={(e) => onHold && e.preventDefault()}
-                      className={`flex-1 rounded-md px-3 py-1.5 text-center text-xs font-semibold text-white ${
-                        onHold ? "cursor-not-allowed bg-gray-300" : "bg-blue-700 hover:bg-blue-800"
-                      }`}
+                      className="flex-1 rounded px-3 py-1.5 text-center font-semibold"
+                      style={
+                        onHold
+                          ? { cursor: "not-allowed", backgroundColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                          : {
+                              backgroundColor: "var(--jms-accent)",
+                              color: "var(--jms-bg)",
+                              fontSize: "var(--jms-font-label)",
+                              boxShadow: "0 0 8px var(--jms-accent-glow)",
+                            }
+                      }
                     >
                       Issue Work Order
                     </Link>
@@ -1464,24 +1669,27 @@ export default function JobDetailPage() {
               );
             })}
           {(allSubcontractors ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               No subcontractors yet -{" "}
-              <Link to="/subcontractors" className="text-blue-700 hover:underline">
+              <Link to="/subcontractors" className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                 add one first
               </Link>
               .
             </p>
           ) : null}
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit job address">
+      <ThemedModal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit job address">
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Address
+          </label>
           <select
             value={addressSiteChoice}
             onChange={(e) => setAddressSiteChoice(e.target.value)}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">{client ? formatClientAddress(client) ?? "Client's main address (none on file)" : "Client's main address"}</option>
             {(clientSites ?? []).map((site) => (
@@ -1493,36 +1701,38 @@ export default function JobDetailPage() {
           </select>
         </div>
         {addressSiteChoice === "new" ? (
-          <div className="mb-4 rounded-md border border-gray-300 p-3">
-            <p className="mb-2 text-xs font-semibold text-gray-500">This address will be saved to the client's card too.</p>
-            <FormField
+          <div className="mb-4 rounded p-3" style={{ border: "1px solid var(--jms-border)" }}>
+            <p className="mb-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              This address will be saved to the client's card too.
+            </p>
+            <ThemedFormField
               label="Label (optional)"
               value={newAddressForm.label}
               onChange={(e) => setNewAddressForm({ ...newAddressForm, label: e.target.value })}
               placeholder="e.g. Warehouse, Shop 4"
             />
-            <FormField
+            <ThemedFormField
               label="Address line 1"
               value={newAddressForm.address_line1}
               onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line1: e.target.value })}
             />
-            <FormField
+            <ThemedFormField
               label="Address line 2"
               value={newAddressForm.address_line2}
               onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line2: e.target.value })}
             />
             <div className="grid grid-cols-3 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Suburb"
                 value={newAddressForm.suburb}
                 onChange={(e) => setNewAddressForm({ ...newAddressForm, suburb: e.target.value })}
               />
-              <FormField
+              <ThemedFormField
                 label="State"
                 value={newAddressForm.state}
                 onChange={(e) => setNewAddressForm({ ...newAddressForm, state: e.target.value })}
               />
-              <FormField
+              <ThemedFormField
                 label="Postcode"
                 value={newAddressForm.postcode}
                 onChange={(e) => setNewAddressForm({ ...newAddressForm, postcode: e.target.value })}
@@ -1530,66 +1740,66 @@ export default function JobDetailPage() {
             </div>
           </div>
         ) : null}
-        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        {addressError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {addressError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => updateJobSite.mutate()}
-            disabled={updateJobSite.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => updateJobSite.mutate()} disabled={updateJobSite.isPending}>
             {updateJobSite.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit job">
-        <FormField label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Job title" />
-        <TextAreaField
+      <ThemedModal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit job">
+        <ThemedFormField label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Job title" />
+        <ThemedTextAreaField
           label="Description"
           rows={4}
           value={editDescription}
           onChange={(e) => setEditDescription(e.target.value)}
           placeholder="Notes, scope of work, etc."
         />
-        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        {editError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {editError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setEditModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setEditModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveEdit.mutate()}
-            disabled={saveEdit.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveEdit.mutate()} disabled={saveEdit.isPending}>
             {saveEdit.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={workdriveModalOpen} onClose={() => setWorkdriveModalOpen(false)} title="WorkDrive link">
-        <FormField
+      <ThemedModal open={workdriveModalOpen} onClose={() => setWorkdriveModalOpen(false)} title="WorkDrive link">
+        <ThemedFormField
           label="Link"
           value={workdriveInput}
           onChange={(e) => setWorkdriveInput(e.target.value)}
           placeholder="https://workdrive.zoho.com/..."
         />
-        {workdriveError ? <p className="mb-4 text-sm text-red-600">{workdriveError}</p> : null}
+        {workdriveError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {workdriveError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setWorkdriveModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setWorkdriveModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveWorkdrive.mutate()}
-            disabled={saveWorkdrive.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveWorkdrive.mutate()} disabled={saveWorkdrive.isPending}>
             {saveWorkdrive.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
       <RealEstateAssignmentModal
         open={realEstateModalOpen}
