@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { createClientSchema, type ChannelConversation, type ChannelMessage, type InboxMessage } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
@@ -9,8 +11,10 @@ import { useIsOnline } from "../../lib/connectivity";
 import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
 import { sendChannelMessage, uploadChannelMedia, decodeEmailConversationId, type ChannelMediaAttachment } from "../../lib/channels";
-import { FormField } from "../../components/FormField";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
 
 // Mobile port of apps/desktop/src/pages/ChannelConversationDetail.tsx - a
 // plain pushed Stack screen (not a modal/bottom sheet), same as every
@@ -40,6 +44,7 @@ async function fetchInboxMessagesFor(email: string): Promise<InboxMessage[]> {
 function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string; prefillPhone: string; prefillTitle: string; prefillDescription: string }) {
   const { profile } = useAuth();
   const router = useRouter();
+  const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
   const [clientName, setClientName] = useState(props.prefillName);
   const [jobTitle, setJobTitle] = useState(props.prefillTitle);
@@ -110,17 +115,15 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
         </View>
       ) : (
         <>
-          <FormField label="Client name" value={clientName} onChangeText={setClientName} />
-          <FormField label="Job title" value={jobTitle} onChangeText={setJobTitle} />
-          <FormField label="Description" value={jobDescription} onChangeText={setJobDescription} multiline style={styles.multiline} />
+          <ThemedFormField label="Client name" value={clientName} onChangeText={setClientName} />
+          <ThemedFormField label="Job title" value={jobTitle} onChangeText={setJobTitle} />
+          <ThemedFormField label="Description" value={jobDescription} onChangeText={setJobDescription} multiline style={styles.multiline} />
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.createButtonsRow}>
             <Pressable onPress={() => setOpen(false)}>
               <Text style={styles.cancelLink}>Cancel</Text>
             </Pressable>
-            <Pressable style={styles.button} onPress={createJob} disabled={busy}>
-              <Text style={styles.buttonText}>{busy ? "Creating..." : "Create job"}</Text>
-            </Pressable>
+            <ThemedButton label={busy ? "Creating..." : "Create Job"} onPress={createJob} disabled={busy} />
           </View>
         </>
       )}
@@ -131,6 +134,7 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
 }
 
 function RealConversationDetail({ conversationId }: { conversationId: string }) {
+  const styles = useThemedStyles(createStyles);
   const { data: conversation, refetch } = useSupabaseFetch(async () => fetchConversation(conversationId), [conversationId]);
   const { data: messages, refetch: refetchMessages } = useSupabaseFetch(async () => fetchMessages(conversationId), [conversationId]);
 
@@ -208,13 +212,13 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
     }
   };
 
-  if (!conversation) return <View style={styles.container} />;
+  if (!conversation) return <View style={{ flex: 1 }} />;
 
   const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "messenger";
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
 
   return (
-    <View style={styles.container}>
+    <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
         <Text style={styles.title}>
           {CHANNEL_ICONS[conversation.channel_type]} {title}
@@ -267,7 +271,14 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
               <Pressable style={styles.attachButton} onPress={pickAttachment} disabled={attaching}>
                 <Text style={styles.attachButtonText}>📎</Text>
               </Pressable>
-              <TextInput style={styles.composerInput} value={reply} onChangeText={setReply} placeholder="Type a reply..." multiline />
+              <TextInput
+                style={styles.composerInput}
+                value={reply}
+                onChangeText={setReply}
+                placeholder="Type a reply..."
+                placeholderTextColor={styles.composerInputPlaceholder.color}
+                multiline
+              />
               <Pressable style={styles.sendButton} onPress={send} disabled={sending || attaching || (!reply.trim() && !attachment)}>
                 <Text style={styles.sendButtonText}>{sending ? "..." : attaching ? "..." : "Send"}</Text>
               </Pressable>
@@ -284,11 +295,12 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
 
 function EmailConversationDetail({ email }: { email: string }) {
   const router = useRouter();
+  const styles = useThemedStyles(createStyles);
   const { data: messages } = useSupabaseFetch(async () => fetchInboxMessagesFor(email), [email]);
   const latest = messages?.[0];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
       <Text style={styles.title}>✉️ {latest?.from_name || email}</Text>
       <Text style={styles.meta}>Email · {email}</Text>
 
@@ -322,59 +334,89 @@ function EmailConversationDetail({ email }: { email: string }) {
 
 export default function ChannelConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Channels" />
-      </View>
-    );
-  }
-  if (!id) return null;
-  const email = decodeEmailConversationId(id);
-  if (email) return <EmailConversationDetail email={email} />;
-  return <RealConversationDetail conversationId={id} />;
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Conversation</Text>
+    </View>
+  );
+
+  return (
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        {header}
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Channels" />
+        ) : !id ? null : (() => {
+          const email = decodeEmailConversationId(id);
+          return email ? <EmailConversationDetail email={email} /> : <RealConversationDetail conversationId={id} />;
+        })()}
+      </SafeAreaView>
+    </>
+  );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 19, fontWeight: "700", color: "#111827" },
-  meta: { fontSize: 13, color: "#6b7280", marginTop: 4, marginBottom: 16 },
-  bubbleRow: { marginBottom: 8, flexDirection: "row" },
-  bubbleRowOutbound: { justifyContent: "flex-end" },
-  bubbleRowInbound: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  bubbleOutbound: { backgroundColor: "#1d4ed8" },
-  bubbleInbound: { backgroundColor: "#f3f4f6" },
-  bubbleTextOutbound: { color: "#fff", fontSize: 14 },
-  bubbleTextInbound: { color: "#111827", fontSize: 14 },
-  bubbleTimeOutbound: { color: "#bfdbfe", fontSize: 11, marginTop: 4 },
-  bubbleTimeInbound: { color: "#9ca3af", fontSize: 11, marginTop: 4 },
-  mediaLink: { color: "#2563eb", textDecorationLine: "underline", marginTop: 4 },
-  composer: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", padding: 12 },
-  composerRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
-  attachButton: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, justifyContent: "center" },
-  attachButtonText: { fontSize: 18 },
-  attachmentPreview: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 },
-  attachmentPreviewText: { flex: 1, fontSize: 13, color: "#374151" },
-  attachmentRemove: { fontSize: 13, fontWeight: "700", color: "#dc2626" },
-  composerInput: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 100, fontSize: 14 },
-  sendButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  sendButtonText: { color: "#fff", fontWeight: "700" },
-  notConnected: { fontSize: 13, color: "#6b7280", marginVertical: 12 },
-  emailCard: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12, marginBottom: 10 },
-  emailCardHeaderRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4, gap: 8 },
-  emailSubject: { fontSize: 14, fontWeight: "700", color: "#111827", flex: 1 },
-  emailDate: { fontSize: 11, color: "#9ca3af" },
-  emailBody: { fontSize: 13, color: "#374151", marginBottom: 6 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  cancelLink: { color: "#6b7280", fontWeight: "600" },
-  createSection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", paddingTop: 16, marginTop: 8, gap: 8 },
-  createButtonsRow: { flexDirection: "row", gap: 20, alignItems: "center" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "700" },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  error: { color: "#dc2626", fontSize: 13 },
-  success: { color: "#15803d", fontSize: 13 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    title: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    meta: { fontSize: font.label, color: tokens.textMuted, marginTop: 4, marginBottom: 16, ...mono },
+    bubbleRow: { marginBottom: 8, flexDirection: "row" as const },
+    bubbleRowOutbound: { justifyContent: "flex-end" as const },
+    bubbleRowInbound: { justifyContent: "flex-start" as const },
+    bubble: { maxWidth: "80%" as const, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
+    bubbleOutbound: { backgroundColor: tokens.accentGlow, borderWidth: 1, borderColor: tokens.accent },
+    bubbleInbound: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    bubbleTextOutbound: { color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
+    bubbleTextInbound: { color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
+    bubbleTimeOutbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
+    bubbleTimeInbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
+    mediaLink: { color: tokens.accent, textDecorationLine: "underline" as const, marginTop: 4, ...mono },
+    composer: { borderTopWidth: 1, borderTopColor: tokens.border, padding: 12 },
+    composerRow: { flexDirection: "row" as const, gap: 8, alignItems: "flex-end" as const },
+    attachButton: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 8, justifyContent: "center" as const },
+    attachButtonText: { fontSize: 18 },
+    attachmentPreview: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 },
+    attachmentPreviewText: { flex: 1, fontSize: font.label, color: tokens.textPrimary, ...mono },
+    attachmentRemove: { fontSize: font.label, fontWeight: "700" as const, color: tokens.danger, ...mono },
+    composerInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 3,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      maxHeight: 100,
+      fontSize: font.body - 1,
+      color: tokens.textPrimary,
+      backgroundColor: tokens.background,
+      ...mono,
+    },
+    composerInputPlaceholder: { color: tokens.textMuted },
+    sendButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 16, paddingVertical: 10 },
+    sendButtonText: { color: tokens.accent, fontWeight: "700" as const, ...mono },
+    notConnected: { fontSize: font.label, color: tokens.textMuted, marginVertical: 12, ...mono },
+    emailCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginBottom: 10 },
+    emailCardHeaderRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 4, gap: 8 },
+    emailSubject: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    emailDate: { fontSize: font.label - 1, color: tokens.textMuted, ...mono },
+    emailBody: { fontSize: font.label, color: tokens.textMuted, marginBottom: 6, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    cancelLink: { color: tokens.textMuted, fontWeight: "600" as const, ...mono },
+    createSection: { borderTopWidth: 1, borderTopColor: tokens.border, paddingTop: 16, marginTop: 8, gap: 8 },
+    createButtonsRow: { flexDirection: "row" as const, gap: 20, alignItems: "center" as const },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    error: { color: tokens.danger, fontSize: font.label, ...mono },
+    success: { color: tokens.accent, fontSize: font.label, ...mono },
+  };
+}
