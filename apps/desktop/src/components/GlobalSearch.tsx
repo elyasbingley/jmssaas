@@ -122,7 +122,7 @@ export function GlobalSearch() {
   const trimmed = query.trim();
 
   return (
-    <div ref={ref} className="relative w-96">
+    <div ref={ref} className="relative w-96" style={{ fontFamily: "var(--jms-font)" }}>
       <input
         type="text"
         value={query}
@@ -132,53 +132,83 @@ export function GlobalSearch() {
         }}
         onFocus={() => setOpen(true)}
         placeholder="Search clients, jobs, quotes, invoices..."
-        className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm focus:border-blue-500 focus:bg-white focus:outline-none"
+        className="w-full rounded border px-3 py-1.5 focus:outline-none"
+        style={{
+          backgroundColor: "var(--jms-bg)",
+          borderColor: "var(--jms-border)",
+          color: "var(--jms-text)",
+          fontSize: "var(--jms-font-body)",
+        }}
       />
       {open && trimmed.length >= 2 ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-96 overflow-y-auto rounded-md border border-gray-300 bg-white shadow-lg">
-          {searching ? <p className="p-3 text-sm text-gray-400">Searching...</p> : null}
-          {!searching && !hasResults ? <p className="p-3 text-sm text-gray-500">No results for "{trimmed}".</p> : null}
+        <div
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-96 overflow-y-auto rounded"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 16px var(--jms-accent-glow)" }}
+        >
+          {searching ? (
+            <p className="p-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              Searching...
+            </p>
+          ) : null}
+          {!searching && !hasResults ? (
+            <p className="p-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              No results for "{trimmed}".
+            </p>
+          ) : null}
 
           {results.clients.length > 0 ? (
-            <div className="border-b border-gray-100 py-1">
-              <p className="px-3 py-1 text-xs font-bold uppercase tracking-wide text-gray-400">Clients</p>
+            <div className="py-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <p className="px-3 py-1 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Clients
+              </p>
               {results.clients.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => go(`/clients/${c.id}`)}
-                  className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-gray-50"
+                  className="jms-nav-link block w-full truncate px-3 py-1.5 text-left"
+                  style={{ fontSize: "var(--jms-font-body)" }}
                 >
-                  <span className="font-medium text-gray-900">{c.company_name || c.name}</span>
-                  <span className="ml-2 text-xs text-gray-500">{c.phone || c.email || ""}</span>
+                  <span style={{ color: "var(--jms-text)" }}>{c.company_name || c.name}</span>
+                  <span className="ml-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    {c.phone || c.email || ""}
+                  </span>
                 </button>
               ))}
             </div>
           ) : null}
 
           {results.jobs.length > 0 ? (
-            <div className="border-b border-gray-100 py-1">
-              <p className="px-3 py-1 text-xs font-bold uppercase tracking-wide text-gray-400">Jobs</p>
+            <div className="py-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <p className="px-3 py-1 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Jobs
+              </p>
               {results.jobs.map((j) => (
                 <button
                   key={j.id}
                   onClick={() => go(`/jobs/${j.id}`)}
-                  className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-gray-50"
+                  className="jms-nav-link block w-full truncate px-3 py-1.5 text-left"
+                  style={{ fontSize: "var(--jms-font-body)" }}
                 >
-                  <span className="font-mono text-xs text-blue-700">{j.number ?? "Pending"}</span>
-                  <span className="ml-2 text-gray-900">{j.title}</span>
+                  <span style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>{j.number ?? "Pending"}</span>
+                  <span className="ml-2" style={{ color: "var(--jms-text)" }}>
+                    {j.title}
+                  </span>
                 </button>
               ))}
             </div>
           ) : null}
 
           {results.quotes.length > 0 ? (
-            <div className="border-b border-gray-100 py-1">
-              <p className="px-3 py-1 text-xs font-bold uppercase tracking-wide text-gray-400">Quotes</p>
+            <div className="py-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <p className="px-3 py-1 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Quotes
+              </p>
               {results.quotes.map((q) => (
                 <button
                   key={q.id}
                   onClick={() => go(`/quotes/${q.id}`)}
-                  className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-gray-50"
+                  className="jms-nav-link block w-full truncate px-3 py-1.5 text-left"
+                  style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                 >
                   {q.quote_number}
                 </button>
@@ -188,12 +218,15 @@ export function GlobalSearch() {
 
           {results.invoices.length > 0 ? (
             <div className="py-1">
-              <p className="px-3 py-1 text-xs font-bold uppercase tracking-wide text-gray-400">Invoices</p>
+              <p className="px-3 py-1 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Invoices
+              </p>
               {results.invoices.map((inv) => (
                 <button
                   key={inv.id}
                   onClick={() => go(`/invoices/${inv.id}`)}
-                  className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-gray-50"
+                  className="jms-nav-link block w-full truncate px-3 py-1.5 text-left"
+                  style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                 >
                   {inv.invoice_number}
                 </button>

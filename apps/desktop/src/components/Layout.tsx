@@ -63,25 +63,30 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
   },
 ];
 
-const linkClasses = ({ isActive }: { isActive: boolean }) =>
-  `block rounded-md px-3 py-2 text-sm font-medium ${
-    isActive ? "bg-blue-700 text-white" : "text-gray-700 hover:bg-gray-100"
-  }`;
+const linkClasses = ({ isActive }: { isActive: boolean }) => `block rounded px-3 py-2 font-medium ${isActive ? "jms-nav-link-active" : "jms-nav-link"}`;
 
 export function Layout({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth();
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-300 bg-white">
-        <div className="border-b border-gray-300 px-4 py-4">
-          <h1 className="text-sm font-bold text-gray-900">Bingley Job Management</h1>
+    <div className="flex min-h-screen" style={{ backgroundColor: "var(--jms-bg)", fontFamily: "var(--jms-font)" }}>
+      <aside
+        className="flex w-56 flex-shrink-0 flex-col"
+        style={{ borderRight: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+      >
+        <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+            Bingley Job Management
+          </h1>
         </div>
-        <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+        <nav className="flex-1 space-y-4 overflow-y-auto p-3" style={{ fontSize: "var(--jms-font-body)" }}>
           {navSections.map((section, i) => (
             <div key={i}>
               {section.heading ? (
-                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <p
+                  className="mb-1 px-3 uppercase tracking-wide"
+                  style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                >
                   {section.heading}
                 </p>
               ) : null}
@@ -95,21 +100,25 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="border-t border-gray-300 p-3">
-          <p className="truncate px-3 text-xs text-gray-500">{profile?.full_name}</p>
-          <button
-            onClick={() => void signOut()}
-            className="mt-1 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-100"
-          >
+        <div className="p-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
+          <p className="truncate px-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {profile?.full_name}
+          </p>
+          <button onClick={() => void signOut()} className="jms-nav-link mt-1 w-full rounded px-3 py-2 text-left font-medium">
             Sign out
           </button>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-shrink-0 items-center justify-between border-b border-gray-300 bg-white px-4 py-2">
+        <header
+          className="flex flex-shrink-0 items-center justify-between px-4 py-2"
+          style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+        >
           <GlobalSearch />
         </header>
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "var(--jms-bg)" }}>
+          {children}
+        </main>
       </div>
     </div>
   );
