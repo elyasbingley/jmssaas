@@ -7,7 +7,8 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { emptyLineItem, normalizeLineItem } from "../lib/line-items";
 import { LineItemEditor } from "../components/LineItemEditor";
-import { SelectField, TextAreaField } from "../components/FormField";
+import { ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import type { LineItemFormInput } from "@jmssaas/shared";
 
 async function fetchClients(): Promise<Client[]> {
@@ -147,10 +148,12 @@ export default function QuoteNewPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="mb-6 text-xl font-bold text-gray-900">New quote</h1>
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-6 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        New quote
+      </h1>
 
-      <SelectField
+      <ThemedSelectField
         label="Client"
         value={clientId}
         onChange={(v) => {
@@ -161,7 +164,7 @@ export default function QuoteNewPage() {
         options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
         placeholder="Select a client"
       />
-      <SelectField
+      <ThemedSelectField
         label={`Linked job${lockedFromJob ? "" : " (optional)"}`}
         value={jobCardId}
         onChange={(v) => !lockedFromJob && setJobCardId(v)}
@@ -170,16 +173,19 @@ export default function QuoteNewPage() {
       />
 
       <div className="mb-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Expiry date (optional)</label>
+        <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Expiry date (optional)
+        </label>
         <input
           type="date"
           value={expiryDate}
           onChange={(e) => setExpiryDate(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full rounded border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
       </div>
 
-      <SelectField
+      <ThemedSelectField
         label="Referral source (optional)"
         value={referralPartnerId}
         onChange={setReferralPartnerId}
@@ -191,7 +197,7 @@ export default function QuoteNewPage() {
       />
 
       {templates && templates.length > 0 ? (
-        <SelectField
+        <ThemedSelectField
           label="Load from template (optional)"
           value={templateId}
           onChange={(v) => {
@@ -203,22 +209,26 @@ export default function QuoteNewPage() {
         />
       ) : null}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Line items</h2>
+      <h2 className="mb-2 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        Line items
+      </h2>
       <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
       <div className="mt-4">
-        <TextAreaField label="Notes (optional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <ThemedTextAreaField label="Notes (optional)" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
-      {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+      {formError ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {formError}
+        </p>
+      ) : null}
 
-      <button
-        onClick={() => createQuote.mutate()}
-        disabled={createQuote.isPending}
-        className="mt-2 rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
-        {createQuote.isPending ? "Saving..." : "Create quote"}
-      </button>
+      <div className="mt-2">
+        <ThemedButton onClick={() => createQuote.mutate()} disabled={createQuote.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
+          {createQuote.isPending ? "Saving..." : "Create quote"}
+        </ThemedButton>
+      </div>
     </div>
   );
 }
