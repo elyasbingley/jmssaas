@@ -16,8 +16,9 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { formatClientAddress } from "../lib/format";
-import { Modal } from "../components/Modal";
-import { FormField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { ClientMembershipSection } from "../components/ClientMembershipSection";
 import { AssetsSection } from "../components/AssetsSection";
@@ -394,37 +395,58 @@ export default function ClientDetailPage() {
   });
 
   if (!client) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
   const address = formatClientAddress(client);
 
   return (
-    <div className="p-8">
-      <Link to="/clients" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/clients" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Clients
       </Link>
 
-      <div className="mb-6 flex items-start justify-between rounded-lg border border-gray-300 bg-white p-6">
+      <div className="mb-6 flex items-start justify-between rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div>
           {client.client_type === "company" && client.company_name ? (
             <>
-              <h1 className="text-xl font-bold text-gray-900">{client.company_name}</h1>
-              <p className="text-sm font-semibold text-gray-500">Primary contact: {client.name}</p>
+              <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+                {client.company_name}
+              </h1>
+              <p className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Primary contact: {client.name}
+              </p>
             </>
           ) : (
-            <h1 className="text-xl font-bold text-gray-900">{client.name}</h1>
+            <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+              {client.name}
+            </h1>
           )}
-          {client.phone ? <p className="mt-1 text-sm text-gray-600">{client.phone}</p> : null}
-          {client.email ? <p className="text-sm text-gray-600">{client.email}</p> : null}
-          {address ? <p className="text-sm text-gray-600">{address}</p> : null}
-          {client.notes ? <p className="mt-2 text-sm text-gray-700">{client.notes}</p> : null}
+          {client.phone ? (
+            <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              {client.phone}
+            </p>
+          ) : null}
+          {client.email ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{client.email}</p>
+          ) : null}
+          {address ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{address}</p> : null}
+          {client.notes ? (
+            <p className="mt-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+              {client.notes}
+            </p>
+          ) : null}
           {client.workdrive_url ? (
             <a
               href={client.workdrive_url}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-block text-sm font-semibold text-blue-700 hover:underline"
+              className="mt-2 inline-block font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
             >
               Open WorkDrive folder &rarr;
             </a>
@@ -432,36 +454,38 @@ export default function ClientDetailPage() {
           <div className="mt-3 flex items-center gap-3">
             {client.left_google_review ? (
               <>
-                <span className="text-sm font-semibold text-gray-700">
+                <span className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                   Left a Google review{" "}
-                  <span className="text-yellow-500" title={`${client.google_review_stars ?? 0}/5 stars`}>
+                  <span style={{ color: "var(--jms-warning)" }} title={`${client.google_review_stars ?? 0}/5 stars`}>
                     {"★".repeat(client.google_review_stars ?? 0)}
                     {"☆".repeat(5 - (client.google_review_stars ?? 0))}
                   </span>
                 </span>
-                <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+                <button onClick={openReviewModal} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
                   Change
                 </button>
-                <button onClick={() => removeReview.mutate()} className="text-sm font-semibold text-red-600 hover:underline">
+                <button onClick={() => removeReview.mutate()} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
                   Remove
                 </button>
               </>
             ) : (
-              <button onClick={openReviewModal} className="text-sm font-semibold text-blue-700 hover:underline">
+              <button onClick={openReviewModal} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
                 Mark as left a Google review
               </button>
             )}
           </div>
         </div>
-        <button onClick={openEdit} className="text-sm font-semibold text-blue-700 hover:underline">
+        <button onClick={openEdit} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           Edit
         </button>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Contacts</h2>
+            <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+              Contacts
+            </h2>
             <button
               onClick={() => {
                 setEditingContactId(null);
@@ -469,31 +493,36 @@ export default function ClientDetailPage() {
                 setContactError(null);
                 setContactModalOpen(true);
               }}
-              className="text-xs font-semibold text-blue-700 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
             >
               + Add contact
             </button>
           </div>
           {!contacts || contacts.length === 0 ? (
-            <p className="text-sm text-gray-500">No extra contacts yet.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No extra contacts yet.</p>
           ) : (
             <div className="space-y-2">
               {contacts.map((contact) => (
-                <div key={contact.id} className="flex items-start justify-between rounded-md bg-gray-50 p-2">
-                  <div className="text-sm">
-                    <p className="font-semibold text-gray-900">
+                <div key={contact.id} className="flex items-start justify-between rounded p-2" style={{ backgroundColor: "var(--jms-bg)" }}>
+                  <div>
+                    <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                       {contact.name}
-                      {contact.is_primary ? <span className="ml-1 text-xs font-normal text-blue-700">(primary)</span> : null}
+                      {contact.is_primary ? (
+                        <span className="ml-1 font-normal" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                          (primary)
+                        </span>
+                      ) : null}
                     </p>
-                    {contact.role ? <p className="text-xs text-gray-500">{contact.role}</p> : null}
-                    {contact.email ? <p className="text-xs text-gray-600">{contact.email}</p> : null}
-                    {contact.phone ? <p className="text-xs text-gray-600">{contact.phone}</p> : null}
+                    {contact.role ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{contact.role}</p> : null}
+                    {contact.email ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{contact.email}</p> : null}
+                    {contact.phone ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{contact.phone}</p> : null}
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <button onClick={() => openEditContact(contact)} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <button onClick={() => openEditContact(contact)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       Edit
                     </button>
-                    <button onClick={() => deleteContact.mutate(contact.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                    <button onClick={() => deleteContact.mutate(contact.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                       Remove
                     </button>
                   </div>
@@ -503,33 +532,41 @@ export default function ClientDetailPage() {
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Addresses</h2>
-            <button onClick={() => setSiteModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+              Addresses
+            </h2>
+            <button onClick={() => setSiteModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
               + Add address
             </button>
           </div>
           {address ? (
-            <div className="mb-2 rounded-md bg-gray-50 p-2 text-sm">
-              <p className="font-semibold text-gray-900">Main address</p>
-              <p className="text-xs text-gray-600">{address}</p>
+            <div className="mb-2 rounded p-2" style={{ backgroundColor: "var(--jms-bg)" }}>
+              <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                Main address
+              </p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{address}</p>
             </div>
           ) : null}
           {!sites || sites.length === 0 ? (
-            <p className="text-sm text-gray-500">No other addresses saved.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No other addresses saved.</p>
           ) : (
             <div className="space-y-2">
               {sites.map((site) => (
-                <div key={site.id} className="flex items-start justify-between rounded-md bg-gray-50 p-2">
-                  <div className="text-sm">
-                    <p className="font-semibold text-gray-900">
+                <div key={site.id} className="flex items-start justify-between rounded p-2" style={{ backgroundColor: "var(--jms-bg)" }}>
+                  <div>
+                    <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                       {site.label || "Site address"}
-                      {site.is_primary ? <span className="ml-1 text-xs font-normal text-blue-700">(primary)</span> : null}
+                      {site.is_primary ? (
+                        <span className="ml-1 font-normal" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                          (primary)
+                        </span>
+                      ) : null}
                     </p>
-                    <p className="text-xs text-gray-600">{formatSiteAddress(site)}</p>
+                    <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{formatSiteAddress(site)}</p>
                   </div>
-                  <button onClick={() => deleteSite.mutate(site.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                  <button onClick={() => deleteSite.mutate(site.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                     Remove
                   </button>
                 </div>
@@ -540,24 +577,31 @@ export default function ClientDetailPage() {
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Jobs</h2>
-        <button
+        <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+          Jobs
+        </h2>
+        <ThemedButton
           onClick={() => {
             setJobSiteChoice("");
             setNewJobOpen(true);
           }}
-          className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
+          style={{ paddingBlock: 6, paddingInline: 12 }}
         >
           + New job
-        </button>
+        </ThemedButton>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {!jobs || jobs.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No jobs yet for this client.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No jobs yet for this client.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Title</th>
@@ -568,18 +612,20 @@ export default function ClientDetailPage() {
               {jobs.map((job) => {
                 const stage = stageById.get(job.lifecycle_stage_id ?? "");
                 return (
-                  <tr key={job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-blue-700">
+                  <tr key={job.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-accent)" }}>
                       <Link to={`/jobs/${job.id}`} className="hover:underline">
                         {job.number ?? "Pending"}
                       </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <Link to={`/jobs/${job.id}`} className="font-medium hover:underline">
+                      <Link to={`/jobs/${job.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-text)" }}>
                         {job.title}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{stage?.name ?? ""}</td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {stage?.name ?? ""}
+                    </td>
                   </tr>
                 );
               })}
@@ -592,110 +638,118 @@ export default function ClientDetailPage() {
 
       <AssetsSection owner={{ type: "client", id: id! }} />
 
-      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
+      <div className="mt-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+          Communication Log
+        </h2>
         <CommunicationLog entities={(jobs ?? []).map((job) => ({ entityType: "job" as const, entityId: job.id }))} />
       </div>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit client">
+      <ThemedModal open={editOpen} onClose={() => setEditOpen(false)} title="Edit client">
         <div className="mb-4 flex gap-2">
           <button
             type="button"
             onClick={() => setEditForm({ ...editForm, client_type: "individual" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              editForm.client_type === "individual" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded border px-3 py-2 font-semibold"
+            style={
+              editForm.client_type === "individual"
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+            }
           >
             Individual / COD
           </button>
           <button
             type="button"
             onClick={() => setEditForm({ ...editForm, client_type: "company" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              editForm.client_type === "company" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded border px-3 py-2 font-semibold"
+            style={
+              editForm.client_type === "company"
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+            }
           >
             Company
           </button>
         </div>
         {editForm.client_type === "company" ? (
-          <FormField
+          <ThemedFormField
             label="Company name"
             value={editForm.company_name}
             onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })}
           />
         ) : null}
-        <FormField
+        <ThemedFormField
           label={editForm.client_type === "company" ? "Primary contact full name" : "Full name"}
           value={editForm.name}
           onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Phone"
           value={editForm.phone}
           onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Email"
           type="email"
           value={editForm.email}
           onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Address line 1"
           value={editForm.address_line1}
           onChange={(e) => setEditForm({ ...editForm, address_line1: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Address line 2"
           value={editForm.address_line2}
           onChange={(e) => setEditForm({ ...editForm, address_line2: e.target.value })}
         />
         <div className="grid grid-cols-3 gap-3">
-          <FormField
+          <ThemedFormField
             label="Suburb"
             value={editForm.suburb}
             onChange={(e) => setEditForm({ ...editForm, suburb: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="State"
             value={editForm.state}
             onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Postcode"
             value={editForm.postcode}
             onChange={(e) => setEditForm({ ...editForm, postcode: e.target.value })}
           />
         </div>
-        <TextAreaField
+        <ThemedTextAreaField
           label="Notes"
           rows={3}
           value={editForm.notes}
           onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="WorkDrive link (optional)"
           value={editForm.workdrive_url}
           onChange={(e) => setEditForm({ ...editForm, workdrive_url: e.target.value })}
           placeholder="https://workdrive.zoho.com/..."
         />
-        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        {editError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {editError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setEditOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setEditOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveEdit.mutate()}
-            disabled={saveEdit.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveEdit.mutate()} disabled={saveEdit.isPending}>
             {saveEdit.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal
+      <ThemedModal
         open={contactModalOpen}
         onClose={() => {
           setContactModalOpen(false);
@@ -703,21 +757,21 @@ export default function ClientDetailPage() {
         }}
         title={editingContactId ? "Edit contact" : "Add contact"}
       >
-        <FormField label="Name" value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} />
-        <FormField
+        <ThemedFormField label="Name" value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} />
+        <ThemedFormField
           label="Role (optional)"
           value={contactForm.role}
           onChange={(e) => setContactForm({ ...contactForm, role: e.target.value })}
           placeholder="e.g. Office manager"
         />
-        <FormField
+        <ThemedFormField
           label="Email"
           type="email"
           value={contactForm.email}
           onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
         />
-        <FormField label="Phone" value={contactForm.phone} onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })} />
-        <label className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <ThemedFormField label="Phone" value={contactForm.phone} onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })} />
+        <label className="mb-4 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input
             type="checkbox"
             checked={contactForm.is_primary}
@@ -725,54 +779,55 @@ export default function ClientDetailPage() {
           />
           Primary contact
         </label>
-        {contactError ? <p className="mb-4 text-sm text-red-600">{contactError}</p> : null}
+        {contactError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {contactError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setContactModalOpen(false);
               setEditingContactId(null);
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => saveContact.mutate()}
-            disabled={saveContact.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveContact.mutate()} disabled={saveContact.isPending}>
             {saveContact.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={siteModalOpen} onClose={() => setSiteModalOpen(false)} title="Add address">
-        <FormField
+      <ThemedModal open={siteModalOpen} onClose={() => setSiteModalOpen(false)} title="Add address">
+        <ThemedFormField
           label="Label (optional)"
           value={siteForm.label}
           onChange={(e) => setSiteForm({ ...siteForm, label: e.target.value })}
           placeholder="e.g. Warehouse, Shop 4"
         />
-        <FormField
+        <ThemedFormField
           label="Address line 1"
           value={siteForm.address_line1}
           onChange={(e) => setSiteForm({ ...siteForm, address_line1: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Address line 2"
           value={siteForm.address_line2}
           onChange={(e) => setSiteForm({ ...siteForm, address_line2: e.target.value })}
         />
         <div className="grid grid-cols-3 gap-3">
-          <FormField label="Suburb" value={siteForm.suburb} onChange={(e) => setSiteForm({ ...siteForm, suburb: e.target.value })} />
-          <FormField label="State" value={siteForm.state} onChange={(e) => setSiteForm({ ...siteForm, state: e.target.value })} />
-          <FormField
+          <ThemedFormField label="Suburb" value={siteForm.suburb} onChange={(e) => setSiteForm({ ...siteForm, suburb: e.target.value })} />
+          <ThemedFormField label="State" value={siteForm.state} onChange={(e) => setSiteForm({ ...siteForm, state: e.target.value })} />
+          <ThemedFormField
             label="Postcode"
             value={siteForm.postcode}
             onChange={(e) => setSiteForm({ ...siteForm, postcode: e.target.value })}
           />
         </div>
-        <label className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <label className="mb-4 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input
             type="checkbox"
             checked={siteForm.is_primary}
@@ -780,40 +835,48 @@ export default function ClientDetailPage() {
           />
           Mark as primary site address
         </label>
-        {siteError ? <p className="mb-4 text-sm text-red-600">{siteError}</p> : null}
+        {siteError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {siteError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSiteModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setSiteModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveSite.mutate()}
-            disabled={saveSite.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveSite.mutate()} disabled={saveSite.isPending}>
             {saveSite.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={newJobOpen} onClose={() => setNewJobOpen(false)} title="New job">
-        <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
-          <p className="font-semibold text-gray-900">{client.client_type === "company" && client.company_name ? client.company_name : client.name}</p>
-          {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
+      <ThemedModal open={newJobOpen} onClose={() => setNewJobOpen(false)} title="New job">
+        <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-bg)" }}>
+          <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+            {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+          </p>
+          {client.phone ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{client.phone}</p> : null}
         </div>
         {isActiveMember ? (
-          <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+          <p
+            className="mb-4 rounded px-3 py-2 font-semibold"
+            style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-accent-glow)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+          >
             This client is a Member - remember the same-day response guarantee.
           </p>
         ) : null}
-        <FormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-        <TextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
+        <ThemedFormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        <ThemedTextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
 
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Job address</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Job address
+          </label>
           <select
             value={jobSiteChoice}
             onChange={(e) => setJobSiteChoice(e.target.value)}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">{address ? `Client's main address (${address})` : "Client's main address (none on file)"}</option>
             {(sites ?? []).map((site) => (
@@ -825,38 +888,38 @@ export default function ClientDetailPage() {
           </select>
         </div>
         {jobSiteChoice === "new" ? (
-          <div className="mb-4 rounded-md border border-gray-300 p-3">
-            <p className="mb-2 text-xs font-semibold text-gray-500">
+          <div className="mb-4 rounded p-3" style={{ border: "1px solid var(--jms-border)" }}>
+            <p className="mb-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               This address will be saved to {client.client_type === "company" && client.company_name ? client.company_name : client.name}'s card.
             </p>
-            <FormField
+            <ThemedFormField
               label="Label (optional)"
               value={newSiteForm.label}
               onChange={(e) => setNewSiteForm({ ...newSiteForm, label: e.target.value })}
               placeholder="e.g. Warehouse, Shop 4"
             />
-            <FormField
+            <ThemedFormField
               label="Address line 1"
               value={newSiteForm.address_line1}
               onChange={(e) => setNewSiteForm({ ...newSiteForm, address_line1: e.target.value })}
             />
-            <FormField
+            <ThemedFormField
               label="Address line 2"
               value={newSiteForm.address_line2}
               onChange={(e) => setNewSiteForm({ ...newSiteForm, address_line2: e.target.value })}
             />
             <div className="grid grid-cols-3 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Suburb"
                 value={newSiteForm.suburb}
                 onChange={(e) => setNewSiteForm({ ...newSiteForm, suburb: e.target.value })}
               />
-              <FormField
+              <ThemedFormField
                 label="State"
                 value={newSiteForm.state}
                 onChange={(e) => setNewSiteForm({ ...newSiteForm, state: e.target.value })}
               />
-              <FormField
+              <ThemedFormField
                 label="Postcode"
                 value={newSiteForm.postcode}
                 onChange={(e) => setNewSiteForm({ ...newSiteForm, postcode: e.target.value })}
@@ -865,29 +928,32 @@ export default function ClientDetailPage() {
           </div>
         ) : null}
 
-        {jobError ? <p className="mb-4 text-sm text-red-600">{jobError}</p> : null}
+        {jobError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {jobError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setNewJobOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setNewJobOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createJob.mutate()}
-            disabled={createJob.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending}>
             {createJob.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={reviewModalOpen} onClose={() => setReviewModalOpen(false)} title="Google review rating">
-        <p className="mb-3 text-sm text-gray-500">How many stars did this client leave?</p>
+      <ThemedModal open={reviewModalOpen} onClose={() => setReviewModalOpen(false)} title="Google review rating">
+        <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          How many stars did this client leave?
+        </p>
         <div className="mb-4 flex justify-center gap-2">
           {[1, 2, 3, 4, 5].map((n) => (
             <button
               key={n}
               onClick={() => setPendingStars(n)}
-              className={`text-3xl ${n <= pendingStars ? "text-yellow-500" : "text-gray-300"}`}
+              className="text-3xl"
+              style={{ color: n <= pendingStars ? "var(--jms-warning)" : "var(--jms-border)" }}
               aria-label={`${n} star${n === 1 ? "" : "s"}`}
             >
               ★
@@ -895,18 +961,14 @@ export default function ClientDetailPage() {
           ))}
         </div>
         <div className="flex justify-end gap-3">
-          <button onClick={() => setReviewModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setReviewModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveReview.mutate(pendingStars)}
-            disabled={saveReview.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveReview.mutate(pendingStars)} disabled={saveReview.isPending}>
             {saveReview.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
