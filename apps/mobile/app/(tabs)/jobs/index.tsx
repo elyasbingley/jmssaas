@@ -176,6 +176,11 @@ export default function JobsScreen() {
               {address}
             </Text>
           ) : null}
+          {jobClient?.phone ? (
+            <Text style={styles.rowAddress} numberOfLines={1}>
+              {jobClient.phone}
+            </Text>
+          ) : null}
           <Text style={styles.rowJobTitle} numberOfLines={1}>
             {job.title}
           </Text>
