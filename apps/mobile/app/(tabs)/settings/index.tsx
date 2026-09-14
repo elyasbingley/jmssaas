@@ -30,6 +30,17 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Text style={styles.title}>Settings</Text>
 
+      {/* UI Settings is a personal device preference (accent/font/size),
+          not a company setting, so unlike the admin-only items below it's
+          visible to every signed-in user. */}
+      <View style={styles.list}>
+        <Pressable style={styles.row} onPress={() => router.push("/ui-settings")}>
+          <Text style={styles.rowEmoji}>🎨</Text>
+          <Text style={styles.rowLabel}>UI Settings</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </View>
+
       {isAdmin ? (
         <View style={styles.list}>
           {SETTINGS_ITEMS.map((item) => (
@@ -40,9 +51,7 @@ export default function SettingsScreen() {
             </Pressable>
           ))}
         </View>
-      ) : (
-        <Text style={styles.empty}>Nothing to configure here yet - check with an admin.</Text>
-      )}
+      ) : null}
     </SafeAreaView>
   );
 }

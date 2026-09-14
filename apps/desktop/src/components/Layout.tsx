@@ -40,6 +40,7 @@ const navSections = [
     heading: "Settings",
     items: [
       { to: "/settings", label: "Company Details" },
+      { to: "/settings/ui-settings", label: "UI Settings" },
       { to: "/settings/automation", label: "Automation & Messaging" },
       { to: "/settings/job-setup", label: "Job Setup" },
       { to: "/settings/inventory-setup", label: "Inventory Setup" },

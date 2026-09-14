@@ -6,15 +6,18 @@ import { StatusBar } from "expo-status-bar";
 import { PowerSyncContext } from "@powersync/react";
 import { powersync } from "../lib/powersync";
 import { AuthProvider, useAuth } from "../lib/auth-context";
+import { ThemeProvider } from "../lib/theme-context";
 
 export default function RootLayout() {
   return (
     <PowerSyncContext.Provider value={powersync}>
       <AuthProvider>
-        <SafeAreaProvider>
-          <StatusBar style="dark" />
-          <RootNavigator />
-        </SafeAreaProvider>
+        <ThemeProvider>
+          <SafeAreaProvider>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </SafeAreaProvider>
+        </ThemeProvider>
       </AuthProvider>
     </PowerSyncContext.Provider>
   );
@@ -79,6 +82,7 @@ function RootNavigator() {
       <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />
       <Stack.Screen name="inventory-setup" options={{ headerShown: true, title: "Inventory Setup" }} />
       <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
+      <Stack.Screen name="ui-settings" options={{ headerShown: false }} />
     </Stack>
   );
 }

@@ -5,3 +5,4 @@ export * from "./placeholders";
 export * from "./reports";
 export * from "./schemas";
 export * from "./powersync/schema";
+export * from "./theme";

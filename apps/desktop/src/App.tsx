@@ -20,6 +20,7 @@ import CalendarPage from "./pages/Calendar";
 import CalendarEventNewPage from "./pages/CalendarEventNew";
 import CalendarEventDetailPage from "./pages/CalendarEventDetail";
 import SettingsPage from "./pages/Settings";
+import UISettingsPage from "./pages/UISettings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
 import InventoryPage from "./pages/Inventory";
@@ -86,6 +87,7 @@ export default function App() {
                 <Route path="/subcontractors/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
                 <Route path="/subcontractors/:id" element={<SubcontractorDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/ui-settings" element={<UISettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />

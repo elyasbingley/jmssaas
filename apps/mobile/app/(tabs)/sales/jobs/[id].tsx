@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
@@ -35,12 +36,15 @@ import { supabase } from "../../../../lib/supabase";
 import { addJobPhoto } from "../../../../lib/powersync";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
-import { CenteredModal } from "../../../../components/CenteredModal";
-import { CommunicationLog } from "../../../../components/CommunicationLog";
-import { FormField } from "../../../../components/FormField";
-import { PhotoAttachments } from "../../../../components/PhotoAttachments";
-import { PickerModal } from "../../../../components/PickerModal";
-import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../../../lib/use-themed-styles";
+import { Panel } from "../../../../components/theme/Panel";
+import { Readout } from "../../../../components/theme/Readout";
+import { ThemedButton } from "../../../../components/theme/ThemedButton";
+import { ThemedModal } from "../../../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../../../components/theme/ThemedPickerModal";
+import { ThemedPhotoAttachments } from "../../../../components/theme/ThemedPhotoAttachments";
+import { ThemedCommunicationLog } from "../../../../components/theme/ThemedCommunicationLog";
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -60,6 +64,14 @@ interface JobFileWithLocalUri {
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function callPhone(phone: string) {
+  Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`).catch(() => {});
+}
+
+function openInMaps(address: string) {
+  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`).catch(() => {});
 }
 
 // labour_rate_cents/labour_hours/material_cost_cents on a line item are the
@@ -620,72 +632,45 @@ export default function JobDetailScreen() {
     }
   };
 
+  const styles = useThemedStyles(createStyles);
+
   if (!job) {
     return (
       <View style={styles.container}>
+        <StatusBar style="light" />
         <Text style={styles.empty}>Loading...</Text>
       </View>
     );
   }
 
+  const clientAddress = client ? formatClientAddress(client) : null;
+  const clientPhone = client?.phone ?? null;
+  const pmMobile = propertyManager?.mobile ?? propertyManager?.work_phone ?? null;
+
   return (
     <>
+    <StatusBar style="light" />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <View style={styles.section}>
-        <View style={styles.titleRow}>
-          <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
-          <Pressable onPress={openEditModal}>
-            <Text style={styles.link}>Edit</Text>
+      <View style={styles.header}>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.jobNumber}>{job.number ?? "PENDING SYNC"}</Text>
+          <Pressable onPress={openEditModal} hitSlop={8}>
+            <Text style={styles.headerLink}>EDIT</Text>
           </Pressable>
         </View>
-        <Text style={styles.title}>{job.title}</Text>
-        {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
+        <Text style={styles.jobTitle}>{job.title}</Text>
 
         {client ? (
-          <Pressable style={styles.clientCard} onPress={() => router.push(`/sales/clients/${client.id}`)}>
-            <Text style={styles.clientCardName}>{client.name}</Text>
-            {client.phone ? <Text style={styles.clientCardMeta}>{client.phone}</Text> : null}
-            {formatClientAddress(client) ? (
-              <Text style={styles.clientCardMeta}>{formatClientAddress(client)}</Text>
-            ) : null}
-          </Pressable>
+          <View style={styles.headerReadouts}>
+            <Readout label="Client" value={client.name} onPress={() => router.push(`/sales/clients/${client.id}`)} />
+            {clientPhone ? <Readout label="Phone" value={clientPhone} onPress={() => callPhone(clientPhone)} /> : null}
+            {clientAddress ? <Readout label="Address" value={clientAddress} onPress={() => openInMaps(clientAddress)} /> : null}
+          </View>
         ) : null}
 
         {job.is_real_estate_job ? (
-          <View style={styles.agencyCard}>
-            <Text style={styles.agencyBadge}>AGENCY JOB</Text>
-            {agency ? <Text style={styles.clientCardName}>{agency.name}</Text> : null}
-            {job.work_order_number ? <Text style={styles.clientCardMeta}>Work order: {job.work_order_number}</Text> : null}
-            {job.nte_limit_cents != null ? (
-              <Text style={styles.clientCardMeta}>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</Text>
-            ) : null}
-            {isNteExceeded ? (
-              <Text style={styles.nteExceededText}>
-                {job.nte_exceeded_approved ? "Over NTE limit - variation approved" : "Over NTE limit - PM approval required to complete"}
-              </Text>
-            ) : null}
-
-            {property?.key_tag_number ? (
-              <View style={styles.keyRow}>
-                <Text style={styles.clientCardMeta}>
-                  Key: {property.key_tag_number} {keyLog ? `(${keyLog.status.replace("_", " ")})` : "(at office)"}
-                </Text>
-                {!keyLog || keyLog.status === "returned" ? (
-                  <Pressable onPress={handleKeyPickedUp}>
-                    <Text style={styles.link}>Keys Picked Up</Text>
-                  </Pressable>
-                ) : keyLog.status === "picked_up" ? (
-                  <Pressable onPress={() => handleKeyStatusChange("in_van")}>
-                    <Text style={styles.link}>Mark In Van</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable onPress={() => handleKeyStatusChange("returned")}>
-                    <Text style={styles.link}>Mark Returned</Text>
-                  </Pressable>
-                )}
-              </View>
-            ) : null}
-            {keyActionError ? <Text style={styles.error}>{keyActionError}</Text> : null}
+          <View style={styles.agencyBadgeRow}>
+            <Text style={styles.agencyBadge}>◆ AGENCY JOB{agency ? ` · ${agency.name.toUpperCase()}` : ""}</Text>
           </View>
         ) : null}
       </View>
@@ -709,271 +694,304 @@ export default function JobDetailScreen() {
 
       {activeTab === "costing" && isAdmin ? (
         !isOnline ? (
-          <View style={styles.section}>
-            <RequiresConnectionNotice label="Job costing" />
-          </View>
+          <Panel title="Job Costing" status="OFFLINE">
+            <Text style={styles.empty}>
+              This device is offline. Job costing is an office/PC workflow that needs a connection - reconnect to view it.
+            </Text>
+          </Panel>
         ) : (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Linked documents</Text>
-            {costingDocs.map((doc) => (
-              <Pressable
-                key={doc.id}
-                style={styles.costingDocRow}
-                onPress={() => router.push(doc.type === "quote" ? `/sales/quotes/${doc.id}` : `/sales/invoices/${doc.id}`)}
-              >
-                <View>
-                  <Text style={styles.costingDocNumber}>{doc.number}</Text>
-                  <Text style={styles.costingDocMeta}>
-                    {doc.type === "quote" ? "Quote" : "Invoice"} · {capitalize(doc.status)}
-                  </Text>
-                </View>
-                <Text style={styles.costingDocTotal}>{formatCentsAsAud(doc.total_cents)}</Text>
-              </Pressable>
-            ))}
-            {costingDocs.length === 0 ? (
-              <Text style={styles.empty}>No quotes or invoices linked to this job yet.</Text>
-            ) : costingLoading ? (
-              <Text style={styles.empty}>Loading costing breakdown...</Text>
-            ) : (
-              <>
-                <Text style={[styles.sectionTitle, styles.costingSummaryTitle]}>Summary</Text>
-                <View style={styles.costingSummaryRow}>
-                  <Text style={styles.costingSummaryLabel}>Labour cost</Text>
-                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalLabourCents)}</Text>
-                </View>
-                <View style={styles.costingSummaryRow}>
-                  <Text style={styles.costingSummaryLabel}>Material cost</Text>
-                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalMaterialCents)}</Text>
-                </View>
-                <View style={styles.costingSummaryRow}>
-                  <Text style={styles.costingSummaryLabel}>Total charged</Text>
-                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalChargedCents)}</Text>
-                </View>
-                <View style={[styles.costingSummaryRow, styles.costingSummaryRowBold]}>
-                  <Text style={styles.costingSummaryLabelBold}>Margin</Text>
-                  <Text style={styles.costingSummaryValueBold}>{formatCentsAsAud(marginCents)}</Text>
-                </View>
-                <View style={styles.costingSummaryRow}>
-                  <Text style={styles.costingSummaryLabel}>Margin %</Text>
-                  <Text style={styles.costingSummaryValue}>{marginPercent.toFixed(1)}%</Text>
-                </View>
-              </>
-            )}
-          </View>
+          <>
+            <Panel title="Linked Documents">
+              {costingDocs.map((doc) => (
+                <Pressable
+                  key={doc.id}
+                  style={styles.costingDocRow}
+                  onPress={() => router.push(doc.type === "quote" ? `/sales/quotes/${doc.id}` : `/sales/invoices/${doc.id}`)}
+                >
+                  <View>
+                    <Text style={styles.costingDocNumber}>{doc.number}</Text>
+                    <Text style={styles.costingDocMeta}>
+                      {doc.type === "quote" ? "Quote" : "Invoice"} · {capitalize(doc.status)}
+                    </Text>
+                  </View>
+                  <Text style={styles.costingDocTotal}>{formatCentsAsAud(doc.total_cents)}</Text>
+                </Pressable>
+              ))}
+              {costingDocs.length === 0 ? <Text style={styles.empty}>No quotes or invoices linked to this job yet.</Text> : null}
+            </Panel>
+            {costingDocs.length > 0 ? (
+              <Panel title="Summary">
+                {costingLoading ? (
+                  <Text style={styles.empty}>Loading costing breakdown...</Text>
+                ) : (
+                  <>
+                    <Readout label="Labour cost" value={formatCentsAsAud(totalLabourCents)} />
+                    <Readout label="Material cost" value={formatCentsAsAud(totalMaterialCents)} />
+                    <Readout label="Total charged" value={formatCentsAsAud(totalChargedCents)} />
+                    <View style={styles.divider} />
+                    <Readout label="Margin" value={formatCentsAsAud(marginCents)} />
+                    <Readout label="Margin %" value={`${marginPercent.toFixed(1)}%`} />
+                  </>
+                )}
+              </Panel>
+            ) : null}
+          </>
         )
       ) : null}
 
       {activeTab === "details" || !isAdmin ? (
         <>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notify client</Text>
-        <Pressable
-          style={styles.onTheWayButton}
-          onPress={() => {
-            setEtaMinutes("");
-            setOnTheWayError(null);
-            setOnTheWayModalVisible(true);
-          }}
-        >
-          <Text style={styles.onTheWayButtonText}>🚚 On The Way</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
-      </View>
+          <Panel title="Job Description">
+            {job.description ? (
+              <Text style={styles.bodyText}>{job.description}</Text>
+            ) : (
+              <Text style={styles.empty}>No description yet. Tap EDIT above to add one.</Text>
+            )}
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Category</Text>
-        <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
-          <View style={styles.pickerFieldRow}>
-            {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
-            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {category?.name ?? "No category"}
-            </Text>
-          </View>
-        </Pressable>
-        {category ? (
-          <Pressable onPress={() => handleCategoryChange(null)}>
-            <Text style={styles.clearLink}>Clear</Text>
-          </Pressable>
-        ) : null}
-      </View>
+          <Panel title="Contacts">
+            {client ? (
+              <>
+                <Readout label="Primary Contact" value={client.name} onPress={() => router.push(`/sales/clients/${client.id}`)} />
+                {clientPhone ? <Readout label="Phone" value={clientPhone} onPress={() => callPhone(clientPhone)} /> : null}
+              </>
+            ) : (
+              <Text style={styles.empty}>No client on this job.</Text>
+            )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Lifecycle stage</Text>
-        <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
-          <View style={styles.pickerFieldRow}>
-            {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
-            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {stage?.name ?? "No stage"}
-            </Text>
-          </View>
-        </Pressable>
-        {stage ? (
-          <Pressable onPress={() => handleStageChange(null)}>
-            <Text style={styles.clearLink}>Clear</Text>
-          </Pressable>
-        ) : null}
-      </View>
+            {job.is_real_estate_job ? (
+              <>
+                <View style={styles.divider} />
+                {agency ? <Readout label="Agency" value={agency.name} /> : null}
+                {propertyManager ? (
+                  <Readout label="Property Manager" value={`${propertyManager.first_name} ${propertyManager.last_name}`} />
+                ) : null}
+                {pmMobile ? <Readout label="PM Contact" value={pmMobile} onPress={() => callPhone(pmMobile)} /> : null}
+                {job.work_order_number ? <Readout label="Work Order" value={job.work_order_number} /> : null}
+                {job.nte_limit_cents != null ? <Readout label="NTE Limit" value={formatCentsAsAud(job.nte_limit_cents)} /> : null}
+                {isNteExceeded ? (
+                  <Text style={styles.dangerText}>
+                    {job.nte_exceeded_approved ? "OVER NTE LIMIT - VARIATION APPROVED" : "OVER NTE LIMIT - PM APPROVAL REQUIRED"}
+                  </Text>
+                ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quotes</Text>
-        {(linkedQuotes ?? []).map((q) => (
-          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
-            <Text style={styles.linkedRowText}>{q.quote_number}</Text>
-          </Pressable>
-        ))}
-        {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
-        {!isOnline ? (
-          <Text style={styles.empty}>Connect to view or create quotes.</Text>
-        ) : profile?.role === "admin" ? (
-          <Pressable
-            style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-          >
-            <Text style={styles.linkButtonText}>+ New quote for this job</Text>
-          </Pressable>
-        ) : null}
-      </View>
+                {property?.key_tag_number ? (
+                  <>
+                    <View style={styles.divider} />
+                    <Readout
+                      label="Key Tag"
+                      value={`${property.key_tag_number} (${keyLog ? keyLog.status.replace("_", " ").toUpperCase() : "AT OFFICE"})`}
+                    />
+                    <View style={styles.keyActionsRow}>
+                      {!keyLog || keyLog.status === "returned" ? (
+                        <ThemedButton variant="secondary" label="Keys Picked Up" onPress={handleKeyPickedUp} />
+                      ) : keyLog.status === "picked_up" ? (
+                        <ThemedButton variant="secondary" label="Mark In Van" onPress={() => handleKeyStatusChange("in_van")} />
+                      ) : (
+                        <ThemedButton variant="secondary" label="Mark Returned" onPress={() => handleKeyStatusChange("returned")} />
+                      )}
+                    </View>
+                  </>
+                ) : null}
+                {keyActionError ? <Text style={styles.dangerText}>{keyActionError}</Text> : null}
+              </>
+            ) : null}
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Invoices</Text>
-        {(linkedInvoices ?? []).map((inv) => (
-          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
-            <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
-          </Pressable>
-        ))}
-        {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
-        {!isOnline ? (
-          <Text style={styles.empty}>Connect to view or create invoices.</Text>
-        ) : profile?.role === "admin" ? (
-          <Pressable
-            style={styles.linkButton}
-            onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-          >
-            <Text style={styles.linkButtonText}>+ New invoice for this job</Text>
-          </Pressable>
-        ) : null}
-      </View>
+          <Panel title="Job Details" status={stage?.name?.toUpperCase()}>
+            <Text style={styles.fieldLabel}>Category</Text>
+            <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
+              <View style={styles.pickerFieldRow}>
+                {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
+                <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                  {category?.name ?? "No category"}
+                </Text>
+              </View>
+            </Pressable>
+            {category ? (
+              <Pressable onPress={() => handleCategoryChange(null)}>
+                <Text style={styles.clearLink}>Clear</Text>
+              </Pressable>
+            ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tasks</Text>
-        {jobTasks.map((t) => (
-          <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
-            <Text style={styles.taskRowTitle}>{t.title}</Text>
-            <Pressable
-              style={styles.taskStatusBadge}
-              onPress={(e) => {
-                e.stopPropagation();
-                cycleTaskStatus(t);
+            <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>Lifecycle Stage</Text>
+            <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
+              <View style={styles.pickerFieldRow}>
+                {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
+                <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>{stage?.name ?? "No stage"}</Text>
+              </View>
+            </Pressable>
+            {stage ? (
+              <Pressable onPress={() => handleStageChange(null)}>
+                <Text style={styles.clearLink}>Clear</Text>
+              </Pressable>
+            ) : null}
+          </Panel>
+
+          <Panel title="Notify Client">
+            <ThemedButton
+              label="On The Way"
+              onPress={() => {
+                setEtaMinutes("");
+                setOnTheWayError(null);
+                setOnTheWayModalVisible(true);
               }}
-            >
-              <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
-            </Pressable>
-          </Pressable>
-        ))}
-        {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
-        {profile?.role === "admin" ? (
-          <View style={styles.addTaskRow}>
-            <View style={{ flex: 1 }}>
-              <FormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
-            </View>
-            <Pressable style={styles.button} onPress={handleAddTask}>
-              <Text style={styles.buttonText}>Add</Text>
-            </Pressable>
-          </View>
-        ) : null}
-        {taskError ? <Text style={styles.error}>{taskError}</Text> : null}
-      </View>
+            />
+            <Text style={styles.hint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Photos</Text>
-        <PhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
-      </View>
+          <Panel title="Job Tasks">
+            {jobTasks.map((t) => (
+              <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
+                <Text style={styles.taskRowTitle}>{t.title}</Text>
+                <Pressable
+                  style={styles.taskStatusBadge}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    cycleTaskStatus(t);
+                  }}
+                >
+                  <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status].toUpperCase()}</Text>
+                </Pressable>
+              </Pressable>
+            ))}
+            {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
+            {profile?.role === "admin" ? (
+              <View style={styles.addTaskRow}>
+                <View style={{ flex: 1 }}>
+                  <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
+                </View>
+                <ThemedButton label="Add" onPress={handleAddTask} />
+              </View>
+            ) : null}
+            {taskError ? <Text style={styles.dangerText}>{taskError}</Text> : null}
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Roof Measurement</Text>
-        <Pressable
-          style={styles.measureButton}
-          onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
-        >
-          <Text style={styles.measureButtonText}>📐 Measure Roof</Text>
-        </Pressable>
-        <Text style={styles.measureHint}>
-          Draw roof sections on a satellite map and save the total area to this job's notes.
-        </Text>
-      </View>
+          <Panel title="Billing · Quotes">
+            {(linkedQuotes ?? []).map((q) => (
+              <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
+                <Text style={styles.linkedRowText}>{q.quote_number}</Text>
+                <Text style={styles.linkedRowTotal}>{formatCentsAsAud(q.total_cents)}</Text>
+              </Pressable>
+            ))}
+            {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
+            {!isOnline ? (
+              <Text style={styles.empty}>Connect to view or create quotes.</Text>
+            ) : profile?.role === "admin" ? (
+              <Pressable
+                onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+              >
+                <Text style={styles.addLink}>+ New quote for this job</Text>
+              </Pressable>
+            ) : null}
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notes</Text>
-        <FormField label="Add a note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
-        {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
-        <Pressable style={[styles.button, styles.addNoteButton]} onPress={handleAddNote}>
-          <Text style={styles.buttonText}>Add note</Text>
-        </Pressable>
+          <Panel title="Billing · Invoices">
+            {(linkedInvoices ?? []).map((inv) => (
+              <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
+                <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
+                <Text style={styles.linkedRowTotal}>{formatCentsAsAud(inv.total_cents)}</Text>
+              </Pressable>
+            ))}
+            {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
+            {!isOnline ? (
+              <Text style={styles.empty}>Connect to view or create invoices.</Text>
+            ) : profile?.role === "admin" ? (
+              <Pressable
+                onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+              >
+                <Text style={styles.addLink}>+ New invoice for this job</Text>
+              </Pressable>
+            ) : null}
+          </Panel>
 
-        {notes.map((note) => (
-          <View key={note.id} style={styles.noteRow}>
-            <Text style={styles.noteBody}>{note.body}</Text>
-            <Text style={styles.noteMeta}>{new Date(note.created_at).toLocaleString()}</Text>
-          </View>
-        ))}
-      </View>
+          <Panel title="Diary · Photos">
+            <ThemedPhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
+          </Panel>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Communication Log</Text>
-        <CommunicationLog
-          entities={[
-            { entityType: "job", entityId: job.id },
-            ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
-            ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
-          ]}
-        />
-      </View>
+          <Panel title="Diary · Notes">
+            <ThemedFormField
+              label="Add a note"
+              placeholder="Note"
+              value={noteText}
+              onChangeText={setNoteText}
+              multiline
+              style={styles.multiline}
+            />
+            {noteError ? <Text style={styles.dangerText}>{noteError}</Text> : null}
+            <ThemedButton label="Add Note" onPress={handleAddNote} />
+
+            {notes.map((note) => (
+              <View key={note.id} style={styles.noteRow}>
+                <Text style={styles.noteBody}>{note.body}</Text>
+                <Text style={styles.noteMeta}>{new Date(note.created_at).toLocaleString()}</Text>
+              </View>
+            ))}
+          </Panel>
+
+          <Panel title="Job Tools">
+            <ThemedButton
+              label="Measure Roof"
+              onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
+            />
+            <Text style={styles.hint}>Draw roof sections on a satellite map and save the total area to this job's notes.</Text>
+          </Panel>
+
+          <Panel title="Communication Log">
+            <ThemedCommunicationLog
+              entities={[
+                { entityType: "job", entityId: job.id },
+                ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
+                ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
+              ]}
+            />
+          </Panel>
         </>
       ) : null}
     </ScrollView>
 
-    <CenteredModal visible={onTheWayModalVisible} onClose={() => setOnTheWayModalVisible(false)}>
+    <ThemedModal visible={onTheWayModalVisible} onClose={() => setOnTheWayModalVisible(false)}>
       <Text style={styles.modalTitle}>On The Way</Text>
-      <FormField
+      <ThemedFormField
         label="ETA (minutes)"
         placeholder="e.g. 15"
         value={etaMinutes}
         onChangeText={setEtaMinutes}
         keyboardType="number-pad"
       />
-      {onTheWayError ? <Text style={styles.error}>{onTheWayError}</Text> : null}
+      {onTheWayError ? <Text style={styles.dangerText}>{onTheWayError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setOnTheWayModalVisible(false)}>
-          <Text style={styles.link}>Cancel</Text>
+          <Text style={styles.headerLink}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={handleSendOnTheWay}>
-          <Text style={styles.buttonText}>Send</Text>
-        </Pressable>
+        <ThemedButton label="Send" onPress={handleSendOnTheWay} />
       </View>
-    </CenteredModal>
+    </ThemedModal>
 
-    <CenteredModal visible={nteModalVisible} onClose={() => setNteModalVisible(false)}>
-      <Text style={styles.modalTitle}>Over budget</Text>
+    <ThemedModal visible={nteModalVisible} onClose={() => setNteModalVisible(false)}>
+      <Text style={styles.modalTitle}>Over Budget</Text>
       <Text style={styles.modalBody}>
         This job exceeds the NTE limit of {job?.nte_limit_cents != null ? formatCentsAsAud(job.nte_limit_cents) : "-"} by{" "}
         {job?.nte_limit_cents != null ? formatCentsAsAud(totalChargedCents - job.nte_limit_cents) : "-"}. PM approval is required
         before this job can be marked done.
       </Text>
-      {nteRequestError ? <Text style={styles.error}>{nteRequestError}</Text> : null}
+      {nteRequestError ? <Text style={styles.dangerText}>{nteRequestError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setNteModalVisible(false)}>
-          <Text style={styles.link}>Cancel</Text>
+          <Text style={styles.headerLink}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={handleRequestNteVariation} disabled={nteRequesting}>
-          <Text style={styles.buttonText}>{nteRequesting ? "Sending..." : "Request NTE Variation"}</Text>
-        </Pressable>
+        <ThemedButton
+          label={nteRequesting ? "Sending..." : "Request NTE Variation"}
+          onPress={handleRequestNteVariation}
+          disabled={nteRequesting}
+        />
       </View>
-    </CenteredModal>
+    </ThemedModal>
 
-    <CenteredModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
-      <Text style={styles.modalTitle}>Edit job</Text>
-      <FormField label="Title" placeholder="Job title" value={editTitle} onChangeText={setEditTitle} />
-      <FormField
+    <ThemedModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
+      <Text style={styles.modalTitle}>Edit Job</Text>
+      <ThemedFormField label="Title" placeholder="Job title" value={editTitle} onChangeText={setEditTitle} />
+      <ThemedFormField
         label="Description (optional)"
         placeholder="Description"
         value={editDescription}
@@ -981,18 +999,16 @@ export default function JobDetailScreen() {
         multiline
         style={styles.multiline}
       />
-      {editError ? <Text style={styles.error}>{editError}</Text> : null}
+      {editError ? <Text style={styles.dangerText}>{editError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setEditModalVisible(false)}>
-          <Text style={styles.link}>Cancel</Text>
+          <Text style={styles.headerLink}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={handleSaveEdit}>
-          <Text style={styles.buttonText}>Save</Text>
-        </Pressable>
+        <ThemedButton label="Save" onPress={handleSaveEdit} />
       </View>
-    </CenteredModal>
+    </ThemedModal>
 
-    <PickerModal
+    <ThemedPickerModal
       visible={categoryPickerVisible}
       title="Select category"
       items={categories}
@@ -1002,7 +1018,7 @@ export default function JobDetailScreen() {
       onClose={() => setCategoryPickerVisible(false)}
     />
 
-    <PickerModal
+    <ThemedPickerModal
       visible={stagePickerVisible}
       title="Select stage"
       items={stages}
@@ -1015,82 +1031,129 @@ export default function JobDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
-  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  number: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
-  title: { fontSize: 20, fontWeight: "700" },
-  description: { marginTop: 6, color: "#374151" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  clientCard: { marginTop: 12, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, gap: 2 },
-  clientCardName: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  clientCardMeta: { fontSize: 13, color: "#6b7280" },
-  agencyCard: { marginTop: 12, backgroundColor: "#eff6ff", borderRadius: 8, padding: 12, gap: 2 },
-  agencyBadge: { fontSize: 11, fontWeight: "700", color: "#1d4ed8", marginBottom: 2 },
-  nteExceededText: { fontSize: 13, fontWeight: "700", color: "#b91c1c", marginTop: 4 },
-  keyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalBody: { fontSize: 14, color: "#374151", lineHeight: 20, marginTop: 6 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginBottom: 10 },
-  tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
-  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
-  tabButtonActive: { backgroundColor: "#1d4ed8" },
-  tabButtonText: { color: "#374151", fontWeight: "700" },
-  tabButtonTextActive: { color: "#fff" },
-  costingDocRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
-  },
-  costingDocNumber: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  costingDocMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  costingDocTotal: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  costingSummaryTitle: { marginTop: 20 },
-  costingSummaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
-  costingSummaryRowBold: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#e5e7eb", marginTop: 4, paddingTop: 10 },
-  costingSummaryLabel: { color: "#6b7280", fontSize: 13 },
-  costingSummaryValue: { color: "#111827", fontSize: 13, fontWeight: "600" },
-  costingSummaryLabelBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
-  costingSummaryValueBold: { color: "#111827", fontSize: 15, fontWeight: "700" },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
-  swatch: { width: 12, height: 12, borderRadius: 6 },
-  clearLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6, alignSelf: "flex-start" },
-  linkedRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#f0f0f0" },
-  linkedRowText: { color: "#1d4ed8", fontWeight: "600" },
-  linkButton: { marginTop: 10, alignSelf: "flex-start" },
-  linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
-  taskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f0f0f0",
-  },
-  taskRowTitle: { fontSize: 15, color: "#111827", flex: 1, marginRight: 8 },
-  taskStatusBadge: { backgroundColor: "#f3f4f6", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  taskStatusBadgeText: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-  addTaskRow: { flexDirection: "row", gap: 8, marginTop: 12, alignItems: "flex-end" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  addNoteButton: { alignSelf: "flex-start", marginTop: 10 },
-  measureButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
-  measureButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  measureHint: { color: "#6b7280", fontSize: 12, marginTop: 8 },
-  onTheWayButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
-  onTheWayButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  error: { color: "#dc2626", marginTop: 6 },
-  noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#f0f0f0" },
-  noteBody: { fontSize: 15, color: "#111827" },
-  noteMeta: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 12 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { padding: 16, gap: 10 },
+    headerTopRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    jobNumber: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      letterSpacing: 1.5,
+      fontFamily: fontFamily.mobileFontFamily,
+      textTransform: "uppercase" as const,
+    },
+    headerLink: {
+      color: tokens.accent,
+      fontWeight: "700" as const,
+      fontFamily: fontFamily.mobileFontFamily,
+      letterSpacing: 1,
+      fontSize: font.body,
+    },
+    jobTitle: {
+      fontSize: font.title + 4,
+      fontWeight: "700" as const,
+      color: tokens.textPrimary,
+      fontFamily: fontFamily.mobileFontFamily,
+    },
+    headerReadouts: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 4,
+      padding: 12,
+      gap: 8,
+      backgroundColor: tokens.surface,
+    },
+    agencyBadgeRow: { alignSelf: "flex-start" as const },
+    agencyBadge: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.warning,
+      fontFamily: fontFamily.mobileFontFamily,
+      letterSpacing: 1,
+    },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      fontFamily: fontFamily.mobileFontFamily,
+      textTransform: "uppercase" as const,
+      letterSpacing: 1,
+    },
+    modalBody: { fontSize: font.body, color: tokens.textPrimary, lineHeight: 20, marginTop: 6, fontFamily: fontFamily.mobileFontFamily },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    tabRow: { flexDirection: "row" as const, paddingHorizontal: 12, paddingTop: 4, gap: 8 },
+    tabButton: { flex: 1, paddingVertical: 10, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, alignItems: "center" as const },
+    tabButtonActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    tabButtonText: {
+      color: tokens.textMuted,
+      fontWeight: "700" as const,
+      fontFamily: fontFamily.mobileFontFamily,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      fontSize: font.body - 1,
+    },
+    tabButtonTextActive: { color: tokens.accent },
+    costingDocRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    costingDocNumber: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
+    costingDocMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, fontFamily: fontFamily.mobileFontFamily },
+    costingDocTotal: { fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, fontFamily: fontFamily.mobileFontFamily },
+    divider: { borderTopWidth: 1, borderTopColor: tokens.border, marginVertical: 4 },
+    bodyText: { fontSize: font.body, color: tokens.textPrimary, lineHeight: font.body + 6, fontFamily: fontFamily.mobileFontFamily },
+    fieldLabel: {
+      color: tokens.textMuted,
+      fontFamily: fontFamily.mobileFontFamily,
+      fontSize: font.label,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      marginBottom: 6,
+    },
+    fieldLabelSpaced: { marginTop: 12 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, fontFamily: fontFamily.mobileFontFamily },
+    swatch: { width: 12, height: 12, borderRadius: 6 },
+    clearLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 6, alignSelf: "flex-start" as const, fontFamily: fontFamily.mobileFontFamily },
+    hint: { color: tokens.textMuted, fontSize: font.label, marginTop: 8, fontFamily: fontFamily.mobileFontFamily },
+    keyActionsRow: { flexDirection: "row" as const, marginTop: 8 },
+    taskRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    taskRowTitle: { fontSize: font.body, color: tokens.textPrimary, flex: 1, marginRight: 8, fontFamily: fontFamily.mobileFontFamily },
+    taskStatusBadge: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+    taskStatusBadgeText: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label - 1, fontFamily: fontFamily.mobileFontFamily },
+    addTaskRow: { flexDirection: "row" as const, gap: 8, marginTop: 4, alignItems: "flex-end" as const },
+    addLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 4, fontFamily: fontFamily.mobileFontFamily },
+    linkedRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    linkedRowText: { color: tokens.textPrimary, fontWeight: "600" as const, fontFamily: fontFamily.mobileFontFamily },
+    linkedRowTotal: { color: tokens.accent, fontWeight: "700" as const, fontFamily: fontFamily.mobileFontFamily },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    dangerText: { color: tokens.danger, marginTop: 6, fontFamily: fontFamily.mobileFontFamily, fontSize: font.label },
+    noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: tokens.border },
+    noteBody: { fontSize: font.body, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
+    noteMeta: { fontSize: font.label - 1, color: tokens.textMuted, marginTop: 4, fontFamily: fontFamily.mobileFontFamily },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 12, fontFamily: fontFamily.mobileFontFamily },
+  };
+}
