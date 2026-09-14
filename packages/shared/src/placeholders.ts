@@ -132,6 +132,20 @@ export interface PlaceholderSubcontractorContext {
   expired_doc_expiry_date: string | null;
 }
 
+// membership_welcome/membership_renewal_upcoming/membership_payment_failed/
+// membership_cancelled/membership_annual_benefit_reminder only.
+// benefit_type_label is populated only for the last of those (a joined
+// label of currently-unused included benefits, resolved by the dispatcher's
+// live buildEntityContext, not by this preview-only module) - left null
+// here for preview purposes on the other four trigger_keys.
+export interface PlaceholderMembershipContext {
+  plan_name: string;
+  annual_price_cents: number;
+  discount_percent: number;
+  period_end: string | null;
+  benefit_type_label: string | null;
+}
+
 export interface PlaceholderContext {
   company?: PlaceholderCompanyContext;
   client?: PlaceholderClientContext;
@@ -145,6 +159,7 @@ export interface PlaceholderContext {
   property?: PlaceholderPropertyContext;
   referralPartner?: PlaceholderReferralPartnerContext;
   report?: PlaceholderReportContext;
+  membership?: PlaceholderMembershipContext;
 }
 
 function formatDateAu(dateString: string | null | undefined): string {
@@ -244,6 +259,14 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.expired_doc_expiry_date = formatDateAu(context.subcontractor.expired_doc_expiry_date);
   }
 
+  if (context.membership) {
+    tokens.membership_plan_name = context.membership.plan_name;
+    tokens.membership_annual_price = formatCentsAsAud(context.membership.annual_price_cents);
+    tokens.membership_discount_percent = String(context.membership.discount_percent);
+    tokens.membership_renewal_date = formatDateAu(context.membership.period_end);
+    tokens.membership_benefit_type = context.membership.benefit_type_label ?? "";
+  }
+
   if (context.company) {
     tokens.company_name = context.company.name;
     tokens.company_phone = context.company.phone ?? "";
@@ -306,6 +329,11 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "subcontractor_company_name",
   "expired_doc_type",
   "expired_doc_expiry_date",
+  "membership_plan_name",
+  "membership_annual_price",
+  "membership_discount_percent",
+  "membership_renewal_date",
+  "membership_benefit_type",
   "company_name",
   "company_phone",
   "company_email",

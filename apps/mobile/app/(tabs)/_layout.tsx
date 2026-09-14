@@ -23,6 +23,7 @@ export default function TabsLayout() {
   return (
     <Tabs screenOptions={{ headerShown: false, tabBarActiveTintColor: "#1d4ed8" }}>
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: () => <TabIcon emoji="🏠" /> }} />
+      <Tabs.Screen name="channels" options={{ title: "Channels", tabBarIcon: () => <TabIcon emoji="💬" /> }} />
       <Tabs.Screen name="sales" options={{ title: "Sales", tabBarIcon: () => <TabIcon emoji="💼" /> }} />
       <Tabs.Screen name="tasks" options={{ title: "Tasks", tabBarIcon: () => <TabIcon emoji="✅" /> }} />
       <Tabs.Screen name="calendar" options={{ title: "Calendar", tabBarIcon: () => <TabIcon emoji="📅" /> }} />

@@ -1,31 +1,44 @@
 import { useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
+  collectRecipientEmails,
+  createClientContactSchema,
   createJobCardSchema,
+  createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
   renderTemplate,
+  updateJobRealEstateAssignmentSchema,
   type Agency,
   type CalendarEvent,
   type Client,
+  type ClientContact,
   type CommunicationRule,
   type CommunicationTemplate,
+  type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
   type JobLifecycleStage,
+  type JobNote,
   type KeyLog,
+  type MaterialTallyItem,
   type Property,
   type PropertyManager,
+  type PurchaseOrder,
   type Quote,
   type QuoteLineItem,
+  type ReferralPartner,
+  type ReportInstance,
+  type ReportTemplate,
   type ServiceCategory,
+  type SubcontractorCompany,
+  type SubcontractorTrade,
   type Task,
   type TaskStatus,
 } from "@jmssaas/shared";
@@ -35,9 +48,8 @@ import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabas
 import { supabase } from "../../../../lib/supabase";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
+import { getErrorMessage } from "../../../../lib/errors";
 import { useThemedStyles, type StyleTheme } from "../../../../lib/use-themed-styles";
-import { useJobNotes } from "../../../../lib/use-job-notes";
-import { useJobContacts } from "../../../../lib/use-job-contacts";
 import { useJobPhotoCapture } from "../../../../lib/use-job-photo-capture";
 import { useJobActionOrder, type JobActionId } from "../../../../lib/job-actions";
 import { Panel } from "../../../../components/theme/Panel";
@@ -50,6 +62,21 @@ import { ThemedCommunicationLog } from "../../../../components/theme/ThemedCommu
 import { JobActionsBar } from "../../../../components/theme/JobActionsBar";
 import { JobActionsSheet } from "../../../../components/theme/JobActionsSheet";
 import { MultiCaptureCamera } from "../../../../components/MultiCaptureCamera";
+import { EmailComposeModal } from "../../../../components/EmailComposeModal";
+import { MeasureRoofTool } from "../../../../components/MeasureRoofTool";
+import { MembershipStatusCard } from "../../../../components/MembershipStatusCard";
+import { LinearMeasurerTool } from "../../../../components/LinearMeasurerTool";
+import { MaterialTallyCounter } from "../../../../components/MaterialTallyCounter";
+import { PhotoMarkupEditor } from "../../../../components/PhotoMarkupEditor";
+import { ConcreteCalculatorTool } from "../../../../components/ConcreteCalculatorTool";
+import { MaterialOrderFormTool } from "../../../../components/MaterialOrderFormTool";
+import { TIER_LABELS, TRADE_LABELS } from "../../../subcontractors/index";
+import { RequiresConnectionNotice } from "../../../../components/RequiresConnectionNotice";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
+
+function callPhone(phone: string) {
+  Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`).catch(() => {});
+}
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -62,16 +89,15 @@ const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = {
   done: "todo",
 };
 
+interface JobFileWithLocalUri {
+  id: string;
+  local_uri: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+}
+
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function callPhone(phone: string) {
-  Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`).catch(() => {});
-}
-
-function openInMaps(address: string) {
-  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`).catch(() => {});
 }
 
 // labour_rate_cents/labour_hours/material_cost_cents on a line item are the
@@ -109,6 +135,81 @@ export default function JobDetailScreen() {
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
   const client = clientRows[0];
 
+  const { data: clientContacts } = useQuery<ClientContact>(
+    "SELECT * FROM client_contacts WHERE client_id = ?",
+    [job?.client_id ?? ""]
+  );
+
+  // --- Contacts (client_contacts) - a second contact on this job's client
+  // (a second homeowner, tenant, foreman...), same table/schema the Client
+  // Detail screen's own Contacts section uses (see clients/[id].tsx) -
+  // works for any job, not just real-estate ones (those additionally get
+  // an agency/property manager further down). Add-only from here (no
+  // inline edit) - open the client for the full edit/delete/primary flow.
+  const [contactName, setContactName] = useState("");
+  const [contactRole, setContactRole] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  const handleAddContact = async () => {
+    const result = createClientContactSchema.safeParse({
+      client_id: job?.client_id,
+      name: contactName,
+      role: contactRole,
+      email: contactEmail,
+      phone: contactPhone,
+      is_primary: false,
+    });
+    if (!result.success) {
+      setContactError(result.error.issues[0]?.message ?? "Invalid contact");
+      return;
+    }
+    if (!profile) return;
+
+    await powersync.execute(
+      `INSERT INTO client_contacts (id, tenant_id, client_id, name, role, email, phone, is_primary, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(),
+        profile.tenant_id,
+        result.data.client_id,
+        result.data.name,
+        result.data.role || null,
+        result.data.email || null,
+        result.data.phone || null,
+        0,
+        new Date().toISOString(),
+      ]
+    );
+    setContactName("");
+    setContactRole("");
+    setContactPhone("");
+    setContactEmail("");
+    setContactError(null);
+  };
+
+  const handleRemoveContact = async (contactId: string) => {
+    await powersync.execute("DELETE FROM client_contacts WHERE id = ?", [contactId]);
+  };
+
+  // Calendar events are also online-only (docs/SETUP.md); job_card_id has
+  // always existed on calendar_events and calendar/new.tsx already
+  // supports picking/pre-selecting a job, this just surfaces the ones
+  // still upcoming (end_at in the future) here too.
+  const { data: upcomingBookings, refetch: refetchBookings } = useSupabaseFetch<CalendarEvent[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase
+      .from("calendar_events")
+      .select("*")
+      .eq("job_card_id", id)
+      .gte("end_at", new Date().toISOString())
+      .order("start_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as CalendarEvent[];
+  }, [id, isOnline]);
+  useRefetchOnFocus(refetchBookings);
+
   // Automation & Messaging rules/templates - PowerSync-synced tenant
   // reference data (see powersync/sync-rules.yaml), so these manual field
   // triggers work with no reception, same as the rest of this screen.
@@ -122,6 +223,15 @@ export default function JobDetailScreen() {
 
   const { data: jobTasks } = useQuery<Task>(
     "SELECT * FROM tasks WHERE job_card_id = ? ORDER BY (due_date IS NULL), due_date, created_at DESC",
+    [id]
+  );
+
+  const { data: files } = useQuery<JobFileWithLocalUri>(
+    `SELECT jf.id, jf.file_name, jf.mime_type, a.local_uri
+       FROM job_files jf
+       LEFT JOIN attachments a ON a.id = jf.id
+      WHERE jf.job_card_id = ?
+      ORDER BY jf.created_at DESC`,
     [id]
   );
 
@@ -144,22 +254,92 @@ export default function JobDetailScreen() {
   }, [id, isOnline]);
   useRefetchOnFocus(refetchInvoices);
 
-  // Calendar events are also online-only (docs/SETUP.md) - job_card_id has
-  // always existed on calendar_events and calendar/new.tsx already supports
-  // picking/pre-selecting a job when creating one, this just surfaces the
-  // ones still upcoming (end_at in the future) here too.
-  const { data: upcomingBookings, refetch: refetchBookings } = useSupabaseFetch<CalendarEvent[]>(async () => {
+  // Reports & Safety - report_instances/report_templates aren't PowerSync
+  // tables (see app/reports/index.tsx), so this is the same Supabase-direct,
+  // online-only treatment as quotes/invoices above.
+  const { data: linkedReports, refetch: refetchLinkedReports } = useSupabaseFetch<ReportInstance[]>(async () => {
     if (!isOnline) return [];
-    const { data, error } = await supabase
-      .from("calendar_events")
-      .select("*")
-      .eq("job_card_id", id)
-      .gte("end_at", new Date().toISOString())
-      .order("start_at", { ascending: true });
+    const { data, error } = await supabase.from("report_instances").select("*").eq("job_card_id", id).order("created_at", { ascending: false });
     if (error) throw error;
-    return (data ?? []) as CalendarEvent[];
+    return (data ?? []) as ReportInstance[];
   }, [id, isOnline]);
-  useRefetchOnFocus(refetchBookings);
+  useRefetchOnFocus(refetchLinkedReports);
+
+  const { data: activeReportTemplates } = useSupabaseFetch<ReportTemplate[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("report_templates").select("*").eq("is_active", true).order("title");
+    if (error) throw error;
+    return (data ?? []) as ReportTemplate[];
+  }, [isOnline]);
+
+  const [createReportModalVisible, setCreateReportModalVisible] = useState(false);
+  const [createReportSearch, setCreateReportSearch] = useState("");
+  const [createReportError, setCreateReportError] = useState<string | null>(null);
+
+  const startReportForJob = async (templateId: string) => {
+    if (!profile || !job) return;
+    setCreateReportError(null);
+    const { data, error } = await supabase
+      .from("report_instances")
+      .insert({
+        tenant_id: profile.tenant_id,
+        template_id: templateId,
+        job_card_id: job.id,
+        client_id: job.client_id,
+        created_by: profile.id,
+        status: "draft",
+      })
+      .select("id")
+      .single();
+    if (error) {
+      setCreateReportError(getErrorMessage(error, "Failed to start report"));
+      return;
+    }
+    setCreateReportModalVisible(false);
+    router.push(`/reports/instance/${data.id}`);
+  };
+
+  const [linkReportModalVisible, setLinkReportModalVisible] = useState(false);
+  const [linkReportError, setLinkReportError] = useState<string | null>(null);
+  const { data: unlinkedReports, refetch: refetchUnlinkedReports } = useSupabaseFetch<ReportInstance[]>(async () => {
+    if (!isOnline || !linkReportModalVisible) return [];
+    const { data, error } = await supabase.from("report_instances").select("*").is("job_card_id", null).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as ReportInstance[];
+  }, [isOnline, linkReportModalVisible]);
+
+  const linkExistingReport = async (reportId: string) => {
+    if (!job) return;
+    const { error } = await supabase.from("report_instances").update({ job_card_id: job.id, client_id: job.client_id }).eq("id", reportId);
+    if (error) {
+      setLinkReportError(getErrorMessage(error, "Failed to link report"));
+      return;
+    }
+    setLinkReportModalVisible(false);
+    refetchLinkedReports();
+  };
+
+  // Subcontractors - like reports, purchase_orders/subcontractor_companies
+  // aren't PowerSync tables. Assigning a subcontractor to a job *is*
+  // creating a Purchase Order (or Quote Request) - there's no separate
+  // assignment table, same as desktop's JobDetail.tsx.
+  const { data: linkedPurchaseOrders, refetch: refetchLinkedPurchaseOrders } = useSupabaseFetch<PurchaseOrder[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("purchase_orders").select("*").eq("job_card_id", id).order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as PurchaseOrder[];
+  }, [id, isOnline]);
+  useRefetchOnFocus(refetchLinkedPurchaseOrders);
+
+  const { data: allSubcontractors } = useSupabaseFetch<SubcontractorCompany[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("subcontractor_companies").select("*").order("preference_tier").order("company_name");
+    if (error) throw error;
+    return (data ?? []) as SubcontractorCompany[];
+  }, [isOnline]);
+
+  const [assignSubModalVisible, setAssignSubModalVisible] = useState(false);
+  const [assignSubTradeFilter, setAssignSubTradeFilter] = useState<SubcontractorTrade | "">("");
 
   // Real Estate & Strata module - agencies aren't a PowerSync table (same
   // "office reference data, fetched online" treatment as quotes/invoices
@@ -184,6 +364,29 @@ export default function JobDetailScreen() {
     return data as Property;
   }, [isOnline, job?.property_id]);
 
+  // Full lists (not just this job's own agency/PM/property) - only used by
+  // the "Real estate assignment" edit modal's pickers below, but fetched
+  // unconditionally like the single-row versions above rather than gated
+  // on the modal being open, matching this screen's existing style.
+  const { data: allAgencies } = useSupabaseFetch<Agency[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("agencies").select("*").order("name");
+    if (error) throw error;
+    return data as Agency[];
+  }, [isOnline]);
+  const { data: allPropertyManagers } = useSupabaseFetch<PropertyManager[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("property_managers").select("*").order("first_name");
+    if (error) throw error;
+    return data as PropertyManager[];
+  }, [isOnline]);
+  const { data: allProperties } = useSupabaseFetch<Property[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("properties").select("*").order("suburb");
+    if (error) throw error;
+    return data as Property[];
+  }, [isOnline]);
+
   // Key Tracking Lifecycle - see Workflow 3 of the Real Estate & Strata
   // spec. key_logs isn't a PowerSync table (same online-only treatment as
   // agencies/properties above), so pickup/in-van/return all need
@@ -204,6 +407,48 @@ export default function JobDetailScreen() {
   useRefetchOnFocus(refetchKeyLog);
 
   const [keyActionError, setKeyActionError] = useState<string | null>(null);
+
+  // Free-form job card email - mirrors desktop JobDetail.tsx's ServiceM8-style
+  // per-job "Email" button. Uses entity_type 'job' with trigger_key
+  // 'manual_email' so it's distinguishable from templated automation in the
+  // Communication Log. Unlike queueScheduledCommunication above, this goes
+  // straight to Supabase rather than the local PowerSync table, since
+  // cc_emails/bcc_emails/attachments aren't columns in the local schema
+  // (see powersync/schema.ts) - so, like handleRequestNteVariation, it
+  // needs connectivity.
+  const [jobEmailModalVisible, setJobEmailModalVisible] = useState(false);
+  const jobRecipientOptions = collectRecipientEmails({
+    clientEmail: client?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+  });
+
+  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile || !job) throw new Error("Not signed in");
+    if (!isOnline) throw new Error("Sending an email needs an internet connection.");
+    const { data: row, error: insertError } = await supabase
+      .from("scheduled_communications")
+      .insert({
+        tenant_id: profile.tenant_id,
+        entity_type: "job",
+        entity_id: job.id,
+        trigger_key: "manual_email",
+        template_id: null,
+        channel: "email",
+        recipient_phone_or_email: payload.to,
+        cc_emails: payload.cc ? payload.cc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        bcc_emails: payload.bcc ? payload.bcc.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        rendered_subject: payload.subject,
+        rendered_body: payload.body,
+        attachments: payload.attachments,
+        scheduled_for: new Date().toISOString(),
+        status: "pending",
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+    const wasSent = await triggerImmediateDispatch(row.id);
+    Alert.alert(wasSent ? "Sent" : "Queued", wasSent ? "The email has been sent." : "The email is queued and will go out shortly.");
+  };
 
   const handleKeyPickedUp = async () => {
     if (!profile || !job?.property_id || !property?.key_tag_number) return;
@@ -238,8 +483,18 @@ export default function JobDetailScreen() {
     refetchKeyLog();
   };
 
-  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
+  const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
+  const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
   const isAdmin = profile?.role === "admin";
+
+  // Job Actions bottom bar - see lib/job-actions.ts. Camera/Photo Library
+  // use their own headless capture hook (independent of the Photo Markup
+  // tab's `files` query above) so they work without that tab mounted.
+  const photoCapture = useJobPhotoCapture(id);
+  const { order: actionOrder, quickActions, setOrder: setActionOrder } = useJobActionOrder();
+  const [quickNoteModalVisible, setQuickNoteModalVisible] = useState(false);
+  const [actionsSheetVisible, setActionsSheetVisible] = useState(false);
 
   // Only fetched once the person actually opens Job Costing (not needed for
   // the Details tab's plain quote/invoice number lists above) - avoids a
@@ -305,12 +560,8 @@ export default function JobDetailScreen() {
   const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
   const costingLoading = quoteLineItemsLoading || invoiceLineItemsLoading;
 
-  const { noteText, setNoteText, noteError, addNote } = useJobNotes(id);
-  const jobContacts = useJobContacts(id);
-  const photoCapture = useJobPhotoCapture(id);
-  const { order: actionOrder, quickActions, setOrder: setActionOrder } = useJobActionOrder();
-  const [quickNoteModalVisible, setQuickNoteModalVisible] = useState(false);
-  const [actionsSheetVisible, setActionsSheetVisible] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskError, setTaskError] = useState<string | null>(null);
 
@@ -583,6 +834,116 @@ export default function JobDetailScreen() {
     setEditModalVisible(false);
   };
 
+  // --- WorkDrive link ---
+  const [workdriveModalVisible, setWorkdriveModalVisible] = useState(false);
+  const [workdriveInput, setWorkdriveInput] = useState("");
+
+  const openWorkdriveModal = () => {
+    if (!job) return;
+    setWorkdriveInput(job.workdrive_url ?? "");
+    setWorkdriveModalVisible(true);
+  };
+
+  const handleSaveWorkdrive = async () => {
+    await powersync.execute("UPDATE job_cards SET workdrive_url = ?, updated_at = ? WHERE id = ?", [
+      workdriveInput || null,
+      new Date().toISOString(),
+      id,
+    ]);
+    setWorkdriveModalVisible(false);
+  };
+
+  // --- Referral source - same "settable any time, not just at creation"
+  // gap as WorkDrive/real estate assignment above. referral_partners isn't
+  // a PowerSync table (see jobs/index.tsx's own comment), so the picker's
+  // options only load while online; the job itself still updates via
+  // PowerSync like every other job_cards field on this screen.
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
+  const [referralPickerVisible, setReferralPickerVisible] = useState(false);
+  const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === job?.referral_partner_id) ?? null;
+
+  const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
+    await powersync.execute("UPDATE job_cards SET referral_partner_id = ?, updated_at = ? WHERE id = ?", [
+      partner?.id ?? null,
+      new Date().toISOString(),
+      id,
+    ]);
+  };
+
+  // --- Real estate / strata assignment (retrofit an existing job, or edit
+  // one already assigned) - same job_cards columns as the New Job form
+  // (desktop's Jobs.tsx), previously only ever settable at creation there,
+  // now writable from mobile too via PowerSync (job_cards is already
+  // offline-writable, this just adds the missing UI). ---
+  const [raModalVisible, setRaModalVisible] = useState(false);
+  const [raIsRealEstate, setRaIsRealEstate] = useState(false);
+  const [raAgencyId, setRaAgencyId] = useState<string | null>(null);
+  const [raPropertyManagerId, setRaPropertyManagerId] = useState<string | null>(null);
+  const [raPropertyId, setRaPropertyId] = useState<string | null>(null);
+  const [raWorkOrderNumber, setRaWorkOrderNumber] = useState("");
+  const [raNteLimit, setRaNteLimit] = useState("");
+  const [raError, setRaError] = useState<string | null>(null);
+  const [agencyPickerVisible, setAgencyPickerVisible] = useState(false);
+  const [pmPickerVisible, setPmPickerVisible] = useState(false);
+  const [propertyPickerVisible, setPropertyPickerVisible] = useState(false);
+
+  const openRaModal = () => {
+    if (!job) return;
+    setRaIsRealEstate(job.is_real_estate_job);
+    setRaAgencyId(job.agency_id);
+    setRaPropertyManagerId(job.property_manager_id);
+    setRaPropertyId(job.property_id);
+    setRaWorkOrderNumber(job.work_order_number ?? "");
+    setRaNteLimit(job.nte_limit_cents != null ? String(job.nte_limit_cents / 100) : "");
+    setRaError(null);
+    setRaModalVisible(true);
+  };
+
+  const raPmsForAgency = (allPropertyManagers ?? []).filter((pm) => pm.agency_id === raAgencyId);
+  const raPropertiesForPm = (allProperties ?? []).filter((p) =>
+    raPropertyManagerId ? p.property_manager_id === raPropertyManagerId : p.agency_id === raAgencyId
+  );
+
+  const handleSaveRa = async () => {
+    const result = updateJobRealEstateAssignmentSchema.safeParse({
+      is_real_estate_job: raIsRealEstate,
+      agency_id: raIsRealEstate ? raAgencyId || undefined : undefined,
+      property_manager_id: raIsRealEstate ? raPropertyManagerId || undefined : undefined,
+      property_id: raIsRealEstate ? raPropertyId || undefined : undefined,
+      work_order_number: raIsRealEstate ? raWorkOrderNumber || undefined : undefined,
+      nte_limit_cents: raIsRealEstate && raNteLimit.trim() ? Math.round(Number(raNteLimit) * 100) : undefined,
+    });
+    if (!result.success) {
+      setRaError(result.error.issues[0]?.message ?? "Invalid details");
+      return;
+    }
+    if (result.data.is_real_estate_job && !result.data.agency_id) {
+      setRaError("Pick an agency");
+      return;
+    }
+
+    await powersync.execute(
+      `UPDATE job_cards SET is_real_estate_job = ?, agency_id = ?, property_manager_id = ?, property_id = ?,
+         work_order_number = ?, nte_limit_cents = ?, updated_at = ? WHERE id = ?`,
+      [
+        result.data.is_real_estate_job ? 1 : 0,
+        result.data.agency_id || null,
+        result.data.property_manager_id || null,
+        result.data.property_id || null,
+        result.data.work_order_number || null,
+        result.data.nte_limit_cents ?? null,
+        new Date().toISOString(),
+        id,
+      ]
+    );
+    setRaModalVisible(false);
+  };
+
   const handleAddTask = async () => {
     const result = createTaskSchema.safeParse({ title: taskTitle, job_card_id: id });
     if (!result.success) {
@@ -605,6 +966,26 @@ export default function JobDetailScreen() {
     await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [NEXT_TASK_STATUS[task.status], task.id]);
   };
 
+  // Also used by the quick-note modal opened from the Job Actions bar (see
+  // runJobAction below) - returns whether the note saved, so that modal
+  // knows whether it's safe to close.
+  const handleAddNote = async () => {
+    const result = createJobNoteSchema.safeParse({ job_card_id: id, body: noteText });
+    if (!result.success) {
+      setNoteError(result.error.issues[0]?.message ?? "Note can't be empty");
+      return false;
+    }
+    if (!profile) return false;
+
+    await powersync.execute(
+      "INSERT INTO job_notes (id, tenant_id, job_card_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [uuidv4(), profile.tenant_id, id, profile.id, result.data.body, new Date().toISOString()]
+    );
+    setNoteText("");
+    setNoteError(null);
+    return true;
+  };
+
   const runJobAction = (actionId: JobActionId) => {
     switch (actionId) {
       case "notes":
@@ -617,28 +998,26 @@ export default function JobDetailScreen() {
         photoCapture.pickFromLibrary();
         return;
       case "phone":
-        if (!clientPhone) {
+        if (!client?.phone) {
           Alert.alert("No phone number", "This client has no phone number on file.");
           return;
         }
-        callPhone(clientPhone);
+        callPhone(client.phone);
         return;
       case "sms":
-        if (!clientPhone) {
+        if (!client?.phone) {
           Alert.alert("No phone number", "This client has no phone number on file.");
           return;
         }
-        Linking.openURL(`sms:${clientPhone.replace(/\s+/g, "")}`).catch(() => {});
+        Linking.openURL(`sms:${client.phone.replace(/\s+/g, "")}`).catch(() => {});
         return;
       case "email":
-        if (!client?.email) {
-          Alert.alert("No email address", "This client has no email address on file.");
-          return;
-        }
-        Linking.openURL(`mailto:${client.email}`).catch(() => {});
+        setJobEmailModalVisible(true);
         return;
       case "forms":
-        Alert.alert("Not available on mobile yet", "Forms & Certificates is currently only available in the desktop app's Reports module.");
+        setCreateReportSearch("");
+        setCreateReportError(null);
+        setCreateReportModalVisible(true);
         return;
     }
   };
@@ -654,352 +1033,510 @@ export default function JobDetailScreen() {
     );
   }
 
-  const clientAddress = client ? formatClientAddress(client) : null;
-  const clientPhone = client?.phone ?? null;
-  const pmMobile = propertyManager?.mobile ?? propertyManager?.work_phone ?? null;
-
   return (
     <>
     <StatusBar style="light" />
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
+      <View style={styles.section}>
+        <View style={styles.titleRow}>
           <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={styles.headerLink}>‹ BACK</Text>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-          <Text style={styles.jobNumber}>{job.number ?? "PENDING SYNC"}</Text>
-          <Pressable onPress={openEditModal} hitSlop={8}>
-            <Text style={styles.headerLink}>EDIT</Text>
+          <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
+          <Pressable onPress={openEditModal}>
+            <Text style={styles.link}>Edit</Text>
           </Pressable>
         </View>
-        <Text style={styles.jobTitle}>{job.title}</Text>
+        <Text style={styles.title}>{job.title}</Text>
+        {job.description ? <Text style={styles.description}>{job.description}</Text> : null}
+
+        <Pressable onPress={() => setJobEmailModalVisible(true)}>
+          <Text style={styles.link}>Email</Text>
+        </Pressable>
 
         {client ? (
-          <View style={styles.headerReadouts}>
-            <Readout label="Client" value={client.name} onPress={() => router.push(`/sales/clients/${client.id}`)} />
-            {clientPhone ? <Readout label="Phone" value={clientPhone} onPress={() => callPhone(clientPhone)} /> : null}
-            {clientAddress ? <Readout label="Address" value={clientAddress} onPress={() => openInMaps(clientAddress)} /> : null}
-          </View>
+          <Pressable style={styles.clientCard} onPress={() => router.push(`/sales/clients/${client.id}`)}>
+            <Text style={styles.clientCardName}>{client.name}</Text>
+            {client.phone ? <Text style={styles.clientCardMeta}>{client.phone}</Text> : null}
+            {formatClientAddress(client) ? (
+              <Text style={styles.clientCardMeta}>{formatClientAddress(client)}</Text>
+            ) : null}
+          </Pressable>
         ) : null}
 
+        {client ? <MembershipStatusCard clientId={client.id} jobCardId={job.id} /> : null}
+
+        {!job.is_real_estate_job ? (
+          <Pressable onPress={openRaModal}>
+            <Text style={styles.link}>Mark as real estate / strata job</Text>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.workdriveRow}>
+          <Text style={styles.workdriveLabel}>WorkDrive</Text>
+          <Pressable onPress={openWorkdriveModal}>
+            <Text style={styles.link}>{job.workdrive_url ? "Edit link" : "+ Add link"}</Text>
+          </Pressable>
+        </View>
+        {job.workdrive_url ? <Text style={styles.clientCardMeta}>{job.workdrive_url}</Text> : null}
+
+        <View style={styles.workdriveRow}>
+          <Text style={styles.workdriveLabel}>Referral source</Text>
+          <Pressable onPress={() => setReferralPickerVisible(true)}>
+            <Text style={styles.link}>{job.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+
         {job.is_real_estate_job ? (
-          <View style={styles.agencyBadgeRow}>
-            <Text style={styles.agencyBadge}>◆ AGENCY JOB{agency ? ` · ${agency.name.toUpperCase()}` : ""}</Text>
+          <View style={styles.agencyCard}>
+            <View style={styles.titleRow}>
+              <Text style={styles.agencyBadge}>AGENCY JOB</Text>
+              <Pressable onPress={openRaModal}>
+                <Text style={styles.link}>Edit</Text>
+              </Pressable>
+            </View>
+            {agency ? <Text style={styles.clientCardName}>{agency.name}</Text> : null}
+            <Pressable onPress={openRaModal}>
+              <Text style={styles.clientCardMeta}>Work order: {job.work_order_number ?? "Not set"}</Text>
+            </Pressable>
+            {job.nte_limit_cents != null ? (
+              <Text style={styles.clientCardMeta}>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</Text>
+            ) : null}
+            {isNteExceeded ? (
+              <Text style={styles.nteExceededText}>
+                {job.nte_exceeded_approved ? "Over NTE limit - variation approved" : "Over NTE limit - PM approval required to complete"}
+              </Text>
+            ) : null}
+
+            {property?.key_tag_number ? (
+              <View style={styles.keyRow}>
+                <Text style={styles.clientCardMeta}>
+                  Key: {property.key_tag_number} {keyLog ? `(${keyLog.status.replace("_", " ")})` : "(at office)"}
+                </Text>
+                {!keyLog || keyLog.status === "returned" ? (
+                  <Pressable onPress={handleKeyPickedUp}>
+                    <Text style={styles.link}>Keys Picked Up</Text>
+                  </Pressable>
+                ) : keyLog.status === "picked_up" ? (
+                  <Pressable onPress={() => handleKeyStatusChange("in_van")}>
+                    <Text style={styles.link}>Mark In Van</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => handleKeyStatusChange("returned")}>
+                    <Text style={styles.link}>Mark Returned</Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : null}
+            {keyActionError ? <Text style={styles.error}>{keyActionError}</Text> : null}
           </View>
         ) : null}
       </View>
 
-      {isAdmin ? (
-        <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
-            onPress={() => setActiveTab("details")}
-          >
-            <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
-          </Pressable>
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabButton, activeTab === "details" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("details")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "details" && styles.tabButtonTextActive]}>Details</Text>
+        </Pressable>
+        {isAdmin ? (
           <Pressable
             style={[styles.tabButton, activeTab === "costing" && styles.tabButtonActive]}
             onPress={() => setActiveTab("costing")}
           >
             <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
           </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.tabButton, activeTab === "tools" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("tools")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "tools" && styles.tabButtonTextActive]}>Quote Tools</Text>
+        </Pressable>
+      </View>
+
+      {activeTab === "tools" ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Roof Area</Text>
+          <MeasureRoofTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Linear Measurer</Text>
+          <LinearMeasurerTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Tally</Text>
+          <MaterialTallyCounter
+            jobCardId={id}
+            onTransferToOrder={(items) => setTransferredTallyItems(items)}
+          />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Concrete Calculator</Text>
+          <ConcreteCalculatorTool jobCardId={id} />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Material Order</Text>
+          <MaterialOrderFormTool
+            jobCardId={id}
+            prefillItems={transferredTallyItems}
+            onConsumedPrefill={() => setTransferredTallyItems(null)}
+          />
+
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Photo Markup</Text>
+          {markupPhoto ? (
+            <PhotoMarkupEditor
+              jobCardId={id}
+              photoUri={markupPhoto.local_uri!}
+              photoFileName={markupPhoto.file_name ?? "photo.jpg"}
+              onSaved={() => setMarkupPhoto(null)}
+              onCancel={() => setMarkupPhoto(null)}
+            />
+          ) : (
+            <>
+              <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
+              <View style={styles.markupGrid}>
+                {files.filter((f) => f.local_uri).length === 0 ? (
+                  <Text style={styles.empty}>No downloaded photos yet - add or open one from Photos below first.</Text>
+                ) : (
+                  files
+                    .filter((f) => f.local_uri)
+                    .map((f) => (
+                      <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
+                        <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
+                      </Pressable>
+                    ))
+                )}
+              </View>
+            </>
+          )}
         </View>
       ) : null}
 
       {activeTab === "costing" && isAdmin ? (
         !isOnline ? (
-          <Panel title="Job Costing" status="OFFLINE">
-            <Text style={styles.empty}>
-              This device is offline. Job costing is an office/PC workflow that needs a connection - reconnect to view it.
-            </Text>
-          </Panel>
+          <View style={styles.section}>
+            <RequiresConnectionNotice label="Job costing" />
+          </View>
         ) : (
-          <>
-            <Panel title="Linked Documents">
-              {costingDocs.map((doc) => (
-                <Pressable
-                  key={doc.id}
-                  style={styles.costingDocRow}
-                  onPress={() => router.push(doc.type === "quote" ? `/sales/quotes/${doc.id}` : `/sales/invoices/${doc.id}`)}
-                >
-                  <View>
-                    <Text style={styles.costingDocNumber}>{doc.number}</Text>
-                    <Text style={styles.costingDocMeta}>
-                      {doc.type === "quote" ? "Quote" : "Invoice"} · {capitalize(doc.status)}
-                    </Text>
-                  </View>
-                  <Text style={styles.costingDocTotal}>{formatCentsAsAud(doc.total_cents)}</Text>
-                </Pressable>
-              ))}
-              {costingDocs.length === 0 ? <Text style={styles.empty}>No quotes or invoices linked to this job yet.</Text> : null}
-            </Panel>
-            {costingDocs.length > 0 ? (
-              <Panel title="Summary">
-                {costingLoading ? (
-                  <Text style={styles.empty}>Loading costing breakdown...</Text>
-                ) : (
-                  <>
-                    <Readout label="Labour cost" value={formatCentsAsAud(totalLabourCents)} />
-                    <Readout label="Material cost" value={formatCentsAsAud(totalMaterialCents)} />
-                    <Readout label="Total charged" value={formatCentsAsAud(totalChargedCents)} />
-                    <View style={styles.divider} />
-                    <Readout label="Margin" value={formatCentsAsAud(marginCents)} />
-                    <Readout label="Margin %" value={`${marginPercent.toFixed(1)}%`} />
-                  </>
-                )}
-              </Panel>
-            ) : null}
-          </>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Linked documents</Text>
+            {costingDocs.map((doc) => (
+              <Pressable
+                key={doc.id}
+                style={styles.costingDocRow}
+                onPress={() => router.push(doc.type === "quote" ? `/sales/quotes/${doc.id}` : `/sales/invoices/${doc.id}`)}
+              >
+                <View>
+                  <Text style={styles.costingDocNumber}>{doc.number}</Text>
+                  <Text style={styles.costingDocMeta}>
+                    {doc.type === "quote" ? "Quote" : "Invoice"} · {capitalize(doc.status)}
+                  </Text>
+                </View>
+                <Text style={styles.costingDocTotal}>{formatCentsAsAud(doc.total_cents)}</Text>
+              </Pressable>
+            ))}
+            {costingDocs.length === 0 ? (
+              <Text style={styles.empty}>No quotes or invoices linked to this job yet.</Text>
+            ) : costingLoading ? (
+              <Text style={styles.empty}>Loading costing breakdown...</Text>
+            ) : (
+              <>
+                <Text style={[styles.sectionTitle, styles.costingSummaryTitle]}>Summary</Text>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Labour cost</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalLabourCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Material cost</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalMaterialCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Total charged</Text>
+                  <Text style={styles.costingSummaryValue}>{formatCentsAsAud(totalChargedCents)}</Text>
+                </View>
+                <View style={[styles.costingSummaryRow, styles.costingSummaryRowBold]}>
+                  <Text style={styles.costingSummaryLabelBold}>Margin</Text>
+                  <Text style={styles.costingSummaryValueBold}>{formatCentsAsAud(marginCents)}</Text>
+                </View>
+                <View style={styles.costingSummaryRow}>
+                  <Text style={styles.costingSummaryLabel}>Margin %</Text>
+                  <Text style={styles.costingSummaryValue}>{marginPercent.toFixed(1)}%</Text>
+                </View>
+              </>
+            )}
+          </View>
         )
       ) : null}
 
       {activeTab === "details" || !isAdmin ? (
         <>
-          <Panel title="Job Description">
-            {job.description ? (
-              <Text style={styles.bodyText}>{job.description}</Text>
-            ) : (
-              <Text style={styles.empty}>No description yet. Tap EDIT above to add one.</Text>
-            )}
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notify client</Text>
+        <Pressable
+          style={styles.onTheWayButton}
+          onPress={() => {
+            setEtaMinutes("");
+            setOnTheWayError(null);
+            setOnTheWayModalVisible(true);
+          }}
+        >
+          <Text style={styles.onTheWayButtonText}>🚚 On The Way</Text>
+        </Pressable>
+        <Text style={styles.measureHint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
+      </View>
 
-          <Panel title="Contacts">
-            {client ? (
-              <>
-                <Readout label="Primary Contact" value={client.name} onPress={() => router.push(`/sales/clients/${client.id}`)} />
-                {clientPhone ? <Readout label="Phone" value={clientPhone} onPress={() => callPhone(clientPhone)} /> : null}
-              </>
-            ) : (
-              <Text style={styles.empty}>No client on this job.</Text>
-            )}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Category</Text>
+        <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
+            <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {category?.name ?? "No category"}
+            </Text>
+          </View>
+        </Pressable>
+        {category ? (
+          <Pressable onPress={() => handleCategoryChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
-            {job.is_real_estate_job ? (
-              <>
-                <View style={styles.divider} />
-                {agency ? <Readout label="Agency" value={agency.name} /> : null}
-                {propertyManager ? (
-                  <Readout label="Property Manager" value={`${propertyManager.first_name} ${propertyManager.last_name}`} />
-                ) : null}
-                {pmMobile ? <Readout label="PM Contact" value={pmMobile} onPress={() => callPhone(pmMobile)} /> : null}
-                {job.work_order_number ? <Readout label="Work Order" value={job.work_order_number} /> : null}
-                {job.nte_limit_cents != null ? <Readout label="NTE Limit" value={formatCentsAsAud(job.nte_limit_cents)} /> : null}
-                {isNteExceeded ? (
-                  <Text style={styles.dangerText}>
-                    {job.nte_exceeded_approved ? "OVER NTE LIMIT - VARIATION APPROVED" : "OVER NTE LIMIT - PM APPROVAL REQUIRED"}
-                  </Text>
-                ) : null}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Lifecycle stage</Text>
+        <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
+          <View style={styles.pickerFieldRow}>
+            {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
+            <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {stage?.name ?? "No stage"}
+            </Text>
+          </View>
+        </Pressable>
+        {stage ? (
+          <Pressable onPress={() => handleStageChange(null)}>
+            <Text style={styles.clearLink}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
-                {property?.key_tag_number ? (
-                  <>
-                    <View style={styles.divider} />
-                    <Readout
-                      label="Key Tag"
-                      value={`${property.key_tag_number} (${keyLog ? keyLog.status.replace("_", " ").toUpperCase() : "AT OFFICE"})`}
-                    />
-                    <View style={styles.keyActionsRow}>
-                      {!keyLog || keyLog.status === "returned" ? (
-                        <ThemedButton variant="secondary" label="Keys Picked Up" onPress={handleKeyPickedUp} />
-                      ) : keyLog.status === "picked_up" ? (
-                        <ThemedButton variant="secondary" label="Mark In Van" onPress={() => handleKeyStatusChange("in_van")} />
-                      ) : (
-                        <ThemedButton variant="secondary" label="Mark Returned" onPress={() => handleKeyStatusChange("returned")} />
-                      )}
-                    </View>
-                  </>
-                ) : null}
-                {keyActionError ? <Text style={styles.dangerText}>{keyActionError}</Text> : null}
-              </>
-            ) : null}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Quotes</Text>
+        {(linkedQuotes ?? []).map((q) => (
+          <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
+            <Text style={styles.linkedRowText}>{q.quote_number}</Text>
+            <Text style={styles.linkedRowTotal}>{formatCentsAsAud(q.total_cents)}</Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create quotes.</Text>
+        ) : profile?.role === "admin" ? (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+          >
+            <Text style={styles.linkButtonText}>+ New quote for this job</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
-            <View style={styles.divider} />
-            <Text style={styles.fieldLabel}>Additional Contacts</Text>
-            {jobContacts.contacts.map((c) => (
-              <View key={c.id} style={styles.contactRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.contactName}>
-                    {c.name}
-                    {c.role_label ? ` · ${c.role_label}` : ""}
-                  </Text>
-                  {c.phone ? (
-                    <Pressable onPress={() => callPhone(c.phone as string)}>
-                      <Text style={styles.contactMeta}>{c.phone}</Text>
-                    </Pressable>
-                  ) : null}
-                  {c.email ? <Text style={styles.contactMeta}>{c.email}</Text> : null}
-                </View>
-                <Pressable onPress={() => jobContacts.removeContact(c.id)} hitSlop={8}>
-                  <Text style={styles.dangerText}>REMOVE</Text>
-                </Pressable>
-              </View>
-            ))}
-            {jobContacts.contacts.length === 0 ? (
-              <Text style={styles.empty}>No additional contacts (e.g. a second homeowner or tenant) yet.</Text>
-            ) : null}
-            <View style={{ gap: 8, marginTop: 8 }}>
-              <ThemedFormField label="Name" placeholder="Contact name" value={jobContacts.name} onChangeText={jobContacts.setName} />
-              <ThemedFormField
-                label="Role (optional)"
-                placeholder="e.g. Tenant, Second Homeowner"
-                value={jobContacts.roleLabel}
-                onChangeText={jobContacts.setRoleLabel}
-              />
-              <ThemedFormField label="Phone (optional)" placeholder="Phone" value={jobContacts.phone} onChangeText={jobContacts.setPhone} keyboardType="phone-pad" />
-              <ThemedFormField label="Email (optional)" placeholder="Email" value={jobContacts.email} onChangeText={jobContacts.setEmail} keyboardType="email-address" />
-              {jobContacts.error ? <Text style={styles.dangerText}>{jobContacts.error}</Text> : null}
-              <ThemedButton variant="secondary" label="Add Contact" onPress={jobContacts.addContact} />
-            </View>
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Invoices</Text>
+        {(linkedInvoices ?? []).map((inv) => (
+          <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
+            <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
+            <Text style={styles.linkedRowTotal}>{formatCentsAsAud(inv.total_cents)}</Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create invoices.</Text>
+        ) : profile?.role === "admin" ? (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
+          >
+            <Text style={styles.linkButtonText}>+ New invoice for this job</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
-          <Panel title="Upcoming Bookings">
-            {(upcomingBookings ?? []).map((event) => (
-              <Pressable key={event.id} style={styles.linkedRow} onPress={() => router.push(`/calendar/${event.id}`)}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.linkedRowText}>{event.title}</Text>
-                  <Text style={styles.contactMeta}>
-                    {new Date(event.start_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-            {isOnline && (upcomingBookings ?? []).length === 0 ? (
-              <Text style={styles.empty}>No upcoming bookings linked to this job.</Text>
-            ) : null}
-            {!isOnline ? (
-              <Text style={styles.empty}>Connect to view or schedule bookings.</Text>
-            ) : (
-              <Pressable onPress={() => router.push({ pathname: "/calendar/new", params: { jobCardId: job.id } })}>
-                <Text style={styles.addLink}>+ Schedule booking for this job</Text>
-              </Pressable>
-            )}
-          </Panel>
-
-          <Panel title="Job Details" status={stage?.name?.toUpperCase()}>
-            <Text style={styles.fieldLabel}>Category</Text>
-            <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
-              <View style={styles.pickerFieldRow}>
-                {category?.color ? <View style={[styles.swatch, { backgroundColor: category.color }]} /> : null}
-                <Text style={category ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                  {category?.name ?? "No category"}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Contacts</Text>
+        <Readout label="Primary" value={client?.name ?? "—"} onPress={client ? () => router.push(`/sales/clients/${client.id}`) : undefined} />
+        {(clientContacts ?? [])
+          .filter((c) => !c.is_primary)
+          .map((c) => (
+            <View key={c.id} style={styles.contactRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactName}>
+                  {c.name}
+                  {c.role ? ` · ${c.role}` : ""}
                 </Text>
+                {c.phone ? (
+                  <Pressable onPress={() => callPhone(c.phone as string)}>
+                    <Text style={styles.clientCardMeta}>{c.phone}</Text>
+                  </Pressable>
+                ) : null}
               </View>
-            </Pressable>
-            {category ? (
-              <Pressable onPress={() => handleCategoryChange(null)}>
-                <Text style={styles.clearLink}>Clear</Text>
+              <Pressable onPress={() => handleRemoveContact(c.id)} hitSlop={8}>
+                <Text style={styles.error}>Remove</Text>
               </Pressable>
-            ) : null}
+            </View>
+          ))}
+        <View style={{ gap: 8, marginTop: 10 }}>
+          <ThemedFormField label="Name" placeholder="Contact name" value={contactName} onChangeText={setContactName} />
+          <ThemedFormField label="Role (optional)" placeholder="e.g. Tenant, Second Homeowner" value={contactRole} onChangeText={setContactRole} />
+          <ThemedFormField label="Phone (optional)" placeholder="Phone" value={contactPhone} onChangeText={setContactPhone} keyboardType="phone-pad" />
+          <ThemedFormField label="Email (optional)" placeholder="Email" value={contactEmail} onChangeText={setContactEmail} keyboardType="email-address" />
+          {contactError ? <Text style={styles.error}>{contactError}</Text> : null}
+          <Pressable style={styles.button} onPress={handleAddContact}>
+            <Text style={styles.buttonText}>Add contact</Text>
+          </Pressable>
+        </View>
+      </View>
 
-            <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>Lifecycle Stage</Text>
-            <Pressable style={styles.pickerField} onPress={() => setStagePickerVisible(true)}>
-              <View style={styles.pickerFieldRow}>
-                {stage?.color ? <View style={[styles.swatch, { backgroundColor: stage.color }]} /> : null}
-                <Text style={stage ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>{stage?.name ?? "No stage"}</Text>
-              </View>
-            </Pressable>
-            {stage ? (
-              <Pressable onPress={() => handleStageChange(null)}>
-                <Text style={styles.clearLink}>Clear</Text>
-              </Pressable>
-            ) : null}
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Upcoming Bookings</Text>
+        {(upcomingBookings ?? []).map((event) => (
+          <Pressable key={event.id} style={styles.linkedRow} onPress={() => router.push(`/calendar/${event.id}`)}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.linkedRowText}>{event.title}</Text>
+              <Text style={styles.clientCardMeta}>
+                {new Date(event.start_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+        {isOnline && (upcomingBookings ?? []).length === 0 ? (
+          <Text style={styles.empty}>No upcoming bookings linked to this job.</Text>
+        ) : null}
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or schedule bookings.</Text>
+        ) : (
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => router.push({ pathname: "/calendar/new", params: { jobCardId: job.id } })}
+          >
+            <Text style={styles.linkButtonText}>+ Schedule booking for this job</Text>
+          </Pressable>
+        )}
+      </View>
 
-          <Panel title="Notify Client">
-            <ThemedButton
-              label="On The Way"
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Reports & Safety</Text>
+        {(linkedReports ?? []).map((r) => (
+          <Pressable key={r.id} style={styles.linkedRow} onPress={() => router.push(`/reports/instance/${r.id}`)}>
+            <Text style={styles.linkedRowText}>
+              {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+              {r.completed_at ? ` - ${new Date(r.completed_at).toLocaleDateString("en-AU")}` : ""}
+            </Text>
+          </Pressable>
+        ))}
+        {isOnline && linkedReports?.length === 0 ? <Text style={styles.empty}>No reports linked to this job.</Text> : null}
+        {!isOnline ? (
+          <Text style={styles.empty}>Connect to view or create reports.</Text>
+        ) : isAdmin ? (
+          <View style={styles.reportActionsRow}>
+            <Pressable
+              style={styles.linkButton}
               onPress={() => {
-                setEtaMinutes("");
-                setOnTheWayError(null);
-                setOnTheWayModalVisible(true);
+                setCreateReportSearch("");
+                setCreateReportError(null);
+                setCreateReportModalVisible(true);
               }}
-            />
-            <Text style={styles.hint}>Sends an automated "on the way" SMS/email with your ETA.</Text>
-          </Panel>
+            >
+              <Text style={styles.linkButtonText}>+ Create New Report</Text>
+            </Pressable>
+            <Pressable
+              style={styles.linkButton}
+              onPress={() => {
+                setLinkReportError(null);
+                setLinkReportModalVisible(true);
+              }}
+            >
+              <Text style={styles.linkButtonText}>Link Existing Report</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
 
-          <Panel title="Job Tasks">
-            {jobTasks.map((t) => (
-              <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
-                <Text style={styles.taskRowTitle}>{t.title}</Text>
-                <Pressable
-                  style={styles.taskStatusBadge}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    cycleTaskStatus(t);
-                  }}
-                >
-                  <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status].toUpperCase()}</Text>
-                </Pressable>
-              </Pressable>
-            ))}
-            {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
-            {profile?.role === "admin" ? (
-              <View style={styles.addTaskRow}>
-                <View style={{ flex: 1 }}>
-                  <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
-                </View>
-                <ThemedButton label="Add" onPress={handleAddTask} />
-              </View>
-            ) : null}
-            {taskError ? <Text style={styles.dangerText}>{taskError}</Text> : null}
-          </Panel>
+      <View style={styles.section}>
+        <View style={styles.titleRow}>
+          <Text style={styles.sectionTitle}>Subcontractors</Text>
+          {isOnline && isAdmin ? (
+            <Pressable onPress={() => setAssignSubModalVisible(true)}>
+              <Text style={styles.link}>+ Assign</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {(linkedPurchaseOrders ?? []).map((po) => {
+          const sub = (allSubcontractors ?? []).find((s) => s.id === po.subcontractor_id);
+          return (
+            <Pressable key={po.id} style={styles.linkedRow} onPress={() => router.push(`/subcontractors/purchase-order/${po.id}`)}>
+              <Text style={styles.linkedRowText}>
+                {po.po_number ?? "Pending"} - {sub?.company_name ?? "Unknown subcontractor"} ({po.is_quote_request ? "Quote Request" : "Work Order"})
+              </Text>
+            </Pressable>
+          );
+        })}
+        {isOnline && linkedPurchaseOrders?.length === 0 ? (
+          <Text style={styles.empty}>No subcontractor work orders or quote requests for this job yet.</Text>
+        ) : null}
+        {!isOnline ? <Text style={styles.empty}>Connect to view or assign subcontractors.</Text> : null}
+      </View>
 
-          <Panel title="Billing · Quotes">
-            {(linkedQuotes ?? []).map((q) => (
-              <Pressable key={q.id} style={styles.linkedRow} onPress={() => router.push(`/sales/quotes/${q.id}`)}>
-                <Text style={styles.linkedRowText}>{q.quote_number}</Text>
-                <Text style={styles.linkedRowTotal}>{formatCentsAsAud(q.total_cents)}</Text>
-              </Pressable>
-            ))}
-            {isOnline && linkedQuotes?.length === 0 ? <Text style={styles.empty}>No quotes linked to this job.</Text> : null}
-            {!isOnline ? (
-              <Text style={styles.empty}>Connect to view or create quotes.</Text>
-            ) : profile?.role === "admin" ? (
-              <Pressable
-                onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-              >
-                <Text style={styles.addLink}>+ New quote for this job</Text>
-              </Pressable>
-            ) : null}
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Tasks</Text>
+        {jobTasks.map((t) => (
+          <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
+            <Text style={styles.taskRowTitle}>{t.title}</Text>
+            <Pressable
+              style={styles.taskStatusBadge}
+              onPress={(e) => {
+                e.stopPropagation();
+                cycleTaskStatus(t);
+              }}
+            >
+              <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
+            </Pressable>
+          </Pressable>
+        ))}
+        {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
+        {profile?.role === "admin" ? (
+          <View style={styles.addTaskRow}>
+            <View style={{ flex: 1 }}>
+              <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChangeText={setTaskTitle} />
+            </View>
+            <Pressable style={styles.button} onPress={handleAddTask}>
+              <Text style={styles.buttonText}>Add</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {taskError ? <Text style={styles.error}>{taskError}</Text> : null}
+      </View>
 
-          <Panel title="Billing · Invoices">
-            {(linkedInvoices ?? []).map((inv) => (
-              <Pressable key={inv.id} style={styles.linkedRow} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
-                <Text style={styles.linkedRowText}>{inv.invoice_number}</Text>
-                <Text style={styles.linkedRowTotal}>{formatCentsAsAud(inv.total_cents)}</Text>
-              </Pressable>
-            ))}
-            {isOnline && linkedInvoices?.length === 0 ? <Text style={styles.empty}>No invoices linked to this job.</Text> : null}
-            {!isOnline ? (
-              <Text style={styles.empty}>Connect to view or create invoices.</Text>
-            ) : profile?.role === "admin" ? (
-              <Pressable
-                onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId: job.id, clientId: job.client_id } })}
-              >
-                <Text style={styles.addLink}>+ New invoice for this job</Text>
-              </Pressable>
-            ) : null}
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Diary</Text>
+        <Pressable
+          style={styles.button}
+          onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })}
+        >
+          <Text style={styles.buttonText}>Open Diary</Text>
+        </Pressable>
+        <Text style={styles.measureHint}>Notes, photos and files for this job all live in the Diary.</Text>
+      </View>
 
-          <Panel title="Diary">
-            <ThemedButton label="Open Diary" onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })} />
-            <Text style={styles.hint}>Notes, photos and files for this job all live in the Diary.</Text>
-          </Panel>
-
-          <Panel title="Job Tools">
-            <ThemedButton label="Open Job Tools" onPress={() => router.push({ pathname: "/sales/jobs/tools", params: { jobCardId: job.id } })} />
-            <Text style={styles.hint}>Roof Area, Linear Measurer, Material Tally, Photo Markup, Concrete Calculator, Material Order.</Text>
-          </Panel>
-
-          <Panel title="Communication Log">
-            <ThemedCommunicationLog
-              entities={[
-                { entityType: "job", entityId: job.id },
-                ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
-                ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
-              ]}
-            />
-          </Panel>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Communication Log</Text>
+        <ThemedCommunicationLog
+          entities={[
+            { entityType: "job", entityId: job.id },
+            ...(linkedQuotes ?? []).map((q) => ({ entityType: "quote" as const, entityId: q.id })),
+            ...(linkedInvoices ?? []).map((inv) => ({ entityType: "invoice" as const, entityId: inv.id })),
+          ]}
+        />
+      </View>
         </>
       ) : null}
     </ScrollView>
@@ -1018,18 +1555,20 @@ export default function JobDetailScreen() {
     <ThemedModal visible={quickNoteModalVisible} onClose={() => setQuickNoteModalVisible(false)}>
       <Text style={styles.modalTitle}>Add Note</Text>
       <ThemedFormField label="Note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
-      {noteError ? <Text style={styles.dangerText}>{noteError}</Text> : null}
+      {noteError ? <Text style={styles.error}>{noteError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setQuickNoteModalVisible(false)}>
-          <Text style={styles.headerLink}>Cancel</Text>
+          <Text style={styles.link}>Cancel</Text>
         </Pressable>
-        <ThemedButton
-          label="Save"
+        <Pressable
+          style={styles.button}
           onPress={async () => {
-            const ok = await addNote();
+            const ok = await handleAddNote();
             if (ok) setQuickNoteModalVisible(false);
           }}
-        />
+        >
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
       </View>
     </ThemedModal>
 
@@ -1050,37 +1589,37 @@ export default function JobDetailScreen() {
         onChangeText={setEtaMinutes}
         keyboardType="number-pad"
       />
-      {onTheWayError ? <Text style={styles.dangerText}>{onTheWayError}</Text> : null}
+      {onTheWayError ? <Text style={styles.error}>{onTheWayError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setOnTheWayModalVisible(false)}>
-          <Text style={styles.headerLink}>Cancel</Text>
+          <Text style={styles.link}>Cancel</Text>
         </Pressable>
-        <ThemedButton label="Send" onPress={handleSendOnTheWay} />
+        <Pressable style={styles.button} onPress={handleSendOnTheWay}>
+          <Text style={styles.buttonText}>Send</Text>
+        </Pressable>
       </View>
     </ThemedModal>
 
     <ThemedModal visible={nteModalVisible} onClose={() => setNteModalVisible(false)}>
-      <Text style={styles.modalTitle}>Over Budget</Text>
+      <Text style={styles.modalTitle}>Over budget</Text>
       <Text style={styles.modalBody}>
         This job exceeds the NTE limit of {job?.nte_limit_cents != null ? formatCentsAsAud(job.nte_limit_cents) : "-"} by{" "}
         {job?.nte_limit_cents != null ? formatCentsAsAud(totalChargedCents - job.nte_limit_cents) : "-"}. PM approval is required
         before this job can be marked done.
       </Text>
-      {nteRequestError ? <Text style={styles.dangerText}>{nteRequestError}</Text> : null}
+      {nteRequestError ? <Text style={styles.error}>{nteRequestError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setNteModalVisible(false)}>
-          <Text style={styles.headerLink}>Cancel</Text>
+          <Text style={styles.link}>Cancel</Text>
         </Pressable>
-        <ThemedButton
-          label={nteRequesting ? "Sending..." : "Request NTE Variation"}
-          onPress={handleRequestNteVariation}
-          disabled={nteRequesting}
-        />
+        <Pressable style={styles.button} onPress={handleRequestNteVariation} disabled={nteRequesting}>
+          <Text style={styles.buttonText}>{nteRequesting ? "Sending..." : "Request NTE Variation"}</Text>
+        </Pressable>
       </View>
     </ThemedModal>
 
     <ThemedModal visible={editModalVisible} onClose={() => setEditModalVisible(false)}>
-      <Text style={styles.modalTitle}>Edit Job</Text>
+      <Text style={styles.modalTitle}>Edit job</Text>
       <ThemedFormField label="Title" placeholder="Job title" value={editTitle} onChangeText={setEditTitle} />
       <ThemedFormField
         label="Description (optional)"
@@ -1090,12 +1629,14 @@ export default function JobDetailScreen() {
         multiline
         style={styles.multiline}
       />
-      {editError ? <Text style={styles.dangerText}>{editError}</Text> : null}
+      {editError ? <Text style={styles.error}>{editError}</Text> : null}
       <View style={styles.modalActions}>
         <Pressable onPress={() => setEditModalVisible(false)}>
-          <Text style={styles.headerLink}>Cancel</Text>
+          <Text style={styles.link}>Cancel</Text>
         </Pressable>
-        <ThemedButton label="Save" onPress={handleSaveEdit} />
+        <Pressable style={styles.button} onPress={handleSaveEdit}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
       </View>
     </ThemedModal>
 
@@ -1118,75 +1659,259 @@ export default function JobDetailScreen() {
       onSelect={handleStageChange}
       onClose={() => setStagePickerVisible(false)}
     />
+
+    <ThemedPickerModal
+      visible={referralPickerVisible}
+      title="Referral source"
+      items={[null, ...(referralPartners ?? [])]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+      onSelect={handleSelectReferralPartner}
+      onClose={() => setReferralPickerVisible(false)}
+    />
+
+    <ThemedModal visible={workdriveModalVisible} onClose={() => setWorkdriveModalVisible(false)}>
+      <Text style={styles.modalTitle}>WorkDrive link</Text>
+      <ThemedFormField label="Link" placeholder="https://workdrive.zoho.com/..." value={workdriveInput} onChangeText={setWorkdriveInput} />
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setWorkdriveModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveWorkdrive}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </ThemedModal>
+
+    <ThemedModal visible={raModalVisible} onClose={() => setRaModalVisible(false)}>
+      <Text style={styles.modalTitle}>Real estate / strata assignment</Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>This is a real estate / strata agency job</Text>
+        <Switch value={raIsRealEstate} onValueChange={setRaIsRealEstate} />
+      </View>
+
+      {raIsRealEstate ? (
+        <>
+          <Text style={styles.sectionTitle}>Agency</Text>
+          <Pressable style={styles.pickerField} onPress={() => setAgencyPickerVisible(true)}>
+            <Text style={raAgencyId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(allAgencies ?? []).find((a) => a.id === raAgencyId)?.name ?? "Select agency"}
+            </Text>
+          </Pressable>
+          <Text style={styles.sectionTitle}>Property manager</Text>
+          <Pressable style={styles.pickerField} onPress={() => setPmPickerVisible(true)}>
+            <Text style={raPropertyManagerId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(() => {
+                const pm = (allPropertyManagers ?? []).find((p) => p.id === raPropertyManagerId);
+                return pm ? `${pm.first_name} ${pm.last_name}` : "Select property manager";
+              })()}
+            </Text>
+          </Pressable>
+          <Text style={styles.sectionTitle}>Property</Text>
+          <Pressable style={styles.pickerField} onPress={() => setPropertyPickerVisible(true)}>
+            <Text style={raPropertyId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+              {(() => {
+                const p = (allProperties ?? []).find((prop) => prop.id === raPropertyId);
+                return p ? `${p.address_line1}, ${p.suburb}` : "Select property";
+              })()}
+            </Text>
+          </Pressable>
+          <ThemedFormField label="Work order number" placeholder="e.g. WO-4821" value={raWorkOrderNumber} onChangeText={setRaWorkOrderNumber} />
+          <ThemedFormField
+            label="NTE limit ($)"
+            placeholder="e.g. 300.00"
+            value={raNteLimit}
+            onChangeText={setRaNteLimit}
+            keyboardType="decimal-pad"
+          />
+        </>
+      ) : null}
+
+      {raError ? <Text style={styles.error}>{raError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setRaModalVisible(false)}>
+          <Text style={styles.link}>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={handleSaveRa}>
+          <Text style={styles.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+    </ThemedModal>
+
+    <ThemedPickerModal
+      visible={agencyPickerVisible}
+      title="Select agency"
+      items={allAgencies ?? []}
+      getKey={(a) => a.id}
+      getLabel={(a) => a.name}
+      onSelect={(a) => {
+        setRaAgencyId(a.id);
+        setRaPropertyManagerId(null);
+        setRaPropertyId(null);
+      }}
+      onClose={() => setAgencyPickerVisible(false)}
+    />
+
+    <ThemedPickerModal
+      visible={pmPickerVisible}
+      title="Select property manager"
+      items={raPmsForAgency}
+      getKey={(pm) => pm.id}
+      getLabel={(pm) => `${pm.first_name} ${pm.last_name}`}
+      onSelect={(pm) => {
+        setRaPropertyManagerId(pm.id);
+        setRaPropertyId(null);
+      }}
+      onClose={() => setPmPickerVisible(false)}
+    />
+
+    <ThemedPickerModal
+      visible={propertyPickerVisible}
+      title="Select property"
+      items={raPropertiesForPm}
+      getKey={(p) => p.id}
+      getLabel={(p) => `${p.address_line1}, ${p.suburb}`}
+      onSelect={(p) => setRaPropertyId(p.id)}
+      onClose={() => setPropertyPickerVisible(false)}
+    />
+
+    <EmailComposeModal
+      visible={jobEmailModalVisible}
+      onClose={() => setJobEmailModalVisible(false)}
+      title={`Email - ${job.title}`}
+      defaultTo={client?.email ?? ""}
+      defaultSubject=""
+      defaultBody=""
+      recipientOptions={jobRecipientOptions}
+      onSend={handleSendJobEmail}
+      sendLabel="Send email"
+    />
+
+    <ThemedModal visible={createReportModalVisible} onClose={() => setCreateReportModalVisible(false)}>
+      <Text style={styles.modalTitle}>Create new report</Text>
+      <ThemedFormField label="Search templates" value={createReportSearch} onChangeText={setCreateReportSearch} placeholder="Search by title..." />
+      {createReportError ? <Text style={styles.error}>{createReportError}</Text> : null}
+      {(activeReportTemplates ?? [])
+        .filter((t) => t.title.toLowerCase().includes(createReportSearch.trim().toLowerCase()))
+        .map((t) => (
+          <Pressable key={t.id} style={styles.reportTemplateRow} onPress={() => startReportForJob(t.id)}>
+            <Text style={styles.reportTemplateRowText}>{t.title}</Text>
+            {t.is_swms ? <Text style={styles.swmsTag}>SWMS</Text> : null}
+          </Pressable>
+        ))}
+      {(activeReportTemplates ?? []).length === 0 ? <Text style={styles.empty}>No report templates yet.</Text> : null}
+      <Pressable onPress={() => setCreateReportModalVisible(false)}>
+        <Text style={styles.link}>Cancel</Text>
+      </Pressable>
+    </ThemedModal>
+
+    <ThemedPickerModal
+      visible={linkReportModalVisible}
+      title="Link existing report"
+      items={unlinkedReports ?? []}
+      getKey={(r) => r.id}
+      getLabel={(r) => `${r.status.charAt(0).toUpperCase() + r.status.slice(1)} report`}
+      onSelect={(r) => linkExistingReport(r.id)}
+      onClose={() => setLinkReportModalVisible(false)}
+    />
+    {linkReportError ? <Text style={styles.error}>{linkReportError}</Text> : null}
+
+    <ThemedModal visible={assignSubModalVisible} onClose={() => setAssignSubModalVisible(false)}>
+      <Text style={styles.modalTitle}>Assign subcontractor</Text>
+      <View style={styles.tradeFilterRow}>
+        <Pressable style={[styles.tradeFilterChip, !assignSubTradeFilter && styles.tradeFilterChipActive]} onPress={() => setAssignSubTradeFilter("")}>
+          <Text style={[styles.tradeFilterChipText, !assignSubTradeFilter && styles.tradeFilterChipTextActive]}>All trades</Text>
+        </Pressable>
+        {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
+          <Pressable
+            key={trade}
+            style={[styles.tradeFilterChip, assignSubTradeFilter === trade && styles.tradeFilterChipActive]}
+            onPress={() => setAssignSubTradeFilter(trade)}
+          >
+            <Text style={[styles.tradeFilterChipText, assignSubTradeFilter === trade && styles.tradeFilterChipTextActive]}>
+              {TRADE_LABELS[trade]}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {(allSubcontractors ?? [])
+        .filter((s) => !assignSubTradeFilter || s.trades.includes(assignSubTradeFilter))
+        .map((sub) => {
+          const onHold = sub.status === "compliance_hold";
+          return (
+            <View key={sub.id} style={[styles.assignSubCard, onHold && styles.assignSubCardHold]}>
+              <View style={styles.titleRow}>
+                <Text style={[styles.assignSubName, onHold && styles.assignSubNameHold]}>{sub.company_name}</Text>
+                <Text style={styles.assignSubTier}>{TIER_LABELS[sub.preference_tier]}</Text>
+              </View>
+              {onHold ? <Text style={styles.holdNotice}>On compliance hold - expired documents must be renewed first.</Text> : null}
+              <View style={styles.assignSubActions}>
+                <Pressable
+                  style={styles.assignSubButton}
+                  disabled={onHold}
+                  onPress={() => {
+                    setAssignSubModalVisible(false);
+                    router.push(`/subcontractors/purchase-order/new?subcontractorId=${sub.id}&quoteRequest=true&jobCardId=${id}`);
+                  }}
+                >
+                  <Text style={styles.assignSubButtonText}>Request Quote</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.assignSubButton, styles.assignSubButtonPrimary]}
+                  disabled={onHold}
+                  onPress={() => {
+                    setAssignSubModalVisible(false);
+                    router.push(`/subcontractors/purchase-order/new?subcontractorId=${sub.id}&quoteRequest=false&jobCardId=${id}`);
+                  }}
+                >
+                  <Text style={styles.assignSubButtonTextPrimary}>Issue Work Order</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      {(allSubcontractors ?? []).length === 0 ? (
+        <Text style={styles.empty}>No subcontractors yet - add one from Settings &gt; Subcontractors.</Text>
+      ) : null}
+      <Pressable onPress={() => setAssignSubModalVisible(false)}>
+        <Text style={styles.link}>Close</Text>
+      </Pressable>
+    </ThemedModal>
     </>
   );
 }
 
 function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
   return {
     screen: { flex: 1, backgroundColor: tokens.background },
     container: { flex: 1, backgroundColor: tokens.background },
-    header: { padding: 16, gap: 10 },
-    headerTopRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
-    jobNumber: {
-      fontSize: font.label,
-      fontWeight: "700" as const,
-      color: tokens.textMuted,
-      letterSpacing: 1.5,
-      fontFamily: fontFamily.mobileFontFamily,
-      textTransform: "uppercase" as const,
-    },
-    headerLink: {
-      color: tokens.accent,
-      fontWeight: "700" as const,
-      fontFamily: fontFamily.mobileFontFamily,
-      letterSpacing: 1,
-      fontSize: font.body,
-    },
-    jobTitle: {
-      fontSize: font.title + 4,
-      fontWeight: "700" as const,
-      color: tokens.textPrimary,
-      fontFamily: fontFamily.mobileFontFamily,
-    },
-    headerReadouts: {
-      borderWidth: 1,
-      borderColor: tokens.border,
-      borderRadius: 4,
-      padding: 12,
-      gap: 8,
-      backgroundColor: tokens.surface,
-    },
-    agencyBadgeRow: { alignSelf: "flex-start" as const },
-    agencyBadge: {
-      fontSize: font.label,
-      fontWeight: "700" as const,
-      color: tokens.warning,
-      fontFamily: fontFamily.mobileFontFamily,
-      letterSpacing: 1,
-    },
-    modalTitle: {
-      fontSize: font.title,
-      fontWeight: "700" as const,
-      color: tokens.accent,
-      marginBottom: 4,
-      fontFamily: fontFamily.mobileFontFamily,
-      textTransform: "uppercase" as const,
-      letterSpacing: 1,
-    },
-    modalBody: { fontSize: font.body, color: tokens.textPrimary, lineHeight: 20, marginTop: 6, fontFamily: fontFamily.mobileFontFamily },
+    section: { padding: 16, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    titleRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    number: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginBottom: 2, letterSpacing: 1, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    description: { marginTop: 6, color: tokens.textPrimary, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    clientCard: { marginTop: 12, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, gap: 2 },
+    clientCardName: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    clientCardMeta: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    agencyCard: { marginTop: 12, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.accent, borderRadius: 4, padding: 12, gap: 2 },
+    agencyBadge: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginBottom: 2, letterSpacing: 1, ...mono },
+    workdriveRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 12 },
+    workdriveLabel: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, textTransform: "uppercase" as const, letterSpacing: 1, ...mono },
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginBottom: 8, gap: 12 },
+    switchLabel: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    nteExceededText: { fontSize: font.body - 2, fontWeight: "700" as const, color: tokens.danger, marginTop: 4, ...mono },
+    keyRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 6 },
+    modalTitle: { fontSize: font.title, fontWeight: "700" as const, color: tokens.accent, marginBottom: 4, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    modalBody: { fontSize: font.body - 1, color: tokens.textPrimary, lineHeight: 20, marginTop: 6, ...mono },
     modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
-    tabRow: { flexDirection: "row" as const, paddingHorizontal: 12, paddingTop: 4, gap: 8 },
+    sectionTitle: { fontWeight: "700" as const, color: tokens.accent, marginBottom: 10, letterSpacing: 1.5, textTransform: "uppercase" as const, fontSize: font.label, ...mono },
+    tabRow: { flexDirection: "row" as const, paddingHorizontal: 12, paddingTop: 12, gap: 8 },
     tabButton: { flex: 1, paddingVertical: 10, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, alignItems: "center" as const },
     tabButtonActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
-    tabButtonText: {
-      color: tokens.textMuted,
-      fontWeight: "700" as const,
-      fontFamily: fontFamily.mobileFontFamily,
-      letterSpacing: 1,
-      textTransform: "uppercase" as const,
-      fontSize: font.body - 1,
-    },
+    tabButtonText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: font.body - 1, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
     tabButtonTextActive: { color: tokens.accent },
     costingDocRow: {
       flexDirection: "row" as const,
@@ -1196,51 +1921,26 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
       borderBottomWidth: 1,
       borderBottomColor: tokens.border,
     },
-    costingDocNumber: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
-    costingDocMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, fontFamily: fontFamily.mobileFontFamily },
-    costingDocTotal: { fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, fontFamily: fontFamily.mobileFontFamily },
-    divider: { borderTopWidth: 1, borderTopColor: tokens.border, marginVertical: 4 },
-    contactRow: {
-      flexDirection: "row" as const,
-      justifyContent: "space-between" as const,
-      alignItems: "center" as const,
-      paddingVertical: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: tokens.border,
-    },
-    contactName: { color: tokens.textPrimary, fontSize: font.body, fontFamily: fontFamily.mobileFontFamily },
-    contactMeta: { color: tokens.textMuted, fontSize: font.label, fontFamily: fontFamily.mobileFontFamily, marginTop: 2 },
-    bodyText: { fontSize: font.body, color: tokens.textPrimary, lineHeight: font.body + 6, fontFamily: fontFamily.mobileFontFamily },
-    fieldLabel: {
-      color: tokens.textMuted,
-      fontFamily: fontFamily.mobileFontFamily,
-      fontSize: font.label,
-      letterSpacing: 1,
-      textTransform: "uppercase" as const,
-      marginBottom: 6,
-    },
-    fieldLabelSpaced: { marginTop: 12 },
+    costingDocNumber: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    costingDocMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    costingDocTotal: { fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    costingSummaryTitle: { marginTop: 20 },
+    costingSummaryRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, paddingVertical: 5 },
+    costingSummaryRowBold: { borderTopWidth: 1, borderTopColor: tokens.border, marginTop: 4, paddingTop: 10 },
+    costingSummaryLabel: { color: tokens.textMuted, fontSize: font.body - 2, ...mono },
+    costingSummaryValue: { color: tokens.textPrimary, fontSize: font.body - 2, fontWeight: "600" as const, ...mono },
+    costingSummaryLabelBold: { color: tokens.textPrimary, fontSize: font.body, fontWeight: "700" as const, ...mono },
+    costingSummaryValueBold: { color: tokens.accent, fontSize: font.body, fontWeight: "700" as const, ...mono },
     pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
     pickerFieldRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
-    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
-    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, fontFamily: fontFamily.mobileFontFamily },
+    // flexShrink so the text is actually width-constrained by the row
+    // (next to the fixed-width swatch dot) and wraps onto a second line
+    // for a long category/stage name, instead of Yoga letting it overflow
+    // its measured width and silently clipping the last character or two.
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, flexShrink: 1, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, flexShrink: 1, ...mono },
     swatch: { width: 12, height: 12, borderRadius: 6 },
-    clearLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 6, alignSelf: "flex-start" as const, fontFamily: fontFamily.mobileFontFamily },
-    hint: { color: tokens.textMuted, fontSize: font.label, marginTop: 8, fontFamily: fontFamily.mobileFontFamily },
-    keyActionsRow: { flexDirection: "row" as const, marginTop: 8 },
-    taskRow: {
-      flexDirection: "row" as const,
-      alignItems: "center" as const,
-      justifyContent: "space-between" as const,
-      paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: tokens.border,
-    },
-    taskRowTitle: { fontSize: font.body, color: tokens.textPrimary, flex: 1, marginRight: 8, fontFamily: fontFamily.mobileFontFamily },
-    taskStatusBadge: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-    taskStatusBadgeText: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label - 1, fontFamily: fontFamily.mobileFontFamily },
-    addTaskRow: { flexDirection: "row" as const, gap: 8, marginTop: 4, alignItems: "flex-end" as const },
-    addLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 4, fontFamily: fontFamily.mobileFontFamily },
+    clearLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 6, alignSelf: "flex-start" as const, ...mono },
     linkedRow: {
       flexDirection: "row" as const,
       justifyContent: "space-between" as const,
@@ -1249,13 +1949,82 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
       borderBottomWidth: 1,
       borderBottomColor: tokens.border,
     },
-    linkedRowText: { color: tokens.textPrimary, fontWeight: "600" as const, fontFamily: fontFamily.mobileFontFamily },
-    linkedRowTotal: { color: tokens.accent, fontWeight: "700" as const, fontFamily: fontFamily.mobileFontFamily },
+    linkedRowText: { color: tokens.textPrimary, fontWeight: "600" as const, ...mono },
+    linkedRowTotal: { color: tokens.accent, fontWeight: "700" as const, ...mono },
+    linkButton: { marginTop: 10, alignSelf: "flex-start" as const },
+    linkButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    taskRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    taskRowTitle: { fontSize: font.body, color: tokens.textPrimary, flex: 1, marginRight: 8, ...mono },
+    taskStatusBadge: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 4 },
+    taskStatusBadgeText: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    addTaskRow: { flexDirection: "row" as const, gap: 8, marginTop: 12, alignItems: "flex-end" as const },
+    button: { backgroundColor: tokens.accent, borderRadius: 3, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center" as const },
+    buttonText: { color: tokens.background, fontWeight: "700" as const, letterSpacing: 0.5, textTransform: "uppercase" as const, ...mono },
+    addNoteButton: { alignSelf: "flex-start" as const, marginTop: 10 },
+    measureHint: { color: tokens.textMuted, fontSize: font.label, marginTop: 8, ...mono },
+    onTheWayButton: { backgroundColor: tokens.accent, borderRadius: 3, padding: 14, alignItems: "center" as const },
+    onTheWayButtonText: { color: tokens.background, fontWeight: "700" as const, fontSize: font.body, letterSpacing: 0.5, textTransform: "uppercase" as const, ...mono },
     multiline: { minHeight: 70, textAlignVertical: "top" as const },
-    dangerText: { color: tokens.danger, marginTop: 6, fontFamily: fontFamily.mobileFontFamily, fontSize: font.label },
+    error: { color: tokens.danger, marginTop: 6, fontSize: font.label, ...mono },
     noteRow: { marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: tokens.border },
-    noteBody: { fontSize: font.body, color: tokens.textPrimary, fontFamily: fontFamily.mobileFontFamily },
-    noteMeta: { fontSize: font.label - 1, color: tokens.textMuted, marginTop: 4, fontFamily: fontFamily.mobileFontFamily },
-    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 12, fontFamily: fontFamily.mobileFontFamily },
+    noteBody: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    noteMeta: { fontSize: font.label - 1, color: tokens.textMuted, marginTop: 4, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 12, ...mono },
+    contactRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    contactName: { color: tokens.textPrimary, fontSize: font.body, ...mono },
+    reportActionsRow: { flexDirection: "row" as const, gap: 16, marginTop: 10 },
+    reportTemplateRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    reportTemplateRowText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    swmsTag: {
+      fontSize: font.label - 2,
+      fontWeight: "700" as const,
+      color: tokens.background,
+      backgroundColor: tokens.warning,
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      ...mono,
+    },
+    subtitle: { color: tokens.textMuted, fontSize: font.body - 2, marginBottom: 10, ...mono },
+    markupGrid: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8 },
+    markupThumbWrap: { width: "23%" as const, aspectRatio: 1, borderRadius: 4, overflow: "hidden" as const, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    markupThumb: { width: "100%" as const, height: "100%" as const },
+    holdNotice: { color: tokens.danger, fontSize: font.label, marginTop: 4, marginBottom: 8, ...mono },
+    tradeFilterRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginBottom: 12 },
+    tradeFilterChip: { borderWidth: 1, borderColor: tokens.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+    tradeFilterChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    tradeFilterChipText: { fontSize: font.label - 1, fontWeight: "600" as const, color: tokens.textMuted, ...mono },
+    tradeFilterChipTextActive: { color: tokens.accent },
+    assignSubCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, marginBottom: 8 },
+    assignSubCardHold: { borderColor: tokens.danger },
+    assignSubName: { fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    assignSubNameHold: { color: tokens.textMuted },
+    assignSubTier: { fontSize: font.label - 1, color: tokens.textMuted, ...mono },
+    assignSubActions: { flexDirection: "row" as const, gap: 8, marginTop: 8 },
+    assignSubButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingVertical: 8, alignItems: "center" as const },
+    assignSubButtonText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    assignSubButtonPrimary: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    assignSubButtonTextPrimary: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.background, ...mono },
   };
 }

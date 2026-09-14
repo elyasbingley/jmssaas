@@ -1,0 +1,19 @@
+-- convert_quote_to_invoice has had two coexisting overloads since
+-- 20260723000200_convert_quote_uses_auto_number.sql: the original
+-- (p_quote_id uuid, p_invoice_number text, p_due_date date) from
+-- 20260721000100_atomic_line_item_rpcs.sql, and every migration since
+-- (20260723000200, 20260724000100, and this branch's own
+-- 20260828000100_client_contacts_sites_workdrive.sql) `create or replace`d
+-- a *different* parameter order - (p_quote_id uuid, p_due_date date,
+-- p_invoice_number text default null) - which Postgres treats as a
+-- distinct function (argument type order is part of a function's
+-- identity, not just which types are used), so it never actually replaced
+-- the original; it just added a second overload alongside it, every time.
+--
+-- Two same-named overloads is exactly the setup that makes PostgREST's
+-- (Supabase's REST layer) function resolution unreliable for RPC calls
+-- with named parameters - "Failed to convert to invoice" on the desktop/
+-- mobile "Convert to invoice" action is this ambiguity surfacing. Fix:
+-- drop the stale original overload outright, leaving exactly one
+-- convert_quote_to_invoice.
+drop function if exists public.convert_quote_to_invoice(uuid, text, date);

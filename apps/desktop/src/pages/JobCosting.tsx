@@ -68,12 +68,17 @@ function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_
 function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
   return Math.round(item.quantity * item.material_cost_cents);
 }
+// "Subby box" - per-unit subcontractor cost, same treatment as material.
+function lineItemSubcontractorCostCents(item: Pick<QuoteLineItem, "quantity" | "subcontractor_cost_cents">): number {
+  return Math.round(item.quantity * (item.subcontractor_cost_cents ?? 0));
+}
 
 interface JobCostingRow {
   job: JobCardRow;
   docs: { id: string; type: "quote" | "invoice"; number: string; status: string; total_cents: number }[];
   labourCents: number;
   materialCents: number;
+  subcontractorCents: number;
   chargedCents: number;
   marginCents: number;
   marginPercent: number;
@@ -153,17 +158,18 @@ export default function JobCostingPage() {
 
       const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+      const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       const chargedCents = docs.reduce((sum, doc) => sum + doc.total_cents, 0);
       // Margin is "charged minus cost" - same shape and same caveats as
       // mobile's own version: total charged is GST-inclusive while
-      // labour/material cost are GST-exclusive (a small overstatement of
-      // margin), and a quote converted to an invoice stays linked to the
-      // job as both, so it's summed twice here exactly as it is there.
-      // Not fixed here - ported as-is, not redesigned.
-      const marginCents = chargedCents - (labourCents + materialCents);
+      // labour/material/subcontractor cost are GST-exclusive (a small
+      // overstatement of margin), and a quote converted to an invoice stays
+      // linked to the job as both, so it's summed twice here exactly as it
+      // is there. Not fixed here - ported as-is, not redesigned.
+      const marginCents = chargedCents - (labourCents + materialCents + subcontractorCents);
       const marginPercent = chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0;
 
-      result.push({ job, docs, labourCents, materialCents, chargedCents, marginCents, marginPercent });
+      result.push({ job, docs, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
     return result;
   }, [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems]);
@@ -192,10 +198,11 @@ export default function JobCostingPage() {
     (acc, r) => ({
       labourCents: acc.labourCents + r.labourCents,
       materialCents: acc.materialCents + r.materialCents,
+      subcontractorCents: acc.subcontractorCents + r.subcontractorCents,
       chargedCents: acc.chargedCents + r.chargedCents,
       marginCents: acc.marginCents + r.marginCents,
     }),
-    { labourCents: 0, materialCents: 0, chargedCents: 0, marginCents: 0 }
+    { labourCents: 0, materialCents: 0, subcontractorCents: 0, chargedCents: 0, marginCents: 0 }
   );
   const totalMarginPercent = totals.chargedCents > 0 ? (totals.marginCents / totals.chargedCents) * 100 : 0;
 
@@ -206,7 +213,7 @@ export default function JobCostingPage() {
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Job Costing</h1>
         <p className="text-sm text-gray-500">
-          Labour + material cost vs. total charged, across every job with a linked quote or invoice.
+          Labour + material + subcontractor cost vs. total charged, across every job with a linked quote or invoice.
         </p>
       </div>
 
@@ -241,19 +248,20 @@ export default function JobCostingPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : sortedRows.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No jobs with a linked quote or invoice yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Job</th>
                 <th className="px-4 py-2 font-semibold">Client</th>
                 <th className="px-4 py-2 text-right font-semibold">Labour</th>
                 <th className="px-4 py-2 text-right font-semibold">Material</th>
+                <th className="px-4 py-2 text-right font-semibold">Subcontractor</th>
                 <th className="px-4 py-2 text-right font-semibold">Charged</th>
                 <th className="px-4 py-2 text-right font-semibold">Margin</th>
                 <th className="px-4 py-2 text-right font-semibold">Margin %</th>
@@ -261,7 +269,7 @@ export default function JobCostingPage() {
             </thead>
             <tbody>
               {sortedRows.map((row) => (
-                <tr key={row.job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={row.job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <Link to={`/jobs/${row.job.id}`} className="font-medium text-blue-700 hover:underline">
                       {row.job.number ?? "Pending"} - {row.job.title}
@@ -270,6 +278,7 @@ export default function JobCostingPage() {
                   <td className="px-4 py-3 text-gray-600">{row.job.clients?.name ?? "Unknown"}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(row.labourCents)}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(row.materialCents)}</td>
+                  <td className="px-4 py-3 text-right">{formatCentsAsAud(row.subcontractorCents)}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(row.chargedCents)}</td>
                   <td className={`px-4 py-3 text-right font-semibold ${row.marginCents < 0 ? "text-red-600" : "text-gray-900"}`}>
                     {formatCentsAsAud(row.marginCents)}
@@ -281,13 +290,14 @@ export default function JobCostingPage() {
               ))}
             </tbody>
             {sortedRows.length > 0 ? (
-              <tfoot className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+              <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-bold">
                 <tr>
                   <td className="px-4 py-3" colSpan={2}>
                     Total ({sortedRows.length} job{sortedRows.length === 1 ? "" : "s"})
                   </td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.labourCents)}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.materialCents)}</td>
+                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.subcontractorCents)}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.chargedCents)}</td>
                   <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.marginCents)}</td>
                   <td className="px-4 py-3 text-right">{totalMarginPercent.toFixed(1)}%</td>
@@ -299,9 +309,9 @@ export default function JobCostingPage() {
       </div>
 
       <p className="mt-3 text-xs text-gray-400">
-        Total charged is GST-inclusive while labour/material cost are GST-exclusive, so margin here slightly overstates the
-        true figure. A quote that's since been converted to an invoice is counted under both, since both stay linked to the
-        job - same basis as mobile's own Job Costing tab.
+        Total charged is GST-inclusive while labour/material/subcontractor cost are GST-exclusive, so margin here slightly
+        overstates the true figure. A quote that's since been converted to an invoice is counted under both, since both stay
+        linked to the job - same basis as mobile's own Job Costing tab.
       </p>
     </div>
   );

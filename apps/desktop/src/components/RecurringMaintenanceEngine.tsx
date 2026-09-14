@@ -61,6 +61,10 @@ export function RecurringMaintenanceEngine() {
   const dueItems: DueItem[] = useMemo(() => {
     const items: DueItem[] = [];
     for (const asset of assets ?? []) {
+      // Client-owned assets (property_id null - see the client_assets
+      // migration) have no maintenance schedule to speak of here, only a
+      // managed property does.
+      if (!asset.property_id) continue;
       const dueDate = computeDueDate(asset);
       if (!dueDate) continue;
       const property = propertyById.get(asset.property_id);
@@ -261,9 +265,9 @@ export function RecurringMaintenanceEngine() {
       {filteredItems.length === 0 ? (
         <p className="text-sm text-gray-500">No upcoming maintenance found.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2 font-semibold">Property</th>
@@ -275,7 +279,7 @@ export function RecurringMaintenanceEngine() {
             </thead>
             <tbody>
               {filteredItems.map((item) => (
-                <tr key={item.asset.id} className="border-b border-gray-100 last:border-0">
+                <tr key={item.asset.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"

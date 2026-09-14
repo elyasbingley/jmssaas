@@ -46,18 +46,30 @@ export interface PassFailAnswer {
   actionPhotoPaths?: string[];
 }
 
-// Standard 5x5 WHS risk matrix bands (AS/NZS ISO 31000-style) - the
-// common shape most SWMS/JSA templates use, not something invented for
-// this app.
+// Standard 5x5 WHS risk matrix bands (AS/NZS ISO 31000-style) scoring, used
+// per-row below. The shape of the field itself was reworked from a single
+// likelihood/consequence pick to a repeatable hazard register - the
+// SafeWork NSW WHS Form 04 (Site Specific Risk Assessment) and Form 05
+// (SWMS) templates this app's risk assessments are actually modelled on are
+// both a table of rows (hazard identified / control measures / actions
+// taken), not a one-off score, so a single pick per field couldn't
+// represent a real assessment with more than one hazard.
 export type RiskLikelihood = 1 | 2 | 3 | 4 | 5;
 export type RiskConsequence = 1 | 2 | 3 | 4 | 5;
 export type RiskRating = "low" | "medium" | "high" | "extreme";
 
-export interface RiskMatrixAnswer {
-  type: "risk_matrix";
+export interface RiskHazardRow {
+  id: string;
+  hazard: string;
   likelihood: RiskLikelihood;
   consequence: RiskConsequence;
   rating: RiskRating;
+  controlMeasures: string;
+}
+
+export interface RiskMatrixAnswer {
+  type: "risk_matrix";
+  rows: RiskHazardRow[];
 }
 
 export interface PhotoAnswer {
@@ -146,7 +158,7 @@ export function blankAnswerFor(type: ReportFieldType): ReportAnswer {
     case "pass_fail":
       return { type: "pass_fail", value: "na" };
     case "risk_matrix":
-      return { type: "risk_matrix", likelihood: 1, consequence: 1, rating: calculateRiskRating(1, 1) };
+      return { type: "risk_matrix", rows: [] };
     case "photo":
       return { type: "photo", photoPaths: [] };
     case "text":
@@ -169,7 +181,7 @@ export function isAnswered(answer: ReportAnswer | undefined): boolean {
     case "pass_fail":
       return true;
     case "risk_matrix":
-      return true;
+      return (answer.rows ?? []).length > 0;
     case "photo":
       return answer.photoPaths.length > 0;
     case "text":

@@ -109,12 +109,12 @@ export function KeyManagementDashboard() {
 
       {actionError ? <p className="mb-4 text-sm text-red-600">{actionError}</p> : null}
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {!keyLogs || keyLogs.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No key activity logged yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Key Tag #</th>
                 <th className="px-4 py-2 font-semibold">Property Address</th>
@@ -129,7 +129,7 @@ export function KeyManagementDashboard() {
                 const technician = keyLog.technician_id ? technicianById.get(keyLog.technician_id) : null;
                 const overdue = isPastFourPmToday(now) && (keyLog.status === "picked_up" || keyLog.status === "in_van");
                 return (
-                  <tr key={keyLog.id} className={`border-b border-gray-100 last:border-0 ${overdue ? "bg-red-50" : ""}`}>
+                  <tr key={keyLog.id} className={`border-b border-gray-200 last:border-0 ${overdue ? "bg-red-50" : ""}`}>
                     <td className="px-4 py-3 font-medium text-gray-900">{keyLog.key_tag_number}</td>
                     <td className="px-4 py-3 text-gray-700">{property ? property.address_line1 : "-"}</td>
                     <td className="px-4 py-3 text-gray-700">{technician ? technician.full_name : "-"}</td>

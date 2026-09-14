@@ -15,6 +15,8 @@ import { getErrorMessage } from "../lib/errors";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 
+const IMAGE_BUCKET = "price-book-images";
+
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
 }
@@ -63,6 +65,7 @@ export default function PriceBookItemPage() {
   const [labourHours, setLabourHours] = useState("0");
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
+  const [isCalloutFee, setIsCalloutFee] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -73,6 +76,7 @@ export default function PriceBookItemPage() {
       setLabourHours(item.labour_hours.toString());
       setMaterialCost((item.material_cost_cents / 100).toString());
       setMarkupPercent(item.markup_percent.toString());
+      setIsCalloutFee(item.is_callout_fee ?? false);
     }
   }, [item]);
 
@@ -98,6 +102,7 @@ export default function PriceBookItemPage() {
         labour_hours: parseNumber(labourHours),
         material_cost_cents: Math.round(parseNumber(materialCost) * 100),
         markup_percent: parseNumber(markupPercent),
+        is_callout_fee: isCalloutFee,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
 
@@ -111,6 +116,41 @@ export default function PriceBookItemPage() {
       setTimeout(() => setSaved(false), 3000);
     },
     onError: (e) => setSaveError(getErrorMessage(e, "Failed to save")),
+  });
+
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const changeImage = useMutation({
+    mutationFn: async (file: File) => {
+      if (!item) throw new Error("Not loaded yet");
+      const extension = file.type.includes("png") ? "png" : "jpg";
+      const path = `${item.tenant_id}/item-${item.id}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true });
+      if (uploadError) throw uploadError;
+      const imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+
+      const { error } = await supabase.from("price_book_items").update({ image_url: imageUrl }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateItem();
+      setImageError(null);
+    },
+    onError: (e) => setImageError(getErrorMessage(e, "Failed to upload image")),
+  });
+
+  const removeImage = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("price_book_items").update({ image_url: null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateItem();
+      setImageError(null);
+    },
+    onError: (e) => setImageError(getErrorMessage(e, "Failed to remove image")),
   });
 
   const deleteItem = useMutation({
@@ -196,6 +236,37 @@ export default function PriceBookItemPage() {
         &larr; Back to category
       </Link>
 
+      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Tile image</h2>
+      {item.image_url ? (
+        <img src={item.image_url} alt="" className="mb-2 h-32 w-full rounded-md bg-gray-50 object-cover" />
+      ) : (
+        <div className="mb-2 flex h-32 w-full items-center justify-center rounded-md bg-gray-100 text-sm text-gray-400">
+          No image uploaded
+        </div>
+      )}
+      <div className="mb-2 flex items-center gap-4">
+        <label className="cursor-pointer rounded-md bg-gray-100 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-gray-200">
+          {changeImage.isPending ? "Uploading..." : item.image_url ? "Change image" : "Upload image"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={changeImage.isPending}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) changeImage.mutate(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {item.image_url ? (
+          <button onClick={() => removeImage.mutate()} className="text-sm font-semibold text-red-600">
+            Remove
+          </button>
+        ) : null}
+      </div>
+      {imageError ? <p className="mb-4 text-sm text-red-600">{imageError}</p> : null}
+
       <TextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
 
       <div className="grid grid-cols-2 gap-3">
@@ -206,6 +277,14 @@ export default function PriceBookItemPage() {
         <FormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
         <FormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
       </div>
+
+      <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={isCalloutFee} onChange={(e) => setIsCalloutFee(e.target.checked)} />
+        This is the call-out / service fee
+      </label>
+      <p className="mb-4 -mt-3 text-xs text-gray-500">
+        A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
+      </p>
 
       <div className="mb-4 rounded-md bg-gray-50 p-3">
         <p className="text-xs font-bold text-gray-500">Computed price</p>
@@ -224,7 +303,7 @@ export default function PriceBookItemPage() {
       </button>
 
       <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Variations</h2>
-      <div className="mb-3 overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="mb-3 overflow-hidden rounded-lg border border-gray-300 bg-white">
         {!variations || variations.length === 0 ? (
           <p className="p-4 text-sm text-gray-500">No variations yet.</p>
         ) : (
@@ -232,7 +311,7 @@ export default function PriceBookItemPage() {
             <button
               key={variation.id}
               onClick={() => openEditVariation(variation)}
-              className="flex w-full items-center justify-between border-b border-gray-100 px-4 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
+              className="flex w-full items-center justify-between border-b border-gray-200 px-4 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
             >
               <span className="font-medium text-gray-900">{variation.name}</span>
               <span className="font-semibold text-blue-700">{formatCentsAsAud(computeLineItemUnitPriceCents(variation))}</span>
@@ -244,7 +323,7 @@ export default function PriceBookItemPage() {
         + Add variation
       </button>
 
-      <div className="mt-8 border-t border-gray-200 pt-6">
+      <div className="mt-8 border-t border-gray-300 pt-6">
         <button
           onClick={() => deleteItem.mutate()}
           className="rounded-md bg-red-50 px-6 py-3 text-sm font-semibold text-red-600 hover:bg-red-100"

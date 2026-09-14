@@ -1,17 +1,29 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { updateCompanySettingsSchema, type Tenant } from "@jmssaas/shared";
+import { updateCompanySettingsSchema, updateSmsPhoneNumberSchema, updateWhatsappPhoneNumberSchema, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
-import { useSupabaseFetch } from "../lib/use-supabase-fetch";
+import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
 import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
 import { FormField } from "../components/FormField";
 
 const LOGO_BUCKET = "company-logos";
+
+interface XeroStatus {
+  connected: boolean;
+  org_name?: string;
+  connected_at?: string;
+}
+
+interface FacebookStatus {
+  connected: boolean;
+  page_name?: string;
+  connected_at?: string;
+}
 
 // Minimal, single-screen settings - just the fields the Phase 5 PDF export
 // needs (company name, ABN, business address, license number, bank
@@ -28,6 +40,28 @@ export default function CompanySettingsScreen() {
     if (error) throw error;
     return data as Tenant;
   }, [profile?.tenant_id, isOnline]);
+
+  // Xero connection status - RPC rather than a synced table (xero_
+  // connections has zero PowerSync grants by design, service-role only).
+  // Connecting opens the OAuth flow in the device browser (Linking,
+  // there's no in-app webview flow here) - the callback always redirects
+  // to the desktop app's own Settings page (server-side configured, not
+  // platform-aware - see xero-oauth-callback), so a mobile-initiated
+  // connect finishes visibly in the phone's browser on the web app, not
+  // back in this native screen. Since it's one Xero connection per
+  // tenant either way, refetching on focus (returning to this screen
+  // after finishing in the browser) is enough to pick up the result here
+  // too, without needing a custom URL scheme/deep link back into the app.
+  const { data: xeroStatus, refetch: refetchXeroStatus } = useSupabaseFetch<XeroStatus>(async () => {
+    const { data, error } = await supabase.rpc("get_xero_connection_status");
+    if (error) throw error;
+    return data as XeroStatus;
+  }, [profile?.tenant_id, isOnline]);
+  useRefetchOnFocus(refetchXeroStatus);
+  const [xeroConnecting, setXeroConnecting] = useState(false);
+  const [xeroDisconnecting, setXeroDisconnecting] = useState(false);
+  const [xeroConnectError, setXeroConnectError] = useState<string | null>(null);
+  const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
 
   const [name, setName] = useState("");
   const [abn, setAbn] = useState("");
@@ -47,10 +81,20 @@ export default function CompanySettingsScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [smsPhoneNumberInput, setSmsPhoneNumberInput] = useState("");
+  const [savingSms, setSavingSms] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsSaved, setSmsSaved] = useState(false);
+  const [whatsappPhoneNumberInput, setWhatsappPhoneNumberInput] = useState("");
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappSaved, setWhatsappSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
+      setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
+      setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -64,8 +108,95 @@ export default function CompanySettingsScreen() {
       setBankAccountName(tenant.bank_account_name ?? "");
       setBankAccountNumber(tenant.bank_account_number ?? "");
       setBankBsb(tenant.bank_bsb ?? "");
+      setXeroSalesAccountCode(tenant.xero_sales_account_code ?? "200");
     }
   }, [tenant]);
+
+  const connectXero = async () => {
+    setXeroConnecting(true);
+    setXeroConnectError(null);
+    try {
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Xero connection");
+      await Linking.openURL(resBody.url as string);
+    } catch (e) {
+      setXeroConnectError(getErrorMessage(e, "Failed to start Xero connection"));
+    } finally {
+      setXeroConnecting(false);
+    }
+  };
+
+  const disconnectXero = async () => {
+    setXeroDisconnecting(true);
+    setXeroConnectError(null);
+    try {
+      const { error } = await supabase.rpc("disconnect_xero");
+      if (error) throw error;
+      refetchXeroStatus();
+    } catch (e) {
+      setXeroConnectError(getErrorMessage(e, "Failed to disconnect"));
+    } finally {
+      setXeroDisconnecting(false);
+    }
+  };
+
+  // Facebook Messenger connection status - same "RPC + refetch on focus"
+  // shape as Xero's above (facebook_connections is service-role only, no
+  // PowerSync grants), and connecting opens the OAuth flow in the device
+  // browser the same way.
+  const { data: facebookStatus, refetch: refetchFacebookStatus } = useSupabaseFetch<FacebookStatus>(async () => {
+    const { data, error } = await supabase.rpc("get_facebook_connection_status");
+    if (error) throw error;
+    return data as FacebookStatus;
+  }, [profile?.tenant_id, isOnline]);
+  useRefetchOnFocus(refetchFacebookStatus);
+  const [facebookConnecting, setFacebookConnecting] = useState(false);
+  const [facebookDisconnecting, setFacebookDisconnecting] = useState(false);
+  const [facebookConnectError, setFacebookConnectError] = useState<string | null>(null);
+
+  const connectFacebook = async () => {
+    setFacebookConnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!supabaseUrl || !token) throw new Error("Not signed in");
+      const res = await fetch(`${supabaseUrl}/functions/v1/facebook-oauth-start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const resBody = await res.json();
+      if (!res.ok || resBody.error || !resBody.url) throw new Error(resBody.error || "Failed to start Facebook connection");
+      await Linking.openURL(resBody.url as string);
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to start Facebook connection"));
+    } finally {
+      setFacebookConnecting(false);
+    }
+  };
+
+  const disconnectFacebook = async () => {
+    setFacebookDisconnecting(true);
+    setFacebookConnectError(null);
+    try {
+      const { error } = await supabase.rpc("disconnect_facebook");
+      if (error) throw error;
+      refetchFacebookStatus();
+    } catch (e) {
+      setFacebookConnectError(getErrorMessage(e, "Failed to disconnect"));
+    } finally {
+      setFacebookDisconnecting(false);
+    }
+  };
 
   // Logo upload is a separate, immediate write (not part of the Save
   // changes form below) - same pattern as job/task photo attachments:
@@ -130,6 +261,44 @@ export default function CompanySettingsScreen() {
     }
   };
 
+  const saveSmsPhoneNumber = async () => {
+    if (!profile) return;
+    setSavingSms(true);
+    setSmsError(null);
+    try {
+      const result = updateSmsPhoneNumberSchema.safeParse({ sms_phone_number: smsPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ sms_phone_number: result.data.sms_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+      refetch();
+      setSmsSaved(true);
+      setTimeout(() => setSmsSaved(false), 3000);
+    } catch (e) {
+      setSmsError(getErrorMessage(e, "Failed to save phone number"));
+    } finally {
+      setSavingSms(false);
+    }
+  };
+
+  const saveWhatsappPhoneNumber = async () => {
+    if (!profile) return;
+    setSavingWhatsapp(true);
+    setWhatsappError(null);
+    try {
+      const result = updateWhatsappPhoneNumberSchema.safeParse({ whatsapp_phone_number: whatsappPhoneNumberInput });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid phone number");
+      const { error } = await supabase.from("tenants").update({ whatsapp_phone_number: result.data.whatsapp_phone_number }).eq("id", profile.tenant_id);
+      if (error) throw error;
+      refetch();
+      setWhatsappSaved(true);
+      setTimeout(() => setWhatsappSaved(false), 3000);
+    } catch (e) {
+      setWhatsappError(getErrorMessage(e, "Failed to save phone number"));
+    } finally {
+      setSavingWhatsapp(false);
+    }
+  };
+
   const handleSave = async () => {
     const result = updateCompanySettingsSchema.safeParse({
       name,
@@ -146,6 +315,7 @@ export default function CompanySettingsScreen() {
       bank_account_name: bankAccountName,
       bank_account_number: bankAccountNumber,
       bank_bsb: bankBsb,
+      xero_sales_account_code: xeroSalesAccountCode,
     });
     if (!result.success) {
       setSaveError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -171,6 +341,7 @@ export default function CompanySettingsScreen() {
           bank_account_name: result.data.bank_account_name || null,
           bank_account_number: result.data.bank_account_number || null,
           bank_bsb: result.data.bank_bsb || null,
+          xero_sales_account_code: result.data.xero_sales_account_code || "200",
         })
         .eq("id", profile?.tenant_id);
       if (error) throw error;
@@ -223,6 +394,116 @@ export default function CompanySettingsScreen() {
       </View>
       {logoError ? <Text style={styles.error}>{logoError}</Text> : null}
 
+      <Text style={styles.sectionTitle}>Inbox</Text>
+      {tenant?.inbox_local_part && process.env.EXPO_PUBLIC_INBOX_DOMAIN ? (
+        <View style={styles.inboxCard}>
+          <Text style={styles.inboxCardHint}>
+            Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
+            review an AI-drafted job.
+          </Text>
+          <Text style={styles.inboxAddress} selectable>
+            {tenant.inbox_local_part}@{process.env.EXPO_PUBLIC_INBOX_DOMAIN}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.logoPlaceholderText}>
+          Not configured yet - set EXPO_PUBLIC_INBOX_DOMAIN to your verified Resend inbound domain (see
+          docs/SETUP.md's Inbox section).
+        </Text>
+      )}
+
+      <Text style={styles.sectionTitle}>Channels</Text>
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>💬 SMS</Text>
+          <View style={[styles.channelBadge, tenant?.sms_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={tenant?.sms_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {tenant?.sms_phone_number ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.inboxCardHint}>
+          The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
+          section) - E.164 or local format both work, e.g. 0491 570 156.
+        </Text>
+        <FormField label="Phone number" placeholder="0491 570 156" value={smsPhoneNumberInput} onChangeText={setSmsPhoneNumberInput} keyboardType="phone-pad" />
+        <Pressable style={styles.logoButton} onPress={saveSmsPhoneNumber} disabled={savingSms}>
+          <Text style={styles.logoButtonText}>{savingSms ? "Saving..." : smsSaved ? "Saved!" : "Save"}</Text>
+        </Pressable>
+        {smsError ? <Text style={styles.error}>{smsError}</Text> : null}
+      </View>
+
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>🟢 WhatsApp</Text>
+          <View style={[styles.channelBadge, tenant?.whatsapp_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={tenant?.whatsapp_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {tenant?.whatsapp_phone_number ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.inboxCardHint}>
+          A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
+          messaging real clients first needs Meta Business verification and an approved template. See
+          docs/SETUP.md's Channels section.
+        </Text>
+        <FormField label="Phone number" placeholder="0491 570 156" value={whatsappPhoneNumberInput} onChangeText={setWhatsappPhoneNumberInput} keyboardType="phone-pad" />
+        <Pressable style={styles.logoButton} onPress={saveWhatsappPhoneNumber} disabled={savingWhatsapp}>
+          <Text style={styles.logoButtonText}>{savingWhatsapp ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}</Text>
+        </Pressable>
+        {whatsappError ? <Text style={styles.error}>{whatsappError}</Text> : null}
+      </View>
+
+      <View style={styles.inboxCard}>
+        <View style={styles.channelHeaderRow}>
+          <Text style={styles.channelLabel}>🔵 Messenger</Text>
+          <View style={[styles.channelBadge, facebookStatus?.connected ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+            <Text style={facebookStatus?.connected ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+              {facebookStatus?.connected ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+        {facebookStatus?.connected ? (
+          <>
+            <Text style={styles.xeroMeta}>
+              Connected to {facebookStatus.page_name || "your Facebook Page"}
+              {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
+            </Text>
+            <Pressable onPress={disconnectFacebook} disabled={facebookDisconnecting} style={{ marginTop: 8 }}>
+              <Text style={styles.xeroDisconnectLink}>{facebookDisconnecting ? "Disconnecting..." : "Disconnect Messenger"}</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.inboxCardHint}>
+              Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
+              Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
+              section.
+            </Text>
+            <Pressable style={styles.xeroConnectButton} onPress={connectFacebook} disabled={facebookConnecting}>
+              <Text style={styles.xeroConnectButtonText}>{facebookConnecting ? "Opening Facebook..." : "Connect to Facebook"}</Text>
+            </Pressable>
+          </>
+        )}
+        {facebookConnectError ? <Text style={styles.error}>{facebookConnectError}</Text> : null}
+      </View>
+
+      {[
+        { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
+      ].map((channel) => (
+        <View key={channel.label} style={styles.inboxCard}>
+          <View style={styles.channelHeaderRow}>
+            <Text style={styles.channelLabel}>
+              {channel.icon} {channel.label}
+            </Text>
+            <View style={[styles.channelBadge, styles.channelBadgeNotConnected]}>
+              <Text style={styles.channelBadgeTextNotConnected}>Not connected</Text>
+            </View>
+          </View>
+          <Text style={styles.inboxCardHint}>{channel.note}</Text>
+        </View>
+      ))}
+
       <View style={styles.fieldSpacing}>
         <FormField label="Company name" value={name} onChangeText={setName} />
       </View>
@@ -274,6 +555,48 @@ export default function CompanySettingsScreen() {
       <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
       </Pressable>
+
+      <Text style={styles.sectionTitle}>Xero</Text>
+      <View style={styles.xeroCard}>
+        {xeroStatus?.connected ? (
+          <>
+            <Text style={styles.xeroConnectedText}>Connected to {xeroStatus.org_name || "Xero"}</Text>
+            {xeroStatus.connected_at ? (
+              <Text style={styles.xeroMeta}>Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</Text>
+            ) : null}
+            <Pressable onPress={disconnectXero} disabled={xeroDisconnecting} style={{ marginTop: 8 }}>
+              <Text style={styles.xeroDisconnectLink}>{xeroDisconnecting ? "Disconnecting..." : "Disconnect Xero"}</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.xeroMeta}>
+              Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
+              Xero" button once connected.
+            </Text>
+            <Pressable style={styles.xeroConnectButton} onPress={connectXero} disabled={xeroConnecting}>
+              <Text style={styles.xeroConnectButtonText}>{xeroConnecting ? "Opening Xero..." : "Connect to Xero"}</Text>
+            </Pressable>
+          </>
+        )}
+        {xeroConnectError ? <Text style={styles.error}>{xeroConnectError}</Text> : null}
+      </View>
+
+      {xeroStatus?.connected ? (
+        <View style={styles.fieldSpacing}>
+          <FormField
+            label="Xero sales account code"
+            placeholder="200"
+            value={xeroSalesAccountCode}
+            onChangeText={setXeroSalesAccountCode}
+            keyboardType="number-pad"
+          />
+          <Text style={styles.xeroMeta}>
+            The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
+            default "Sales" code.
+          </Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -297,4 +620,20 @@ const styles = StyleSheet.create({
   logoButton: { backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
   logoButtonText: { color: "#1d4ed8", fontWeight: "600" },
   link: { color: "#dc2626", fontWeight: "600" },
+  xeroCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 4 },
+  xeroConnectedText: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  xeroMeta: { fontSize: 13, color: "#6b7280" },
+  xeroDisconnectLink: { color: "#dc2626", fontWeight: "600" },
+  xeroConnectButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start", marginTop: 8 },
+  xeroConnectButtonText: { color: "#fff", fontWeight: "700" },
+  inboxCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 8, marginBottom: 8 },
+  inboxCardHint: { fontSize: 13, color: "#6b7280" },
+  inboxAddress: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  channelHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  channelLabel: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  channelBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  channelBadgeConnected: { backgroundColor: "#dcfce7" },
+  channelBadgeNotConnected: { backgroundColor: "#f3f4f6" },
+  channelBadgeTextConnected: { fontSize: 11, fontWeight: "700", color: "#15803d" },
+  channelBadgeTextNotConnected: { fontSize: 11, fontWeight: "700", color: "#6b7280" },
 });

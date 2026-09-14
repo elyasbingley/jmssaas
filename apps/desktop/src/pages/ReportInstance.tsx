@@ -20,6 +20,7 @@ import {
   type ReportSignerRole,
   type ReportTemplate,
   type RiskConsequence,
+  type RiskHazardRow,
   type RiskLikelihood,
   type RiskMatrixAnswer,
   type SignatureAnswer,
@@ -379,7 +380,7 @@ export default function ReportInstancePage() {
 
       <div className="space-y-6">
         {template.structure_schema.map((section) => (
-          <div key={section.id} className="rounded-lg border border-gray-200 bg-white p-5">
+          <div key={section.id} className="rounded-lg border border-gray-300 bg-white p-5">
             <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-gray-500">{section.title}</h2>
             <div className="space-y-5">
               {section.fields.map((field) => {
@@ -439,14 +440,7 @@ export default function ReportInstancePage() {
                       <RiskMatrixField
                         disabled={!isDraft}
                         answer={answer as RiskMatrixAnswer}
-                        onChange={(likelihood, consequence) =>
-                          updateAnswer(field.id, {
-                            type: "risk_matrix",
-                            likelihood,
-                            consequence,
-                            rating: calculateRiskRating(likelihood, consequence),
-                          } as RiskMatrixAnswer)
-                        }
+                        onChange={(rows) => updateAnswer(field.id, { type: "risk_matrix", rows } as RiskMatrixAnswer)}
                       />
                     ) : field.type === "photo" ? (
                       <PhotoField
@@ -494,7 +488,7 @@ export default function ReportInstancePage() {
                             onChange={(dataUrl) => updateAnswer(field.id, { svgData: dataUrl } as Partial<SignatureAnswer>)}
                           />
                         ) : (answer as SignatureAnswer)?.svgData ? (
-                          <img src={(answer as SignatureAnswer).svgData} alt="Signature" className="h-24 rounded-md border border-gray-200 bg-white" />
+                          <img src={(answer as SignatureAnswer).svgData} alt="Signature" className="h-24 rounded-md border border-gray-300 bg-white" />
                         ) : null}
                       </div>
                     ) : null}
@@ -673,7 +667,7 @@ function PhotoField({
         <div className="mb-2 flex flex-wrap gap-2">
           {paths.map((p) => (
             <div key={p} className="relative">
-              {urls[p] ? <img src={urls[p]} alt="" className="h-20 w-20 rounded-md border border-gray-200 object-cover" /> : null}
+              {urls[p] ? <img src={urls[p]} alt="" className="h-20 w-20 rounded-md border border-gray-300 object-cover" /> : null}
               {!disabled ? (
                 <button
                   onClick={() => onChange(paths.filter((x) => x !== p))}
@@ -707,56 +701,110 @@ function PhotoField({
   );
 }
 
+function newHazardRow(): RiskHazardRow {
+  return { id: crypto.randomUUID(), hazard: "", likelihood: 1, consequence: 1, rating: calculateRiskRating(1, 1), controlMeasures: "" };
+}
+
+// A hazard register, not a single likelihood/consequence pick - matches the
+// real WHS Form 04 (Site Specific Risk Assessment) / Form 05 (SWMS) tables
+// this is modelled on: one row per hazard identified, its risk rating, and
+// the control measure put in place for it. See reports.ts's own comment on
+// RiskMatrixAnswer for why this replaced the old single-pick shape.
 function RiskMatrixField({
   answer,
   onChange,
   disabled,
 }: {
   answer: RiskMatrixAnswer | undefined;
-  onChange: (likelihood: RiskLikelihood, consequence: RiskConsequence) => void;
+  onChange: (rows: RiskHazardRow[]) => void;
   disabled: boolean;
 }) {
-  const likelihood = answer?.likelihood ?? 1;
-  const consequence = answer?.consequence ?? 1;
-  const rating = answer?.rating ?? calculateRiskRating(likelihood, consequence);
+  const rows = answer?.rows ?? [];
+
+  const updateRow = (rowId: string, patch: Partial<RiskHazardRow>) =>
+    onChange(
+      rows.map((row) => {
+        if (row.id !== rowId) return row;
+        const next = { ...row, ...patch };
+        return { ...next, rating: calculateRiskRating(next.likelihood, next.consequence) };
+      })
+    );
+  const removeRow = (rowId: string) => onChange(rows.filter((row) => row.id !== rowId));
+  const addRow = () => onChange([...rows, newHazardRow()]);
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className="mb-1 text-xs font-semibold text-gray-500">Likelihood</p>
-          <select
-            disabled={disabled}
-            value={likelihood}
-            onChange={(e) => onChange(Number(e.target.value) as RiskLikelihood, consequence)}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
-          >
-            {RISK_LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {RISK_LIKELIHOOD_LABELS[l]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <p className="mb-1 text-xs font-semibold text-gray-500">Consequence</p>
-          <select
-            disabled={disabled}
-            value={consequence}
-            onChange={(e) => onChange(likelihood, Number(e.target.value) as RiskConsequence)}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
-          >
-            {RISK_LEVELS.map((c) => (
-              <option key={c} value={c}>
-                {RISK_CONSEQUENCE_LABELS[c]}
-              </option>
-            ))}
-          </select>
-        </div>
+      {rows.length === 0 ? <p className="mb-2 text-sm text-gray-400">No hazards recorded yet.</p> : null}
+      <div className="space-y-3">
+        {rows.map((row, index) => (
+          <div key={row.id} className="rounded-md border border-gray-300 bg-gray-50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-400">Hazard #{index + 1}</span>
+              {!disabled ? (
+                <button onClick={() => removeRow(row.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                  Remove
+                </button>
+              ) : null}
+            </div>
+            <textarea
+              disabled={disabled}
+              value={row.hazard}
+              onChange={(e) => updateRow(row.id, { hazard: e.target.value })}
+              placeholder="Hazard identified (e.g. fall from roof edge)"
+              rows={2}
+              className="mb-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+            />
+            <div className="mb-2 grid grid-cols-2 gap-3">
+              <div>
+                <p className="mb-1 text-xs font-semibold text-gray-500">Likelihood</p>
+                <select
+                  disabled={disabled}
+                  value={row.likelihood}
+                  onChange={(e) => updateRow(row.id, { likelihood: Number(e.target.value) as RiskLikelihood })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
+                >
+                  {RISK_LEVELS.map((l) => (
+                    <option key={l} value={l}>
+                      {RISK_LIKELIHOOD_LABELS[l]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold text-gray-500">Consequence</p>
+                <select
+                  disabled={disabled}
+                  value={row.consequence}
+                  onChange={(e) => updateRow(row.id, { consequence: Number(e.target.value) as RiskConsequence })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
+                >
+                  {RISK_LEVELS.map((c) => (
+                    <option key={c} value={c}>
+                      {RISK_CONSEQUENCE_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <span className={`mb-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${RISK_RATING_COLORS[row.rating]}`}>
+              {RISK_RATING_LABELS[row.rating]} risk
+            </span>
+            <textarea
+              disabled={disabled}
+              value={row.controlMeasures}
+              onChange={(e) => updateRow(row.id, { controlMeasures: e.target.value })}
+              placeholder="Control measures - what will be done to control this risk?"
+              rows={2}
+              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+            />
+          </div>
+        ))}
       </div>
-      <span className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${RISK_RATING_COLORS[rating]}`}>
-        {RISK_RATING_LABELS[rating]} risk
-      </span>
+      {!disabled ? (
+        <button onClick={addRow} className="mt-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+          + Add hazard
+        </button>
+      ) : null}
     </div>
   );
 }

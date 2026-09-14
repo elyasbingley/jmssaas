@@ -1,13 +1,24 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
+import { GlobalSearch } from "./GlobalSearch";
 
-const navSections = [
+interface NavItem {
+  to: string;
+  label: string;
+  end?: boolean;
+}
+
+const navSections: { heading: string | null; items: NavItem[] }[] = [
   {
     heading: null,
     items: [
+      { to: "/", label: "Dashboard", end: true },
+      { to: "/channels", label: "Channels" },
+      { to: "/inbox", label: "Inbox" },
       { to: "/dispatch", label: "Dispatch" },
       { to: "/tasks", label: "Tasks" },
+      { to: "/knowledge", label: "Knowledge" },
       { to: "/reports", label: "Reports" },
     ],
   },
@@ -20,8 +31,11 @@ const navSections = [
       { to: "/clients", label: "Clients" },
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },
+      { to: "/analytics", label: "Analytics" },
       { to: "/inventory", label: "Inventory" },
       { to: "/real-estate", label: "Real Estate & Strata" },
+      { to: "/membership", label: "Membership" },
+      { to: "/google-reviews", label: "Google Reviews" },
       { to: "/b2b-referrals", label: "B2B & Referrals" },
     ],
   },
@@ -37,13 +51,14 @@ const navSections = [
     ],
   },
   {
-    heading: "Settings",
+    heading: null,
     items: [
-      { to: "/settings", label: "Company Details" },
-      { to: "/settings/ui-settings", label: "UI Settings" },
-      { to: "/settings/automation", label: "Automation & Messaging" },
-      { to: "/settings/job-setup", label: "Job Setup" },
-      { to: "/settings/inventory-setup", label: "Inventory Setup" },
+      // No `end` - deliberately lights up for every /settings/* subpage too
+      // (Company Details, Dashboard, UI Settings, Automation & Messaging,
+      // Job Setup, ...), since they're all reached through the single
+      // Settings tile grid now (see SettingsHub.tsx) rather than each
+      // having their own nav link.
+      { to: "/settings", label: "Settings" },
     ],
   },
 ];
@@ -58,8 +73,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-4">
+      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-300 bg-white">
+        <div className="border-b border-gray-300 px-4 py-4">
           <h1 className="text-sm font-bold text-gray-900">Bingley Job Management</h1>
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
@@ -72,7 +87,7 @@ export function Layout({ children }: { children: ReactNode }) {
               ) : null}
               <div className="space-y-1">
                 {section.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} className={linkClasses}>
+                  <NavLink key={item.to} to={item.to} end={item.end} className={linkClasses}>
                     {item.label}
                   </NavLink>
                 ))}
@@ -80,7 +95,7 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="border-t border-gray-200 p-3">
+        <div className="border-t border-gray-300 p-3">
           <p className="truncate px-3 text-xs text-gray-500">{profile?.full_name}</p>
           <button
             onClick={() => void signOut()}
@@ -90,7 +105,12 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex flex-shrink-0 items-center justify-between border-b border-gray-300 bg-white px-4 py-2">
+          <GlobalSearch />
+        </header>
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
     </div>
   );
 }

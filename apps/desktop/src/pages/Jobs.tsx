@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -7,6 +7,8 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
+  type JobTemplate,
+  type LeadSource,
   type Property,
   type PropertyManager,
   type ReferralPartner,
@@ -22,6 +24,15 @@ async function fetchJobs(): Promise<JobCard[]> {
   const { data, error } = await supabase.from("job_cards").select("*").order("created_at", { ascending: false });
   if (error) throw error;
   return data as JobCard[];
+}
+
+// Just the set of client_ids with an active membership - drives the
+// "same-day response" reminder banner on the New Job form (see
+// membership_plans.same_day_response) once a member client is picked.
+async function fetchActiveMemberClientIds(): Promise<Set<string>> {
+  const { data, error } = await supabase.from("client_memberships").select("client_id").eq("status", "active");
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.client_id as string));
 }
 
 async function fetchClients(): Promise<Client[]> {
@@ -64,6 +75,18 @@ async function fetchReferralPartners(): Promise<ReferralPartner[]> {
   return data as ReferralPartner[];
 }
 
+async function fetchLeadSources(): Promise<LeadSource[]> {
+  const { data, error } = await supabase.from("lead_sources").select("*").order("sort_order");
+  if (error) throw error;
+  return data as LeadSource[];
+}
+
+async function fetchJobTemplates(): Promise<JobTemplate[]> {
+  const { data, error } = await supabase.from("job_templates").select("*").order("sort_order").order("name");
+  if (error) throw error;
+  return data as JobTemplate[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -77,20 +100,28 @@ export default function JobsPage() {
   const { data: propertyManagers } = useQuery({ queryKey: ["property-managers"], queryFn: fetchPropertyManagers });
   const { data: properties } = useQuery({ queryKey: ["properties"], queryFn: fetchProperties });
   const { data: referralPartners } = useQuery({ queryKey: ["referral-partners", "active"], queryFn: fetchReferralPartners });
+  const { data: leadSources } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
+  const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
+  const { data: jobTemplates } = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
   const stageById = useMemo(() => new Map((stages ?? []).map((s) => [s.id, s])), [stages]);
 
+  const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStage, setFilterStage] = useState("");
   const [sortBy, setSortBy] = useState<"created_at" | "scheduled_at" | "category" | "stage">("created_at");
 
-  const filteredJobs = (jobs ?? []).filter(
-    (job) =>
-      (!filterCategory || job.service_category_id === filterCategory) &&
-      (!filterStage || job.lifecycle_stage_id === filterStage)
-  );
+  const filteredJobs = (jobs ?? []).filter((job) => {
+    if (filterCategory && job.service_category_id !== filterCategory) return false;
+    if (filterStage && job.lifecycle_stage_id !== filterStage) return false;
+    if (search.trim()) {
+      const haystack = `${job.number ?? ""} ${job.title} ${clientById.get(job.client_id)?.name ?? ""}`.toLowerCase();
+      if (!haystack.includes(search.trim().toLowerCase())) return false;
+    }
+    return true;
+  });
 
   const sortedJobs = [...filteredJobs].sort((a, b) => {
     switch (sortBy) {
@@ -111,7 +142,24 @@ export default function JobsPage() {
     }
   });
 
+  // ServiceM8-style pagination over the already-filtered/sorted list -
+  // this codebase has never used Supabase's server-side .range() anywhere
+  // (Jobs.tsx already fetches every job and filters/sorts in memory), so
+  // paging the in-memory array keeps that same simple pattern rather than
+  // introducing a first, one-off server-side-pagination code path.
+  const [pageSize, setPageSize] = useState(30);
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(sortedJobs.length / pageSize));
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterCategory, filterStage, pageSize]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+  const pagedJobs = sortedJobs.slice((page - 1) * pageSize, page * pageSize);
+
   const [modalOpen, setModalOpen] = useState(false);
+  const [templateId, setTemplateId] = useState("");
   const [clientId, setClientId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [stageId, setStageId] = useState("");
@@ -124,9 +172,14 @@ export default function JobsPage() {
   const [workOrderNumber, setWorkOrderNumber] = useState("");
   const [nteLimit, setNteLimit] = useState("");
   const [referralPartnerId, setReferralPartnerId] = useState("");
+  const [leadSourceId, setLeadSourceId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const selectedLeadSource = (leadSources ?? []).find((s) => s.id === leadSourceId);
+  const isReferralLeadSource = selectedLeadSource?.is_referral_source ?? false;
+
   const resetForm = () => {
+    setTemplateId("");
     setClientId("");
     setCategoryId("");
     setStageId("");
@@ -139,6 +192,7 @@ export default function JobsPage() {
     setWorkOrderNumber("");
     setNteLimit("");
     setReferralPartnerId("");
+    setLeadSourceId("");
     setFormError(null);
   };
 
@@ -164,7 +218,11 @@ export default function JobsPage() {
         property_id: isRealEstateJob ? propertyId || undefined : undefined,
         work_order_number: isRealEstateJob ? workOrderNumber || undefined : undefined,
         nte_limit_cents: isRealEstateJob && nteLimit ? Math.round(Number(nteLimit) * 100) : undefined,
-        referral_partner_id: referralPartnerId || undefined,
+        // Only actually persisted when the chosen lead source is the
+        // referral one - picking a different lead source after having
+        // linked a partner drops it rather than leaving it dangling.
+        referral_partner_id: isReferralLeadSource ? referralPartnerId || undefined : undefined,
+        lead_source_id: leadSourceId || undefined,
       });
       if (!result.success) {
         throw new Error(clientId ? result.error.issues[0]?.message ?? "Invalid job" : "Pick a client first");
@@ -187,6 +245,7 @@ export default function JobsPage() {
           work_order_number: result.data.work_order_number ?? null,
           nte_limit_cents: result.data.nte_limit_cents ?? null,
           referral_partner_id: result.data.referral_partner_id ?? null,
+          lead_source_id: result.data.lead_source_id ?? null,
           created_by: profile.id,
         })
         .select()
@@ -208,7 +267,9 @@ export default function JobsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Jobs</h1>
-          <p className="text-sm text-gray-500">{jobs?.length ?? 0} jobs</p>
+          <p className="text-sm text-gray-500">
+            {sortedJobs.length !== (jobs ?? []).length ? `${sortedJobs.length} of ${jobs?.length ?? 0} jobs` : `${jobs?.length ?? 0} jobs`}
+          </p>
         </div>
         <button
           onClick={() => setModalOpen(true)}
@@ -219,6 +280,13 @@ export default function JobsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search job #, title, or client..."
+          className="w-64 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+        />
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
@@ -243,9 +311,10 @@ export default function JobsPage() {
             </option>
           ))}
         </select>
-        {filterCategory || filterStage ? (
+        {search || filterCategory || filterStage ? (
           <button
             onClick={() => {
+              setSearch("");
               setFilterCategory("");
               setFilterStage("");
             }}
@@ -278,14 +347,14 @@ export default function JobsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {isLoading ? (
           <p className="p-6 text-sm text-gray-500">Loading...</p>
         ) : sortedJobs.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No jobs found.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Title</th>
@@ -294,11 +363,11 @@ export default function JobsPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedJobs.map((job) => {
+              {pagedJobs.map((job) => {
                 const category = categoryById.get(job.service_category_id ?? "");
                 const stage = stageById.get(job.lifecycle_stage_id ?? "");
                 return (
-                  <tr key={job.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <tr key={job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 text-blue-700">
                       <Link to={`/jobs/${job.id}`} className="hover:underline">
                         {job.number ?? "Pending"}
@@ -339,6 +408,47 @@ export default function JobsPage() {
         )}
       </div>
 
+      {sortedJobs.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-2 text-gray-500">
+            <span>Show</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1"
+            >
+              {[30, 60, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>
+              per page - {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, sortedJobs.length)} of {sortedJobs.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-gray-500">
+              Page {page} of {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={page >= pageCount}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <Modal
         open={modalOpen}
         onClose={() => {
@@ -347,6 +457,24 @@ export default function JobsPage() {
         }}
         title="New job"
       >
+        {jobTemplates && jobTemplates.length > 0 ? (
+          <SelectField
+            label="Load from job template (optional)"
+            value={templateId}
+            onChange={(v) => {
+              setTemplateId(v);
+              const template = (jobTemplates ?? []).find((t) => t.id === v);
+              if (template) {
+                setTitle(template.name);
+                setDescription(template.description ?? "");
+                setCategoryId(template.service_category_id ?? "");
+                setStageId(template.lifecycle_stage_id ?? "");
+              }
+            }}
+            options={jobTemplates.map((t) => ({ value: t.id, label: t.name }))}
+            placeholder="Start from scratch"
+          />
+        ) : null}
         <SelectField
           label="Client"
           value={clientId}
@@ -354,6 +482,17 @@ export default function JobsPage() {
           options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
           placeholder="Select a client"
         />
+        {isRealEstateJob && agencyId && (agencies ?? []).find((a) => a.id === agencyId)?.client_id === clientId && clientId ? (
+          <p className="-mt-2 mb-4 text-xs text-gray-500">
+            Auto-filled from {(agencies ?? []).find((a) => a.id === agencyId)?.name}'s linked client - change if this job bills
+            differently.
+          </p>
+        ) : null}
+        {clientId && memberClientIds?.has(clientId) ? (
+          <p className="-mt-2 mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+            This client is a Member - remember the same-day response guarantee.
+          </p>
+        ) : null}
         <FormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         <TextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
@@ -385,6 +524,12 @@ export default function JobsPage() {
                 setAgencyId(v);
                 setPropertyManagerId("");
                 setPropertyId("");
+                // Auto-derive the client from the agency's linked billing
+                // client, same as PropertyDetail.tsx's property-first job
+                // creation - removes the need to separately pick a client
+                // that's really just this agency again.
+                const picked = (agencies ?? []).find((a) => a.id === v);
+                if (picked?.client_id) setClientId(picked.client_id);
               }}
               options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
               placeholder="Select agency"
@@ -421,15 +566,27 @@ export default function JobsPage() {
         ) : null}
 
         <SelectField
-          label="Referral source (optional)"
-          value={referralPartnerId}
-          onChange={setReferralPartnerId}
-          options={(referralPartners ?? []).map((p) => ({
-            value: p.id,
-            label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
-          }))}
+          label="Lead source (optional)"
+          value={leadSourceId}
+          onChange={(v) => {
+            setLeadSourceId(v);
+            if (!(leadSources ?? []).find((s) => s.id === v)?.is_referral_source) setReferralPartnerId("");
+          }}
+          options={(leadSources ?? []).map((s) => ({ value: s.id, label: s.name }))}
           placeholder="None"
         />
+        {isReferralLeadSource ? (
+          <SelectField
+            label="Referral partner"
+            value={referralPartnerId}
+            onChange={setReferralPartnerId}
+            options={(referralPartners ?? []).map((p) => ({
+              value: p.id,
+              label: p.company_name ? `${p.company_name} (${[p.contact_first_name, p.contact_last_name].filter(Boolean).join(" ")})` : [p.contact_first_name, p.contact_last_name].filter(Boolean).join(" "),
+            }))}
+            placeholder="None"
+          />
+        ) : null}
 
         {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
         <div className="flex justify-end gap-3">

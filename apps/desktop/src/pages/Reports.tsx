@@ -88,7 +88,7 @@ export default function ReportsPage() {
       <h1 className="mb-1 text-xl font-bold text-gray-900">Reports</h1>
       <p className="mb-6 text-sm text-gray-500">Build, execute, and sign off on SWMS, JSAs, inspections, and other safety documentation.</p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200">
+      <div className="mb-6 flex gap-1 border-b border-gray-300">
         {(
           [
             { key: "new", label: "New Report" },
@@ -202,7 +202,7 @@ function NewReportTab({
                               key={template.id}
                               onClick={() => startReport(template.id)}
                               disabled={starting === template.id}
-                              className="rounded-lg border border-gray-200 bg-white p-4 text-left hover:border-blue-400 hover:shadow-sm disabled:opacity-60"
+                              className="rounded-lg border border-gray-300 bg-white p-4 text-left hover:border-blue-400 hover:shadow-sm disabled:opacity-60"
                             >
                               <p className="font-semibold text-gray-900">{template.title}</p>
                               {template.description ? <p className="mt-1 text-xs text-gray-500">{template.description}</p> : null}
@@ -279,12 +279,12 @@ function ReportHistoryTab({
 
   return (
     <div>
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
         {instances.length === 0 ? (
           <p className="p-6 text-sm text-gray-500">No reports yet.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-4 py-2 font-semibold">Report</th>
                 <th className="px-4 py-2 font-semibold">Linked Job</th>
@@ -300,7 +300,7 @@ function ReportHistoryTab({
                 const job = instance.job_card_id ? jobById.get(instance.job_card_id) : null;
                 const author = instance.created_by ? profileById.get(instance.created_by) : null;
                 return (
-                  <tr key={instance.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <tr key={instance.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link to={`/reports/instances/${instance.id}`} className="font-medium text-blue-700 hover:underline">
                         {template?.title ?? "Unknown template"}
@@ -495,7 +495,7 @@ function TemplateStudioTab({
             const expanded = expandedCategoryIds.has(category.id);
             const subs = subcategoriesByCategory(category.id);
             return (
-              <div key={category.id} className="rounded-lg border border-gray-200 bg-white">
+              <div key={category.id} className="rounded-lg border border-gray-300 bg-white">
                 <button onClick={() => toggleCategory(category.id)} className="flex w-full items-center justify-between px-4 py-3 text-left">
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
@@ -506,7 +506,7 @@ function TemplateStudioTab({
                   </span>
                 </button>
                 {expanded ? (
-                  <div className="border-t border-gray-100 px-4 py-3">
+                  <div className="border-t border-gray-200 px-4 py-3">
                     {subs.length === 0 ? (
                       <p className="text-sm text-gray-500">No subcategories yet.</p>
                     ) : (
@@ -514,7 +514,7 @@ function TemplateStudioTab({
                         {subs.map((sub) => {
                           const subTemplates = templatesBySubcategory(sub.id);
                           return (
-                            <div key={sub.id} className="ml-6 border-l border-gray-100 pl-4">
+                            <div key={sub.id} className="ml-6 border-l border-gray-200 pl-4">
                               <p className="mb-1 text-sm font-semibold text-gray-800">{sub.name}</p>
                               {subTemplates.length > 0 ? (
                                 <div className="mb-1 space-y-1">

@@ -9,6 +9,7 @@ import {
   type Client,
   type JobCard,
   type LineItemFormInput,
+  type ReferralPartner,
   type Template,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
@@ -22,6 +23,7 @@ import { emptyLineItem, normalizeLineItem } from "../../../../lib/line-items";
 import { PickerModal } from "../../../../components/PickerModal";
 import { FormField } from "../../../../components/FormField";
 import { DateField } from "../../../../components/DateField";
+import { partnerDisplayName } from "../../../b2b-referrals/index";
 
 function toDateInput(d: Date | null): string {
   if (!d) return "";
@@ -45,18 +47,26 @@ export default function NewQuoteScreen() {
     if (error) throw error;
     return (data ?? []) as Template[];
   }, [isOnline]);
+  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
+    if (error) throw error;
+    return data as ReferralPartner[];
+  }, [isOnline]);
 
   const [client, setClient] = useState<Client | null>(null);
   const [jobCard, setJobCard] = useState<JobCard | null>(null);
   const [expiryDate, setExpiryDate] = useState<Date | null>(null);
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([emptyLineItem(0)]);
+  const [referralPartner, setReferralPartner] = useState<ReferralPartner | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
   const [jobPickerVisible, setJobPickerVisible] = useState(false);
   const [templatePickerVisible, setTemplatePickerVisible] = useState(false);
+  const [referralPartnerPickerVisible, setReferralPartnerPickerVisible] = useState(false);
 
   const { data: clientJobCards } = useQuery<JobCard>(
     "SELECT * FROM job_cards WHERE client_id = ? ORDER BY created_at DESC",
@@ -84,6 +94,7 @@ export default function NewQuoteScreen() {
       expiry_date: toDateInput(expiryDate) || undefined,
       notes,
       line_items: lineItems,
+      referral_partner_id: referralPartner?.id,
     });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -110,6 +121,7 @@ export default function NewQuoteScreen() {
         gst_cents: totals.gst_cents,
         total_cents: totals.total_cents,
         notes: result.data.notes || null,
+        referral_partner_id: result.data.referral_partner_id ?? null,
         created_by: profile.id,
       });
       if (quoteError) throw quoteError;
@@ -128,6 +140,13 @@ export default function NewQuoteScreen() {
           unit_price_cents: item.unit_price_cents,
           gst_applicable: item.gst_applicable,
           sort_order: index,
+          is_callout_fee: item.is_callout_fee ?? false,
+          is_subcontracted: item.is_subcontracted ?? false,
+          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+          is_optional: item.is_optional ?? false,
+          is_included: item.is_included ?? true,
+          bundle_name: item.bundle_name || null,
+          image_url: item.image_url || null,
         }))
       );
       if (lineItemsError) throw lineItemsError;
@@ -178,6 +197,13 @@ export default function NewQuoteScreen() {
           <DateField label="Expiry date (optional)" value={expiryDate} onChange={setExpiryDate} mode="date" placeholder="No expiry date" />
         </View>
 
+        <Text style={styles.sectionTitle}>Referral source (optional)</Text>
+        <Pressable style={styles.pickerField} onPress={() => setReferralPartnerPickerVisible(true)}>
+          <Text style={referralPartner ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+            {referralPartner ? partnerDisplayName(referralPartner) : "None"}
+          </Text>
+        </Pressable>
+
         {templates && templates.length > 0 ? (
           <Pressable style={styles.templateButton} onPress={() => setTemplatePickerVisible(true)}>
             <Text style={styles.templateButtonText}>Load from template</Text>
@@ -185,7 +211,7 @@ export default function NewQuoteScreen() {
         ) : null}
 
         <Text style={styles.sectionTitle}>Line items</Text>
-        <LineItemEditor items={lineItems} onChange={setLineItems} />
+        <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
 
         <View style={styles.fieldSpacing}>
           <FormField
@@ -234,6 +260,15 @@ export default function NewQuoteScreen() {
         getLabel={(t) => t.name}
         onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => normalizeLineItem(item, index)))}
         onClose={() => setTemplatePickerVisible(false)}
+      />
+      <PickerModal
+        visible={referralPartnerPickerVisible}
+        title="Select referral source"
+        items={referralPartners ?? []}
+        getKey={(p) => p.id}
+        getLabel={(p) => partnerDisplayName(p)}
+        onSelect={setReferralPartner}
+        onClose={() => setReferralPartnerPickerVisible(false)}
       />
     </>
   );

@@ -70,7 +70,7 @@ export function ReciprocityLedgerTab({
           rows.map(({ partner, inbound, outbound, status }) => {
             const max = Math.max(inbound, outbound, 1);
             return (
-              <div key={partner.id} className="rounded-lg border border-gray-200 bg-white p-4">
+              <div key={partner.id} className="rounded-lg border border-gray-300 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="font-bold text-gray-900">{partnerDisplayName(partner)}</p>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[status].classes}`}>
@@ -103,13 +103,13 @@ export function ReciprocityLedgerTab({
         )}
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Referrals passed out - recent log</h2>
         {reciprocityLogs.length === 0 ? (
           <p className="text-sm text-gray-500">Nothing logged yet - use "Log Referral Passed Out" on the Directory tab.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs uppercase text-gray-500">
+            <thead className="border-b border-gray-300 text-xs uppercase text-gray-500">
               <tr>
                 <th className="py-2 font-semibold">Date</th>
                 <th className="py-2 font-semibold">Partner</th>
@@ -121,7 +121,7 @@ export function ReciprocityLedgerTab({
               {reciprocityLogs.slice(0, 20).map((log) => {
                 const partner = partners.find((p) => p.id === log.partner_id);
                 return (
-                  <tr key={log.id} className="border-b border-gray-100 last:border-0">
+                  <tr key={log.id} className="border-b border-gray-200 last:border-0">
                     <td className="py-2 text-gray-500">{log.date_passed}</td>
                     <td className="py-2">{partner ? partnerDisplayName(partner) : "Unknown partner"}</td>
                     <td className="py-2">{log.client_name}</td>

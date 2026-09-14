@@ -20,3 +20,13 @@ export async function exportPdf(html: string, dialogTitle: string): Promise<void
 
   await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle });
 }
+
+// Same on-device render as exportPdf, but returns the PDF as a base64
+// data URI instead of opening the share sheet - for auto-attaching a
+// quote/invoice PDF to an outgoing email (EmailComposeModal's
+// defaultAttachments), where there's no human interaction to hand off to.
+export async function buildPdfDataUri(html: string): Promise<string> {
+  const { base64 } = await Print.printToFileAsync({ html, base64: true });
+  if (!base64) throw new Error("Failed to generate PDF");
+  return `data:application/pdf;base64,${base64}`;
+}

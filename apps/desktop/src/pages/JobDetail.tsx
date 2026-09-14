@@ -2,23 +2,30 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  collectRecipientEmails,
+  createClientSiteSchema,
+  createJobCardSchema,
   createJobNoteSchema,
   formatCentsAsAud,
   type Agency,
   type Client,
+  type ClientContact,
+  type ClientSite,
+  type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
   type JobFile,
   type JobLifecycleStage,
-  type JobMeasurement,
   type JobNote,
+  type LeadSource,
   type Profile,
   type Property,
   type PropertyManager,
   type Quote,
   type QuoteLineItem,
   type PurchaseOrder,
+  type ReferralPartner,
   type ReportInstance,
   type ReportTemplate,
   type ServiceCategory,
@@ -29,11 +36,21 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
+import { queueAndSendEmail } from "../lib/send-email";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
+import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 import { Modal } from "../components/Modal";
 import { FormField, TextAreaField } from "../components/FormField";
 import { CommunicationLog } from "../components/CommunicationLog";
+import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
+import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
+import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
+import { AssetsSection } from "../components/AssetsSection";
+import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
+import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
+import { referralPartnerLabel } from "../components/ReferralPartnerModal";
+import { LeadSourceModal } from "../components/LeadSourceModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
@@ -59,6 +76,44 @@ async function fetchClient(clientId: string): Promise<Client> {
   return data as Client;
 }
 
+async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
+  const { data, error } = await supabase
+    .from("client_sites")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("is_primary", { ascending: false })
+    .order("label");
+  if (error) throw error;
+  return data as ClientSite[];
+}
+
+function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
+  return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function fetchClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase.from("client_contacts").select("*").eq("client_id", clientId);
+  if (error) throw error;
+  return data as ClientContact[];
+}
+
+// Every active email template, any trigger - the free-form job email is a
+// "pick a starting point or write from scratch" tool, not scoped to one
+// automation trigger the way the quote/invoice send buttons are.
+async function fetchEmailTemplates(tenantId: string): Promise<EmailTemplateOption[]> {
+  const { data, error } = await supabase
+    .from("communication_templates")
+    .select("id, name, subject, body")
+    .eq("tenant_id", tenantId)
+    .eq("type", "email")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((t) => ({ id: t.id as string, name: t.name as string, subject: (t.subject as string | null) ?? "", body: t.body as string }));
+}
+
 async function fetchAgency(agencyId: string): Promise<Agency> {
   const { data, error } = await supabase.from("agencies").select("*").eq("id", agencyId).single();
   if (error) throw error;
@@ -74,6 +129,16 @@ async function fetchProperty(id: string): Promise<Property> {
   if (error) throw error;
   return data as Property;
 }
+async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
+  const { data, error } = await supabase.from("referral_partners").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as ReferralPartner;
+}
+async function fetchLeadSource(id: string): Promise<LeadSource> {
+  const { data, error } = await supabase.from("lead_sources").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data as LeadSource;
+}
 
 async function fetchCategories(): Promise<ServiceCategory[]> {
   const { data, error } = await supabase.from("service_categories").select("*").order("name");
@@ -87,8 +152,11 @@ async function fetchStages(): Promise<JobLifecycleStage[]> {
   return data as JobLifecycleStage[];
 }
 
+// Any profile can be assigned a job - not just role='technician' - so an
+// admin who also does field work (common in a small team) can assign
+// jobs to themselves too, not only to technician accounts.
 async function fetchTechnicians(): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("role", "technician").order("full_name");
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
   if (error) throw error;
   return data as Profile[];
 }
@@ -127,16 +195,6 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   const { data, error } = await supabase.from("invoice_line_items").select("*").in("invoice_id", invoiceIds);
   if (error) throw error;
   return data as InvoiceLineItem[];
-}
-
-async function fetchMeasurements(jobId: string): Promise<JobMeasurement[]> {
-  const { data, error } = await supabase
-    .from("job_measurements")
-    .select("*")
-    .eq("job_card_id", jobId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data as JobMeasurement[];
 }
 
 async function fetchFiles(jobId: string): Promise<JobFile[]> {
@@ -202,7 +260,7 @@ async function fetchSubcontractors(): Promise<SubcontractorCompany[]> {
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: job } = useQuery({ queryKey: ["job", id], queryFn: () => fetchJob(id!), enabled: !!id });
@@ -210,6 +268,21 @@ export default function JobDetailPage() {
     queryKey: ["client", job?.client_id],
     queryFn: () => fetchClient(job!.client_id),
     enabled: !!job,
+  });
+  const { data: clientSites } = useQuery({
+    queryKey: ["client-sites", job?.client_id],
+    queryFn: () => fetchClientSites(job!.client_id),
+    enabled: !!job,
+  });
+  const { data: clientContacts } = useQuery({
+    queryKey: ["client-contacts", job?.client_id],
+    queryFn: () => fetchClientContacts(job!.client_id),
+    enabled: !!job,
+  });
+  const { data: emailTemplates } = useQuery({
+    queryKey: ["email-templates", profile?.tenant_id],
+    queryFn: () => fetchEmailTemplates(profile!.tenant_id),
+    enabled: !!profile,
   });
   const { data: agency } = useQuery({
     queryKey: ["agency", job?.agency_id],
@@ -225,6 +298,16 @@ export default function JobDetailPage() {
     queryKey: ["property", job?.property_id],
     queryFn: () => fetchProperty(job!.property_id!),
     enabled: !!job?.property_id,
+  });
+  const { data: referralPartner } = useQuery({
+    queryKey: ["referral-partner", job?.referral_partner_id],
+    queryFn: () => fetchReferralPartner(job!.referral_partner_id!),
+    enabled: !!job?.referral_partner_id,
+  });
+  const { data: leadSource } = useQuery({
+    queryKey: ["lead-source", job?.lead_source_id],
+    queryFn: () => fetchLeadSource(job!.lead_source_id!),
+    enabled: !!job?.lead_source_id,
   });
   const { data: categories } = useQuery({ queryKey: ["service-categories"], queryFn: fetchCategories });
   const { data: stages } = useQuery({ queryKey: ["job-lifecycle-stages"], queryFn: fetchStages });
@@ -252,11 +335,6 @@ export default function JobDetailPage() {
     queryFn: () => fetchInvoiceLineItems(invoiceIds),
     enabled: !!linkedInvoices,
   });
-  const { data: measurements } = useQuery({
-    queryKey: ["job-measurements", id],
-    queryFn: () => fetchMeasurements(id!),
-    enabled: !!id,
-  });
   const { data: files } = useQuery({ queryKey: ["job-files", id], queryFn: () => fetchFiles(id!), enabled: !!id });
   const { data: fileUrls } = useQuery({
     queryKey: ["job-file-urls", id, files?.map((f) => f.id).join(",")],
@@ -273,6 +351,73 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["job", id] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
+  });
+
+  // "+ Add to calendar" - previously the only way to get a job onto the
+  // calendar was dragging its Dispatch board card onto a technician's
+  // timeline slot (see Dispatch.tsx's own scheduleJob mutation, which
+  // this mirrors); there was no way to do it from the job's own page at
+  // all. Deliberately a minimal date/time/technician form rather than
+  // reusing the full CalendarEventEditor (recurrence, guests, location,
+  // category override) - "quickly schedule this job" doesn't need any of
+  // that, and this job already has its own separate Category/Stage/
+  // Technician card above for everything else.
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleStartTime, setScheduleStartTime] = useState("09:00");
+  const [scheduleEndTime, setScheduleEndTime] = useState("10:00");
+  const [scheduleTechnicianId, setScheduleTechnicianId] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  const openScheduleModal = () => {
+    const today = new Date();
+    setScheduleDate(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+    setScheduleStartTime("09:00");
+    setScheduleEndTime("10:00");
+    setScheduleTechnicianId(job?.assigned_technician_id ?? "");
+    setScheduleError(null);
+    setScheduleModalOpen(true);
+  };
+
+  const scheduleToCalendar = useMutation({
+    mutationFn: async () => {
+      if (!job || !profile) throw new Error("Not signed in");
+      if (!scheduleDate || !scheduleStartTime || !scheduleEndTime) throw new Error("Pick a date and time");
+      const start = new Date(`${scheduleDate}T${scheduleStartTime}:00`);
+      const end = new Date(`${scheduleDate}T${scheduleEndTime}:00`);
+      if (end <= start) throw new Error("End time must be after start time");
+
+      const { data: insertedEvent, error: eventError } = await supabase
+        .from("calendar_events")
+        .insert({
+          tenant_id: job.tenant_id,
+          title: job.title,
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          all_day: false,
+          job_card_id: job.id,
+          created_by: profile.id,
+        })
+        .select("id")
+        .single();
+      if (eventError) throw eventError;
+
+      if (scheduleTechnicianId && scheduleTechnicianId !== job.assigned_technician_id) {
+        const { error: jobError } = await supabase.from("job_cards").update({ assigned_technician_id: scheduleTechnicianId }).eq("id", job.id);
+        if (jobError) throw jobError;
+      }
+
+      // Must come after the job_cards write above lands, same ordering
+      // Dispatch.tsx's own scheduleJob mutation relies on, so the push
+      // resolves the assignee's fresh (not stale) technician.
+      await pushCalendarEventUpsert(insertedEvent.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      setScheduleModalOpen(false);
+    },
+    onError: (e) => setScheduleError(getErrorMessage(e, "Failed to add to calendar")),
   });
 
   const [reviewRequestResult, setReviewRequestResult] = useState<string | null>(null);
@@ -421,12 +566,19 @@ export default function JobDetailPage() {
 
   const [photoError, setPhotoError] = useState<string | null>(null);
 
-  const uploadPhotos = useMutation({
+  // Despite the name (kept for the storage_path convention/RLS policies -
+  // see uploadJobPhoto's own comment), this has never actually been
+  // restricted to images at the storage/DB layer - job_files has always
+  // stored mime_type/size_bytes generically. The upload input below used
+  // to hardcode accept="image/*" though, which was the entire "no way to
+  // upload files" gap - fixed by dropping that restriction and rendering
+  // non-image files as a name+icon tile instead of an <img> below.
+  const uploadFiles = useMutation({
     mutationFn: async (fileList: FileList) => {
       if (!profile) throw new Error("Not signed in");
       // Sequential, not Promise.all - keeps upload order predictable and
       // avoids hammering Storage with a burst of concurrent PUTs for a
-      // multi-select of, say, 20 photos.
+      // multi-select of, say, 20 files.
       for (const file of Array.from(fileList)) {
         await uploadJobPhoto({ tenantId: profile.tenant_id, jobCardId: id!, uploadedBy: profile.id, file });
       }
@@ -435,7 +587,26 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["job-files", id] });
       setPhotoError(null);
     },
-    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload photo")),
+    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to upload file")),
+  });
+
+  // Admin-only, matching the RLS delete policies on both the storage
+  // object ("job-files: admin deletes") and the job_files row ("job_files:
+  // admin deletes") - a non-admin's delete would just fail RLS, so the
+  // button itself is admin-gated below rather than showing a control that
+  // silently errors for everyone else.
+  const deleteFile = useMutation({
+    mutationFn: async (file: JobFile) => {
+      const { error: storageError } = await supabase.storage.from("job-files").remove([file.storage_path]);
+      if (storageError) throw storageError;
+      const { error: rowError } = await supabase.from("job_files").delete().eq("id", file.id);
+      if (rowError) throw rowError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+      setPhotoError(null);
+    },
+    onError: (e) => setPhotoError(getErrorMessage(e, "Failed to delete file")),
   });
 
   const [noteBody, setNoteBody] = useState("");
@@ -463,11 +634,164 @@ export default function JobDetailPage() {
     onError: (e) => setNoteError(getErrorMessage(e, "Failed to add note")),
   });
 
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteBody, setEditingNoteBody] = useState("");
+  const [editNoteError, setEditNoteError] = useState<string | null>(null);
+
+  const startEditNote = (note: JobNote) => {
+    setEditingNoteId(note.id);
+    setEditingNoteBody(note.body);
+    setEditNoteError(null);
+  };
+
+  const updateNote = useMutation({
+    mutationFn: async () => {
+      if (!editingNoteId) return;
+      const result = createJobNoteSchema.safeParse({ job_card_id: id, body: editingNoteBody });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid note");
+      const { error } = await supabase.from("job_notes").update({ body: result.data.body }).eq("id", editingNoteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-notes", id] });
+      setEditingNoteId(null);
+    },
+    onError: (e) => setEditNoteError(getErrorMessage(e, "Failed to save note")),
+  });
+
+  // --- Job address (client_sites.site_id) + WorkDrive link ---
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [addressSiteChoice, setAddressSiteChoice] = useState<string>("");
+  const [newAddressForm, setNewAddressForm] = useState({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "" });
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  const openAddressModal = () => {
+    setAddressSiteChoice(job?.site_id ?? "");
+    setNewAddressForm({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "" });
+    setAddressError(null);
+    setAddressModalOpen(true);
+  };
+
+  const updateJobSite = useMutation({
+    mutationFn: async () => {
+      if (!profile || !job || !client) throw new Error("Not signed in");
+      let siteId: string | null = addressSiteChoice && addressSiteChoice !== "new" ? addressSiteChoice : null;
+      if (addressSiteChoice === "new") {
+        const result = createClientSiteSchema.safeParse({ ...newAddressForm, client_id: client.id });
+        if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a valid address");
+        const { data: newSite, error: siteError } = await supabase
+          .from("client_sites")
+          .insert({
+            tenant_id: profile.tenant_id,
+            client_id: client.id,
+            label: result.data.label || null,
+            address_line1: result.data.address_line1,
+            address_line2: result.data.address_line2 || null,
+            suburb: result.data.suburb,
+            state: result.data.state,
+            postcode: result.data.postcode,
+          })
+          .select("id")
+          .single();
+        if (siteError) throw siteError;
+        siteId = newSite.id as string;
+      }
+      const { error } = await supabase.from("job_cards").update({ site_id: siteId }).eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["client-sites", job?.client_id] });
+      setAddressModalOpen(false);
+    },
+    onError: (e) => setAddressError(getErrorMessage(e, "Failed to update address")),
+  });
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const saveEdit = useMutation({
+    mutationFn: async () => {
+      if (!job) throw new Error("Job not loaded");
+      const result = createJobCardSchema.safeParse({
+        client_id: job.client_id,
+        title: editTitle,
+        description: editDescription,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid job");
+      const { error } = await supabase
+        .from("job_cards")
+        .update({ title: result.data.title, description: result.data.description || null })
+        .eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      setEditModalOpen(false);
+    },
+    onError: (e) => setEditError(getErrorMessage(e, "Failed to save")),
+  });
+
+  const [workdriveModalOpen, setWorkdriveModalOpen] = useState(false);
+  const [workdriveInput, setWorkdriveInput] = useState("");
+  const [workdriveError, setWorkdriveError] = useState<string | null>(null);
+
+  const saveWorkdrive = useMutation({
+    mutationFn: async () => {
+      if (!job) throw new Error("Job not loaded");
+      const { error } = await supabase.from("job_cards").update({ workdrive_url: workdriveInput || null }).eq("id", job.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      setWorkdriveModalOpen(false);
+    },
+    onError: (e) => setWorkdriveError(getErrorMessage(e, "Failed to save WorkDrive link")),
+  });
+
+  const [realEstateModalOpen, setRealEstateModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
+  const [leadSourceModalOpen, setLeadSourceModalOpen] = useState(false);
+
+  // Free-form job card email - similar to ServiceM8's per-job "Email"
+  // button: pick a template (or write from scratch), review/edit the body,
+  // choose to/cc/bcc, send. Uses entity_type 'job' with its own trigger_key
+  // ('manual_email') so it's distinguishable from templated automation in
+  // the Communication Log, and goes through the same queueAndSendEmail
+  // helper as the quote/invoice composer.
+  const [jobEmailModalOpen, setJobEmailModalOpen] = useState(false);
+  const [jobEmailError, setJobEmailError] = useState<string | null>(null);
+  const [jobEmailResult, setJobEmailResult] = useState<string | null>(null);
+
+  const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
+    if (!profile || !job) throw new Error("Not signed in");
+    const wasSent = await queueAndSendEmail({
+      tenantId: profile.tenant_id,
+      entityType: "job",
+      entityId: job.id,
+      triggerKey: "manual_email",
+      ...payload,
+    });
+    queryClient.invalidateQueries({ queryKey: ["communication-log"] });
+    setJobEmailError(null);
+    setJobEmailResult(wasSent ? "Email sent." : "Email queued and will send shortly.");
+    setTimeout(() => setJobEmailResult(null), 5000);
+  };
+
   if (!job) {
     return <div className="p-8 text-sm text-gray-500">Loading...</div>;
   }
 
-  const address = client ? formatClientAddress(client) : null;
+  const jobSite = (clientSites ?? []).find((s) => s.id === job.site_id) ?? null;
+  const address = jobSite ? formatSiteAddress(jobSite) : client ? formatClientAddress(client) : null;
+  const jobRecipientOptions = collectRecipientEmails({
+    clientEmail: client?.email,
+    contactEmails: (clientContacts ?? []).map((c) => c.email),
+    freeText: [job.description, ...(notes ?? []).map((n) => n.body)],
+  });
 
   // Per-job costing breakdown - same math/caveats as JobCosting.tsx's
   // cross-job report (GST-inclusive charged vs. GST-exclusive cost, and a
@@ -495,35 +819,117 @@ export default function JobDetailPage() {
         &larr; Back to Jobs
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <div className="mb-2 flex items-center gap-3">
-          <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
-          <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-blue-700">{job.number ?? "Pending"}</span>
+            <h1 className="text-xl font-bold text-gray-900">{job.title}</h1>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <button
+              onClick={() => {
+                setEditTitle(job.title);
+                setEditDescription(job.description ?? "");
+                setEditError(null);
+                setEditModalOpen(true);
+              }}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => setJobEmailModalOpen(true)}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Email
+            </button>
+          </div>
         </div>
-        {job.description ? <p className="mb-4 text-sm text-gray-600">{job.description}</p> : null}
+        {job.description ? <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">{job.description}</p> : null}
+        {jobEmailError ? <p className="mb-2 text-sm text-red-600">{jobEmailError}</p> : null}
+        {jobEmailResult ? <p className="mb-2 text-sm text-green-700">{jobEmailResult}</p> : null}
 
         {client ? (
           <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
-            <p className="font-semibold text-gray-900">
-              <Link to={`/clients/${client.id}`} className="hover:underline">
-                {client.name}
-              </Link>
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-semibold text-gray-900">
+                <Link to={`/clients/${client.id}`} className="hover:underline">
+                  {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+                </Link>
+              </p>
+              <button onClick={openAddressModal} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+                Edit address
+              </button>
+            </div>
             {client.phone ? <p className="text-gray-600">{client.phone}</p> : null}
-            {address ? <p className="text-gray-600">{address}</p> : null}
+            {address ? (
+              <p className="text-gray-600">
+                {jobSite?.label ? `${jobSite.label}: ` : ""}
+                {address}
+              </p>
+            ) : (
+              <p className="text-gray-400">No address on file</p>
+            )}
           </div>
         ) : null}
 
+        {!job.is_real_estate_job ? (
+          <button
+            onClick={() => setRealEstateModalOpen(true)}
+            className="mb-4 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Mark as real estate / strata job
+          </button>
+        ) : null}
+
+        <div className="mb-4 rounded-md border border-gray-300 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">WorkDrive</h3>
+            <button
+              onClick={() => {
+                setWorkdriveInput(job.workdrive_url ?? "");
+                setWorkdriveError(null);
+                setWorkdriveModalOpen(true);
+              }}
+              className="text-xs font-semibold text-blue-700 hover:underline"
+            >
+              {job.workdrive_url ? "Edit link" : "+ Add link"}
+            </button>
+          </div>
+          {job.workdrive_url ? (
+            <a href={job.workdrive_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-blue-700 hover:underline">
+              Open WorkDrive folder &rarr;
+            </a>
+          ) : (
+            <p className="mt-1 text-gray-400">No WorkDrive link for this job yet.</p>
+          )}
+        </div>
+
+        <div className="mb-4 flex items-center justify-between rounded-md border border-gray-300 p-3 text-sm">
+          <span className="text-gray-600">
+            Lead source: {leadSource?.name ?? "None"}
+            {leadSource?.is_referral_source ? ` - ${referralPartner ? referralPartnerLabel(referralPartner) : "no partner linked"}` : ""}
+          </span>
+          <button onClick={() => setLeadSourceModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            {job.lead_source_id ? "Edit" : "+ Add"}
+          </button>
+        </div>
+
         {job.is_real_estate_job ? (
           <div className="mb-4 rounded-md border border-blue-100 bg-blue-50 p-3 text-sm">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
-              {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
-              {propertyManager ? (
-                <span className="text-gray-600">
-                  PM: {propertyManager.first_name} {propertyManager.last_name}
-                </span>
-              ) : null}
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">Agency Job</span>
+                {agency ? <span className="font-semibold text-gray-900">{agency.name}</span> : null}
+                {propertyManager ? (
+                  <span className="text-gray-600">
+                    PM: {propertyManager.first_name} {propertyManager.last_name}
+                  </span>
+                ) : null}
+              </div>
+              <button onClick={() => setRealEstateModalOpen(true)} className="whitespace-nowrap text-xs font-semibold text-blue-700 hover:underline">
+                Edit
+              </button>
             </div>
             {property ? (
               <p className="text-gray-600">
@@ -533,8 +939,13 @@ export default function JobDetailPage() {
                 {property.key_tag_number ? ` - 🔑 ${property.key_tag_number}` : ""}
               </p>
             ) : null}
-            <div className="mt-1 flex flex-wrap gap-x-4 text-gray-600">
-              {job.work_order_number ? <span>Work order: {job.work_order_number}</span> : null}
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 text-gray-600">
+              <span>
+                Work order: {job.work_order_number ?? "Not set"}{" "}
+                <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+                  {job.work_order_number ? "Edit" : "+ Add"}
+                </button>
+              </span>
               {job.nte_limit_cents != null ? <span>NTE limit: {formatCentsAsAud(job.nte_limit_cents)}</span> : null}
             </div>
             {isNteExceeded ? (
@@ -547,7 +958,12 @@ export default function JobDetailPage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        {/* 2 columns, not 3 - a native <select>'s closed-state text clips
+            hard at the box edge with no ellipsis once it's too narrow, and
+            category/stage/technician names are admin-defined free text
+            with no length cap, so this trades a slightly taller layout for
+            enough room that long names stop getting cut off mid-word. */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Category</label>
             <select
@@ -594,15 +1010,60 @@ export default function JobDetailPage() {
             </select>
           </div>
         </div>
+        <button
+          onClick={openScheduleModal}
+          className="mt-3 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          + Add to calendar
+        </button>
         {reviewRequestError ? <p className="mt-3 text-sm text-red-600">{reviewRequestError}</p> : null}
         {reviewRequestResult ? <p className="mt-3 text-sm text-green-700">{reviewRequestResult}</p> : null}
       </div>
 
+      <Modal open={scheduleModalOpen} onClose={() => setScheduleModalOpen(false)} title="Add to calendar">
+        <FormField label="Date" type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Start time" type="time" value={scheduleStartTime} onChange={(e) => setScheduleStartTime(e.target.value)} />
+          <FormField label="End time" type="time" value={scheduleEndTime} onChange={(e) => setScheduleEndTime(e.target.value)} />
+        </div>
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Technician</label>
+          <select
+            value={scheduleTechnicianId}
+            onChange={(e) => setScheduleTechnicianId(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {(technicians ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {scheduleError ? <p className="mb-4 text-sm text-red-600">{scheduleError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setScheduleModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => scheduleToCalendar.mutate()}
+            disabled={scheduleToCalendar.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {scheduleToCalendar.isPending ? "Adding..." : "Add to calendar"}
+          </button>
+        </div>
+      </Modal>
+
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="rounded-lg border border-gray-300 bg-white p-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quotes</h2>
-            <Link to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
+            <Link
+              to={`/quotes/new?clientId=${job.client_id}&jobCardId=${job.id}${job.referral_partner_id ? `&referralPartnerId=${job.referral_partner_id}` : ""}`}
+              className="text-sm font-semibold text-blue-700 hover:underline"
+            >
               + New quote
             </Link>
           </div>
@@ -619,7 +1080,7 @@ export default function JobDetailPage() {
             </div>
           )}
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
+        <div className="rounded-lg border border-gray-300 bg-white p-6">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Invoices</h2>
             <Link to={`/invoices/new?clientId=${job.client_id}&jobCardId=${job.id}`} className="text-sm font-semibold text-blue-700 hover:underline">
@@ -641,7 +1102,7 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Job Costing</h2>
         {!hasCostingDocs ? (
           <p className="text-sm text-gray-500">No quotes or invoices linked to this job yet.</p>
@@ -680,19 +1141,18 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Photos</h2>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Files</h2>
           <label className="cursor-pointer rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
-            {uploadPhotos.isPending ? "Uploading..." : "+ Upload photos"}
+            {uploadFiles.isPending ? "Uploading..." : "+ Upload files"}
             <input
               type="file"
-              accept="image/*"
               multiple
               className="hidden"
-              disabled={uploadPhotos.isPending}
+              disabled={uploadFiles.isPending}
               onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) uploadPhotos.mutate(e.target.files);
+                if (e.target.files && e.target.files.length > 0) uploadFiles.mutate(e.target.files);
                 e.target.value = "";
               }}
             />
@@ -700,59 +1160,60 @@ export default function JobDetailPage() {
         </div>
         {photoError ? <p className="mb-3 text-sm text-red-600">{photoError}</p> : null}
         {!files || files.length === 0 ? (
-          <p className="text-sm text-gray-500">No photos yet.</p>
+          <p className="text-sm text-gray-500">No files yet.</p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-            {files.map((f) => (
-              <a
-                key={f.id}
-                href={fileUrls?.[f.id] || undefined}
-                target="_blank"
-                rel="noreferrer"
-                className="block aspect-square overflow-hidden rounded-md border border-gray-200 bg-gray-100"
-              >
-                {fileUrls?.[f.id] ? (
-                  <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
-                ) : null}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Roof Measurement</h2>
-          <Link
-            to={`/jobs/${id}/measure`}
-            className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            📐 Measure Roof
-          </Link>
-        </div>
-        {!measurements || measurements.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            Draw roof sections on a satellite map and save the total area to this job.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {measurements.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border-t border-gray-100 pt-2 text-sm first:border-0 first:pt-0">
-                <div>
-                  <p className="font-medium text-gray-900">{m.title}</p>
-                  <p className="text-xs text-gray-500">{new Date(m.created_at).toLocaleDateString("en-AU")}</p>
+            {files.map((f) => {
+              // mime_type isn't reliably populated for every upload (some
+              // browsers/file pickers hand back an empty File.type for a
+              // perfectly normal .jpg) - falling back to the extension
+              // means a real photo still renders as a thumbnail instead of
+              // the generic file icon just because its mime_type is blank.
+              const isImage = (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
+              return (
+                <div key={f.id} className="group relative aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100">
+                  <a href={fileUrls?.[f.id] || undefined} target="_blank" rel="noreferrer" className="block h-full w-full" title={f.file_name}>
+                    {isImage && fileUrls?.[f.id] ? (
+                      <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                        <span className="text-2xl">📄</span>
+                        <span className="line-clamp-2 break-all text-xs text-gray-600">{f.file_name}</span>
+                      </div>
+                    )}
+                  </a>
+                  {isAdmin ? (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (window.confirm(`Delete ${f.file_name}?`)) deleteFile.mutate(f);
+                      }}
+                      disabled={deleteFile.isPending}
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white opacity-0 transition-opacity hover:bg-red-600 disabled:opacity-100 group-hover:opacity-100"
+                      title="Delete file"
+                    >
+                      &times;
+                    </button>
+                  ) : null}
                 </div>
-                <p className="text-right text-gray-700">
-                  {m.total_true_area_sqm.toFixed(1)} m² true
-                  <span className="block text-xs text-gray-400">{m.total_flat_area_sqm.toFixed(1)} m² flat</span>
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <AssetsSection
+        owner={job.property_id ? { type: "property", id: job.property_id } : { type: "client", id: job.client_id }}
+        title={job.property_id ? "Property assets" : "Client assets"}
+      />
+
+      <QuoteToolsSection jobCardId={id!} />
+
+      <div className="mb-6">
+        <JobMembershipBenefitSection jobCardId={id!} clientId={job.client_id} />
+      </div>
+
+      <div className="rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Notes</h2>
         <div className="mb-4">
           <TextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
@@ -766,17 +1227,44 @@ export default function JobDetailPage() {
           </button>
         </div>
         <div className="space-y-3">
-          {(notes ?? []).map((note) => (
-            <div key={note.id} className="border-t border-gray-100 pt-3 text-sm">
-              <p className="text-gray-800">{note.body}</p>
-              <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
-            </div>
-          ))}
+          {(notes ?? []).map((note) =>
+            editingNoteId === note.id ? (
+              <div key={note.id} className="border-t border-gray-200 pt-3 text-sm">
+                <TextAreaField label="Note" labelHidden rows={2} value={editingNoteBody} onChange={(e) => setEditingNoteBody(e.target.value)} />
+                {editNoteError ? <p className="mb-2 text-sm text-red-600">{editNoteError}</p> : null}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateNote.mutate()}
+                    disabled={updateNote.isPending || !editingNoteBody.trim()}
+                    className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                  >
+                    {updateNote.isPending ? "Saving..." : "Save"}
+                  </button>
+                  <button onClick={() => setEditingNoteId(null)} className="px-3 py-1.5 text-xs font-semibold text-gray-600">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div key={note.id} className="group border-t border-gray-200 pt-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="whitespace-pre-wrap text-gray-800">{note.body}</p>
+                  <button
+                    onClick={() => startEditNote(note)}
+                    className="flex-shrink-0 text-xs font-semibold text-blue-700 opacity-0 hover:underline group-hover:opacity-100"
+                  >
+                    Edit
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-400">{new Date(note.created_at).toLocaleString()}</p>
+              </div>
+            )
+          )}
           {notes && notes.length === 0 ? <p className="text-sm text-gray-500">No notes yet.</p> : null}
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Reports & Safety</h2>
           <div className="flex gap-2">
@@ -804,7 +1292,7 @@ export default function JobDetailPage() {
                 <Link
                   key={report.id}
                   to={`/reports/instances/${report.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                 >
                   <span className="font-medium text-blue-700">{template?.title ?? "Report"}</span>
                   <span
@@ -821,7 +1309,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Subcontractors</h2>
           <button
@@ -841,7 +1329,7 @@ export default function JobDetailPage() {
                 <Link
                   key={po.id}
                   to={`/subcontractors/purchase-orders/${po.id}`}
-                  className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50"
                 >
                   <span>
                     <span className="font-medium text-blue-700">{po.po_number ?? "Pending"}</span>{" "}
@@ -857,7 +1345,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Communication Log</h2>
         <CommunicationLog
           entities={[
@@ -878,7 +1366,7 @@ export default function JobDetailPage() {
               <button
                 key={template.id}
                 onClick={() => startReportForJob(template.id)}
-                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50"
               >
                 <span className="font-medium text-gray-900">{template.title}</span>
                 {template.is_swms ? (
@@ -908,7 +1396,7 @@ export default function JobDetailPage() {
                 key={report.id}
                 onClick={() => linkExistingReport.mutate(report.id)}
                 disabled={linkExistingReport.isPending}
-                className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-60"
               >
                 <span className="font-medium text-gray-900">{template?.title ?? "Report"}</span>
                 <span className="text-xs text-gray-400">{new Date(report.created_at).toLocaleDateString("en-AU")}</span>
@@ -942,7 +1430,7 @@ export default function JobDetailPage() {
             .map((sub) => {
               const onHold = sub.status === "compliance_hold";
               return (
-                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-100"}`}>
+                <div key={sub.id} className={`rounded-md border p-3 ${onHold ? "border-red-100 bg-red-50" : "border-gray-200"}`}>
                   <div className="mb-1 flex items-center justify-between">
                     <span className={`font-medium ${onHold ? "text-gray-400" : "text-gray-900"}`}>{sub.company_name}</span>
                     <span className="text-xs text-gray-500">{TIER_LABELS[sub.preference_tier]}</span>
@@ -986,6 +1474,164 @@ export default function JobDetailPage() {
           ) : null}
         </div>
       </Modal>
+
+      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit job address">
+        <div className="mb-4">
+          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <select
+            value={addressSiteChoice}
+            onChange={(e) => setAddressSiteChoice(e.target.value)}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="">{client ? formatClientAddress(client) ?? "Client's main address (none on file)" : "Client's main address"}</option>
+            {(clientSites ?? []).map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.label || "Site"} - {formatSiteAddress(site)}
+              </option>
+            ))}
+            <option value="new">+ Add a new address...</option>
+          </select>
+        </div>
+        {addressSiteChoice === "new" ? (
+          <div className="mb-4 rounded-md border border-gray-300 p-3">
+            <p className="mb-2 text-xs font-semibold text-gray-500">This address will be saved to the client's card too.</p>
+            <FormField
+              label="Label (optional)"
+              value={newAddressForm.label}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, label: e.target.value })}
+              placeholder="e.g. Warehouse, Shop 4"
+            />
+            <FormField
+              label="Address line 1"
+              value={newAddressForm.address_line1}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line1: e.target.value })}
+            />
+            <FormField
+              label="Address line 2"
+              value={newAddressForm.address_line2}
+              onChange={(e) => setNewAddressForm({ ...newAddressForm, address_line2: e.target.value })}
+            />
+            <div className="grid grid-cols-3 gap-3">
+              <FormField
+                label="Suburb"
+                value={newAddressForm.suburb}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, suburb: e.target.value })}
+              />
+              <FormField
+                label="State"
+                value={newAddressForm.state}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, state: e.target.value })}
+              />
+              <FormField
+                label="Postcode"
+                value={newAddressForm.postcode}
+                onChange={(e) => setNewAddressForm({ ...newAddressForm, postcode: e.target.value })}
+              />
+            </div>
+          </div>
+        ) : null}
+        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => updateJobSite.mutate()}
+            disabled={updateJobSite.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {updateJobSite.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="Edit job">
+        <FormField label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Job title" />
+        <TextAreaField
+          label="Description"
+          rows={4}
+          value={editDescription}
+          onChange={(e) => setEditDescription(e.target.value)}
+          placeholder="Notes, scope of work, etc."
+        />
+        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setEditModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveEdit.mutate()}
+            disabled={saveEdit.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveEdit.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={workdriveModalOpen} onClose={() => setWorkdriveModalOpen(false)} title="WorkDrive link">
+        <FormField
+          label="Link"
+          value={workdriveInput}
+          onChange={(e) => setWorkdriveInput(e.target.value)}
+          placeholder="https://workdrive.zoho.com/..."
+        />
+        {workdriveError ? <p className="mb-4 text-sm text-red-600">{workdriveError}</p> : null}
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setWorkdriveModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => saveWorkdrive.mutate()}
+            disabled={saveWorkdrive.isPending}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          >
+            {saveWorkdrive.isPending ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </Modal>
+
+      <RealEstateAssignmentModal
+        open={realEstateModalOpen}
+        onClose={() => setRealEstateModalOpen(false)}
+        jobCardId={job.id}
+        initial={{
+          is_real_estate_job: job.is_real_estate_job,
+          agency_id: job.agency_id,
+          property_manager_id: job.property_manager_id,
+          property_id: job.property_id,
+          work_order_number: job.work_order_number,
+          nte_limit_cents: job.nte_limit_cents,
+        }}
+      />
+
+      <WorkOrderNumberModal
+        open={workOrderModalOpen}
+        onClose={() => setWorkOrderModalOpen(false)}
+        jobCardId={job.id}
+        currentValue={job.work_order_number}
+      />
+
+      <LeadSourceModal
+        open={leadSourceModalOpen}
+        onClose={() => setLeadSourceModalOpen(false)}
+        jobCardId={job.id}
+        currentLeadSourceId={job.lead_source_id}
+        currentReferralPartnerId={job.referral_partner_id}
+      />
+
+      <EmailComposeModal
+        open={jobEmailModalOpen}
+        onClose={() => setJobEmailModalOpen(false)}
+        title={`Email - ${job.title}`}
+        defaultTo={client?.email ?? ""}
+        defaultSubject=""
+        defaultBody=""
+        recipientOptions={jobRecipientOptions}
+        templates={emailTemplates}
+        onSend={handleSendJobEmail}
+        sendLabel="Send email"
+      />
     </div>
   );
 }

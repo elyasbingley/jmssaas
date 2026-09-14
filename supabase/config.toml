@@ -36,3 +36,48 @@ enabled = true
 # supabase/migrations/20260728000100_quote_invoice_approval.sql, which is
 # the actual access control here, not JWT verification.
 verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe calls this directly with its own Stripe-Signature header, not a
+# Supabase JWT - same reasoning as [functions.approve] above. Signature
+# verification against STRIPE_WEBHOOK_SECRET (done in the function itself)
+# is the real access control here, not the platform's JWT gateway.
+verify_jwt = false
+
+[functions.xero-oauth-callback]
+# Xero redirects the user's own browser here after they approve the
+# connection on Xero's consent screen - a plain browser GET with no
+# Supabase session/Authorization header at all, same class of issue as
+# [functions.approve]. The one-time `state` value (created by
+# xero-oauth-start, burned here) is the real access control, not JWT
+# verification - see the function's own comment.
+verify_jwt = false
+
+[functions.xero-webhook]
+# Xero calls this directly with its own X-Xero-Signature header, not a
+# Supabase JWT - same reasoning as [functions.stripe-webhook]. HMAC
+# signature verification against XERO_WEBHOOK_KEY (done in the function
+# itself) is the real access control here, not the platform's JWT
+# gateway. This also has to work with a completely unauthenticated
+# request for Xero's own "Intent to Receive" verification step when the
+# webhook URL is first saved in the Developer Portal.
+verify_jwt = false
+
+[functions.google-oauth-callback]
+# Google redirects the user's own browser here after they approve the
+# connection on Google's consent screen - a plain browser GET with no
+# Supabase session/Authorization header at all, same class of issue as
+# [functions.xero-oauth-callback]. The one-time `state` value (created by
+# google-oauth-start, burned here) is the real access control, not JWT
+# verification - see the function's own comment.
+verify_jwt = false
+
+[functions.google-calendar-webhook]
+# Google calls this directly with its own X-Goog-Channel-ID/X-Goog-
+# Channel-Token headers, not a Supabase JWT - same reasoning as
+# [functions.xero-webhook]. Checking the channel token against what was
+# stored when the watch channel was created (done in the function itself)
+# is the real access control here, not the platform's JWT gateway. Also
+# has to work unauthenticated for Google's own initial "sync" verification
+# ping sent the moment a channel is created.
+verify_jwt = false
