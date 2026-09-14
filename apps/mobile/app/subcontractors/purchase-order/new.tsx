@@ -1,14 +1,18 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { createPurchaseOrderSchema, type JobCard, type PoLineItemInput, type SubcontractorCompany, type SubcontractorContact } from "@jmssaas/shared";
 import { supabase } from "../../../lib/supabase";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useAuth } from "../../../lib/auth-context";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../../lib/errors";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../../components/PickerModal";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { PoLineItemEditor } from "../../../components/PoLineItemEditor";
 
 // Workflow 2 (Direct Work Order) and Workflow 3 (Quote Request) share this
@@ -26,6 +30,7 @@ export default function PurchaseOrderNewScreen() {
   const router = useRouter();
   const isOnline = useIsOnline();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
 
   const { data: subcontractor } = useSupabaseFetch<SubcontractorCompany | null>(async () => {
     if (!isOnline || !subcontractorIdParam) return null;
@@ -100,79 +105,96 @@ export default function PurchaseOrderNewScreen() {
     router.replace(`/subcontractors/purchase-order/${po.id}`);
   };
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Purchase orders" />;
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.heading}>{isQuoteRequest ? "New quote request" : "New work order"}</Text>
-      <Text style={styles.subheading}>{subcontractor?.company_name ?? "..."}</Text>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title}>{isQuoteRequest ? "New Quote Request" : "New Work Order"}</Text>
+      </View>
 
-      {complianceHold ? (
-        <Text style={styles.holdNotice}>
-          This subcontractor is on compliance hold - resolve their expired compliance documents before issuing new orders.
-        </Text>
-      ) : null}
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Purchase orders" />
+      ) : (
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.subheading}>{subcontractor?.company_name ?? "..."}</Text>
 
-      <Pressable
-        style={[styles.pickerField, styles.fieldSpacing, lockedFromJob && styles.pickerFieldDisabled]}
-        onPress={() => !lockedFromJob && setJobPickerVisible(true)}
-      >
-        <Text style={styles.pickerFieldLabel}>Job</Text>
-        <Text style={styles.pickerFieldValue}>{selectedJob?.title ?? "Select a job"}</Text>
-      </Pressable>
+          {complianceHold ? (
+            <Text style={styles.holdNotice}>
+              This subcontractor is on compliance hold - resolve their expired compliance documents before issuing new orders.
+            </Text>
+          ) : null}
 
-      <Pressable style={[styles.pickerField, styles.fieldSpacing]} onPress={() => setContactPickerVisible(true)}>
-        <Text style={styles.pickerFieldLabel}>Contact (optional)</Text>
-        <Text style={styles.pickerFieldValue}>
-          {selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name ?? ""}`.trim() : "Use primary contact"}
-        </Text>
-      </Pressable>
+          <Pressable
+            style={[styles.pickerField, styles.fieldSpacing, lockedFromJob && styles.pickerFieldDisabled]}
+            onPress={() => !lockedFromJob && setJobPickerVisible(true)}
+          >
+            <Text style={styles.pickerFieldLabel}>Job</Text>
+            <Text style={styles.pickerFieldValue}>{selectedJob?.title ?? "Select a job"}</Text>
+          </Pressable>
 
-      <Text style={styles.sectionHeading}>{isQuoteRequest ? "Scope of work" : "Line items"}</Text>
-      <PoLineItemEditor items={lineItems} onChange={setLineItems} />
+          <Pressable style={[styles.pickerField, styles.fieldSpacing]} onPress={() => setContactPickerVisible(true)}>
+            <Text style={styles.pickerFieldLabel}>Contact (optional)</Text>
+            <Text style={styles.pickerFieldValue}>
+              {selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name ?? ""}`.trim() : "Use primary contact"}
+            </Text>
+          </Pressable>
 
-      {formError ? <Text style={styles.error}>{formError}</Text> : null}
+          <Text style={styles.sectionHeading}>{isQuoteRequest ? "Scope of work" : "Line items"}</Text>
+          <PoLineItemEditor items={lineItems} onChange={setLineItems} />
 
-      <Pressable style={styles.saveButton} onPress={save} disabled={saving || !jobCardId || complianceHold}>
-        <Text style={styles.saveButtonText}>{saving ? "Saving..." : isQuoteRequest ? "Create quote request" : "Create work order"}</Text>
-      </Pressable>
+          {formError ? <Text style={styles.error}>{formError}</Text> : null}
 
-      <PickerModal
-        visible={jobPickerVisible}
-        title="Select job"
-        items={jobs ?? []}
-        getKey={(j) => j.id}
-        getLabel={(j) => j.title}
-        onSelect={(j) => setJobCardId(j.id)}
-        onClose={() => setJobPickerVisible(false)}
-      />
-      <PickerModal
-        visible={contactPickerVisible}
-        title="Select contact"
-        items={contacts ?? []}
-        getKey={(c) => c.id}
-        getLabel={(c) => `${c.first_name} ${c.last_name ?? ""}`.trim() + (c.is_primary_contact ? " (Primary)" : "")}
-        onSelect={(c) => setContactId(c.id)}
-        onClose={() => setContactPickerVisible(false)}
-      />
-    </ScrollView>
+          <View style={{ marginTop: 16 }}>
+            <ThemedButton
+              label={saving ? "Saving..." : isQuoteRequest ? "Create quote request" : "Create work order"}
+              onPress={save}
+              disabled={saving || !jobCardId || complianceHold}
+            />
+          </View>
+
+          <ThemedPickerModal
+            visible={jobPickerVisible}
+            title="Select job"
+            items={jobs ?? []}
+            getKey={(j) => j.id}
+            getLabel={(j) => j.title}
+            onSelect={(j) => setJobCardId(j.id)}
+            onClose={() => setJobPickerVisible(false)}
+          />
+          <ThemedPickerModal
+            visible={contactPickerVisible}
+            title="Select contact"
+            items={contacts ?? []}
+            getKey={(c) => c.id}
+            getLabel={(c) => `${c.first_name} ${c.last_name ?? ""}`.trim() + (c.is_primary_contact ? " (Primary)" : "")}
+            onSelect={(c) => setContactId(c.id)}
+            onClose={() => setContactPickerVisible(false)}
+          />
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  heading: { fontSize: 19, fontWeight: "700" },
-  subheading: { fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 12 },
-  holdNotice: { color: "#b91c1c", backgroundColor: "#fef2f2", borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 12 },
-  fieldSpacing: { marginBottom: 12 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldDisabled: { backgroundColor: "#f3f4f6" },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
-  sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 16, marginBottom: 10 },
-  error: { color: "#dc2626", marginTop: 12 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 16 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    container: { flex: 1, backgroundColor: tokens.background },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
+    subheading: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 12 },
+    holdNotice: { ...mono, color: tokens.danger, borderWidth: 1, borderColor: tokens.danger, backgroundColor: tokens.surface, borderRadius: 4, padding: 10, fontSize: font.label, marginBottom: 12 },
+    fieldSpacing: { marginBottom: 12 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.surface },
+    pickerFieldDisabled: { backgroundColor: tokens.background },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 2 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
+    sectionHeading: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginTop: 16, marginBottom: 10 },
+    error: { ...mono, color: tokens.danger, marginTop: 12, fontSize: font.body },
+  };
+}
