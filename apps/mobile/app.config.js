@@ -60,6 +60,7 @@ module.exports = {
     plugins: [
       "expo-router",
       "expo-dev-client",
+      "./plugins/withOnUserLeaveHintFix.js",
       [
         "expo-image-picker",
         {
