@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { v4 as uuidv4 } from "uuid";
 import {
   createReportTemplateSchema,
@@ -15,11 +17,13 @@ import {
 import { supabase } from "../../../lib/supabase";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useAuth } from "../../../lib/auth-context";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../../lib/errors";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { FormField } from "../../../components/FormField";
-import { PickerModal } from "../../../components/PickerModal";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedFormField } from "../../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 
 // Mobile port of desktop's ReportTemplateEditor.tsx - same up/down
 // reordering (no drag-and-drop) rather than each field's own dedicated page.
@@ -58,6 +62,7 @@ export default function ReportTemplateEditorScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: subcategories } = useSupabaseFetch<ReportSubcategory[]>(async () => {
     if (!isOnline) return [];
@@ -164,169 +169,184 @@ export default function ReportTemplateEditorScreen() {
     ]);
   };
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Report templates" />;
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.heading}>{isNew ? "New report template" : "Edit report template"}</Text>
-
-      <View style={styles.fieldSpacing}>
-        <Pressable style={styles.pickerField} onPress={() => setSubcategoryPickerVisible(true)}>
-          <Text style={styles.pickerFieldLabel}>Subcategory</Text>
-          <Text style={styles.pickerFieldValue}>
-            {(subcategories ?? []).find((s) => s.id === subcategoryId)?.name ?? "Select subcategory"}
-          </Text>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
         </Pressable>
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="Title" value={title} onChangeText={setTitle} placeholder="e.g. Roof Inspection Report" />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="Description (optional)" value={description} onChangeText={setDescription} multiline style={styles.multiline} />
+        <Text style={styles.title}>{isNew ? "New Template" : "Edit Template"}</Text>
       </View>
 
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Requires SWMS worker sign-off roster</Text>
-        <Switch value={isSwms} onValueChange={setIsSwms} />
-      </View>
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Active (visible in New Report)</Text>
-        <Switch value={isActive} onValueChange={setIsActive} />
-      </View>
-
-      <Text style={styles.sectionHeading}>Sections</Text>
-      {sections.map((section, sectionIndex) => (
-        <View key={section.id} style={styles.sectionCard}>
-          <View style={styles.sectionCardHeader}>
-            <TextInput
-              value={section.title}
-              onChangeText={(v) => updateSection(section.id, { title: v })}
-              placeholder="Section title"
-              style={styles.sectionTitleInput}
-            />
-            <Pressable onPress={() => moveSection(sectionIndex, -1)} disabled={sectionIndex === 0}>
-              <Text style={[styles.reorderArrow, sectionIndex === 0 && styles.disabledArrow]}>↑</Text>
-            </Pressable>
-            <Pressable onPress={() => moveSection(sectionIndex, 1)} disabled={sectionIndex === sections.length - 1}>
-              <Text style={[styles.reorderArrow, sectionIndex === sections.length - 1 && styles.disabledArrow]}>↓</Text>
-            </Pressable>
-            <Pressable onPress={() => removeSection(section.id)}>
-              <Text style={styles.removeLink}>Remove</Text>
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Report templates" />
+      ) : (
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <View style={styles.fieldSpacing}>
+            <Pressable style={styles.pickerField} onPress={() => setSubcategoryPickerVisible(true)}>
+              <Text style={styles.pickerFieldLabel}>Subcategory</Text>
+              <Text style={styles.pickerFieldValue}>
+                {(subcategories ?? []).find((s) => s.id === subcategoryId)?.name ?? "Select subcategory"}
+              </Text>
             </Pressable>
           </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField label="Title" value={title} onChangeText={setTitle} placeholder="e.g. Roof Inspection Report" />
+          </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField label="Description (optional)" value={description} onChangeText={setDescription} multiline style={styles.multiline} />
+          </View>
 
-          {section.fields.map((field, fieldIndex) => (
-            <View key={field.id} style={styles.fieldCard}>
-              <View style={styles.fieldCardHeader}>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>Requires SWMS worker sign-off roster</Text>
+            <Switch value={isSwms} onValueChange={setIsSwms} />
+          </View>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>Active (visible in New Report)</Text>
+            <Switch value={isActive} onValueChange={setIsActive} />
+          </View>
+
+          <Text style={styles.sectionHeading}>Sections</Text>
+          {sections.map((section, sectionIndex) => (
+            <View key={section.id} style={styles.sectionCard}>
+              <View style={styles.sectionCardHeader}>
                 <TextInput
-                  value={field.label}
-                  onChangeText={(v) => updateField(section.id, field.id, { label: v })}
-                  placeholder="Field label / question"
-                  style={styles.fieldLabelInput}
+                  value={section.title}
+                  onChangeText={(v) => updateSection(section.id, { title: v })}
+                  placeholder="Section title"
+                  placeholderTextColor={styles.placeholder.color}
+                  style={styles.sectionTitleInput}
                 />
-              </View>
-              <View style={styles.fieldTypeRow}>
-                <Text style={styles.fieldTypeBadge}>{FIELD_TYPE_LABELS[field.type]}</Text>
-                <Pressable onPress={() => moveField(section.id, fieldIndex, -1)} disabled={fieldIndex === 0}>
-                  <Text style={[styles.reorderArrow, fieldIndex === 0 && styles.disabledArrow]}>↑</Text>
+                <Pressable onPress={() => moveSection(sectionIndex, -1)} disabled={sectionIndex === 0}>
+                  <Text style={[styles.reorderArrow, sectionIndex === 0 && styles.disabledArrow]}>↑</Text>
                 </Pressable>
-                <Pressable onPress={() => moveField(section.id, fieldIndex, 1)} disabled={fieldIndex === section.fields.length - 1}>
-                  <Text style={[styles.reorderArrow, fieldIndex === section.fields.length - 1 && styles.disabledArrow]}>↓</Text>
+                <Pressable onPress={() => moveSection(sectionIndex, 1)} disabled={sectionIndex === sections.length - 1}>
+                  <Text style={[styles.reorderArrow, sectionIndex === sections.length - 1 && styles.disabledArrow]}>↓</Text>
                 </Pressable>
-                <Pressable onPress={() => removeField(section.id, field.id)}>
+                <Pressable onPress={() => removeSection(section.id)}>
                   <Text style={styles.removeLink}>Remove</Text>
                 </Pressable>
               </View>
-              <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Required</Text>
-                <Switch value={field.required} onValueChange={(v) => updateField(section.id, field.id, { required: v })} />
-              </View>
-              {field.type === "pass_fail" ? (
-                <View style={styles.toggleRow}>
-                  <Text style={styles.toggleLabel}>"Fail" requires action note + photo</Text>
-                  <Switch
-                    value={field.requireActionOnFail ?? false}
-                    onValueChange={(v) => updateField(section.id, field.id, { requireActionOnFail: v })}
-                  />
+
+              {section.fields.map((field, fieldIndex) => (
+                <View key={field.id} style={styles.fieldCard}>
+                  <View style={styles.fieldCardHeader}>
+                    <TextInput
+                      value={field.label}
+                      onChangeText={(v) => updateField(section.id, field.id, { label: v })}
+                      placeholder="Field label / question"
+                      placeholderTextColor={styles.placeholder.color}
+                      style={styles.fieldLabelInput}
+                    />
+                  </View>
+                  <View style={styles.fieldTypeRow}>
+                    <Text style={styles.fieldTypeBadge}>{FIELD_TYPE_LABELS[field.type]}</Text>
+                    <Pressable onPress={() => moveField(section.id, fieldIndex, -1)} disabled={fieldIndex === 0}>
+                      <Text style={[styles.reorderArrow, fieldIndex === 0 && styles.disabledArrow]}>↑</Text>
+                    </Pressable>
+                    <Pressable onPress={() => moveField(section.id, fieldIndex, 1)} disabled={fieldIndex === section.fields.length - 1}>
+                      <Text style={[styles.reorderArrow, fieldIndex === section.fields.length - 1 && styles.disabledArrow]}>↓</Text>
+                    </Pressable>
+                    <Pressable onPress={() => removeField(section.id, field.id)}>
+                      <Text style={styles.removeLink}>Remove</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.toggleRow}>
+                    <Text style={styles.toggleLabel}>Required</Text>
+                    <Switch value={field.required} onValueChange={(v) => updateField(section.id, field.id, { required: v })} />
+                  </View>
+                  {field.type === "pass_fail" ? (
+                    <View style={styles.toggleRow}>
+                      <Text style={styles.toggleLabel}>"Fail" requires action note + photo</Text>
+                      <Switch
+                        value={field.requireActionOnFail ?? false}
+                        onValueChange={(v) => updateField(section.id, field.id, { requireActionOnFail: v })}
+                      />
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
+              ))}
+
+              <View style={styles.addFieldRow}>
+                {FIELD_TYPES.map((type) => (
+                  <Pressable key={type} style={styles.addFieldChip} onPress={() => addField(section.id, type)}>
+                    <Text style={styles.addFieldChipText}>+ {FIELD_TYPE_LABELS[type]}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           ))}
 
-          <View style={styles.addFieldRow}>
-            {FIELD_TYPES.map((type) => (
-              <Pressable key={type} style={styles.addFieldChip} onPress={() => addField(section.id, type)}>
-                <Text style={styles.addFieldChipText}>+ {FIELD_TYPE_LABELS[type]}</Text>
-              </Pressable>
-            ))}
+          <Pressable style={styles.addSectionButton} onPress={addSection}>
+            <Text style={styles.addSectionButtonText}>+ Add section</Text>
+          </Pressable>
+
+          {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+          {saved ? <Text style={styles.saved}>Saved.</Text> : null}
+
+          <View style={{ marginTop: 16 }}>
+            <ThemedButton label={saving ? "Saving..." : isNew ? "Create template" : "Save changes"} onPress={save} disabled={saving} />
           </View>
-        </View>
-      ))}
+          {!isNew ? (
+            <Pressable style={styles.deleteButton} onPress={confirmDelete}>
+              <Text style={styles.deleteButtonText}>Delete template</Text>
+            </Pressable>
+          ) : null}
 
-      <Pressable style={styles.addSectionButton} onPress={addSection}>
-        <Text style={styles.addSectionButtonText}>+ Add section</Text>
-      </Pressable>
-
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-      {saved ? <Text style={styles.saved}>Saved.</Text> : null}
-
-      <Pressable style={styles.saveButton} onPress={save} disabled={saving}>
-        <Text style={styles.saveButtonText}>{saving ? "Saving..." : isNew ? "Create template" : "Save changes"}</Text>
-      </Pressable>
-      {!isNew ? (
-        <Pressable style={styles.deleteButton} onPress={confirmDelete}>
-          <Text style={styles.deleteButtonText}>Delete template</Text>
-        </Pressable>
-      ) : null}
-
-      <PickerModal
-        visible={subcategoryPickerVisible}
-        title="Select subcategory"
-        items={subcategories ?? []}
-        getKey={(s) => s.id}
-        getLabel={(s) => s.name}
-        onSelect={(s) => setSubcategoryId(s.id)}
-        onClose={() => setSubcategoryPickerVisible(false)}
-      />
-    </ScrollView>
+          <ThemedPickerModal
+            visible={subcategoryPickerVisible}
+            title="Select subcategory"
+            items={subcategories ?? []}
+            getKey={(s) => s.id}
+            getLabel={(s) => s.name}
+            onSelect={(s) => setSubcategoryId(s.id)}
+            onClose={() => setSubcategoryPickerVisible(false)}
+          />
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  heading: { fontSize: 19, fontWeight: "700", marginBottom: 16 },
-  fieldSpacing: { marginBottom: 14 },
-  multiline: { minHeight: 60, textAlignVertical: "top" },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },
-  pickerFieldValue: { fontSize: 16, color: "#111827" },
-  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8 },
-  switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1, marginRight: 12 },
-  sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
-  sectionCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 12, backgroundColor: "#fff" },
-  sectionCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  sectionTitleInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: "700" },
-  reorderArrow: { fontSize: 18, color: "#6b7280", paddingHorizontal: 4 },
-  disabledArrow: { opacity: 0.3 },
-  removeLink: { color: "#dc2626", fontWeight: "700", fontSize: 12 },
-  fieldCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 10, marginBottom: 8, gap: 6 },
-  fieldCardHeader: { flexDirection: "row" },
-  fieldLabelInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 8, fontSize: 14, backgroundColor: "#fff" },
-  fieldTypeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  fieldTypeBadge: { flex: 1, backgroundColor: "#e5e7eb", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: "700", color: "#374151" },
-  toggleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  toggleLabel: { fontSize: 12, color: "#4b5563", flex: 1, marginRight: 8 },
-  addFieldRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  addFieldChip: { backgroundColor: "#eff6ff", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  addFieldChipText: { color: "#1d4ed8", fontWeight: "600", fontSize: 11 },
-  addSectionButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, alignItems: "center", marginTop: 4 },
-  addSectionButtonText: { fontWeight: "700", color: "#374151" },
-  error: { color: "#dc2626", marginTop: 14 },
-  saved: { color: "#15803d", marginTop: 14 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 16 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  deleteButton: { alignItems: "center", marginTop: 14 },
-  deleteButtonText: { color: "#dc2626", fontWeight: "700" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    container: { flex: 1, backgroundColor: tokens.background },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
+    fieldSpacing: { marginBottom: 14 },
+    multiline: { minHeight: 60, textAlignVertical: "top" as const },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.surface },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 4 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, paddingVertical: 8 },
+    switchLabel: { ...mono, fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, marginRight: 12 },
+    sectionHeading: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+    sectionCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 14, marginBottom: 12 },
+    sectionCardHeader: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, marginBottom: 10 },
+    sectionTitleInput: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 10, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, backgroundColor: tokens.background, ...mono },
+    reorderArrow: { fontSize: font.body + 4, color: tokens.textMuted, paddingHorizontal: 4 },
+    disabledArrow: { opacity: 0.3 },
+    removeLink: { ...mono, color: tokens.danger, fontWeight: "700" as const, fontSize: font.label },
+    placeholder: { color: tokens.textMuted },
+    fieldCard: { backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 10, marginBottom: 8, gap: 6 },
+    fieldCardHeader: { flexDirection: "row" as const },
+    fieldLabelInput: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 8, fontSize: font.body, backgroundColor: tokens.surface, color: tokens.textPrimary, ...mono },
+    fieldTypeRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10 },
+    fieldTypeBadge: { flex: 1, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    toggleRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    toggleLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, flex: 1, marginRight: 8 },
+    addFieldRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 8 },
+    addFieldChip: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    addFieldChipText: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.label },
+    addSectionButton: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, alignItems: "center" as const, marginTop: 4 },
+    addSectionButtonText: { ...mono, fontWeight: "700" as const, color: tokens.accent, fontSize: font.button, letterSpacing: 1, textTransform: "uppercase" as const },
+    error: { ...mono, color: tokens.danger, marginTop: 14, fontSize: font.body },
+    saved: { ...mono, color: tokens.accent, marginTop: 14, fontSize: font.body },
+    deleteButton: { alignItems: "center" as const, marginTop: 14 },
+    deleteButtonText: { ...mono, color: tokens.danger, fontWeight: "700" as const, fontSize: font.body },
+  };
+}
