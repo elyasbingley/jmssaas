@@ -310,6 +310,22 @@ export interface JobFile {
   created_at: string;
 }
 
+// An additional contact on a job beyond the client itself (a second
+// homeowner, a tenant, an on-site foreman...) - any job can have these,
+// not just is_real_estate_job ones (see PropertyManager for that separate,
+// real-estate-only contact).
+export interface JobContact {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  name: string;
+  role_label: string | null;
+  phone: string | null;
+  email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   tenant_id: string;

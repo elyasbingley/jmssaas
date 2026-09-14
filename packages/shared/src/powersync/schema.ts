@@ -311,6 +311,24 @@ const job_files = new Table(
   { indexes: { job: ["job_card_id"] } }
 );
 
+// An additional contact on a job beyond the client itself (a second
+// homeowner, a tenant, an on-site foreman...) - job-scoped field data like
+// job_notes above, added directly on-site so it's offline-capable the same
+// way. Distinct from the Real Estate & Strata module's PropertyManager,
+// which only exists for is_real_estate_job jobs - this covers every job.
+const job_contacts = new Table(
+  {
+    tenant_id: column.text,
+    job_card_id: column.text,
+    name: column.text,
+    role_label: column.text,
+    phone: column.text,
+    email: column.text,
+    created_at: column.text,
+  },
+  { indexes: { job: ["job_card_id"] } }
+);
+
 // A saved roof measurement - job-scoped field data like job_notes/
 // job_files above, so it's offline-capable the same way (a technician
 // drawing/saving a measurement with no reception). `facets` is the
@@ -393,6 +411,7 @@ export const AppSchema = new Schema({
   job_cards,
   job_notes,
   job_files,
+  job_contacts,
   job_measurements,
   tasks,
   task_notes,

@@ -2,16 +2,17 @@ import { useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
   createJobCardSchema,
-  createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
   renderTemplate,
   type Agency,
+  type CalendarEvent,
   type Client,
   type CommunicationRule,
   type CommunicationTemplate,
@@ -19,7 +20,6 @@ import {
   type InvoiceLineItem,
   type JobCard,
   type JobLifecycleStage,
-  type JobNote,
   type KeyLog,
   type Property,
   type PropertyManager,
@@ -33,18 +33,23 @@ import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
-import { addJobPhoto } from "../../../../lib/powersync";
 import { triggerImmediateDispatch } from "../../../../lib/dispatch-now";
 import { formatClientAddress } from "../../../../lib/format";
 import { useThemedStyles, type StyleTheme } from "../../../../lib/use-themed-styles";
+import { useJobNotes } from "../../../../lib/use-job-notes";
+import { useJobContacts } from "../../../../lib/use-job-contacts";
+import { useJobPhotoCapture } from "../../../../lib/use-job-photo-capture";
+import { useJobActionOrder, type JobActionId } from "../../../../lib/job-actions";
 import { Panel } from "../../../../components/theme/Panel";
 import { Readout } from "../../../../components/theme/Readout";
 import { ThemedButton } from "../../../../components/theme/ThemedButton";
 import { ThemedModal } from "../../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
 import { ThemedPickerModal } from "../../../../components/theme/ThemedPickerModal";
-import { ThemedPhotoAttachments } from "../../../../components/theme/ThemedPhotoAttachments";
 import { ThemedCommunicationLog } from "../../../../components/theme/ThemedCommunicationLog";
+import { JobActionsBar } from "../../../../components/theme/JobActionsBar";
+import { JobActionsSheet } from "../../../../components/theme/JobActionsSheet";
+import { MultiCaptureCamera } from "../../../../components/MultiCaptureCamera";
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To do",
@@ -56,11 +61,6 @@ const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = {
   in_progress: "done",
   done: "todo",
 };
-
-interface JobFileWithLocalUri {
-  id: string;
-  local_uri: string | null;
-}
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -120,22 +120,8 @@ export default function JobDetailScreen() {
   const category = categories.find((c) => c.id === job?.service_category_id) ?? null;
   const stage = stages.find((s) => s.id === job?.lifecycle_stage_id) ?? null;
 
-  const { data: notes } = useQuery<JobNote>(
-    "SELECT * FROM job_notes WHERE job_card_id = ? ORDER BY created_at DESC",
-    [id]
-  );
-
   const { data: jobTasks } = useQuery<Task>(
     "SELECT * FROM tasks WHERE job_card_id = ? ORDER BY (due_date IS NULL), due_date, created_at DESC",
-    [id]
-  );
-
-  const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, a.local_uri
-       FROM job_files jf
-       LEFT JOIN attachments a ON a.id = jf.id
-      WHERE jf.job_card_id = ?
-      ORDER BY jf.created_at DESC`,
     [id]
   );
 
@@ -157,6 +143,23 @@ export default function JobDetailScreen() {
     return (data ?? []) as Invoice[];
   }, [id, isOnline]);
   useRefetchOnFocus(refetchInvoices);
+
+  // Calendar events are also online-only (docs/SETUP.md) - job_card_id has
+  // always existed on calendar_events and calendar/new.tsx already supports
+  // picking/pre-selecting a job when creating one, this just surfaces the
+  // ones still upcoming (end_at in the future) here too.
+  const { data: upcomingBookings, refetch: refetchBookings } = useSupabaseFetch<CalendarEvent[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase
+      .from("calendar_events")
+      .select("*")
+      .eq("job_card_id", id)
+      .gte("end_at", new Date().toISOString())
+      .order("start_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as CalendarEvent[];
+  }, [id, isOnline]);
+  useRefetchOnFocus(refetchBookings);
 
   // Real Estate & Strata module - agencies aren't a PowerSync table (same
   // "office reference data, fetched online" treatment as quotes/invoices
@@ -302,9 +305,12 @@ export default function JobDetailScreen() {
   const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
   const costingLoading = quoteLineItemsLoading || invoiceLineItemsLoading;
 
-  const [noteText, setNoteText] = useState("");
-  const [noteError, setNoteError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const { noteText, setNoteText, noteError, addNote } = useJobNotes(id);
+  const jobContacts = useJobContacts(id);
+  const photoCapture = useJobPhotoCapture(id);
+  const { order: actionOrder, quickActions, setOrder: setActionOrder } = useJobActionOrder();
+  const [quickNoteModalVisible, setQuickNoteModalVisible] = useState(false);
+  const [actionsSheetVisible, setActionsSheetVisible] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskError, setTaskError] = useState<string | null>(null);
 
@@ -599,36 +605,41 @@ export default function JobDetailScreen() {
     await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [NEXT_TASK_STATUS[task.status], task.id]);
   };
 
-  const handleAddNote = async () => {
-    const result = createJobNoteSchema.safeParse({ job_card_id: id, body: noteText });
-    if (!result.success) {
-      setNoteError(result.error.issues[0]?.message ?? "Note can't be empty");
-      return;
-    }
-    if (!profile) return;
-
-    await powersync.execute(
-      "INSERT INTO job_notes (id, tenant_id, job_card_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [uuidv4(), profile.tenant_id, id, profile.id, result.data.body, new Date().toISOString()]
-    );
-    setNoteText("");
-    setNoteError(null);
-  };
-
-  const handleUploadPhoto = async (photo: { base64: string; mimeType: string; fileExtension: string }) => {
-    if (!profile || !job) return;
-    setUploading(true);
-    try {
-      await addJobPhoto({
-        tenantId: profile.tenant_id,
-        jobCardId: id,
-        uploadedBy: profile.id,
-        imageArrayBuffer: decodeBase64(photo.base64),
-        mediaType: photo.mimeType,
-        fileExtension: photo.fileExtension,
-      });
-    } finally {
-      setUploading(false);
+  const runJobAction = (actionId: JobActionId) => {
+    switch (actionId) {
+      case "notes":
+        setQuickNoteModalVisible(true);
+        return;
+      case "camera":
+        photoCapture.openCamera();
+        return;
+      case "photoLibrary":
+        photoCapture.pickFromLibrary();
+        return;
+      case "phone":
+        if (!clientPhone) {
+          Alert.alert("No phone number", "This client has no phone number on file.");
+          return;
+        }
+        callPhone(clientPhone);
+        return;
+      case "sms":
+        if (!clientPhone) {
+          Alert.alert("No phone number", "This client has no phone number on file.");
+          return;
+        }
+        Linking.openURL(`sms:${clientPhone.replace(/\s+/g, "")}`).catch(() => {});
+        return;
+      case "email":
+        if (!client?.email) {
+          Alert.alert("No email address", "This client has no email address on file.");
+          return;
+        }
+        Linking.openURL(`mailto:${client.email}`).catch(() => {});
+        return;
+      case "forms":
+        Alert.alert("Not available on mobile yet", "Forms & Certificates is currently only available in the desktop app's Reports module.");
+        return;
     }
   };
 
@@ -650,9 +661,13 @@ export default function JobDetailScreen() {
   return (
     <>
     <StatusBar style="light" />
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.headerLink}>‹ BACK</Text>
+          </Pressable>
           <Text style={styles.jobNumber}>{job.number ?? "PENDING SYNC"}</Text>
           <Pressable onPress={openEditModal} hitSlop={8}>
             <Text style={styles.headerLink}>EDIT</Text>
@@ -796,6 +811,67 @@ export default function JobDetailScreen() {
                 {keyActionError ? <Text style={styles.dangerText}>{keyActionError}</Text> : null}
               </>
             ) : null}
+
+            <View style={styles.divider} />
+            <Text style={styles.fieldLabel}>Additional Contacts</Text>
+            {jobContacts.contacts.map((c) => (
+              <View key={c.id} style={styles.contactRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contactName}>
+                    {c.name}
+                    {c.role_label ? ` · ${c.role_label}` : ""}
+                  </Text>
+                  {c.phone ? (
+                    <Pressable onPress={() => callPhone(c.phone as string)}>
+                      <Text style={styles.contactMeta}>{c.phone}</Text>
+                    </Pressable>
+                  ) : null}
+                  {c.email ? <Text style={styles.contactMeta}>{c.email}</Text> : null}
+                </View>
+                <Pressable onPress={() => jobContacts.removeContact(c.id)} hitSlop={8}>
+                  <Text style={styles.dangerText}>REMOVE</Text>
+                </Pressable>
+              </View>
+            ))}
+            {jobContacts.contacts.length === 0 ? (
+              <Text style={styles.empty}>No additional contacts (e.g. a second homeowner or tenant) yet.</Text>
+            ) : null}
+            <View style={{ gap: 8, marginTop: 8 }}>
+              <ThemedFormField label="Name" placeholder="Contact name" value={jobContacts.name} onChangeText={jobContacts.setName} />
+              <ThemedFormField
+                label="Role (optional)"
+                placeholder="e.g. Tenant, Second Homeowner"
+                value={jobContacts.roleLabel}
+                onChangeText={jobContacts.setRoleLabel}
+              />
+              <ThemedFormField label="Phone (optional)" placeholder="Phone" value={jobContacts.phone} onChangeText={jobContacts.setPhone} keyboardType="phone-pad" />
+              <ThemedFormField label="Email (optional)" placeholder="Email" value={jobContacts.email} onChangeText={jobContacts.setEmail} keyboardType="email-address" />
+              {jobContacts.error ? <Text style={styles.dangerText}>{jobContacts.error}</Text> : null}
+              <ThemedButton variant="secondary" label="Add Contact" onPress={jobContacts.addContact} />
+            </View>
+          </Panel>
+
+          <Panel title="Upcoming Bookings">
+            {(upcomingBookings ?? []).map((event) => (
+              <Pressable key={event.id} style={styles.linkedRow} onPress={() => router.push(`/calendar/${event.id}`)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.linkedRowText}>{event.title}</Text>
+                  <Text style={styles.contactMeta}>
+                    {new Date(event.start_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+            {isOnline && (upcomingBookings ?? []).length === 0 ? (
+              <Text style={styles.empty}>No upcoming bookings linked to this job.</Text>
+            ) : null}
+            {!isOnline ? (
+              <Text style={styles.empty}>Connect to view or schedule bookings.</Text>
+            ) : (
+              <Pressable onPress={() => router.push({ pathname: "/calendar/new", params: { jobCardId: job.id } })}>
+                <Text style={styles.addLink}>+ Schedule booking for this job</Text>
+              </Pressable>
+            )}
           </Panel>
 
           <Panel title="Job Details" status={stage?.name?.toUpperCase()}>
@@ -905,36 +981,14 @@ export default function JobDetailScreen() {
             ) : null}
           </Panel>
 
-          <Panel title="Diary · Photos">
-            <ThemedPhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
-          </Panel>
-
-          <Panel title="Diary · Notes">
-            <ThemedFormField
-              label="Add a note"
-              placeholder="Note"
-              value={noteText}
-              onChangeText={setNoteText}
-              multiline
-              style={styles.multiline}
-            />
-            {noteError ? <Text style={styles.dangerText}>{noteError}</Text> : null}
-            <ThemedButton label="Add Note" onPress={handleAddNote} />
-
-            {notes.map((note) => (
-              <View key={note.id} style={styles.noteRow}>
-                <Text style={styles.noteBody}>{note.body}</Text>
-                <Text style={styles.noteMeta}>{new Date(note.created_at).toLocaleString()}</Text>
-              </View>
-            ))}
+          <Panel title="Diary">
+            <ThemedButton label="Open Diary" onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })} />
+            <Text style={styles.hint}>Notes, photos and files for this job all live in the Diary.</Text>
           </Panel>
 
           <Panel title="Job Tools">
-            <ThemedButton
-              label="Measure Roof"
-              onPress={() => router.push({ pathname: "/sales/jobs/measure", params: { jobCardId: job.id } })}
-            />
-            <Text style={styles.hint}>Draw roof sections on a satellite map and save the total area to this job's notes.</Text>
+            <ThemedButton label="Open Job Tools" onPress={() => router.push({ pathname: "/sales/jobs/tools", params: { jobCardId: job.id } })} />
+            <Text style={styles.hint}>Roof Area, Linear Measurer, Material Tally, Photo Markup, Concrete Calculator, Material Order.</Text>
           </Panel>
 
           <Panel title="Communication Log">
@@ -949,6 +1003,43 @@ export default function JobDetailScreen() {
         </>
       ) : null}
     </ScrollView>
+
+    {activeTab === "details" || !isAdmin ? (
+      <JobActionsBar quickActions={quickActions} onAction={runJobAction} onMore={() => setActionsSheetVisible(true)} />
+    ) : null}
+    </SafeAreaView>
+
+    <MultiCaptureCamera
+      visible={photoCapture.cameraVisible}
+      onClose={() => photoCapture.setCameraVisible(false)}
+      onDone={photoCapture.handleCameraDone}
+    />
+
+    <ThemedModal visible={quickNoteModalVisible} onClose={() => setQuickNoteModalVisible(false)}>
+      <Text style={styles.modalTitle}>Add Note</Text>
+      <ThemedFormField label="Note" placeholder="Note" value={noteText} onChangeText={setNoteText} multiline style={styles.multiline} />
+      {noteError ? <Text style={styles.dangerText}>{noteError}</Text> : null}
+      <View style={styles.modalActions}>
+        <Pressable onPress={() => setQuickNoteModalVisible(false)}>
+          <Text style={styles.headerLink}>Cancel</Text>
+        </Pressable>
+        <ThemedButton
+          label="Save"
+          onPress={async () => {
+            const ok = await addNote();
+            if (ok) setQuickNoteModalVisible(false);
+          }}
+        />
+      </View>
+    </ThemedModal>
+
+    <JobActionsSheet
+      visible={actionsSheetVisible}
+      onClose={() => setActionsSheetVisible(false)}
+      order={actionOrder}
+      onReorder={setActionOrder}
+      onAction={runJobAction}
+    />
 
     <ThemedModal visible={onTheWayModalVisible} onClose={() => setOnTheWayModalVisible(false)}>
       <Text style={styles.modalTitle}>On The Way</Text>
@@ -1033,6 +1124,7 @@ export default function JobDetailScreen() {
 
 function createStyles({ tokens, font, fontFamily }: StyleTheme) {
   return {
+    screen: { flex: 1, backgroundColor: tokens.background },
     container: { flex: 1, backgroundColor: tokens.background },
     header: { padding: 16, gap: 10 },
     headerTopRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
@@ -1108,6 +1200,16 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     costingDocMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, fontFamily: fontFamily.mobileFontFamily },
     costingDocTotal: { fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, fontFamily: fontFamily.mobileFontFamily },
     divider: { borderTopWidth: 1, borderTopColor: tokens.border, marginVertical: 4 },
+    contactRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    contactName: { color: tokens.textPrimary, fontSize: font.body, fontFamily: fontFamily.mobileFontFamily },
+    contactMeta: { color: tokens.textMuted, fontSize: font.label, fontFamily: fontFamily.mobileFontFamily, marginTop: 2 },
     bodyText: { fontSize: font.body, color: tokens.textPrimary, lineHeight: font.body + 6, fontFamily: fontFamily.mobileFontFamily },
     fieldLabel: {
       color: tokens.textMuted,

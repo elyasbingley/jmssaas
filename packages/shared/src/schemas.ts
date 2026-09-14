@@ -60,6 +60,15 @@ export const createJobNoteSchema = z.object({
 });
 export type CreateJobNoteInput = z.infer<typeof createJobNoteSchema>;
 
+export const createJobContactSchema = z.object({
+  job_card_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  role_label: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().email("Enter a valid email").optional().or(z.literal("")),
+});
+export type CreateJobContactInput = z.infer<typeof createJobContactSchema>;
+
 export const createTaskNoteSchema = z.object({
   task_id: z.string().uuid(),
   body: z.string().min(1, "Note can't be empty"),
