@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   computeLineItemUnitPriceCents,
   createPriceBookItemSchema,
@@ -9,7 +11,9 @@ import {
 import { useAuth } from "../../../../lib/auth-context";
 import { supabase } from "../../../../lib/supabase";
 import { getErrorMessage } from "../../../../lib/errors";
-import { FormField } from "../../../../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../../../../lib/use-themed-styles";
+import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../../../components/theme/ThemedButton";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
@@ -19,6 +23,7 @@ export default function NewPriceBookItemScreen() {
   const { categoryId } = useLocalSearchParams<{ categoryId: string }>();
   const router = useRouter();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
 
   const [description, setDescription] = useState("");
   const [labourRate, setLabourRate] = useState("0");
@@ -71,70 +76,88 @@ export default function NewPriceBookItemScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <FormField
-        label="Description"
-        placeholder={"e.g. Tile Replacement\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        style={styles.multilineInput}
-      />
-
-      <View style={styles.fieldGrid}>
-        <View style={styles.fieldCell}>
-          <FormField label="Labour rate ($/hr)" placeholder="0" keyboardType="decimal-pad" value={labourRate} onChangeText={setLabourRate} />
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+          <Text style={styles.title}>New Item</Text>
         </View>
-        <View style={styles.fieldCell}>
-          <FormField label="Labour hours" placeholder="0" keyboardType="decimal-pad" value={labourHours} onChangeText={setLabourHours} />
-        </View>
-      </View>
 
-      <View style={styles.fieldGrid}>
-        <View style={styles.fieldCell}>
-          <FormField label="Material cost ($)" placeholder="0" keyboardType="decimal-pad" value={materialCost} onChangeText={setMaterialCost} />
-        </View>
-        <View style={styles.fieldCell}>
-          <FormField label="Markup (%)" placeholder="0" keyboardType="decimal-pad" value={markupPercent} onChangeText={setMarkupPercent} />
-        </View>
-      </View>
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <ThemedFormField
+            label="Description"
+            placeholder={"e.g. Tile Replacement\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            style={styles.multilineInput}
+          />
 
-      <View style={styles.switchRow}>
-        <View style={{ flexShrink: 1 }}>
-          <Text style={styles.switchLabel}>This is the call-out / service fee</Text>
-          <Text style={styles.switchHint}>
-            A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
-          </Text>
-        </View>
-        <Switch value={isCalloutFee} onValueChange={setIsCalloutFee} />
-      </View>
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <ThemedFormField label="Labour rate ($/hr)" placeholder="0" keyboardType="decimal-pad" value={labourRate} onChangeText={setLabourRate} />
+            </View>
+            <View style={styles.fieldCell}>
+              <ThemedFormField label="Labour hours" placeholder="0" keyboardType="decimal-pad" value={labourHours} onChangeText={setLabourHours} />
+            </View>
+          </View>
 
-      <View style={styles.previewBox}>
-        <Text style={styles.previewLabel}>Computed price</Text>
-        <Text style={styles.previewValue}>{formatCentsAsAud(previewCents)}</Text>
-      </View>
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <ThemedFormField label="Material cost ($)" placeholder="0" keyboardType="decimal-pad" value={materialCost} onChangeText={setMaterialCost} />
+            </View>
+            <View style={styles.fieldCell}>
+              <ThemedFormField label="Markup (%)" placeholder="0" keyboardType="decimal-pad" value={markupPercent} onChangeText={setMarkupPercent} />
+            </View>
+          </View>
 
-      {formError ? <Text style={styles.error}>{formError}</Text> : null}
+          <View style={styles.switchRow}>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.switchLabel}>This is the call-out / service fee</Text>
+              <Text style={styles.switchHint}>
+                A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
+              </Text>
+            </View>
+            <Switch value={isCalloutFee} onValueChange={setIsCalloutFee} />
+          </View>
 
-      <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-        <Text style={styles.submitButtonText}>{submitting ? "Saving..." : "Create item"}</Text>
-      </Pressable>
-    </ScrollView>
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>Computed Price</Text>
+            <Text style={styles.previewValue}>{formatCentsAsAud(previewCents)}</Text>
+          </View>
+
+          {formError ? <Text style={styles.error}>{formError}</Text> : null}
+
+          <View style={styles.submitButtonWrap}>
+            <ThemedButton label={submitting ? "Saving..." : "Create Item"} onPress={handleSubmit} disabled={submitting} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  multilineInput: { minHeight: 90, textAlignVertical: "top" },
-  fieldGrid: { flexDirection: "row", gap: 12, marginTop: 16 },
-  fieldCell: { flex: 1 },
-  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 20 },
-  switchLabel: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  switchHint: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  previewBox: { marginTop: 20, backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12 },
-  previewLabel: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
-  previewValue: { fontSize: 20, fontWeight: "800", color: "#111827", marginTop: 2 },
-  error: { color: "#dc2626", marginTop: 12 },
-  submitButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  submitButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    multilineInput: { minHeight: 90, textAlignVertical: "top" as const },
+    fieldGrid: { flexDirection: "row" as const, gap: 12, marginTop: 16 },
+    fieldCell: { flex: 1 },
+    switchRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, gap: 12, marginTop: 20 },
+    switchLabel: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    switchHint: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    previewBox: { marginTop: 20, borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 4, padding: 12 },
+    previewLabel: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    previewValue: { fontSize: 20, fontWeight: "800" as const, color: tokens.textPrimary, marginTop: 2, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    submitButtonWrap: { marginTop: 20 },
+  };
+}
