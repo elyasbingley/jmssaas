@@ -18,8 +18,9 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { buildShoppingListPdfHtml } from "../lib/shopping-list-pdf";
 import { exportPdf } from "../lib/print";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField } from "../components/theme/ThemedFormField";
 
 // Direct port of apps/mobile/app/(tabs)/sales/inventory/index.tsx - same
 // standalone catalogue (inventory_items organised by inventory_categories/
@@ -304,10 +305,12 @@ export default function InventoryPage() {
   };
 
   return (
-    <div className="flex h-full flex-col p-8">
+    <div className="flex h-full flex-col p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Inventory</h1>
-        <Link to="/settings/inventory-setup" className="text-sm font-semibold text-blue-700 hover:underline">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Inventory
+        </h1>
+        <Link to="/settings/inventory-setup" className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           ⚙ Manage categories & suppliers
         </Link>
       </div>
@@ -315,21 +318,30 @@ export default function InventoryPage() {
       <div className="mb-4 flex gap-2">
         <button
           onClick={() => setActiveTab("stock")}
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-            activeTab === "stock" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-          }`}
+          className="rounded-full border px-4 py-1.5 font-semibold"
+          style={
+            activeTab === "stock"
+              ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+              : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+          }
         >
           Stock
         </button>
         <button
           onClick={() => setActiveTab("low-stock")}
-          className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold ${
-            activeTab === "low-stock" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-          }`}
+          className="flex items-center gap-2 rounded-full border px-4 py-1.5 font-semibold"
+          style={
+            activeTab === "low-stock"
+              ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+              : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+          }
         >
           Out of Stock / Need to Order
           {allLowStockItems.length > 0 ? (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+            <span
+              className="rounded-full px-2 py-0.5 font-bold"
+              style={{ backgroundColor: "var(--jms-danger)", color: "var(--jms-bg)", fontSize: "var(--jms-font-label)" }}
+            >
               {allLowStockItems.length}
             </span>
           ) : null}
@@ -343,31 +355,40 @@ export default function InventoryPage() {
               <button
                 key={location.id}
                 onClick={() => setSelectedLocationId(location.id)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  selectedLocationId === location.id ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                }`}
+                className="rounded-full border px-3 py-1.5 font-semibold"
+                style={
+                  selectedLocationId === location.id
+                    ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                    : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                }
               >
                 {location.name}
               </button>
             ))}
             <button
               onClick={() => setLocationModalOpen(true)}
-              className="rounded-full bg-gray-100 px-3 py-1.5 text-sm font-semibold text-gray-700"
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
             >
               + New location
             </button>
           </div>
 
           {(locations ?? []).length === 0 ? (
-            <p className="text-sm text-gray-500">Add a location (e.g. "Ute 1") to start tracking stock.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              Add a location (e.g. "Ute 1") to start tracking stock.
+            </p>
           ) : (
             <>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setSelectedCategoryId(null)}
-                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                    selectedCategoryId === null ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                  }`}
+                  className="rounded-full border px-3 py-1.5 font-semibold"
+                  style={
+                    selectedCategoryId === null
+                      ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                      : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                  }
                 >
                   All
                 </button>
@@ -375,9 +396,12 @@ export default function InventoryPage() {
                   <button
                     key={category.id}
                     onClick={() => setSelectedCategoryId(category.id)}
-                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                      selectedCategoryId === category.id ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                    }`}
+                    className="rounded-full border px-3 py-1.5 font-semibold"
+                    style={
+                      selectedCategoryId === category.id
+                        ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                        : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                    }
                   >
                     {category.name}
                   </button>
@@ -385,9 +409,9 @@ export default function InventoryPage() {
               </div>
 
               {(categories ?? []).length === 0 ? (
-                <p className="mb-2 text-sm text-gray-500">
+                <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                   No categories yet -{" "}
-                  <Link to="/settings/inventory-setup" className="font-semibold text-blue-700 hover:underline">
+                  <Link to="/settings/inventory-setup" className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                     manage categories
                   </Link>{" "}
                   to set up Material, Tools, etc. before adding items.
@@ -398,9 +422,12 @@ export default function InventoryPage() {
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setSelectedSubcategoryId(null)}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      selectedSubcategoryId === null ? "bg-blue-700 text-white" : "bg-indigo-50 text-gray-700"
-                    }`}
+                    className="rounded-full border px-3 py-1 font-semibold"
+                    style={
+                      selectedSubcategoryId === null
+                        ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                        : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                    }
                   >
                     All
                   </button>
@@ -408,9 +435,12 @@ export default function InventoryPage() {
                     <button
                       key={subcategory.id}
                       onClick={() => setSelectedSubcategoryId(subcategory.id)}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        selectedSubcategoryId === subcategory.id ? "bg-blue-700 text-white" : "bg-indigo-50 text-gray-700"
-                      }`}
+                      className="rounded-full border px-3 py-1 font-semibold"
+                      style={
+                        selectedSubcategoryId === subcategory.id
+                          ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                          : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                      }
                     >
                       {subcategory.name}
                     </button>
@@ -418,9 +448,11 @@ export default function InventoryPage() {
                 </div>
               ) : null}
 
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-300 bg-white p-3">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded p-3" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
                 {visibleItems.length === 0 ? (
-                  <p className="p-4 text-sm text-gray-500">No items here yet.</p>
+                  <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                    No items here yet.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {visibleItems.map((item) => {
@@ -429,15 +461,22 @@ export default function InventoryPage() {
                       const isLow = level ? level.quantity <= item.reorder_threshold : false;
                       const supplier = item.supplier_id ? supplierById.get(item.supplier_id) : undefined;
                       return (
-                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 p-3">
+                        <div key={item.id} className="flex items-center justify-between gap-3 rounded p-3" style={{ backgroundColor: "var(--jms-bg)" }}>
                           <button onClick={() => openEditItemModal(item)} className="min-w-0 flex-1 text-left">
-                            <p className="truncate text-sm font-semibold text-gray-900">{item.name}</p>
-                            {supplier ? <p className="text-xs text-gray-500">{supplier.name}</p> : null}
+                            <p className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                              {item.name}
+                            </p>
+                            {supplier ? (
+                              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{supplier.name}</p>
+                            ) : null}
                             {isLow ? (
                               <span
-                                className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-bold ${
-                                  quantity === 0 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-800"
-                                }`}
+                                className="mt-1 inline-block rounded-full border px-2 py-0.5 font-bold"
+                                style={{
+                                  borderColor: quantity === 0 ? "var(--jms-danger)" : "var(--jms-warning)",
+                                  color: quantity === 0 ? "var(--jms-danger)" : "var(--jms-warning)",
+                                  fontSize: "var(--jms-font-label)",
+                                }}
                               >
                                 {quantity === 0 ? "Out of stock" : "Low stock"}
                               </span>
@@ -447,15 +486,19 @@ export default function InventoryPage() {
                             <button
                               onClick={() => adjustLevel.mutate({ item, delta: -1 })}
                               disabled={!selectedLocationId || quantity === 0}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-700 text-lg font-bold text-white disabled:opacity-40"
+                              className="flex h-8 w-8 items-center justify-center rounded-full text-lg font-bold disabled:opacity-40"
+                              style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)" }}
                             >
                               &minus;
                             </button>
-                            <span className="w-6 text-center text-sm font-bold text-gray-900">{quantity}</span>
+                            <span className="w-6 text-center font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                              {quantity}
+                            </span>
                             <button
                               onClick={() => adjustLevel.mutate({ item, delta: 1 })}
                               disabled={!selectedLocationId}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-700 text-lg font-bold text-white disabled:opacity-40"
+                              className="flex h-8 w-8 items-center justify-center rounded-full text-lg font-bold disabled:opacity-40"
+                              style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)" }}
                             >
                               +
                             </button>
@@ -466,12 +509,11 @@ export default function InventoryPage() {
                   </div>
                 )}
                 {(categories ?? []).length > 0 ? (
-                  <button
-                    onClick={openNewItemModal}
-                    className="mt-3 w-full rounded-md bg-gray-100 py-2.5 text-sm font-semibold text-blue-700 hover:bg-gray-200"
-                  >
-                    + New item
-                  </button>
+                  <div className="mt-3">
+                    <ThemedButton variant="secondary" onClick={openNewItemModal} className="w-full">
+                      + New item
+                    </ThemedButton>
+                  </div>
                 ) : null}
               </div>
             </>
@@ -483,9 +525,12 @@ export default function InventoryPage() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setLowStockSupplierId(null)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  lowStockSupplierId === null ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                }`}
+                className="rounded-full border px-3 py-1.5 font-semibold"
+                style={
+                  lowStockSupplierId === null
+                    ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                    : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                }
               >
                 All suppliers
               </button>
@@ -493,9 +538,12 @@ export default function InventoryPage() {
                 <button
                   key={supplier.id}
                   onClick={() => setLowStockSupplierId(supplier.id)}
-                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                    lowStockSupplierId === supplier.id ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                  }`}
+                  className="rounded-full border px-3 py-1.5 font-semibold"
+                  style={
+                    lowStockSupplierId === supplier.id
+                      ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                      : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                  }
                 >
                   {supplier.name}
                 </button>
@@ -505,34 +553,36 @@ export default function InventoryPage() {
 
           {lowStockItems.length > 0 ? (
             <div className="mb-3">
-              <button
-                onClick={handleGenerateShoppingList}
-                disabled={generatingList}
-                className="rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={handleGenerateShoppingList} disabled={generatingList} style={{ paddingBlock: 10, paddingInline: 16 }}>
                 {generatingList
                   ? "Generating..."
                   : lowStockSupplierId
                     ? `Generate Shopping List - ${supplierById.get(lowStockSupplierId)?.name ?? ""}`
                     : "Generate Shopping List"}
-              </button>
-              {shoppingListError ? <p className="mt-2 text-sm text-red-600">{shoppingListError}</p> : null}
+              </ThemedButton>
+              {shoppingListError ? (
+                <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                  {shoppingListError}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-300 bg-white">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             {lowStockItems.length === 0 ? (
-              <p className="p-4 text-sm text-gray-500">
+              <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                 {lowStockSupplierId ? "Nothing low on stock from this supplier." : "Nothing is low on stock right now."}
               </p>
             ) : (
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
                 <tbody>
                   {lowStockItems.map((item) => (
-                    <tr key={item.inventory_level_id} className="border-b border-gray-200 last:border-0">
+                    <tr key={item.inventory_level_id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                       <td className="px-4 py-3">
-                        <p className="font-semibold text-gray-900">{item.item_name}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                          {item.item_name}
+                        </p>
+                        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                           {item.location_name}
                           {item.category_name ? ` · ${item.category_name}` : ""}
                           {item.subcategory_name ? ` · ${item.subcategory_name}` : ""}
@@ -541,9 +591,12 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${
-                            item.quantity === 0 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-800"
-                          }`}
+                          className="inline-block rounded-full border px-2 py-0.5 font-bold"
+                          style={{
+                            borderColor: item.quantity === 0 ? "var(--jms-danger)" : "var(--jms-warning)",
+                            color: item.quantity === 0 ? "var(--jms-danger)" : "var(--jms-warning)",
+                            fontSize: "var(--jms-font-label)",
+                          }}
                         >
                           {item.quantity} / {item.reorder_threshold}
                         </span>
@@ -557,27 +610,27 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <Modal open={locationModalOpen} onClose={() => setLocationModalOpen(false)} title="New location">
-        <FormField label="Name" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)} placeholder='e.g. "Ute 1" or "Main Warehouse"' />
-        <FormField label="Type (optional)" value={newLocationType} onChange={(e) => setNewLocationType(e.target.value)} placeholder="e.g. vehicle, warehouse, shelf" />
-        {locationError ? <p className="mb-4 text-sm text-red-600">{locationError}</p> : null}
+      <ThemedModal open={locationModalOpen} onClose={() => setLocationModalOpen(false)} title="New location">
+        <ThemedFormField label="Name" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)} placeholder='e.g. "Ute 1" or "Main Warehouse"' />
+        <ThemedFormField label="Type (optional)" value={newLocationType} onChange={(e) => setNewLocationType(e.target.value)} placeholder="e.g. vehicle, warehouse, shelf" />
+        {locationError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {locationError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setLocationModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setLocationModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createLocation.mutate()}
-            disabled={createLocation.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createLocation.mutate()} disabled={createLocation.isPending}>
             {createLocation.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={itemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Edit item" : "New item"}>
-        <FormField label="Name" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder='e.g. "Silicone tube - clear"' />
-        <SelectField
+      <ThemedModal open={itemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Edit item" : "New item"}>
+        <ThemedFormField label="Name" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder='e.g. "Silicone tube - clear"' />
+        <ThemedSelectField
           label="Category"
           value={newItemCategoryId}
           onChange={(v) => {
@@ -588,28 +641,28 @@ export default function InventoryPage() {
           placeholder="Select a category"
         />
         {newItemSubcategoryOptions.length > 0 ? (
-          <SelectField
+          <ThemedSelectField
             label="Subcategory (optional)"
             value={newItemSubcategoryId}
             onChange={setNewItemSubcategoryId}
             options={newItemSubcategoryOptions.map((s) => ({ value: s.id, label: s.name }))}
           />
         ) : null}
-        <SelectField
+        <ThemedSelectField
           label="Supplier (optional)"
           value={newItemSupplierId}
           onChange={setNewItemSupplierId}
           options={(suppliers ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Reorder threshold"
             type="number"
             value={newItemReorderThreshold}
             onChange={(e) => setNewItemReorderThreshold(e.target.value)}
             placeholder="5"
           />
-          <FormField
+          <ThemedFormField
             label="Ideal stock"
             type="number"
             value={newItemIdealStock}
@@ -617,24 +670,24 @@ export default function InventoryPage() {
             placeholder="10"
           />
         </div>
-        <p className="mb-4 text-xs text-gray-400">
+        <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           Reorder threshold is when this item shows up in Out of Stock / Need to Order. Ideal stock is what a reorder
           should bring a location back up to.
         </p>
-        {itemError ? <p className="mb-4 text-sm text-red-600">{itemError}</p> : null}
+        {itemError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {itemError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setItemModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setItemModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveItem.mutate()}
-            disabled={saveItem.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveItem.mutate()} disabled={saveItem.isPending}>
             {saveItem.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
