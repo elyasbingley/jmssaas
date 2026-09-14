@@ -12,8 +12,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 
 const IMAGE_BUCKET = "price-book-images";
 
@@ -227,25 +228,41 @@ export default function PriceBookItemPage() {
   });
 
   if (!item) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to={`/price-book/categories/${item.category_id}`} className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link
+        to={`/price-book/categories/${item.category_id}`}
+        className="mb-4 inline-block hover:underline"
+        style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+      >
         &larr; Back to category
       </Link>
 
-      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Tile image</h2>
+      <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        Tile image
+      </h2>
       {item.image_url ? (
-        <img src={item.image_url} alt="" className="mb-2 h-32 w-full rounded-md bg-gray-50 object-cover" />
+        <img src={item.image_url} alt="" className="mb-2 h-32 w-full rounded object-cover" style={{ border: "1px solid var(--jms-border)" }} />
       ) : (
-        <div className="mb-2 flex h-32 w-full items-center justify-center rounded-md bg-gray-100 text-sm text-gray-400">
+        <div
+          className="mb-2 flex h-32 w-full items-center justify-center rounded"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+        >
           No image uploaded
         </div>
       )}
       <div className="mb-2 flex items-center gap-4">
-        <label className="cursor-pointer rounded-md bg-gray-100 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-gray-200">
+        <label
+          className="cursor-pointer rounded px-4 py-2 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           {changeImage.isPending ? "Uploading..." : item.image_url ? "Change image" : "Upload image"}
           <input
             type="file"
@@ -260,128 +277,150 @@ export default function PriceBookItemPage() {
           />
         </label>
         {item.image_url ? (
-          <button onClick={() => removeImage.mutate()} className="text-sm font-semibold text-red-600">
+          <button onClick={() => removeImage.mutate()} className="font-semibold" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             Remove
           </button>
         ) : null}
       </div>
-      {imageError ? <p className="mb-4 text-sm text-red-600">{imageError}</p> : null}
+      {imageError ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {imageError}
+        </p>
+      ) : null}
 
-      <TextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+      <ThemedTextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
 
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Labour rate ($/hr)" value={labourRate} onChange={(e) => setLabourRate(e.target.value)} />
-        <FormField label="Labour hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)} />
+        <ThemedFormField label="Labour rate ($/hr)" value={labourRate} onChange={(e) => setLabourRate(e.target.value)} />
+        <ThemedFormField label="Labour hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
-        <FormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
+        <ThemedFormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
+        <ThemedFormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
       </div>
 
-      <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+      <label className="mb-4 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
         <input type="checkbox" checked={isCalloutFee} onChange={(e) => setIsCalloutFee(e.target.checked)} />
         This is the call-out / service fee
       </label>
-      <p className="mb-4 -mt-3 text-xs text-gray-500">
+      <p className="mb-4 -mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
       </p>
 
-      <div className="mb-4 rounded-md bg-gray-50 p-3">
-        <p className="text-xs font-bold text-gray-500">Computed price</p>
-        <p className="text-xl font-extrabold text-gray-900">{formatCentsAsAud(previewCents)}</p>
+      <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)" }}>
+        <p className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Computed price
+        </p>
+        <p className="text-xl font-extrabold" style={{ color: "var(--jms-accent)" }}>
+          {formatCentsAsAud(previewCents)}
+        </p>
       </div>
 
-      {saveError ? <p className="mb-2 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mb-2 text-sm text-green-700">Saved.</p> : null}
+      {saveError ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
 
-      <button
-        onClick={() => save.mutate()}
-        disabled={save.isPending}
-        className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
+      <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
         {save.isPending ? "Saving..." : "Save changes"}
-      </button>
+      </ThemedButton>
 
-      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Variations</h2>
-      <div className="mb-3 overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        Variations
+      </h2>
+      <div className="mb-3 overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {!variations || variations.length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No variations yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No variations yet.
+          </p>
         ) : (
           variations.map((variation) => (
             <button
               key={variation.id}
               onClick={() => openEditVariation(variation)}
-              className="flex w-full items-center justify-between border-b border-gray-200 px-4 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
+              className="jms-nav-link flex w-full items-center justify-between px-4 py-3 text-left last:border-0"
+              style={{ borderBottom: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
             >
-              <span className="font-medium text-gray-900">{variation.name}</span>
-              <span className="font-semibold text-blue-700">{formatCentsAsAud(computeLineItemUnitPriceCents(variation))}</span>
+              <span className="font-medium" style={{ color: "var(--jms-text)" }}>
+                {variation.name}
+              </span>
+              <span className="font-semibold" style={{ color: "var(--jms-accent)" }}>
+                {formatCentsAsAud(computeLineItemUnitPriceCents(variation))}
+              </span>
             </button>
           ))
         )}
       </div>
-      <button onClick={openNewVariation} className="text-sm font-semibold text-blue-700 hover:underline">
+      <button onClick={openNewVariation} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         + Add variation
       </button>
 
-      <div className="mt-8 border-t border-gray-300 pt-6">
+      <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--jms-border)" }}>
         <button
           onClick={() => deleteItem.mutate()}
-          className="rounded-md bg-red-50 px-6 py-3 text-sm font-semibold text-red-600 hover:bg-red-100"
+          className="rounded px-6 py-3 font-semibold"
+          style={{ border: "1px solid var(--jms-danger)", color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
         >
           Delete item
         </button>
       </div>
 
-      <Modal open={variationModalOpen} onClose={() => setVariationModalOpen(false)} title={editingVariationId ? "Edit variation" : "New variation"}>
-        <FormField
+      <ThemedModal open={variationModalOpen} onClose={() => setVariationModalOpen(false)} title={editingVariationId ? "Edit variation" : "New variation"}>
+        <ThemedFormField
           label="Name"
           value={variationForm.name}
           onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })}
           placeholder="e.g. Standard, Premium"
         />
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Labour rate ($/hr)"
             value={variationForm.labourRate}
             onChange={(e) => setVariationForm({ ...variationForm, labourRate: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Labour hours"
             value={variationForm.labourHours}
             onChange={(e) => setVariationForm({ ...variationForm, labourHours: e.target.value })}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Material cost ($)"
             value={variationForm.materialCost}
             onChange={(e) => setVariationForm({ ...variationForm, materialCost: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Markup (%)"
             value={variationForm.markupPercent}
             onChange={(e) => setVariationForm({ ...variationForm, markupPercent: e.target.value })}
           />
         </div>
-        {variationError ? <p className="mb-4 text-sm text-red-600">{variationError}</p> : null}
+        {variationError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {variationError}
+          </p>
+        ) : null}
         <div className="flex items-center justify-end gap-3">
           {editingVariationId ? (
-            <button onClick={() => deleteVariation.mutate()} className="mr-auto text-sm font-semibold text-red-600">
+            <button onClick={() => deleteVariation.mutate()} className="mr-auto font-semibold" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
               Delete
             </button>
           ) : null}
-          <button onClick={() => setVariationModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setVariationModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveVariation.mutate()}
-            disabled={saveVariation.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveVariation.mutate()} disabled={saveVariation.isPending}>
             {saveVariation.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

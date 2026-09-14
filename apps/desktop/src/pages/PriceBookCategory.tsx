@@ -11,8 +11,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 
 const IMAGE_BUCKET = "price-book-images";
 
@@ -159,18 +160,20 @@ export default function PriceBookCategoryPage() {
   });
 
   return (
-    <div className="p-8">
-      <Link to="/price-book" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/price-book" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Price Book
       </Link>
 
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900">{category?.name ?? ""}</h1>
-          <button onClick={() => setRenameOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {category?.name ?? ""}
+          </h1>
+          <button onClick={() => setRenameOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
             Rename
           </button>
-          <label className="cursor-pointer text-sm font-semibold text-blue-700 hover:underline">
+          <label className="cursor-pointer font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
             {changeCategoryImage.isPending ? "Uploading..." : category?.image_url ? "Change tile image" : "Add tile image"}
             <input
               type="file"
@@ -185,27 +188,30 @@ export default function PriceBookCategoryPage() {
             />
           </label>
           {category?.image_url ? (
-            <button onClick={() => removeCategoryImage.mutate()} className="text-sm font-semibold text-red-600">
+            <button onClick={() => removeCategoryImage.mutate()} className="font-semibold" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
               Remove image
             </button>
           ) : null}
         </div>
-        <button
+        <ThemedButton
           onClick={() => {
             setItemForm(emptyItemForm);
             setItemImageFile(null);
             setItemError(null);
             setNewItemOpen(true);
           }}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
         >
           + New item
-        </button>
+        </ThemedButton>
       </div>
-      {imageError ? <p className="mb-4 text-sm text-red-600">{imageError}</p> : null}
+      {imageError ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {imageError}
+        </p>
+      ) : null}
 
       {!items || items.length === 0 ? (
-        <p className="text-sm text-gray-500">No items yet in this category.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No items yet in this category.</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
           {items.map((item) =>
@@ -213,47 +219,56 @@ export default function PriceBookCategoryPage() {
               <Link
                 key={item.id}
                 to={`/price-book/items/${item.id}`}
-                className="flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-xl bg-gray-100 bg-cover bg-center text-center hover:opacity-90"
-                style={{ backgroundImage: `url(${item.image_url})` }}
+                className="flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-xl bg-cover bg-center text-center hover:opacity-90"
+                style={{ backgroundImage: `url(${item.image_url})`, border: "1px solid var(--jms-border)" }}
               >
                 <div className="flex flex-col gap-0.5 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6">
-                  <span className="line-clamp-2 font-bold text-white">{item.description}</span>
-                  <span className="text-sm font-semibold text-white">{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</span>
+                  <span className="line-clamp-2 font-bold" style={{ color: "var(--jms-text)" }}>
+                    {item.description}
+                  </span>
+                  <span className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
+                    {formatCentsAsAud(computeLineItemUnitPriceCents(item))}
+                  </span>
                 </div>
               </Link>
             ) : (
               <Link
                 key={item.id}
                 to={`/price-book/items/${item.id}`}
-                className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+                className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl p-4 text-center"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
               >
-                <span className="line-clamp-2 font-bold text-gray-900">{item.description}</span>
-                <span className="text-sm font-semibold text-blue-700">{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</span>
+                <span className="line-clamp-2 font-bold" style={{ color: "var(--jms-text)" }}>
+                  {item.description}
+                </span>
+                <span className="font-semibold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                  {formatCentsAsAud(computeLineItemUnitPriceCents(item))}
+                </span>
               </Link>
             ),
           )}
         </div>
       )}
 
-      <Modal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename category">
-        <FormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
-        {renameError ? <p className="mb-4 text-sm text-red-600">{renameError}</p> : null}
+      <ThemedModal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename category">
+        <ThemedFormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+        {renameError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {renameError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => rename.mutate()}
-            disabled={rename.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => rename.mutate()} disabled={rename.isPending}>
             {rename.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={newItemOpen} onClose={() => setNewItemOpen(false)} title="New item">
-        <TextAreaField
+      <ThemedModal open={newItemOpen} onClose={() => setNewItemOpen(false)} title="New item">
+        <ThemedTextAreaField
           label="Description"
           rows={3}
           value={itemForm.description}
@@ -261,56 +276,61 @@ export default function PriceBookCategoryPage() {
           placeholder="e.g. Tile Replacement"
         />
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Labour rate ($/hr)"
             value={itemForm.labourRate}
             onChange={(e) => setItemForm({ ...itemForm, labourRate: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Labour hours"
             value={itemForm.labourHours}
             onChange={(e) => setItemForm({ ...itemForm, labourHours: e.target.value })}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Material cost ($)"
             value={itemForm.materialCost}
             onChange={(e) => setItemForm({ ...itemForm, materialCost: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Markup (%)"
             value={itemForm.markupPercent}
             onChange={(e) => setItemForm({ ...itemForm, markupPercent: e.target.value })}
           />
         </div>
-        <div className="mb-4 rounded-md bg-gray-50 p-3">
-          <p className="text-xs font-bold text-gray-500">Computed price</p>
-          <p className="text-lg font-extrabold text-gray-900">{formatCentsAsAud(previewCents)}</p>
+        <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
+          <p className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Computed price
+          </p>
+          <p className="text-lg font-extrabold" style={{ color: "var(--jms-accent)" }}>
+            {formatCentsAsAud(previewCents)}
+          </p>
         </div>
-        <label className="mb-4 block text-sm font-semibold text-gray-700">
+        <label className="mb-4 block font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           Tile image (optional)
           <input
             type="file"
             accept="image/*"
-            className="mt-1 block w-full text-sm text-gray-600"
+            className="mt-1 block w-full"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
             onChange={(e) => setItemImageFile(e.target.files?.[0] ?? null)}
           />
         </label>
-        {itemError ? <p className="mb-4 text-sm text-red-600">{itemError}</p> : null}
+        {itemError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {itemError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setNewItemOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setNewItemOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createItem.mutate()}
-            disabled={createItem.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createItem.mutate()} disabled={createItem.isPending}>
             {createItem.isPending ? "Saving..." : "Create item"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
