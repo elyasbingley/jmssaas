@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -17,12 +19,14 @@ import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { getErrorMessage } from "../../../lib/errors";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedFormField } from "../../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../../components/theme/ThemedDateField";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { LineItemEditor } from "../../../components/LineItemEditor";
 import { emptyLineItem, normalizeLineItem } from "../../../lib/line-items";
-import { PickerModal } from "../../../components/PickerModal";
-import { FormField } from "../../../components/FormField";
-import { DateField } from "../../../components/DateField";
 import { partnerDisplayName } from "../../b2b-referrals/index";
 
 function toDateInput(d: Date | null): string {
@@ -34,6 +38,7 @@ export default function NewQuoteScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
   // Cross-linking: arriving here from a job card's "+ New quote for this
   // job" button pre-fills and locks the client/job so the created quote
   // automatically links back (job_card_id), matching how the job then shows
@@ -160,78 +165,84 @@ export default function NewQuoteScreen() {
     }
   };
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Quotes" />
-      </View>
-    );
-  }
-
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.sectionTitle}>Client</Text>
-        <Pressable
-          style={styles.pickerField}
-          onPress={() => !lockedFromJob && setClientPickerVisible(true)}
-          disabled={lockedFromJob}
-        >
-          <Text style={client ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {client?.name ?? "Select a client"}
-          </Text>
-        </Pressable>
-
-        <Text style={styles.sectionTitle}>Linked job{lockedFromJob ? "" : " (optional)"}</Text>
-        <Pressable
-          style={styles.pickerField}
-          onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
-          disabled={!client || lockedFromJob}
-        >
-          <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {jobCard?.title ?? (client ? "Select a job" : "Pick a client first")}
-          </Text>
-        </Pressable>
-
-        <View style={styles.fieldSpacing}>
-          <DateField label="Expiry date (optional)" value={expiryDate} onChange={setExpiryDate} mode="date" placeholder="No expiry date" />
-        </View>
-
-        <Text style={styles.sectionTitle}>Referral source (optional)</Text>
-        <Pressable style={styles.pickerField} onPress={() => setReferralPartnerPickerVisible(true)}>
-          <Text style={referralPartner ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {referralPartner ? partnerDisplayName(referralPartner) : "None"}
-          </Text>
-        </Pressable>
-
-        {templates && templates.length > 0 ? (
-          <Pressable style={styles.templateButton} onPress={() => setTemplatePickerVisible(true)}>
-            <Text style={styles.templateButtonText}>Load from template</Text>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-        ) : null}
-
-        <Text style={styles.sectionTitle}>Line items</Text>
-        <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
-
-        <View style={styles.fieldSpacing}>
-          <FormField
-            label="Notes (optional)"
-            placeholder="Terms, exclusions, etc."
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            style={styles.multiline}
-          />
+          <Text style={styles.title}>New Quote</Text>
         </View>
 
-        {formError ? <Text style={styles.error}>{formError}</Text> : null}
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Quotes" />
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <Text style={styles.sectionTitle}>Client</Text>
+            <Pressable
+              style={styles.pickerField}
+              onPress={() => !lockedFromJob && setClientPickerVisible(true)}
+              disabled={lockedFromJob}
+            >
+              <Text style={client ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {client?.name ?? "Select a client"}
+              </Text>
+            </Pressable>
 
-        <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-          <Text style={styles.submitButtonText}>{submitting ? "Saving..." : "Create quote"}</Text>
-        </Pressable>
-      </ScrollView>
+            <Text style={styles.sectionTitle}>Linked Job{lockedFromJob ? "" : " (optional)"}</Text>
+            <Pressable
+              style={styles.pickerField}
+              onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
+              disabled={!client || lockedFromJob}
+            >
+              <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {jobCard?.title ?? (client ? "Select a job" : "Pick a client first")}
+              </Text>
+            </Pressable>
 
-      <PickerModal
+            <View style={styles.fieldSpacing}>
+              <ThemedDateField label="Expiry date (optional)" value={expiryDate} onChange={setExpiryDate} mode="date" placeholder="No expiry date" />
+            </View>
+
+            <Text style={styles.sectionTitle}>Referral Source (optional)</Text>
+            <Pressable style={styles.pickerField} onPress={() => setReferralPartnerPickerVisible(true)}>
+              <Text style={referralPartner ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {referralPartner ? partnerDisplayName(referralPartner) : "None"}
+              </Text>
+            </Pressable>
+
+            {templates && templates.length > 0 ? (
+              <Pressable style={styles.templateButton} onPress={() => setTemplatePickerVisible(true)}>
+                <Text style={styles.templateButtonText}>Load from template</Text>
+              </Pressable>
+            ) : null}
+
+            <Text style={styles.sectionTitle}>Line Items</Text>
+            <LineItemEditor items={lineItems} onChange={setLineItems} tenantId={profile?.tenant_id ?? ""} />
+
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField
+                label="Notes (optional)"
+                placeholder="Terms, exclusions, etc."
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                style={styles.multiline}
+              />
+            </View>
+
+            {formError ? <Text style={styles.error}>{formError}</Text> : null}
+
+            <View style={styles.submitButtonWrap}>
+              <ThemedButton label={submitting ? "Saving..." : "Create Quote"} onPress={handleSubmit} disabled={submitting} />
+            </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
+
+      <ThemedPickerModal
         visible={clientPickerVisible}
         title="Select client"
         items={clients}
@@ -243,7 +254,7 @@ export default function NewQuoteScreen() {
         }}
         onClose={() => setClientPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={jobPickerVisible}
         title="Select a job"
         items={clientJobCards}
@@ -252,7 +263,7 @@ export default function NewQuoteScreen() {
         onSelect={setJobCard}
         onClose={() => setJobPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={templatePickerVisible}
         title="Select template"
         items={templates ?? []}
@@ -261,7 +272,7 @@ export default function NewQuoteScreen() {
         onSelect={(t) => setLineItems(t.default_line_items.map((item, index) => normalizeLineItem(item, index)))}
         onClose={() => setTemplatePickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={referralPartnerPickerVisible}
         title="Select referral source"
         items={referralPartners ?? []}
@@ -274,17 +285,32 @@ export default function NewQuoteScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  fieldSpacing: { marginTop: 16 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldText: { fontSize: 16, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
-  templateButton: { marginTop: 12, alignSelf: "flex-start" },
-  templateButtonText: { color: "#1d4ed8", fontWeight: "600" },
-  error: { color: "#dc2626", marginTop: 12 },
-  submitButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  submitButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 16,
+      marginBottom: 6,
+      ...mono,
+    },
+    fieldSpacing: { marginTop: 16 },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    templateButton: { marginTop: 12, alignSelf: "flex-start" as const },
+    templateButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    submitButtonWrap: { marginTop: 20 },
+  };
+}

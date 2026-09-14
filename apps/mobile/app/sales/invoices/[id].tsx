@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Share, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { collectRecipientEmails, renderTemplate, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type ReferralPartner, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
@@ -10,13 +12,15 @@ import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../lib/pdf";
 import { buildPdfDataUri, exportPdf } from "../../../lib/print";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../../components/CenteredModal";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../../components/theme/ThemedDateField";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
 import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
-import { FormField } from "../../../components/FormField";
-import { DateField } from "../../../components/DateField";
-import { PickerModal } from "../../../components/PickerModal";
 import { partnerDisplayName } from "../../b2b-referrals/index";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
@@ -64,6 +68,7 @@ export default function InvoiceDetailScreen() {
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data, loading, error, refetch } = useSupabaseFetch(async () => {
     const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
@@ -530,338 +535,387 @@ export default function InvoiceDetailScreen() {
     );
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Invoice</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Invoices" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Invoices" />
+        </SafeAreaView>
+      </>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.error}>{error}</Text>
-        <Pressable style={styles.saveButton} onPress={() => refetch()}>
-          <Text style={styles.saveButtonText}>Retry</Text>
-        </Pressable>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <View style={styles.container}>
+            <Text style={styles.error}>{error}</Text>
+            <View style={styles.retryButtonWrap}>
+              <ThemedButton label="Retry" onPress={() => refetch()} />
+            </View>
+          </View>
+        </SafeAreaView>
+      </>
     );
   }
 
   if (loading || !data) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <View style={styles.container}>
+            <Text style={styles.empty}>Loading...</Text>
+          </View>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
     <>
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.title}>{data.invoice.invoice_number}</Text>
-      <Text style={styles.subtitle}>{data.invoice.clients?.name ?? "Unknown client"}</Text>
-      {data.invoice.job_cards ? (
-        <Pressable onPress={() => router.push(`/jobs/${data.invoice.job_card_id}`)}>
-          <Text style={styles.link}>Job: {data.invoice.job_cards.title}</Text>
-        </Pressable>
-      ) : null}
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.title}>{data.invoice.invoice_number}</Text>
+          <Text style={styles.subtitle}>{data.invoice.clients?.name ?? "Unknown client"}</Text>
+          {data.invoice.job_cards ? (
+            <Pressable onPress={() => router.push(`/jobs/${data.invoice.job_card_id}`)}>
+              <Text style={styles.link}>Job: {data.invoice.job_cards.title}</Text>
+            </Pressable>
+          ) : null}
 
-      {jobCard?.is_real_estate_job && agency ? (
-        <Pressable onPress={() => { setBillToError(null); setBillToModalVisible(true); }}>
-          <Text style={styles.link}>
-            Billed to: {data.invoice.bill_to_landlord ? (property?.owner_landlord_name ?? "Landlord (name not on file)") : `${agency.name}${data.invoice.clients ? ` (${data.invoice.clients.name})` : ""}`} - Change
-          </Text>
-        </Pressable>
-      ) : null}
+          {jobCard?.is_real_estate_job && agency ? (
+            <Pressable onPress={() => { setBillToError(null); setBillToModalVisible(true); }}>
+              <Text style={styles.link}>
+                Billed to: {data.invoice.bill_to_landlord ? (property?.owner_landlord_name ?? "Landlord (name not on file)") : `${agency.name}${data.invoice.clients ? ` (${data.invoice.clients.name})` : ""}`} - Change
+              </Text>
+            </Pressable>
+          ) : null}
 
-      {jobCard ? (
-        <View style={styles.referralRow}>
-          <Text style={styles.sectionTitle}>Referral source: {currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
-          <Pressable onPress={() => setReferralPickerVisible(true)}>
-            <Text style={styles.linkButtonText}>{jobCard.referral_partner_id ? "Edit" : "+ Add"}</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      <View style={styles.referralRow}>
-        <Text style={styles.sectionTitle}>PO number: {data.invoice.po_number ?? "Not set"}</Text>
-        <Pressable
-          onPress={() => {
-            setPoNumberInput(data.invoice.po_number ?? "");
-            setPoError(null);
-            setPoModalVisible(true);
-          }}
-        >
-          <Text style={styles.linkButtonText}>{data.invoice.po_number ? "Edit" : "+ Add"}</Text>
-        </Pressable>
-      </View>
-
-      {data.invoice.approval_status ? (
-        <View
-          style={[
-            styles.approvalBadge,
-            data.invoice.approval_status === "accepted" && styles.approvalBadgeAccepted,
-            data.invoice.approval_status === "declined" && styles.approvalBadgeDeclined,
-          ]}
-        >
-          <Text
-            style={[
-              styles.approvalBadgeText,
-              data.invoice.approval_status === "accepted" && styles.approvalBadgeTextAccepted,
-              data.invoice.approval_status === "declined" && styles.approvalBadgeTextDeclined,
-            ]}
-          >
-            {APPROVAL_STATUS_LABELS[data.invoice.approval_status]}
-          </Text>
-        </View>
-      ) : null}
-      {data.invoice.approval_status === "declined" && data.invoice.decline_reason ? (
-        <Text style={styles.declineReason}>Reason: {data.invoice.decline_reason}</Text>
-      ) : null}
-
-      {isAdmin ? (
-        <Pressable style={styles.sendEmailButton} onPress={openSendEmail} disabled={openingEmail}>
-          <Text style={styles.sendEmailButtonText}>{openingEmail ? "Preparing..." : "Send Invoice via Email"}</Text>
-        </Pressable>
-      ) : null}
-      {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
-
-      {isAdmin ? (
-        <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
-          <Text style={styles.linkButtonText}>
-            {generatingLink ? "Generating..." : data.invoice.access_token ? "Share approval link" : "Generate & share approval link"}
-          </Text>
-        </Pressable>
-      ) : null}
-      {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
-
-      {data.invoice.approval_status === "accepted" && data.invoice.status !== "paid" ? (
-        <View style={styles.paymentLinkCard}>
-          <Text style={styles.paymentLinkTitle}>Stripe payment link</Text>
-          {data.invoice.stripe_checkout_url ? (
-            <View style={styles.paymentLinkRow}>
-              <Pressable onPress={() => Linking.openURL(data.invoice.stripe_checkout_url!)}>
-                <Text style={styles.link}>Open payment page →</Text>
-              </Pressable>
-              <Pressable onPress={() => Share.share({ message: data.invoice.stripe_checkout_url! })}>
-                <Text style={styles.link}>Share link</Text>
+          {jobCard ? (
+            <View style={styles.referralRow}>
+              <Text style={styles.sectionTitle}>Referral source: {currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+              <Pressable onPress={() => setReferralPickerVisible(true)}>
+                <Text style={styles.linkButtonText}>{jobCard.referral_partner_id ? "Edit" : "+ Add"}</Text>
               </Pressable>
             </View>
-          ) : (
-            <Pressable onPress={handleGeneratePaymentLink} disabled={generatingPaymentLink}>
-              <Text style={styles.link}>{generatingPaymentLink ? "Generating..." : "Generate payment link"}</Text>
+          ) : null}
+
+          <View style={styles.referralRow}>
+            <Text style={styles.sectionTitle}>PO number: {data.invoice.po_number ?? "Not set"}</Text>
+            <Pressable
+              onPress={() => {
+                setPoNumberInput(data.invoice.po_number ?? "");
+                setPoError(null);
+                setPoModalVisible(true);
+              }}
+            >
+              <Text style={styles.linkButtonText}>{data.invoice.po_number ? "Edit" : "+ Add"}</Text>
             </Pressable>
-          )}
-          {paymentLinkError ? <Text style={styles.error}>{paymentLinkError}</Text> : null}
-        </View>
-      ) : null}
+          </View>
 
-      {data.invoice.status !== "draft" ? (
-        <View style={styles.xeroCard}>
-          <Text style={styles.xeroCardTitle}>Xero</Text>
-          {data.invoice.xero_synced_at ? (
-            <Text style={styles.xeroMeta}>
-              Last synced {new Date(data.invoice.xero_synced_at).toLocaleString("en-AU")}
-              {data.invoice.xero_invoice_id ? (
-                <>
-                  {" - "}
-                  <Text
-                    style={styles.link}
-                    onPress={() =>
-                      Linking.openURL(`https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${data.invoice.xero_invoice_id}`)
-                    }
-                  >
-                    View in Xero
-                  </Text>
-                </>
+          {data.invoice.approval_status ? (
+            <View
+              style={[
+                styles.approvalBadge,
+                data.invoice.approval_status === "accepted" && styles.approvalBadgeAccepted,
+                data.invoice.approval_status === "declined" && styles.approvalBadgeDeclined,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.approvalBadgeText,
+                  data.invoice.approval_status === "accepted" && styles.approvalBadgeTextAccepted,
+                  data.invoice.approval_status === "declined" && styles.approvalBadgeTextDeclined,
+                ]}
+              >
+                {APPROVAL_STATUS_LABELS[data.invoice.approval_status]}
+              </Text>
+            </View>
+          ) : null}
+          {data.invoice.approval_status === "declined" && data.invoice.decline_reason ? (
+            <Text style={styles.declineReason}>Reason: {data.invoice.decline_reason}</Text>
+          ) : null}
+
+          {isAdmin ? (
+            <View style={styles.sendEmailButtonWrap}>
+              <ThemedButton label={openingEmail ? "Preparing..." : "Send Invoice via Email"} onPress={openSendEmail} disabled={openingEmail} />
+            </View>
+          ) : null}
+          {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
+
+          {isAdmin ? (
+            <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
+              <Text style={styles.linkButtonText}>
+                {generatingLink ? "Generating..." : data.invoice.access_token ? "Share approval link" : "Generate & share approval link"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
+
+          {data.invoice.approval_status === "accepted" && data.invoice.status !== "paid" ? (
+            <View style={styles.paymentLinkCard}>
+              <Text style={styles.paymentLinkTitle}>Stripe Payment Link</Text>
+              {data.invoice.stripe_checkout_url ? (
+                <View style={styles.paymentLinkRow}>
+                  <Pressable onPress={() => Linking.openURL(data.invoice.stripe_checkout_url!)}>
+                    <Text style={styles.link}>Open payment page →</Text>
+                  </Pressable>
+                  <Pressable onPress={() => Share.share({ message: data.invoice.stripe_checkout_url! })}>
+                    <Text style={styles.link}>Share link</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable onPress={handleGeneratePaymentLink} disabled={generatingPaymentLink}>
+                  <Text style={styles.link}>{generatingPaymentLink ? "Generating..." : "Generate payment link"}</Text>
+                </Pressable>
+              )}
+              {paymentLinkError ? <Text style={styles.error}>{paymentLinkError}</Text> : null}
+            </View>
+          ) : null}
+
+          {data.invoice.status !== "draft" ? (
+            <View style={styles.xeroCard}>
+              <Text style={styles.xeroCardTitle}>Xero</Text>
+              {data.invoice.xero_synced_at ? (
+                <Text style={styles.xeroMeta}>
+                  Last synced {new Date(data.invoice.xero_synced_at).toLocaleString("en-AU")}
+                  {data.invoice.xero_invoice_id ? (
+                    <>
+                      {" - "}
+                      <Text
+                        style={styles.link}
+                        onPress={() =>
+                          Linking.openURL(`https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${data.invoice.xero_invoice_id}`)
+                        }
+                      >
+                        View in Xero
+                      </Text>
+                    </>
+                  ) : null}
+                </Text>
               ) : null}
+              <Pressable onPress={handleSyncToXero} disabled={syncingXero} style={styles.xeroSyncButton}>
+                <Text style={styles.xeroSyncButtonText}>
+                  {syncingXero ? "Syncing..." : data.invoice.xero_synced_at ? "Re-sync to Xero" : "Sync to Xero"}
+                </Text>
+              </Pressable>
+              {(xeroSyncError || data.invoice.xero_sync_error) ? (
+                <Text style={styles.error}>{xeroSyncError || data.invoice.xero_sync_error}</Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          <Text style={styles.sectionTitle}>Status</Text>
+          <View style={styles.statusRow}>
+            {STATUSES.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.statusChip, data.invoice.status === status && styles.statusChipActive]}
+                onPress={() => handleStatusChange(status)}
+              >
+                <Text style={[styles.statusChipText, data.invoice.status === status && styles.statusChipTextActive]}>
+                  {STATUS_LABELS[status]}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.fieldSpacing}>
+            <ThemedDateField label="Due date" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
+          </View>
+
+          <Text style={styles.sectionTitle}>Line Items</Text>
+          {isLocked ? (
+            <Text style={styles.lockedNotice}>
+              This invoice has been {data.invoice.approval_status} by the client and its line items are now read-only.
             </Text>
           ) : null}
-          <Pressable onPress={handleSyncToXero} disabled={syncingXero} style={styles.xeroSyncButton}>
-            <Text style={styles.xeroSyncButtonText}>
-              {syncingXero ? "Syncing..." : data.invoice.xero_synced_at ? "Re-sync to Xero" : "Sync to Xero"}
-            </Text>
-          </Pressable>
-          {(xeroSyncError || data.invoice.xero_sync_error) ? (
-            <Text style={styles.error}>{xeroSyncError || data.invoice.xero_sync_error}</Text>
+          {isAdmin && !isLocked ? (
+            <LineItemEditor
+              items={lineItems}
+              onChange={setLineItems}
+              membershipDiscountCents={data.invoice.membership_discount_cents}
+              tenantId={profile?.tenant_id ?? ""}
+            />
+          ) : (
+            <LineItemSummary items={lineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
+          )}
+
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField label="Notes" placeholder="Payment terms, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
+          </View>
+
+          {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+
+          {isAdmin && !isLocked ? (
+            <View style={styles.saveButtonWrap}>
+              <ThemedButton label={saving ? "Saving..." : "Save Changes"} onPress={handleSave} disabled={saving} />
+            </View>
           ) : null}
-        </View>
-      ) : null}
 
-      <Text style={styles.sectionTitle}>Status</Text>
-      <View style={styles.statusRow}>
-        {STATUSES.map((status) => (
-          <Pressable
-            key={status}
-            style={[styles.statusChip, data.invoice.status === status && styles.statusChipActive]}
-            onPress={() => handleStatusChange(status)}
-          >
-            <Text style={[styles.statusChipText, data.invoice.status === status && styles.statusChipTextActive]}>
-              {STATUS_LABELS[status]}
-            </Text>
+          {exportError ? <Text style={styles.error}>{exportError}</Text> : null}
+          <Pressable style={styles.exportButton} onPress={handleExportPdf} disabled={exporting}>
+            <Text style={styles.exportButtonText}>{exporting ? "Preparing PDF..." : "Export PDF"}</Text>
           </Pressable>
-        ))}
-      </View>
+        </ScrollView>
+      </SafeAreaView>
 
-      <View style={styles.fieldSpacing}>
-        <DateField label="Due date" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
-      </View>
-
-      <Text style={styles.sectionTitle}>Line items</Text>
-      {isLocked ? (
-        <Text style={styles.lockedNotice}>
-          This invoice has been {data.invoice.approval_status} by the client and its line items are now read-only.
-        </Text>
-      ) : null}
-      {isAdmin && !isLocked ? (
-        <LineItemEditor
-          items={lineItems}
-          onChange={setLineItems}
-          membershipDiscountCents={data.invoice.membership_discount_cents}
-          tenantId={profile?.tenant_id ?? ""}
-        />
-      ) : (
-        <LineItemSummary items={lineItems} membershipDiscountCents={data.invoice.membership_discount_cents} />
-      )}
-
-      <View style={styles.fieldSpacing}>
-        <FormField label="Notes" placeholder="Payment terms, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
-      </View>
-
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-
-      {isAdmin && !isLocked ? (
-        <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
-          <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
-        </Pressable>
-      ) : null}
-
-      {exportError ? <Text style={styles.error}>{exportError}</Text> : null}
-      <Pressable style={styles.exportButton} onPress={handleExportPdf} disabled={exporting}>
-        <Text style={styles.exportButtonText}>{exporting ? "Preparing PDF..." : "Export PDF"}</Text>
-      </Pressable>
-    </ScrollView>
-
-    <CenteredModal visible={billToModalVisible} onClose={() => setBillToModalVisible(false)}>
-      <Text style={styles.modalTitle}>Who is this invoice billed to?</Text>
-      <Pressable
-        style={[styles.billToOption, !data.invoice.bill_to_landlord && styles.billToOptionActive]}
-        onPress={() => handleSetBillToLandlord(false)}
-        disabled={billToSaving}
-      >
-        <Text style={styles.billToOptionTitle}>Agency / Property Manager</Text>
-        <Text style={styles.billToOptionMeta}>
-          {agency?.name}
-          {data.invoice.clients ? ` - ${data.invoice.clients.name}` : ""}
-        </Text>
-      </Pressable>
-      <Pressable
-        style={[styles.billToOption, data.invoice.bill_to_landlord && styles.billToOptionActive]}
-        onPress={() => handleSetBillToLandlord(true)}
-        disabled={billToSaving}
-      >
-        <Text style={styles.billToOptionTitle}>Landlord / Owner</Text>
-        {property?.owner_landlord_name || property?.owner_landlord_email ? (
+      <ThemedModal visible={billToModalVisible} onClose={() => setBillToModalVisible(false)}>
+        <Text style={styles.modalTitle}>Who Is This Invoice Billed To?</Text>
+        <Pressable
+          style={[styles.billToOption, !data.invoice.bill_to_landlord && styles.billToOptionActive]}
+          onPress={() => handleSetBillToLandlord(false)}
+          disabled={billToSaving}
+        >
+          <Text style={styles.billToOptionTitle}>Agency / Property Manager</Text>
           <Text style={styles.billToOptionMeta}>
-            {property.owner_landlord_name}
-            {property.owner_landlord_email ? ` - ${property.owner_landlord_email}` : ""}
+            {agency?.name}
+            {data.invoice.clients ? ` - ${data.invoice.clients.name}` : ""}
           </Text>
-        ) : (
-          <Text style={styles.billToOptionMeta}>No landlord contact on file yet - add one from the desktop app first.</Text>
-        )}
-      </Pressable>
-      {billToError ? <Text style={styles.error}>{billToError}</Text> : null}
-      <Pressable onPress={() => setBillToModalVisible(false)}>
-        <Text style={styles.link}>Close</Text>
-      </Pressable>
-    </CenteredModal>
-
-    <EmailComposeModal
-      visible={emailModalVisible}
-      onClose={() => setEmailModalVisible(false)}
-      title="Send invoice"
-      defaultTo={invoiceRecipientEmail}
-      defaultSubject={emailDefaults.subject}
-      defaultBody={emailDefaults.body}
-      defaultAttachments={emailDefaultAttachments}
-      recipientOptions={recipientOptions}
-      onSend={handleSendEmail}
-      sendLabel="Send invoice"
-    />
-
-    <CenteredModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>
-      <Text style={styles.modalTitle}>PO number</Text>
-      <FormField label="PO number" placeholder="e.g. PO-4821" value={poNumberInput} onChangeText={setPoNumberInput} />
-      {poError ? <Text style={styles.error}>{poError}</Text> : null}
-      <View style={styles.modalActions}>
-        <Pressable onPress={() => setPoModalVisible(false)}>
-          <Text style={styles.link}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.saveButton} onPress={handleSavePoNumber} disabled={poSaving}>
-          <Text style={styles.saveButtonText}>{poSaving ? "Saving..." : "Save"}</Text>
+        <Pressable
+          style={[styles.billToOption, data.invoice.bill_to_landlord && styles.billToOptionActive]}
+          onPress={() => handleSetBillToLandlord(true)}
+          disabled={billToSaving}
+        >
+          <Text style={styles.billToOptionTitle}>Landlord / Owner</Text>
+          {property?.owner_landlord_name || property?.owner_landlord_email ? (
+            <Text style={styles.billToOptionMeta}>
+              {property.owner_landlord_name}
+              {property.owner_landlord_email ? ` - ${property.owner_landlord_email}` : ""}
+            </Text>
+          ) : (
+            <Text style={styles.billToOptionMeta}>No landlord contact on file yet - add one from the desktop app first.</Text>
+          )}
         </Pressable>
-      </View>
-    </CenteredModal>
+        {billToError ? <Text style={styles.error}>{billToError}</Text> : null}
+        <Pressable onPress={() => setBillToModalVisible(false)}>
+          <Text style={styles.link}>Close</Text>
+        </Pressable>
+      </ThemedModal>
 
-    <PickerModal
-      visible={referralPickerVisible}
-      title="Referral source"
-      items={[null, ...(referralPartners ?? [])]}
-      getKey={(p) => p?.id ?? "none"}
-      getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
-      onSelect={handleSelectReferralPartner}
-      onClose={() => setReferralPickerVisible(false)}
-    />
+      <EmailComposeModal
+        visible={emailModalVisible}
+        onClose={() => setEmailModalVisible(false)}
+        title="Send invoice"
+        defaultTo={invoiceRecipientEmail}
+        defaultSubject={emailDefaults.subject}
+        defaultBody={emailDefaults.body}
+        defaultAttachments={emailDefaultAttachments}
+        recipientOptions={recipientOptions}
+        onSend={handleSendEmail}
+        sendLabel="Send invoice"
+      />
+
+      <ThemedModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>
+        <Text style={styles.modalTitle}>PO Number</Text>
+        <ThemedFormField label="PO number" placeholder="e.g. PO-4821" value={poNumberInput} onChangeText={setPoNumberInput} />
+        {poError ? <Text style={styles.error}>{poError}</Text> : null}
+        <View style={styles.modalActions}>
+          <Pressable onPress={() => setPoModalVisible(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+          <ThemedButton label={poSaving ? "Saving..." : "Save"} onPress={handleSavePoNumber} disabled={poSaving} />
+        </View>
+      </ThemedModal>
+
+      <ThemedPickerModal
+        visible={referralPickerVisible}
+        title="Referral source"
+        items={[null, ...(referralPartners ?? [])]}
+        getKey={(p) => p?.id ?? "none"}
+        getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
+        onSelect={handleSelectReferralPartner}
+        onClose={() => setReferralPickerVisible(false)}
+      />
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 20, fontWeight: "700" },
-  subtitle: { color: "#6b7280", marginTop: 2 },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  referralRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
-  statusChipActive: { backgroundColor: "#1d4ed8" },
-  statusChipText: { color: "#374151", fontWeight: "600" },
-  statusChipTextActive: { color: "#fff" },
-  fieldSpacing: { marginTop: 16 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  error: { color: "#dc2626", marginTop: 12 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  billToOption: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, marginTop: 8 },
-  billToOptionActive: { borderColor: "#1d4ed8", backgroundColor: "#eff6ff" },
-  billToOptionTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  billToOptionMeta: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  paymentLinkCard: { marginTop: 12, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", borderRadius: 8, padding: 12, gap: 4 },
-  paymentLinkTitle: { fontSize: 11, fontWeight: "700", color: "#15803d", textTransform: "uppercase" },
-  paymentLinkRow: { flexDirection: "row", gap: 16 },
-  xeroCard: { marginTop: 12, borderWidth: 1, borderColor: "#bfdbfe", backgroundColor: "#eff6ff", borderRadius: 8, padding: 12, gap: 4 },
-  xeroCardTitle: { fontSize: 11, fontWeight: "700", color: "#1e40af", textTransform: "uppercase" },
-  xeroMeta: { fontSize: 12, color: "#6b7280" },
-  xeroSyncButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, alignSelf: "flex-start", marginTop: 4 },
-  xeroSyncButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  approvalBadge: { alignSelf: "flex-start", backgroundColor: "#fef9c3", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, marginTop: 10 },
-  approvalBadgeAccepted: { backgroundColor: "#dcfce7" },
-  approvalBadgeDeclined: { backgroundColor: "#fee2e2" },
-  approvalBadgeText: { fontSize: 12, fontWeight: "700", color: "#854d0e" },
-  approvalBadgeTextAccepted: { color: "#15803d" },
-  approvalBadgeTextDeclined: { color: "#b91c1c" },
-  declineReason: { color: "#b91c1c", fontSize: 13, marginTop: 6 },
-  sendEmailButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 14 },
-  sendEmailButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  linkButton: { alignSelf: "flex-start", marginTop: 10 },
-  linkButtonText: { color: "#1d4ed8", fontWeight: "600" },
-  lockedNotice: { color: "#6b7280", fontSize: 13, marginBottom: 8 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  exportButton: { borderRadius: 8, padding: 14, alignItems: "center", marginTop: 12, backgroundColor: "#f3f4f6" },
-  exportButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 16 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  link: { color: "#1d4ed8", fontWeight: "600", marginTop: 4 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    title: { fontSize: font.title, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, ...mono },
+    subtitle: { color: tokens.textMuted, marginTop: 2, fontSize: font.body - 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 16,
+      marginBottom: 6,
+      ...mono,
+    },
+    referralRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, marginTop: 4 },
+    statusRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8 },
+    statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface },
+    statusChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    statusChipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.body - 1, ...mono },
+    statusChipTextActive: { color: tokens.accent },
+    fieldSpacing: { marginTop: 16 },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    retryButtonWrap: { marginTop: 12, alignSelf: "flex-start" as const },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 16 },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    billToOption: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, marginTop: 8, backgroundColor: tokens.background },
+    billToOptionActive: { borderColor: tokens.accent, backgroundColor: tokens.accentGlow },
+    billToOptionTitle: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    billToOptionMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    paymentLinkCard: { marginTop: 12, borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 4, padding: 12, gap: 4 },
+    paymentLinkTitle: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, ...mono },
+    paymentLinkRow: { flexDirection: "row" as const, gap: 16 },
+    xeroCard: { marginTop: 12, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, gap: 4 },
+    xeroCardTitle: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, textTransform: "uppercase" as const, letterSpacing: 1, ...mono },
+    xeroMeta: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    xeroSyncButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 8, alignSelf: "flex-start" as const, marginTop: 4 },
+    xeroSyncButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    approvalBadge: { alignSelf: "flex-start" as const, borderWidth: 1, borderColor: tokens.warning, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 4, marginTop: 10 },
+    approvalBadgeAccepted: { borderColor: tokens.accent, backgroundColor: tokens.accentGlow },
+    approvalBadgeDeclined: { borderColor: tokens.danger },
+    approvalBadgeText: { fontSize: font.label, fontWeight: "700" as const, color: tokens.warning, ...mono },
+    approvalBadgeTextAccepted: { color: tokens.accent },
+    approvalBadgeTextDeclined: { color: tokens.danger },
+    declineReason: { color: tokens.danger, fontSize: font.label, marginTop: 6, ...mono },
+    sendEmailButtonWrap: { marginTop: 14 },
+    linkButton: { alignSelf: "flex-start" as const, marginTop: 10 },
+    linkButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    lockedNotice: { color: tokens.textMuted, fontSize: font.label, marginBottom: 8, ...mono },
+    saveButtonWrap: { marginTop: 20 },
+    exportButton: { borderRadius: 3, padding: 14, alignItems: "center" as const, marginTop: 12, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface },
+    exportButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.body, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, marginTop: 4, ...mono },
+  };
+}
