@@ -487,7 +487,7 @@ export default function JobDetailScreen() {
     refetchKeyLog();
   };
 
-  const [activeTab, setActiveTab] = useState<"details" | "costing">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "costing" | "tools">("details");
   const [markupPhoto, setMarkupPhoto] = useState<JobFileWithLocalUri | null>(null);
   const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
   const isAdmin = profile?.role === "admin";
@@ -1064,14 +1064,14 @@ export default function JobDetailScreen() {
             <Text style={styles.clientCardName}>{client.name}</Text>
           </Pressable>
         ) : null}
+        {client && formatClientAddress(client) ? (
+          <Pressable style={styles.clientCard} onPress={() => openInMaps(formatClientAddress(client) as string)}>
+            <Text style={styles.clientCardName}>📍 {formatClientAddress(client)}</Text>
+          </Pressable>
+        ) : null}
         {client?.phone ? (
           <Pressable onPress={() => callPhone(client.phone as string)}>
             <Text style={styles.clientCardMeta}>📞 {client.phone}</Text>
-          </Pressable>
-        ) : null}
-        {client && formatClientAddress(client) ? (
-          <Pressable onPress={() => openInMaps(formatClientAddress(client) as string)}>
-            <Text style={styles.clientCardMeta}>📍 {formatClientAddress(client)}</Text>
           </Pressable>
         ) : null}
 
@@ -1100,22 +1100,22 @@ export default function JobDetailScreen() {
         <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
 
         <Pressable
-          style={styles.workdriveRow}
+          style={styles.bigLinkRow}
           onPress={() => router.push({ pathname: "/sales/jobs/billing", params: { jobCardId: job.id } })}
         >
-          <Text style={styles.workdriveLabel}>Billing</Text>
-          <Text style={styles.link}>
+          <Text style={styles.bigLinkLabel}>Billing</Text>
+          <Text style={styles.bigLinkMeta}>
             {(linkedQuotes ?? []).length + (linkedInvoices ?? []).length} item
             {(linkedQuotes ?? []).length + (linkedInvoices ?? []).length === 1 ? "" : "s"} ›
           </Text>
         </Pressable>
 
         <Pressable
-          style={styles.workdriveRow}
+          style={styles.bigLinkRow}
           onPress={() => router.push({ pathname: "/sales/jobs/diary", params: { jobCardId: job.id } })}
         >
-          <Text style={styles.workdriveLabel}>Diary</Text>
-          <Text style={styles.link}>Notes · Photos · Files ›</Text>
+          <Text style={styles.bigLinkLabel}>Diary</Text>
+          <Text style={styles.bigLinkMeta}>Notes · Photos · Files ›</Text>
         </Pressable>
 
         {job.is_real_estate_job ? (
@@ -1179,7 +1179,64 @@ export default function JobDetailScreen() {
             <Text style={[styles.tabButtonText, activeTab === "costing" && styles.tabButtonTextActive]}>Job Costing</Text>
           </Pressable>
         ) : null}
+        <Pressable
+          style={[styles.tabButton, activeTab === "tools" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("tools")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "tools" && styles.tabButtonTextActive]}>Job Tools</Text>
+        </Pressable>
       </View>
+
+      {activeTab === "tools" ? (
+        <View style={styles.section}>
+          <Text style={styles.subtitle}>Roof Area</Text>
+          <MeasureRoofTool jobCardId={id} />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Linear Measurer</Text>
+          <LinearMeasurerTool jobCardId={id} />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Tally</Text>
+          <MaterialTallyCounter jobCardId={id} onTransferToOrder={(items) => setTransferredTallyItems(items)} />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Concrete Calculator</Text>
+          <ConcreteCalculatorTool jobCardId={id} />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Order</Text>
+          <MaterialOrderFormTool
+            jobCardId={id}
+            prefillItems={transferredTallyItems}
+            onConsumedPrefill={() => setTransferredTallyItems(null)}
+          />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Photo Markup</Text>
+          {markupPhoto ? (
+            <PhotoMarkupEditor
+              jobCardId={id}
+              photoUri={markupPhoto.local_uri!}
+              photoFileName={markupPhoto.file_name ?? "photo.jpg"}
+              onSaved={() => setMarkupPhoto(null)}
+              onCancel={() => setMarkupPhoto(null)}
+            />
+          ) : (
+            <>
+              <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
+              <View style={styles.markupGrid}>
+                {files.filter((f) => f.local_uri).length === 0 ? (
+                  <Text style={styles.empty}>No downloaded photos yet - add or open one from the Diary first.</Text>
+                ) : (
+                  files
+                    .filter((f) => f.local_uri)
+                    .map((f) => (
+                      <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
+                        <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
+                      </Pressable>
+                    ))
+                )}
+              </View>
+            </>
+          )}
+        </View>
+      ) : null}
 
       {activeTab === "costing" && isAdmin ? (
         !isOnline ? (
@@ -1319,56 +1376,6 @@ export default function JobDetailScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Job Tools</Text>
-        <Text style={styles.subtitle}>Roof Area</Text>
-        <MeasureRoofTool jobCardId={id} />
-
-        <Text style={[styles.subtitle, { marginTop: 20 }]}>Linear Measurer</Text>
-        <LinearMeasurerTool jobCardId={id} />
-
-        <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Tally</Text>
-        <MaterialTallyCounter jobCardId={id} onTransferToOrder={(items) => setTransferredTallyItems(items)} />
-
-        <Text style={[styles.subtitle, { marginTop: 20 }]}>Concrete Calculator</Text>
-        <ConcreteCalculatorTool jobCardId={id} />
-
-        <Text style={[styles.subtitle, { marginTop: 20 }]}>Material Order</Text>
-        <MaterialOrderFormTool
-          jobCardId={id}
-          prefillItems={transferredTallyItems}
-          onConsumedPrefill={() => setTransferredTallyItems(null)}
-        />
-
-        <Text style={[styles.subtitle, { marginTop: 20 }]}>Photo Markup</Text>
-        {markupPhoto ? (
-          <PhotoMarkupEditor
-            jobCardId={id}
-            photoUri={markupPhoto.local_uri!}
-            photoFileName={markupPhoto.file_name ?? "photo.jpg"}
-            onSaved={() => setMarkupPhoto(null)}
-            onCancel={() => setMarkupPhoto(null)}
-          />
-        ) : (
-          <>
-            <Text style={styles.subtitle}>Pick a photo to annotate. The annotated copy is saved as a new attachment.</Text>
-            <View style={styles.markupGrid}>
-              {files.filter((f) => f.local_uri).length === 0 ? (
-                <Text style={styles.empty}>No downloaded photos yet - add or open one from the Diary first.</Text>
-              ) : (
-                files
-                  .filter((f) => f.local_uri)
-                  .map((f) => (
-                    <Pressable key={f.id} style={styles.markupThumbWrap} onPress={() => setMarkupPhoto(f)}>
-                      <Image source={{ uri: f.local_uri! }} style={styles.markupThumb} />
-                    </Pressable>
-                  ))
-              )}
-            </View>
-          </>
-        )}
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Upcoming Bookings</Text>
         {(upcomingBookings ?? []).map((event) => (
           <Pressable key={event.id} style={styles.linkedRow} onPress={() => router.push(`/calendar/${event.id}`)}>
@@ -1451,7 +1458,7 @@ export default function JobDetailScreen() {
                 setCreateReportModalVisible(true);
               }}
             >
-              <Text style={styles.linkButtonText}>+ Create New Report</Text>
+              <Text style={styles.linkButtonText}>+ Create New Form</Text>
             </Pressable>
             <Pressable
               style={styles.linkButton}
@@ -1784,7 +1791,7 @@ export default function JobDetailScreen() {
     />
 
     <ThemedModal visible={createReportModalVisible} onClose={() => setCreateReportModalVisible(false)}>
-      <Text style={styles.modalTitle}>Create new report</Text>
+      <Text style={styles.modalTitle}>Create new form</Text>
       <ThemedFormField label="Search templates" value={createReportSearch} onChangeText={setCreateReportSearch} placeholder="Search by title..." />
       {createReportError ? <Text style={styles.error}>{createReportError}</Text> : null}
       {(activeReportTemplates ?? [])
@@ -1909,6 +1916,27 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     tabButtonActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
     tabButtonText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: font.body - 1, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
     tabButtonTextActive: { color: tokens.accent },
+    bigLinkRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      marginTop: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentGlow,
+    },
+    bigLinkLabel: {
+      color: tokens.accent,
+      fontWeight: "700" as const,
+      fontSize: font.body + 1,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    bigLinkMeta: { color: tokens.textPrimary, fontSize: font.label, ...mono },
     costingDocRow: {
       flexDirection: "row" as const,
       justifyContent: "space-between" as const,
