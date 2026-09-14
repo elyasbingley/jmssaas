@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   updatePropertyContactSchema,
   updatePropertyDetailsSchema,
@@ -13,10 +15,12 @@ import { supabase } from "../../lib/supabase";
 import { useIsOnline } from "../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Mobile port of apps/desktop/src/pages/PropertyDetail.tsx's Access &
 // Contacts tab + "Edit property details" action - Asset Register and Job
@@ -32,7 +36,9 @@ const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
 
 export default function PropertyDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: property, refetch: refetchProperty } = useSupabaseFetch<Property | null>(async () => {
     if (!isOnline) return null;
@@ -190,93 +196,116 @@ export default function PropertyDetailScreen() {
     refetchProperty();
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Property</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Property" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Property" />
+        </SafeAreaView>
+      </>
     );
   }
 
   if (!property) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Loading...</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{property.address_line1}</Text>
-          <Text style={styles.subtitle}>
-            {property.suburb} {property.state} {property.postcode}
-          </Text>
-          <View style={styles.badgeRow}>
-            {agency ? <Text style={styles.badge}>{agency.name}</Text> : null}
-            {propertyManager ? (
-              <Text style={[styles.badge, styles.badgeBlue]}>
-                PM: {propertyManager.first_name} {propertyManager.last_name}
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{property.address_line1}</Text>
+              <Text style={styles.subtitle}>
+                {property.suburb} {property.state} {property.postcode}
               </Text>
-            ) : null}
-            {property.key_tag_number ? <Text style={[styles.badge, styles.badgeYellow]}>🔑 {property.key_tag_number}</Text> : null}
+              <View style={styles.badgeRow}>
+                {agency ? <Text style={styles.badge}>{agency.name}</Text> : null}
+                {propertyManager ? (
+                  <Text style={[styles.badge, styles.badgeAccent]}>
+                    PM: {propertyManager.first_name} {propertyManager.last_name}
+                  </Text>
+                ) : null}
+                {property.key_tag_number ? <Text style={[styles.badge, styles.badgeWarning]}>🔑 {property.key_tag_number}</Text> : null}
+              </View>
+            </View>
+            <Pressable onPress={openEditDetails}>
+              <Text style={styles.link}>Edit property</Text>
+            </Pressable>
           </View>
-        </View>
-        <Pressable onPress={openEditDetails}>
-          <Text style={styles.link}>Edit property</Text>
-        </Pressable>
-      </View>
 
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Access & Contacts</Text>
-        <Pressable onPress={openEditContact}>
-          <Text style={styles.link}>Edit</Text>
-        </Pressable>
-      </View>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Access & Contacts</Text>
+            <Pressable onPress={openEditContact}>
+              <Text style={styles.link}>Edit</Text>
+            </Pressable>
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Landlord / Owner</Text>
-        {property.owner_landlord_name ? <Text style={styles.cardName}>{property.owner_landlord_name}</Text> : null}
-        {property.owner_landlord_phone ? (
-          <Pressable onPress={() => Linking.openURL(`tel:${property.owner_landlord_phone}`)}>
-            <Text style={styles.cardMeta}>{property.owner_landlord_phone}</Text>
-          </Pressable>
-        ) : null}
-        {property.owner_landlord_email ? <Text style={styles.cardMeta}>{property.owner_landlord_email}</Text> : null}
-        {!property.owner_landlord_name && !property.owner_landlord_phone && !property.owner_landlord_email ? (
-          <Text style={styles.emptySmall}>Not on file</Text>
-        ) : null}
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Landlord / Owner</Text>
+            {property.owner_landlord_name ? <Text style={styles.cardName}>{property.owner_landlord_name}</Text> : null}
+            {property.owner_landlord_phone ? (
+              <Pressable onPress={() => Linking.openURL(`tel:${property.owner_landlord_phone}`)}>
+                <Text style={styles.cardMeta}>{property.owner_landlord_phone}</Text>
+              </Pressable>
+            ) : null}
+            {property.owner_landlord_email ? <Text style={styles.cardMeta}>{property.owner_landlord_email}</Text> : null}
+            {!property.owner_landlord_name && !property.owner_landlord_phone && !property.owner_landlord_email ? (
+              <Text style={styles.emptySmall}>Not on file</Text>
+            ) : null}
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Tenant Contact</Text>
-        {property.tenant_name ? <Text style={styles.cardName}>{property.tenant_name}</Text> : null}
-        {property.tenant_phone ? (
-          <Pressable onPress={() => Linking.openURL(`tel:${property.tenant_phone}`)}>
-            <Text style={styles.cardMeta}>{property.tenant_phone}</Text>
-          </Pressable>
-        ) : null}
-        {property.tenant_email ? <Text style={styles.cardMeta}>{property.tenant_email}</Text> : null}
-        {!property.tenant_phone && !property.tenant_email ? <Text style={styles.emptySmall}>Not on file</Text> : null}
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Tenant Contact</Text>
+            {property.tenant_name ? <Text style={styles.cardName}>{property.tenant_name}</Text> : null}
+            {property.tenant_phone ? (
+              <Pressable onPress={() => Linking.openURL(`tel:${property.tenant_phone}`)}>
+                <Text style={styles.cardMeta}>{property.tenant_phone}</Text>
+              </Pressable>
+            ) : null}
+            {property.tenant_email ? <Text style={styles.cardMeta}>{property.tenant_email}</Text> : null}
+            {!property.tenant_phone && !property.tenant_email ? <Text style={styles.emptySmall}>Not on file</Text> : null}
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Access Notes</Text>
-        <Text style={styles.cardMeta}>{property.access_notes || "No access notes on file."}</Text>
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Access Notes</Text>
+            <Text style={styles.cardMeta}>{property.access_notes || "No access notes on file."}</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
 
-      <CenteredModal visible={contactModalVisible} onClose={() => setContactModalVisible(false)}>
-        <Text style={styles.modalTitle}>Edit access & contacts</Text>
-        <FormField label="Owner / landlord name" value={ownerName} onChangeText={setOwnerName} />
-        <FormField label="Landlord mobile" value={ownerPhone} onChangeText={setOwnerPhone} keyboardType="phone-pad" />
-        <FormField label="Landlord email" value={ownerEmail} onChangeText={setOwnerEmail} keyboardType="email-address" autoCapitalize="none" />
-        <FormField label="Tenant name" value={tenantName} onChangeText={setTenantName} />
-        <FormField label="Tenant mobile" value={tenantPhone} onChangeText={setTenantPhone} keyboardType="phone-pad" />
-        <FormField label="Tenant email" value={tenantEmail} onChangeText={setTenantEmail} keyboardType="email-address" autoCapitalize="none" />
-        <FormField label="Key tag number" placeholder="e.g. Key #42" value={keyTagNumber} onChangeText={setKeyTagNumber} />
-        <FormField
+      <ThemedModal visible={contactModalVisible} onClose={() => setContactModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit Access & Contacts</Text>
+        <ThemedFormField label="Owner / landlord name" value={ownerName} onChangeText={setOwnerName} />
+        <ThemedFormField label="Landlord mobile" value={ownerPhone} onChangeText={setOwnerPhone} keyboardType="phone-pad" />
+        <ThemedFormField label="Landlord email" value={ownerEmail} onChangeText={setOwnerEmail} keyboardType="email-address" autoCapitalize="none" />
+        <ThemedFormField label="Tenant name" value={tenantName} onChangeText={setTenantName} />
+        <ThemedFormField label="Tenant mobile" value={tenantPhone} onChangeText={setTenantPhone} keyboardType="phone-pad" />
+        <ThemedFormField label="Tenant email" value={tenantEmail} onChangeText={setTenantEmail} keyboardType="email-address" autoCapitalize="none" />
+        <ThemedFormField label="Key tag number" placeholder="e.g. Key #42" value={keyTagNumber} onChangeText={setKeyTagNumber} />
+        <ThemedFormField
           label="Access notes"
           placeholder="Gate codes, alarm codes, pet warnings, parking..."
           value={accessNotes}
@@ -289,14 +318,12 @@ export default function PropertyDetailScreen() {
           <Pressable onPress={() => setContactModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveContact}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveContact} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={detailsModalVisible} onClose={() => setDetailsModalVisible(false)}>
-        <Text style={styles.modalTitle}>Edit property details</Text>
+      <ThemedModal visible={detailsModalVisible} onClose={() => setDetailsModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit Property Details</Text>
         <Text style={styles.fieldLabel}>Agency</Text>
         <Pressable style={styles.pickerField} onPress={() => setDetailsAgencyPickerVisible(true)}>
           <Text style={styles.pickerFieldText}>{(allAgencies ?? []).find((a) => a.id === detailsAgencyId)?.name ?? "Select agency"}</Text>
@@ -310,14 +337,14 @@ export default function PropertyDetailScreen() {
             })()}
           </Text>
         </Pressable>
-        <FormField label="Address line 1" value={detailsAddress} onChangeText={setDetailsAddress} />
-        <FormField label="Suburb" value={detailsSuburb} onChangeText={setDetailsSuburb} />
+        <ThemedFormField label="Address line 1" value={detailsAddress} onChangeText={setDetailsAddress} />
+        <ThemedFormField label="Suburb" value={detailsSuburb} onChangeText={setDetailsSuburb} />
         <View style={styles.addressRow}>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="State" value={detailsState} onChangeText={setDetailsState} autoCapitalize="characters" />
+            <ThemedFormField label="State" value={detailsState} onChangeText={setDetailsState} autoCapitalize="characters" />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="Postcode" value={detailsPostcode} onChangeText={setDetailsPostcode} keyboardType="number-pad" />
+            <ThemedFormField label="Postcode" value={detailsPostcode} onChangeText={setDetailsPostcode} keyboardType="number-pad" />
           </View>
         </View>
         <Text style={styles.fieldLabel}>Property type</Text>
@@ -329,12 +356,10 @@ export default function PropertyDetailScreen() {
           <Pressable onPress={() => setDetailsModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveDetails}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveDetails} />
         </View>
-      </CenteredModal>
-      <PickerModal
+      </ThemedModal>
+      <ThemedPickerModal
         visible={detailsAgencyPickerVisible}
         title="Select agency"
         items={allAgencies ?? []}
@@ -346,7 +371,7 @@ export default function PropertyDetailScreen() {
         }}
         onClose={() => setDetailsAgencyPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={detailsPmPickerVisible}
         title="Select property manager"
         items={(allPropertyManagers ?? []).filter((pm) => pm.agency_id === detailsAgencyId)}
@@ -355,7 +380,7 @@ export default function PropertyDetailScreen() {
         onSelect={(pm) => setDetailsPmId(pm.id)}
         onClose={() => setDetailsPmPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={detailsTypePickerVisible}
         title="Select type"
         items={PROPERTY_TYPE_OPTIONS}
@@ -364,38 +389,58 @@ export default function PropertyDetailScreen() {
         onSelect={(o) => setDetailsPropertyType(o.value)}
         onClose={() => setDetailsTypePickerVisible(false)}
       />
-    </ScrollView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  emptySmall: { color: "#9ca3af", fontSize: 13 },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
-  title: { fontSize: 20, fontWeight: "700", color: "#111827" },
-  subtitle: { color: "#6b7280", marginTop: 2 },
-  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  badge: { fontSize: 11, fontWeight: "700", color: "#374151", backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeBlue: { color: "#1e40af", backgroundColor: "#dbeafe" },
-  badgeYellow: { color: "#854d0e", backgroundColor: "#fef9c3" },
-  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  sectionTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  card: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, marginBottom: 10, gap: 2 },
-  cardTitle: { fontSize: 11, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 4 },
-  cardName: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  cardMeta: { fontSize: 13, color: "#374151" },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, marginBottom: 12 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
-  addressRow: { flexDirection: "row", gap: 8 },
-  addressRowItemSmall: { flex: 1 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  error: { color: "#dc2626" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    emptySmall: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    headerRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 12, marginBottom: 16 },
+    title: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, ...mono },
+    subtitle: { color: tokens.textMuted, marginTop: 2, fontSize: font.body - 1, ...mono },
+    badgeRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 8 },
+    badge: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3, ...mono },
+    badgeAccent: { color: tokens.accent, borderColor: tokens.accent, backgroundColor: tokens.accentGlow },
+    badgeWarning: { color: tokens.warning, borderColor: tokens.warning },
+    sectionHeaderRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginBottom: 8 },
+    sectionTitle: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1.5, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    card: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, marginBottom: 10, gap: 2 },
+    cardTitle: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 4, ...mono },
+    cardName: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    cardMeta: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    fieldLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginBottom: 4,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, marginBottom: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body - 1, color: tokens.textMuted, ...mono },
+    addressRow: { flexDirection: "row" as const, gap: 8 },
+    addressRowItemSmall: { flex: 1 },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    error: { color: tokens.danger, ...mono },
+  };
+}

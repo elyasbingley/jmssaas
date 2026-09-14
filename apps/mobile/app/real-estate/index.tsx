@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   createAgencySchema,
   createPropertyManagerSchema,
@@ -16,10 +18,12 @@ import { useIsOnline } from "../../lib/connectivity";
 import { useAuth } from "../../lib/auth-context";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Mobile port of apps/desktop/src/pages/RealEstate.tsx's Directory tab -
 // agencies/property managers/properties are Supabase-direct/office-side
@@ -46,6 +50,7 @@ export default function RealEstateDirectoryScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: agencies, refetch: refetchAgencies } = useSupabaseFetch<Agency[]>(async () => {
     if (!isOnline) return [];
@@ -230,86 +235,94 @@ export default function RealEstateDirectoryScreen() {
     refetchProperties();
   };
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Real Estate & Strata" />
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <View style={styles.actionsRow}>
-        <Pressable style={styles.actionButton} onPress={openNewAgency}>
-          <Text style={styles.actionButtonText}>+ Agency</Text>
-        </Pressable>
-        <Pressable style={[styles.actionButton, styles.actionButtonSecondary]} onPress={() => openNewPm()}>
-          <Text style={[styles.actionButtonText, styles.actionButtonSecondaryText]}>+ Property manager</Text>
-        </Pressable>
-        <Pressable style={[styles.actionButton, styles.actionButtonSecondary]} onPress={() => openNewProperty()}>
-          <Text style={[styles.actionButtonText, styles.actionButtonSecondaryText]}>+ Property</Text>
-        </Pressable>
-      </View>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+          <Text style={styles.title}>Real Estate & Strata</Text>
+        </View>
 
-      {(agencies ?? []).length === 0 ? (
-        <Text style={styles.empty}>No agencies yet.</Text>
-      ) : (
-        (agencies ?? []).map((agency) => {
-          const expanded = expandedAgencyIds.has(agency.id);
-          const pms = pmsForAgency(agency.id);
-          return (
-            <View key={agency.id} style={styles.agencyCard}>
-              <Pressable style={styles.agencyHeader} onPress={() => toggleAgency(agency.id)}>
-                <Text style={styles.agencyChevron}>{expanded ? "▾" : "▸"}</Text>
-                <Text style={styles.agencyName}>{agency.name}</Text>
-                <Text style={styles.agencyTypeBadge}>{agency.type === "strata" ? "Strata" : "Real Estate"}</Text>
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Real Estate & Strata" />
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <View style={styles.actionsRow}>
+              <Pressable style={styles.actionButton} onPress={openNewAgency}>
+                <Text style={styles.actionButtonText}>+ Agency</Text>
               </Pressable>
-              {expanded ? (
-                <View style={styles.agencyBody}>
-                  {pms.length === 0 ? (
-                    <Text style={styles.emptySmall}>No property managers yet for this agency.</Text>
-                  ) : (
-                    pms.map((pm) => (
-                      <View key={pm.id} style={styles.pmBlock}>
-                        <Text style={styles.pmName}>
-                          {pm.first_name} {pm.last_name}
-                        </Text>
-                        {propertiesForPm(pm.id).length === 0 ? (
-                          <Text style={styles.emptySmall}>No managed properties yet.</Text>
+              <Pressable style={[styles.actionButton, styles.actionButtonSecondary]} onPress={() => openNewPm()}>
+                <Text style={[styles.actionButtonText, styles.actionButtonSecondaryText]}>+ Property manager</Text>
+              </Pressable>
+              <Pressable style={[styles.actionButton, styles.actionButtonSecondary]} onPress={() => openNewProperty()}>
+                <Text style={[styles.actionButtonText, styles.actionButtonSecondaryText]}>+ Property</Text>
+              </Pressable>
+            </View>
+
+            {(agencies ?? []).length === 0 ? (
+              <Text style={styles.empty}>No agencies yet.</Text>
+            ) : (
+              (agencies ?? []).map((agency) => {
+                const expanded = expandedAgencyIds.has(agency.id);
+                const pms = pmsForAgency(agency.id);
+                return (
+                  <View key={agency.id} style={styles.agencyCard}>
+                    <Pressable style={styles.agencyHeader} onPress={() => toggleAgency(agency.id)}>
+                      <Text style={styles.agencyChevron}>{expanded ? "▾" : "▸"}</Text>
+                      <Text style={styles.agencyName}>{agency.name}</Text>
+                      <Text style={styles.agencyTypeBadge}>{agency.type === "strata" ? "Strata" : "Real Estate"}</Text>
+                    </Pressable>
+                    {expanded ? (
+                      <View style={styles.agencyBody}>
+                        {pms.length === 0 ? (
+                          <Text style={styles.emptySmall}>No property managers yet for this agency.</Text>
                         ) : (
-                          propertiesForPm(pm.id).map((property) => (
-                            <Pressable
-                              key={property.id}
-                              style={styles.propertyRow}
-                              onPress={() => router.push(`/real-estate/${property.id}`)}
-                            >
-                              <Text style={styles.propertyRowText} numberOfLines={1}>
-                                {property.address_line1}
+                          pms.map((pm) => (
+                            <View key={pm.id} style={styles.pmBlock}>
+                              <Text style={styles.pmName}>
+                                {pm.first_name} {pm.last_name}
                               </Text>
-                              <Text style={styles.propertyRowMeta}>{property.suburb}</Text>
-                            </Pressable>
+                              {propertiesForPm(pm.id).length === 0 ? (
+                                <Text style={styles.emptySmall}>No managed properties yet.</Text>
+                              ) : (
+                                propertiesForPm(pm.id).map((property) => (
+                                  <Pressable
+                                    key={property.id}
+                                    style={styles.propertyRow}
+                                    onPress={() => router.push(`/real-estate/${property.id}`)}
+                                  >
+                                    <Text style={styles.propertyRowText} numberOfLines={1}>
+                                      {property.address_line1}
+                                    </Text>
+                                    <Text style={styles.propertyRowMeta}>{property.suburb}</Text>
+                                  </Pressable>
+                                ))
+                              )}
+                              <Pressable onPress={() => openNewProperty(agency.id, pm.id)}>
+                                <Text style={styles.link}>+ Add property for this PM</Text>
+                              </Pressable>
+                            </View>
                           ))
                         )}
-                        <Pressable onPress={() => openNewProperty(agency.id, pm.id)}>
-                          <Text style={styles.link}>+ Add property for this PM</Text>
+                        <Pressable onPress={() => openNewPm(agency.id)}>
+                          <Text style={styles.link}>+ Add property manager to {agency.name}</Text>
                         </Pressable>
                       </View>
-                    ))
-                  )}
-                  <Pressable onPress={() => openNewPm(agency.id)}>
-                    <Text style={styles.link}>+ Add property manager to {agency.name}</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
-          );
-        })
-      )}
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
 
-      <CenteredModal visible={agencyModalVisible} onClose={() => setAgencyModalVisible(false)}>
-        <Text style={styles.modalTitle}>New agency</Text>
-        <FormField label="Name" placeholder="e.g. McGrath Estate Agents" value={agencyName} onChangeText={setAgencyName} />
+      <ThemedModal visible={agencyModalVisible} onClose={() => setAgencyModalVisible(false)}>
+        <Text style={styles.modalTitle}>New Agency</Text>
+        <ThemedFormField label="Name" placeholder="e.g. McGrath Estate Agents" value={agencyName} onChangeText={setAgencyName} />
         <Text style={styles.fieldLabel}>Type</Text>
         <Pressable style={styles.pickerField} onPress={() => setAgencyTypePickerVisible(true)}>
           <Text style={styles.pickerFieldText}>{AGENCY_TYPE_OPTIONS.find((o) => o.value === agencyType)?.label}</Text>
@@ -328,12 +341,10 @@ export default function RealEstateDirectoryScreen() {
           <Pressable onPress={() => setAgencyModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveAgency}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveAgency} />
         </View>
-      </CenteredModal>
-      <PickerModal
+      </ThemedModal>
+      <ThemedPickerModal
         visible={agencyTypePickerVisible}
         title="Select type"
         items={AGENCY_TYPE_OPTIONS}
@@ -343,29 +354,27 @@ export default function RealEstateDirectoryScreen() {
         onClose={() => setAgencyTypePickerVisible(false)}
       />
 
-      <CenteredModal visible={pmModalVisible} onClose={() => setPmModalVisible(false)}>
-        <Text style={styles.modalTitle}>New property manager</Text>
+      <ThemedModal visible={pmModalVisible} onClose={() => setPmModalVisible(false)}>
+        <Text style={styles.modalTitle}>New Property Manager</Text>
         <Text style={styles.fieldLabel}>Agency</Text>
         <Pressable style={styles.pickerField} onPress={() => setPmAgencyPickerVisible(true)}>
           <Text style={pmAgencyId ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
             {(agencies ?? []).find((a) => a.id === pmAgencyId)?.name ?? "Select agency"}
           </Text>
         </Pressable>
-        <FormField label="First name" value={pmFirstName} onChangeText={setPmFirstName} />
-        <FormField label="Last name" value={pmLastName} onChangeText={setPmLastName} />
-        <FormField label="Email" value={pmEmail} onChangeText={setPmEmail} keyboardType="email-address" autoCapitalize="none" />
-        <FormField label="Mobile" value={pmMobile} onChangeText={setPmMobile} keyboardType="phone-pad" />
+        <ThemedFormField label="First name" value={pmFirstName} onChangeText={setPmFirstName} />
+        <ThemedFormField label="Last name" value={pmLastName} onChangeText={setPmLastName} />
+        <ThemedFormField label="Email" value={pmEmail} onChangeText={setPmEmail} keyboardType="email-address" autoCapitalize="none" />
+        <ThemedFormField label="Mobile" value={pmMobile} onChangeText={setPmMobile} keyboardType="phone-pad" />
         {pmError ? <Text style={styles.error}>{pmError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setPmModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSavePm}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSavePm} />
         </View>
-      </CenteredModal>
-      <PickerModal
+      </ThemedModal>
+      <ThemedPickerModal
         visible={pmAgencyPickerVisible}
         title="Select agency"
         items={agencies ?? []}
@@ -375,8 +384,8 @@ export default function RealEstateDirectoryScreen() {
         onClose={() => setPmAgencyPickerVisible(false)}
       />
 
-      <CenteredModal visible={propertyModalVisible} onClose={() => setPropertyModalVisible(false)}>
-        <Text style={styles.modalTitle}>New managed property</Text>
+      <ThemedModal visible={propertyModalVisible} onClose={() => setPropertyModalVisible(false)}>
+        <Text style={styles.modalTitle}>New Managed Property</Text>
         <Text style={styles.fieldLabel}>Agency</Text>
         <Pressable
           style={styles.pickerField}
@@ -395,14 +404,14 @@ export default function RealEstateDirectoryScreen() {
             })()}
           </Text>
         </Pressable>
-        <FormField label="Address line 1" value={propAddress} onChangeText={setPropAddress} />
-        <FormField label="Suburb" value={propSuburb} onChangeText={setPropSuburb} />
+        <ThemedFormField label="Address line 1" value={propAddress} onChangeText={setPropAddress} />
+        <ThemedFormField label="Suburb" value={propSuburb} onChangeText={setPropSuburb} />
         <View style={styles.addressRow}>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="State" placeholder="e.g. NSW" value={propState} onChangeText={setPropState} autoCapitalize="characters" />
+            <ThemedFormField label="State" placeholder="e.g. NSW" value={propState} onChangeText={setPropState} autoCapitalize="characters" />
           </View>
           <View style={styles.addressRowItemSmall}>
-            <FormField label="Postcode" placeholder="e.g. 2000" value={propPostcode} onChangeText={setPropPostcode} keyboardType="number-pad" />
+            <ThemedFormField label="Postcode" placeholder="e.g. 2000" value={propPostcode} onChangeText={setPropPostcode} keyboardType="number-pad" />
           </View>
         </View>
         <Text style={styles.fieldLabel}>Property type</Text>
@@ -414,12 +423,10 @@ export default function RealEstateDirectoryScreen() {
           <Pressable onPress={() => setPropertyModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveProperty}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveProperty} />
         </View>
-      </CenteredModal>
-      <PickerModal
+      </ThemedModal>
+      <ThemedPickerModal
         visible={propAgencyPickerVisible}
         title="Select agency"
         items={agencies ?? []}
@@ -431,7 +438,7 @@ export default function RealEstateDirectoryScreen() {
         }}
         onClose={() => setPropAgencyPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={propPmPickerVisible}
         title="Select property manager"
         items={(propertyManagers ?? []).filter((pm) => pm.agency_id === propAgencyId)}
@@ -440,7 +447,7 @@ export default function RealEstateDirectoryScreen() {
         onSelect={(pm) => setPropPmId(pm.id)}
         onClose={() => setPropPmPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={propTypePickerVisible}
         title="Select type"
         items={PROPERTY_TYPE_OPTIONS}
@@ -449,49 +456,69 @@ export default function RealEstateDirectoryScreen() {
         onSelect={(o) => setPropType(o.value)}
         onClose={() => setPropTypePickerVisible(false)}
       />
-    </ScrollView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  actionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  actionButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
-  actionButtonSecondary: { backgroundColor: "#f3f4f6" },
-  actionButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  actionButtonSecondaryText: { color: "#1d4ed8" },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  emptySmall: { color: "#9ca3af", fontSize: 13, paddingVertical: 4 },
-  agencyCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, marginBottom: 10, overflow: "hidden" },
-  agencyHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
-  agencyChevron: { color: "#9ca3af" },
-  agencyName: { flex: 1, fontSize: 16, fontWeight: "700", color: "#111827" },
-  agencyTypeBadge: { fontSize: 11, fontWeight: "700", color: "#6b7280", backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  agencyBody: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", padding: 14, gap: 6 },
-  pmBlock: { marginBottom: 10, gap: 2 },
-  pmName: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  propertyRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6, paddingLeft: 8, gap: 8 },
-  // flex: 1 so the (potentially long, free-text) address is what shrinks
-  // and truncates when space is tight, not the suburb - suburb is short
-  // and important to always see in full at a glance, so it stays
-  // unconstrained and never gets clipped.
-  propertyRowText: { flex: 1, color: "#1d4ed8", fontSize: 13 },
-  propertyRowMeta: { flexShrink: 0, color: "#6b7280", fontSize: 13 },
-  link: { color: "#1d4ed8", fontWeight: "600", fontSize: 13, marginTop: 4 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, marginBottom: 12 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
-  addressRow: { flexDirection: "row", gap: 8 },
-  addressRowItemSmall: { flex: 1 },
-  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, marginBottom: 8, gap: 12 },
-  switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151", flex: 1 },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: "#ccc", alignItems: "center", justifyContent: "center" },
-  checkboxChecked: { backgroundColor: "#1d4ed8", borderColor: "#1d4ed8" },
-  checkboxTick: { color: "#fff", fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  error: { color: "#dc2626" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, marginTop: 4, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    actionsRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginBottom: 16 },
+    actionButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 10 },
+    actionButtonSecondary: { backgroundColor: tokens.surface, borderColor: tokens.border },
+    actionButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    actionButtonSecondaryText: { color: tokens.textPrimary },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    emptySmall: { color: tokens.textMuted, fontSize: font.label, paddingVertical: 4, ...mono },
+    agencyCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, marginBottom: 10, overflow: "hidden" as const },
+    agencyHeader: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, padding: 14 },
+    agencyChevron: { color: tokens.accent },
+    agencyName: { flex: 1, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    agencyTypeBadge: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3, ...mono },
+    agencyBody: { borderTopWidth: 1, borderTopColor: tokens.border, padding: 14, gap: 6 },
+    pmBlock: { marginBottom: 10, gap: 2 },
+    pmName: { fontSize: font.label + 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    propertyRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, paddingVertical: 6, paddingLeft: 8, gap: 8 },
+    // flex: 1 so the (potentially long, free-text) address is what shrinks
+    // and truncates when space is tight, not the suburb - suburb is short
+    // and important to always see in full at a glance, so it stays
+    // unconstrained and never gets clipped.
+    propertyRowText: { flex: 1, color: tokens.accent, fontSize: font.label, ...mono },
+    propertyRowMeta: { flexShrink: 0, color: tokens.textMuted, fontSize: font.label, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    fieldLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginBottom: 4,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, marginBottom: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body - 1, color: tokens.textMuted, ...mono },
+    addressRow: { flexDirection: "row" as const, gap: 8 },
+    addressRowItemSmall: { flex: 1 },
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 4, marginBottom: 8, gap: 12 },
+    switchLabel: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    checkbox: { width: 24, height: 24, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, alignItems: "center" as const, justifyContent: "center" as const },
+    checkboxChecked: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    checkboxTick: { color: tokens.background, fontWeight: "700" as const },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 8 },
+    error: { color: tokens.danger, ...mono },
+  };
+}
