@@ -12,8 +12,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 // Direct port of apps/mobile/app/job-setup.tsx - same two admin-managed
 // lists (service categories, job lifecycle stages), same tap-based
@@ -328,38 +329,52 @@ export default function JobSetupPage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
-      <h1 className="text-xl font-bold text-gray-900">Job Setup</h1>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Job Setup
+      </h1>
 
-      <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Service categories</h2>
-      <p className="mb-3 text-sm text-gray-500">Tags shown on jobs, e.g. "Roof Restoration" or "Gutter Cleaning".</p>
+      <h2 className="mb-1 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Service categories
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Tags shown on jobs, e.g. "Roof Restoration" or "Gutter Cleaning".
+      </p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(categories ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No categories yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No categories yet.
+          </p>
         ) : (
-          (categories ?? []).map((category) => (
-            <div key={category.id} className="flex items-center justify-between gap-3 p-3">
+          (categories ?? []).map((category, i) => (
+            <div
+              key={category.id}
+              className="flex items-center justify-between gap-3 p-3"
+              style={i > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
+            >
               <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-3 w-3 flex-shrink-0 rounded-full"
-                  style={{ backgroundColor: category.color ?? "#e5e7eb" }}
-                />
-                <span className="truncate text-sm font-semibold text-gray-900">{category.name}</span>
+                <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color ?? "var(--jms-border)" }} />
+                <span className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {category.name}
+                </span>
                 {category.maintenance_interval_months ? (
-                  <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-gray-600">
+                  <span
+                    className="flex-shrink-0 rounded border px-1.5 py-0.5 font-bold"
+                    style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Every {category.maintenance_interval_months}mo
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-shrink-0 items-center gap-3 text-sm">
-                <button onClick={() => openEditCategory(category)} className="font-semibold text-blue-700 hover:underline">
+              <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                <button onClick={() => openEditCategory(category)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                   Edit
                 </button>
-                <button onClick={() => handleDeleteCategory(category)} className="font-semibold text-red-600 hover:underline">
+                <button onClick={() => handleDeleteCategory(category)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Delete
                 </button>
               </div>
@@ -367,55 +382,74 @@ export default function JobSetupPage() {
           ))
         )}
       </div>
-      <button
-        onClick={openNewCategory}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        + New category
-      </button>
+      <div className="mt-3">
+        <ThemedButton onClick={openNewCategory} className="w-full">
+          + New category
+        </ThemedButton>
+      </div>
 
-      <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Job lifecycle stages</h2>
-      <p className="mb-3 text-sm text-gray-500">A custom pipeline for jobs - this is the only status a job has.</p>
+      <h2 className="mb-1 mt-8 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Job lifecycle stages
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        A custom pipeline for jobs - this is the only status a job has.
+      </p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(stages ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No stages yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No stages yet.
+          </p>
         ) : (
           (stages ?? []).map((stage, index) => (
-            <div key={stage.id} className="flex items-center justify-between gap-3 p-3">
+            <div
+              key={stage.id}
+              className="flex items-center justify-between gap-3 p-3"
+              style={index > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
+            >
               <div className="flex min-w-0 items-center gap-2">
-                <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "#e5e7eb" }} />
-                <span className="truncate text-sm font-semibold text-gray-900">{stage.name}</span>
+                <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: stage.color ?? "var(--jms-border)" }} />
+                <span className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {stage.name}
+                </span>
                 {stage.is_system_default ? (
-                  <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-gray-600">
+                  <span
+                    className="flex-shrink-0 rounded border px-1.5 py-0.5 font-bold"
+                    style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Default
                   </span>
                 ) : null}
                 {stage.is_closed ? (
-                  <span className="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-gray-600">
+                  <span
+                    className="flex-shrink-0 rounded border px-1.5 py-0.5 font-bold"
+                    style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Closed
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-shrink-0 items-center gap-3 text-sm">
+              <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
                 <button
                   onClick={() => moveStage.mutate({ stage, direction: "up" })}
                   disabled={index === 0}
-                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                  className="font-semibold disabled:opacity-30"
+                  style={{ color: "var(--jms-text)" }}
                 >
                   Up
                 </button>
                 <button
                   onClick={() => moveStage.mutate({ stage, direction: "down" })}
                   disabled={index === (stages ?? []).length - 1}
-                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                  className="font-semibold disabled:opacity-30"
+                  style={{ color: "var(--jms-text)" }}
                 >
                   Down
                 </button>
-                <button onClick={() => openEditStage(stage)} className="font-semibold text-blue-700 hover:underline">
+                <button onClick={() => openEditStage(stage)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                   Edit
                 </button>
-                <button onClick={() => handleDeleteStage(stage)} className="font-semibold text-red-600 hover:underline">
+                <button onClick={() => handleDeleteStage(stage)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Delete
                 </button>
               </div>
@@ -423,52 +457,66 @@ export default function JobSetupPage() {
           ))
         )}
       </div>
-      <button
-        onClick={openNewStage}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        + New stage
-      </button>
+      <div className="mt-3">
+        <ThemedButton onClick={openNewStage} className="w-full">
+          + New stage
+        </ThemedButton>
+      </div>
 
-      <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Lead sources</h2>
-      <p className="mb-3 text-sm text-gray-500">
+      <h2 className="mb-1 mt-8 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Lead sources
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         How a job came to you - shown as a dropdown on the New Job form. The one flagged "Referral" reveals the referral
         partner picker when chosen.
       </p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(leadSources ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No lead sources yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No lead sources yet.
+          </p>
         ) : (
           (leadSources ?? []).map((source, index) => (
-            <div key={source.id} className="flex items-center justify-between gap-3 p-3">
+            <div
+              key={source.id}
+              className="flex items-center justify-between gap-3 p-3"
+              style={index > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
+            >
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm font-semibold text-gray-900">{source.name}</span>
+                <span className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {source.name}
+                </span>
                 {source.is_referral_source ? (
-                  <span className="flex-shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-xs font-bold text-blue-700">
+                  <span
+                    className="flex-shrink-0 rounded border px-1.5 py-0.5 font-bold"
+                    style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Referral
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-shrink-0 items-center gap-3 text-sm">
+              <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
                 <button
                   onClick={() => moveLeadSource.mutate({ source, direction: "up" })}
                   disabled={index === 0}
-                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                  className="font-semibold disabled:opacity-30"
+                  style={{ color: "var(--jms-text)" }}
                 >
                   Up
                 </button>
                 <button
                   onClick={() => moveLeadSource.mutate({ source, direction: "down" })}
                   disabled={index === (leadSources ?? []).length - 1}
-                  className="font-semibold text-gray-700 disabled:text-gray-300"
+                  className="font-semibold disabled:opacity-30"
+                  style={{ color: "var(--jms-text)" }}
                 >
                   Down
                 </button>
-                <button onClick={() => openEditLeadSource(source)} className="font-semibold text-blue-700 hover:underline">
+                <button onClick={() => openEditLeadSource(source)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                   Edit
                 </button>
-                <button onClick={() => handleDeleteLeadSource(source)} className="font-semibold text-red-600 hover:underline">
+                <button onClick={() => handleDeleteLeadSource(source)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Delete
                 </button>
               </div>
@@ -476,77 +524,76 @@ export default function JobSetupPage() {
           ))
         )}
       </div>
-      <button
-        onClick={openNewLeadSource}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        + New lead source
-      </button>
+      <div className="mt-3">
+        <ThemedButton onClick={openNewLeadSource} className="w-full">
+          + New lead source
+        </ThemedButton>
+      </div>
 
-      <Modal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title={editingCategory ? "Edit category" : "New category"}>
-        <FormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. Roof Restoration" />
-        <FormField
+      <ThemedModal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title={editingCategory ? "Edit category" : "New category"}>
+        <ThemedFormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. Roof Restoration" />
+        <ThemedFormField
           label="Color (optional hex, e.g. #1d4ed8)"
           value={categoryColor}
           onChange={(e) => setCategoryColor(e.target.value)}
           placeholder="#1d4ed8"
         />
-        <FormField
+        <ThemedFormField
           label="Maintenance reminder every (months, optional)"
           type="number"
           value={categoryMaintenanceInterval}
           onChange={(e) => setCategoryMaintenanceInterval(e.target.value)}
           placeholder="e.g. 6 for aircon winterisation, 12 for annual pest control"
         />
-        {categoryError ? <p className="mb-4 text-sm text-red-600">{categoryError}</p> : null}
+        {categoryError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {categoryError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveCategory.mutate()}
-            disabled={saveCategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveCategory.mutate()} disabled={saveCategory.isPending}>
             {saveCategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={stageModalOpen} onClose={() => setStageModalOpen(false)} title={editingStage ? "Edit stage" : "New stage"}>
-        <FormField label="Name" value={stageName} onChange={(e) => setStageName(e.target.value)} placeholder="e.g. Deposit Paid" />
-        <FormField
+      <ThemedModal open={stageModalOpen} onClose={() => setStageModalOpen(false)} title={editingStage ? "Edit stage" : "New stage"}>
+        <ThemedFormField label="Name" value={stageName} onChange={(e) => setStageName(e.target.value)} placeholder="e.g. Deposit Paid" />
+        <ThemedFormField
           label="Color (optional hex, e.g. #1d4ed8)"
           value={stageColor}
           onChange={(e) => setStageColor(e.target.value)}
           placeholder="#1d4ed8"
         />
-        <label className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-700">
+        <label className="mb-4 flex items-center gap-2 font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={stageIsClosed} onChange={(e) => setStageIsClosed(e.target.checked)} />
           Job is done in this stage (triggers the completion summary email and maintenance reminders)
         </label>
-        {stageError ? <p className="mb-4 text-sm text-red-600">{stageError}</p> : null}
+        {stageError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {stageError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setStageModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setStageModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveStage.mutate()}
-            disabled={saveStage.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveStage.mutate()} disabled={saveStage.isPending}>
             {saveStage.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal
+      <ThemedModal
         open={leadSourceModalOpen}
         onClose={() => setLeadSourceModalOpen(false)}
         title={editingLeadSource ? "Edit lead source" : "New lead source"}
       >
-        <FormField label="Name" value={leadSourceName} onChange={(e) => setLeadSourceName(e.target.value)} placeholder="e.g. Google Search" />
-        <label className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-700">
+        <ThemedFormField label="Name" value={leadSourceName} onChange={(e) => setLeadSourceName(e.target.value)} placeholder="e.g. Google Search" />
+        <label className="mb-4 flex items-center gap-2 font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input
             type="checkbox"
             checked={leadSourceIsReferral}
@@ -554,20 +601,20 @@ export default function JobSetupPage() {
           />
           This represents a referral (reveals the referral partner picker on the New Job form when chosen)
         </label>
-        {leadSourceError ? <p className="mb-4 text-sm text-red-600">{leadSourceError}</p> : null}
+        {leadSourceError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {leadSourceError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setLeadSourceModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setLeadSourceModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveLeadSource.mutate()}
-            disabled={saveLeadSource.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveLeadSource.mutate()} disabled={saveLeadSource.isPending}>
             {saveLeadSource.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

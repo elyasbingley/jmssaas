@@ -17,8 +17,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 
 async function fetchJobs(): Promise<JobCard[]> {
   const { data, error } = await supabase.from("job_cards").select("*").order("created_at", { ascending: false });
@@ -263,20 +264,17 @@ export default function JobsPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Jobs</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Jobs
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             {sortedJobs.length !== (jobs ?? []).length ? `${sortedJobs.length} of ${jobs?.length ?? 0} jobs` : `${jobs?.length ?? 0} jobs`}
           </p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New job
-        </button>
+        <ThemedButton onClick={() => setModalOpen(true)}>+ New job</ThemedButton>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -285,12 +283,14 @@ export default function JobsPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search job #, title, or client..."
-          className="w-64 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+          className="w-64 rounded border px-3 py-1.5"
+          style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+          className="rounded border px-3 py-1.5"
+          style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           <option value="">All categories</option>
           {(categories ?? []).map((c) => (
@@ -302,7 +302,8 @@ export default function JobsPage() {
         <select
           value={filterStage}
           onChange={(e) => setFilterStage(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+          className="rounded border px-3 py-1.5"
+          style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           <option value="">All stages</option>
           {(stages ?? []).map((s) => (
@@ -318,14 +319,15 @@ export default function JobsPage() {
               setFilterCategory("");
               setFilterStage("");
             }}
-            className="text-sm font-semibold text-red-600"
+            className="font-semibold"
+            style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
           >
             Clear filters
           </button>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-2 text-sm">
-          <span className="text-gray-500">Sort:</span>
+        <div className="ml-auto flex items-center gap-2" style={{ fontSize: "var(--jms-font-body)" }}>
+          <span style={{ color: "var(--jms-text-muted)" }}>Sort:</span>
           {(
             [
               { value: "created_at", label: "Created" },
@@ -337,9 +339,12 @@ export default function JobsPage() {
             <button
               key={opt.value}
               onClick={() => setSortBy(opt.value)}
-              className={`rounded-full px-3 py-1 font-semibold ${
-                sortBy === opt.value ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1 font-semibold"
+              style={
+                sortBy === opt.value
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {opt.label}
             </button>
@@ -347,14 +352,21 @@ export default function JobsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : sortedJobs.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No jobs found.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No jobs found.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Number</th>
                 <th className="px-4 py-2 font-semibold">Title</th>
@@ -367,33 +379,36 @@ export default function JobsPage() {
                 const category = categoryById.get(job.service_category_id ?? "");
                 const stage = stageById.get(job.lifecycle_stage_id ?? "");
                 return (
-                  <tr key={job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-blue-700">
+                  <tr key={job.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-accent)" }}>
                       <Link to={`/jobs/${job.id}`} className="hover:underline">
                         {job.number ?? "Pending"}
                       </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <Link to={`/jobs/${job.id}`} className="font-medium hover:underline">
+                      <Link to={`/jobs/${job.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-text)" }}>
                         {job.title}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{clientById.get(job.client_id)?.name ?? "Unknown"}</td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {clientById.get(job.client_id)?.name ?? "Unknown"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {category ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-600">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{ backgroundColor: category.color ?? "#d1d5db" }}
-                            />
+                          <span className="inline-flex items-center gap-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color ?? "var(--jms-border)" }} />
                             {category.name}
                           </span>
                         ) : null}
                         {stage ? (
                           <span
-                            className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-800"
-                            style={stage.color ? { backgroundColor: stage.color } : undefined}
+                            className="rounded-full border px-2 py-0.5 font-semibold"
+                            style={{
+                              borderColor: stage.color ?? "var(--jms-border)",
+                              color: stage.color ?? "var(--jms-text-muted)",
+                              fontSize: "var(--jms-font-label)",
+                            }}
                           >
                             {stage.name}
                           </span>
@@ -409,13 +424,14 @@ export default function JobsPage() {
       </div>
 
       {sortedJobs.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-          <div className="flex items-center gap-2 text-gray-500">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+          <div className="flex items-center gap-2" style={{ color: "var(--jms-text-muted)" }}>
             <span>Show</span>
             <select
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1"
+              className="rounded border px-2 py-1"
+              style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)" }}
             >
               {[30, 60, 100].map((size) => (
                 <option key={size} value={size}>
@@ -431,17 +447,19 @@ export default function JobsPage() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+              className="rounded border px-3 py-1.5 font-semibold disabled:opacity-40"
+              style={{ borderColor: "var(--jms-border)", color: "var(--jms-text)" }}
             >
               Previous
             </button>
-            <span className="text-gray-500">
+            <span style={{ color: "var(--jms-text-muted)" }}>
               Page {page} of {pageCount}
             </span>
             <button
               onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
               disabled={page >= pageCount}
-              className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+              className="rounded border px-3 py-1.5 font-semibold disabled:opacity-40"
+              style={{ borderColor: "var(--jms-border)", color: "var(--jms-text)" }}
             >
               Next
             </button>
@@ -449,7 +467,7 @@ export default function JobsPage() {
         </div>
       ) : null}
 
-      <Modal
+      <ThemedModal
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);
@@ -458,7 +476,7 @@ export default function JobsPage() {
         title="New job"
       >
         {jobTemplates && jobTemplates.length > 0 ? (
-          <SelectField
+          <ThemedSelectField
             label="Load from job template (optional)"
             value={templateId}
             onChange={(v) => {
@@ -475,7 +493,7 @@ export default function JobsPage() {
             placeholder="Start from scratch"
           />
         ) : null}
-        <SelectField
+        <ThemedSelectField
           label="Client"
           value={clientId}
           onChange={setClientId}
@@ -483,26 +501,29 @@ export default function JobsPage() {
           placeholder="Select a client"
         />
         {isRealEstateJob && agencyId && (agencies ?? []).find((a) => a.id === agencyId)?.client_id === clientId && clientId ? (
-          <p className="-mt-2 mb-4 text-xs text-gray-500">
+          <p className="-mt-2 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             Auto-filled from {(agencies ?? []).find((a) => a.id === agencyId)?.name}'s linked client - change if this job bills
             differently.
           </p>
         ) : null}
         {clientId && memberClientIds?.has(clientId) ? (
-          <p className="-mt-2 mb-4 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+          <p
+            className="-mt-2 mb-4 rounded px-3 py-2 font-semibold"
+            style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-accent-glow)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+          >
             This client is a Member - remember the same-day response guarantee.
           </p>
         ) : null}
-        <FormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+        <ThemedFormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <ThemedTextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <SelectField
+          <ThemedSelectField
             label="Category"
             value={categoryId}
             onChange={setCategoryId}
             options={(categories ?? []).map((c) => ({ value: c.id, label: c.name }))}
           />
-          <SelectField
+          <ThemedSelectField
             label="Stage"
             value={stageId}
             onChange={setStageId}
@@ -510,14 +531,14 @@ export default function JobsPage() {
           />
         </div>
 
-        <label className="mb-3 mt-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <label className="mb-3 mt-2 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={isRealEstateJob} onChange={(e) => setIsRealEstateJob(e.target.checked)} />
           This is a real estate / strata agency job
         </label>
 
         {isRealEstateJob ? (
-          <div className="mb-2 rounded-md bg-gray-50 p-3">
-            <SelectField
+          <div className="mb-2 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
+            <ThemedSelectField
               label="Agency"
               value={agencyId}
               onChange={(v) => {
@@ -534,7 +555,7 @@ export default function JobsPage() {
               options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
               placeholder="Select agency"
             />
-            <SelectField
+            <ThemedSelectField
               label="Property manager"
               value={propertyManagerId}
               onChange={(v) => {
@@ -544,7 +565,7 @@ export default function JobsPage() {
               options={pmsForAgency.map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
               placeholder="Select property manager"
             />
-            <SelectField
+            <ThemedSelectField
               label="Property"
               value={propertyId}
               onChange={setPropertyId}
@@ -552,8 +573,8 @@ export default function JobsPage() {
               placeholder="Select property"
             />
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Work order number" value={workOrderNumber} onChange={(e) => setWorkOrderNumber(e.target.value)} />
-              <FormField
+              <ThemedFormField label="Work order number" value={workOrderNumber} onChange={(e) => setWorkOrderNumber(e.target.value)} />
+              <ThemedFormField
                 label="NTE limit ($)"
                 type="number"
                 step="0.01"
@@ -565,7 +586,7 @@ export default function JobsPage() {
           </div>
         ) : null}
 
-        <SelectField
+        <ThemedSelectField
           label="Lead source (optional)"
           value={leadSourceId}
           onChange={(v) => {
@@ -576,7 +597,7 @@ export default function JobsPage() {
           placeholder="None"
         />
         {isReferralLeadSource ? (
-          <SelectField
+          <ThemedSelectField
             label="Referral partner"
             value={referralPartnerId}
             onChange={setReferralPartnerId}
@@ -588,26 +609,27 @@ export default function JobsPage() {
           />
         ) : null}
 
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setModalOpen(false);
               resetForm();
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => createJob.mutate()}
-            disabled={createJob.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending}>
             {createJob.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
