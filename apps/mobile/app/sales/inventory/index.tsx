@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, FlatList, Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Image, ImageBackground, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import * as ImagePicker from "expo-image-picker";
@@ -24,9 +25,11 @@ import { supabase } from "../../../lib/supabase";
 import { buildShoppingListPdfHtml } from "../../../lib/pdf";
 import { exportPdf } from "../../../lib/print";
 import { getErrorMessage } from "../../../lib/errors";
-import { CenteredModal } from "../../../components/CenteredModal";
-import { FormField } from "../../../components/FormField";
-import { PickerModal } from "../../../components/PickerModal";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
+import { ThemedModal } from "../../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 
 const INVENTORY_IMAGE_BUCKET = "inventory-images";
 
@@ -46,6 +49,7 @@ export default function InventoryScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: locations } = useQuery<InventoryLocation>("SELECT * FROM inventory_locations ORDER BY name");
   const { data: levels } = useQuery<InventoryLevel>("SELECT * FROM inventory_levels");
@@ -360,581 +364,611 @@ export default function InventoryScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Inventory</Text>
-        {activeTab === "stock" && locations.length > 0 ? (
-          <View style={styles.headerLocationRow}>
-            <Pressable style={styles.locationButton} onPress={() => setLocationPickerVisible(true)}>
-              <Text style={styles.locationButtonText} numberOfLines={1}>
-                📍 {selectedLocation?.name ?? "Select location"}
-              </Text>
-            </Pressable>
-            {isAdmin ? (
-              <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
-                <Text style={styles.addLocationButtonText}>+</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : activeTab === "stock" && isAdmin ? (
-          <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
-            <Text style={styles.addLocationButtonText}>+</Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-        ) : null}
-      </View>
-
-      <View style={styles.tabRow}>
-        <Pressable
-          style={[styles.tabButton, activeTab === "stock" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("stock")}
-        >
-          <Text style={[styles.tabButtonText, activeTab === "stock" && styles.tabButtonTextActive]}>Stock</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === "low-stock" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("low-stock")}
-        >
-          <View style={styles.tabButtonRow}>
-            <Text style={[styles.tabButtonText, activeTab === "low-stock" && styles.tabButtonTextActive]}>
-              Low Stock
-            </Text>
-            {allLowStockItems.length > 0 ? (
-              <View style={styles.tabBadge}>
-                <Text style={styles.tabBadgeText}>{allLowStockItems.length}</Text>
-              </View>
-            ) : null}
-          </View>
-        </Pressable>
-      </View>
-
-      {activeTab === "stock" ? (
-        <>
-          {locations.length === 0 ? (
-            <Text style={styles.empty}>
-              {isAdmin ? "Add a location (e.g. \"Ute 1\") to start tracking stock." : "No locations yet - ask an admin to add one."}
-            </Text>
-          ) : (
-            <>
-              <View style={styles.categoryRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.categoryScroll}>
-                  <Pressable
-                    style={[styles.chip, selectedCategoryId === null && styles.chipActive]}
-                    onPress={() => setSelectedCategoryId(null)}
-                  >
-                    <Text style={[styles.chipText, selectedCategoryId === null && styles.chipTextActive]}>All</Text>
-                  </Pressable>
-                  {categories.map((category) => (
-                    <Pressable
-                      key={category.id}
-                      style={[styles.chip, selectedCategoryId === category.id && styles.chipActive]}
-                      onPress={() => setSelectedCategoryId(category.id)}
-                    >
-                      <Text style={[styles.chipText, selectedCategoryId === category.id && styles.chipTextActive]}>
-                        {category.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-                {isAdmin ? (
-                  <Pressable style={styles.manageButton} onPress={() => router.push("/inventory-setup")}>
-                    <Text style={styles.manageButtonText}>⚙</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {categories.length === 0 ? (
-                <Text style={styles.empty}>
-                  {isAdmin
-                    ? "No categories yet - tap ⚙ above to set up Material, Tools, etc. before adding items."
-                    : "No categories yet - ask an admin to set some up."}
+          <Text style={styles.title}>Inventory</Text>
+          {activeTab === "stock" && locations.length > 0 ? (
+            <View style={styles.headerLocationRow}>
+              <Pressable style={styles.locationButton} onPress={() => setLocationPickerVisible(true)}>
+                <Text style={styles.locationButtonText} numberOfLines={1}>
+                  📍 {selectedLocation?.name ?? "Select location"}
                 </Text>
+              </Pressable>
+              {isAdmin ? (
+                <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
+                  <Text style={styles.addLocationButtonText}>+</Text>
+                </Pressable>
               ) : null}
+            </View>
+          ) : activeTab === "stock" && isAdmin ? (
+            <Pressable style={styles.addLocationButton} onPress={() => setLocationModalVisible(true)}>
+              <Text style={styles.addLocationButtonText}>+</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.addLocationButtonSpacer} />
+          )}
+        </View>
 
-              {subcategoriesForSelectedCategory.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.subcategoryScroll} contentContainerStyle={styles.chipRow}>
-                  <Pressable
-                    style={[styles.subChip, selectedSubcategoryId === null && styles.chipActive]}
-                    onPress={() => setSelectedSubcategoryId(null)}
-                  >
-                    <Text style={[styles.chipText, selectedSubcategoryId === null && styles.chipTextActive]}>All</Text>
-                  </Pressable>
-                  {subcategoriesForSelectedCategory.map((subcategory) => (
+        <View style={styles.tabRow}>
+          <Pressable
+            style={[styles.tabButton, activeTab === "stock" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("stock")}
+          >
+            <Text style={[styles.tabButtonText, activeTab === "stock" && styles.tabButtonTextActive]}>Stock</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tabButton, activeTab === "low-stock" && styles.tabButtonActive]}
+            onPress={() => setActiveTab("low-stock")}
+          >
+            <View style={styles.tabButtonRow}>
+              <Text style={[styles.tabButtonText, activeTab === "low-stock" && styles.tabButtonTextActive]}>
+                Low Stock
+              </Text>
+              {allLowStockItems.length > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{allLowStockItems.length}</Text>
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+        </View>
+
+        {activeTab === "stock" ? (
+          <>
+            {locations.length === 0 ? (
+              <Text style={styles.empty}>
+                {isAdmin ? "Add a location (e.g. \"Ute 1\") to start tracking stock." : "No locations yet - ask an admin to add one."}
+              </Text>
+            ) : (
+              <>
+                <View style={styles.categoryRow}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={styles.categoryScroll}>
                     <Pressable
-                      key={subcategory.id}
-                      style={[styles.subChip, selectedSubcategoryId === subcategory.id && styles.chipActive]}
-                      onPress={() => setSelectedSubcategoryId(subcategory.id)}
+                      style={[styles.chip, selectedCategoryId === null && styles.chipActive]}
+                      onPress={() => setSelectedCategoryId(null)}
                     >
-                      <Text
-                        style={[styles.chipText, selectedSubcategoryId === subcategory.id && styles.chipTextActive]}
-                      >
-                        {subcategory.name}
-                      </Text>
+                      <Text style={[styles.chipText, selectedCategoryId === null && styles.chipTextActive]}>All</Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
-              ) : null}
-
-              <FlatList
-                data={visibleItems}
-                keyExtractor={(item) => item.id}
-                numColumns={2}
-                columnWrapperStyle={styles.tileRow}
-                contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-                renderItem={({ item }) => {
-                  const level = selectedLocationId ? levelByKey.get(`${selectedLocationId}:${item.id}`) : undefined;
-                  const quantity = level?.quantity ?? 0;
-                  const isLow = level ? level.quantity <= item.reorder_threshold : false;
-                  const supplier = item.supplier_id ? supplierById.get(item.supplier_id) : undefined;
-                  return (
-                    <View style={styles.tile}>
+                    {categories.map((category) => (
                       <Pressable
-                        style={styles.tileTouchable}
-                        onPress={isAdmin ? () => openEditItemModal(item) : undefined}
-                        disabled={!isAdmin}
+                        key={category.id}
+                        style={[styles.chip, selectedCategoryId === category.id && styles.chipActive]}
+                        onPress={() => setSelectedCategoryId(category.id)}
                       >
-                        {item.image_url ? (
-                          <ImageBackground source={{ uri: item.image_url }} style={styles.tileImageBg}>
-                            <View style={styles.tileImageOverlay}>
-                              <Text style={styles.tileImageLabel} numberOfLines={2}>
+                        <Text style={[styles.chipText, selectedCategoryId === category.id && styles.chipTextActive]}>
+                          {category.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                  {isAdmin ? (
+                    <Pressable style={styles.manageButton} onPress={() => router.push("/inventory-setup")}>
+                      <Text style={styles.manageButtonText}>⚙</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {categories.length === 0 ? (
+                  <Text style={styles.empty}>
+                    {isAdmin
+                      ? "No categories yet - tap ⚙ above to set up Material, Tools, etc. before adding items."
+                      : "No categories yet - ask an admin to set some up."}
+                  </Text>
+                ) : null}
+
+                {subcategoriesForSelectedCategory.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.subcategoryScroll} contentContainerStyle={styles.chipRow}>
+                    <Pressable
+                      style={[styles.subChip, selectedSubcategoryId === null && styles.chipActive]}
+                      onPress={() => setSelectedSubcategoryId(null)}
+                    >
+                      <Text style={[styles.chipText, selectedSubcategoryId === null && styles.chipTextActive]}>All</Text>
+                    </Pressable>
+                    {subcategoriesForSelectedCategory.map((subcategory) => (
+                      <Pressable
+                        key={subcategory.id}
+                        style={[styles.subChip, selectedSubcategoryId === subcategory.id && styles.chipActive]}
+                        onPress={() => setSelectedSubcategoryId(subcategory.id)}
+                      >
+                        <Text
+                          style={[styles.chipText, selectedSubcategoryId === subcategory.id && styles.chipTextActive]}
+                        >
+                          {subcategory.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : null}
+
+                <FlatList
+                  data={visibleItems}
+                  keyExtractor={(item) => item.id}
+                  numColumns={2}
+                  columnWrapperStyle={styles.tileRow}
+                  contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+                  renderItem={({ item }) => {
+                    const level = selectedLocationId ? levelByKey.get(`${selectedLocationId}:${item.id}`) : undefined;
+                    const quantity = level?.quantity ?? 0;
+                    const isLow = level ? level.quantity <= item.reorder_threshold : false;
+                    const supplier = item.supplier_id ? supplierById.get(item.supplier_id) : undefined;
+                    return (
+                      <View style={styles.tile}>
+                        <Pressable
+                          style={styles.tileTouchable}
+                          onPress={isAdmin ? () => openEditItemModal(item) : undefined}
+                          disabled={!isAdmin}
+                        >
+                          {item.image_url ? (
+                            <ImageBackground source={{ uri: item.image_url }} style={styles.tileImageBg}>
+                              <View style={styles.tileImageOverlay}>
+                                <Text style={styles.tileImageLabel} numberOfLines={2}>
+                                  {item.name}
+                                </Text>
+                                {supplier ? <Text style={styles.tileImageMeta}>{supplier.name}</Text> : null}
+                              </View>
+                            </ImageBackground>
+                          ) : (
+                            <View style={styles.tilePlain}>
+                              <Text style={styles.tileEmoji}>📦</Text>
+                              <Text style={styles.tileLabel} numberOfLines={2}>
                                 {item.name}
                               </Text>
-                              {supplier ? <Text style={styles.tileImageMeta}>{supplier.name}</Text> : null}
+                              {supplier ? <Text style={styles.itemMeta}>{supplier.name}</Text> : null}
                             </View>
-                          </ImageBackground>
-                        ) : (
-                          <View style={styles.tilePlain}>
-                            <Text style={styles.tileEmoji}>📦</Text>
-                            <Text style={styles.tileLabel} numberOfLines={2}>
-                              {item.name}
-                            </Text>
-                            {supplier ? <Text style={styles.itemMeta}>{supplier.name}</Text> : null}
-                          </View>
-                        )}
-                        {isLow ? (
-                          <View style={[styles.stockBadge, styles.tileStockBadge, quantity === 0 && styles.stockBadgeOut]}>
-                            <Text style={[styles.stockBadgeText, quantity === 0 && styles.stockBadgeTextOut]}>
-                              {quantity === 0 ? "Out of stock" : "Low stock"}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </Pressable>
-                      <View style={styles.qtyControls}>
-                        <Pressable
-                          style={styles.qtyButton}
-                          onPress={() => handleAdjust(item, -1)}
-                          disabled={!selectedLocationId || quantity === 0}
-                        >
-                          <Text style={styles.qtyButtonText}>-</Text>
+                          )}
+                          {isLow ? (
+                            <View style={[styles.stockBadge, styles.tileStockBadge, quantity === 0 && styles.stockBadgeOut]}>
+                              <Text style={[styles.stockBadgeText, quantity === 0 && styles.stockBadgeTextOut]}>
+                                {quantity === 0 ? "Out of stock" : "Low stock"}
+                              </Text>
+                            </View>
+                          ) : null}
                         </Pressable>
-                        <Text style={styles.qtyValue}>{quantity}</Text>
-                        <Pressable style={styles.qtyButton} onPress={() => handleAdjust(item, 1)} disabled={!selectedLocationId}>
-                          <Text style={styles.qtyButtonText}>+</Text>
-                        </Pressable>
+                        <View style={styles.qtyControls}>
+                          <Pressable
+                            style={styles.qtyButton}
+                            onPress={() => handleAdjust(item, -1)}
+                            disabled={!selectedLocationId || quantity === 0}
+                          >
+                            <Text style={styles.qtyButtonText}>-</Text>
+                          </Pressable>
+                          <Text style={styles.qtyValue}>{quantity}</Text>
+                          <Pressable style={styles.qtyButton} onPress={() => handleAdjust(item, 1)} disabled={!selectedLocationId}>
+                            <Text style={styles.qtyButtonText}>+</Text>
+                          </Pressable>
+                        </View>
                       </View>
-                    </View>
-                  );
-                }}
-                ListEmptyComponent={<Text style={styles.empty}>No items here yet.</Text>}
-                ListFooterComponent={
-                  isAdmin && categories.length > 0 ? (
-                    <Pressable style={styles.newItemButton} onPress={openNewItemModal}>
-                      <Text style={styles.newItemButtonText}>+ New item</Text>
-                    </Pressable>
-                  ) : null
-                }
-              />
-            </>
-          )}
-        </>
-      ) : (
-        <>
-          {suppliers.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              <Pressable
-                style={[styles.chip, lowStockSupplierId === null && styles.chipActive]}
-                onPress={() => setLowStockSupplierId(null)}
-              >
-                <Text style={[styles.chipText, lowStockSupplierId === null && styles.chipTextActive]}>
-                  All suppliers
-                </Text>
-              </Pressable>
-              {suppliers.map((supplier) => (
+                    );
+                  }}
+                  ListEmptyComponent={<Text style={styles.empty}>No items here yet.</Text>}
+                  ListFooterComponent={
+                    isAdmin && categories.length > 0 ? (
+                      <Pressable style={styles.newItemButton} onPress={openNewItemModal}>
+                        <Text style={styles.newItemButtonText}>+ New Item</Text>
+                      </Pressable>
+                    ) : null
+                  }
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {suppliers.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
                 <Pressable
-                  key={supplier.id}
-                  style={[styles.chip, lowStockSupplierId === supplier.id && styles.chipActive]}
-                  onPress={() => setLowStockSupplierId(supplier.id)}
+                  style={[styles.chip, lowStockSupplierId === null && styles.chipActive]}
+                  onPress={() => setLowStockSupplierId(null)}
                 >
-                  <Text style={[styles.chipText, lowStockSupplierId === supplier.id && styles.chipTextActive]}>
-                    {supplier.name}
+                  <Text style={[styles.chipText, lowStockSupplierId === null && styles.chipTextActive]}>
+                    All suppliers
                   </Text>
                 </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
-
-          <FlatList
-            data={lowStockItems}
-            keyExtractor={(item) => item.inventory_level_id}
-            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-            ListHeaderComponent={
-              lowStockItems.length > 0 ? (
-                <>
-                  <Pressable style={styles.shoppingListButton} onPress={handleGenerateShoppingList} disabled={generatingList}>
-                    <Text style={styles.shoppingListButtonText}>
-                      {generatingList
-                        ? "Generating..."
-                        : lowStockSupplierId
-                          ? `Generate Shopping List - ${supplierById.get(lowStockSupplierId)?.name ?? ""}`
-                          : "Generate Shopping List"}
+                {suppliers.map((supplier) => (
+                  <Pressable
+                    key={supplier.id}
+                    style={[styles.chip, lowStockSupplierId === supplier.id && styles.chipActive]}
+                    onPress={() => setLowStockSupplierId(supplier.id)}
+                  >
+                    <Text style={[styles.chipText, lowStockSupplierId === supplier.id && styles.chipTextActive]}>
+                      {supplier.name}
                     </Text>
                   </Pressable>
-                  {shoppingListError ? <Text style={styles.error}>{shoppingListError}</Text> : null}
-                </>
-              ) : null
-            }
-            renderItem={({ item }) => (
-              <View style={styles.lowStockRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemName}>{item.item_name}</Text>
-                  <Text style={styles.lowStockMeta}>
-                    {item.location_name}
-                    {item.category_name ? ` · ${item.category_name}` : ""}
-                    {item.subcategory_name ? ` · ${item.subcategory_name}` : ""}
-                    {item.supplier_name ? ` · ${item.supplier_name}` : ""}
-                  </Text>
+                ))}
+              </ScrollView>
+            ) : null}
+
+            <FlatList
+              data={lowStockItems}
+              keyExtractor={(item) => item.inventory_level_id}
+              contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+              ListHeaderComponent={
+                lowStockItems.length > 0 ? (
+                  <>
+                    <View style={styles.shoppingListButtonWrap}>
+                      <ThemedButton
+                        label={
+                          generatingList
+                            ? "Generating..."
+                            : lowStockSupplierId
+                              ? `Generate Shopping List - ${supplierById.get(lowStockSupplierId)?.name ?? ""}`
+                              : "Generate Shopping List"
+                        }
+                        onPress={handleGenerateShoppingList}
+                        disabled={generatingList}
+                      />
+                    </View>
+                    {shoppingListError ? <Text style={styles.error}>{shoppingListError}</Text> : null}
+                  </>
+                ) : null
+              }
+              renderItem={({ item }) => (
+                <View style={styles.lowStockRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName}>{item.item_name}</Text>
+                    <Text style={styles.lowStockMeta}>
+                      {item.location_name}
+                      {item.category_name ? ` · ${item.category_name}` : ""}
+                      {item.subcategory_name ? ` · ${item.subcategory_name}` : ""}
+                      {item.supplier_name ? ` · ${item.supplier_name}` : ""}
+                    </Text>
+                  </View>
+                  <View style={[styles.stockBadge, item.quantity === 0 && styles.stockBadgeOut]}>
+                    <Text style={[styles.stockBadgeText, item.quantity === 0 && styles.stockBadgeTextOut]}>
+                      {item.quantity} / {item.reorder_threshold}
+                    </Text>
+                  </View>
                 </View>
-                <View style={[styles.stockBadge, item.quantity === 0 && styles.stockBadgeOut]}>
-                  <Text style={[styles.stockBadgeText, item.quantity === 0 && styles.stockBadgeTextOut]}>
-                    {item.quantity} / {item.reorder_threshold}
-                  </Text>
-                </View>
-              </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.empty}>
-                {lowStockSupplierId ? "Nothing low on stock from this supplier." : "Nothing is low on stock right now."}
-              </Text>
-            }
-          />
-        </>
-      )}
-
-      <CenteredModal
-        visible={locationModalVisible}
-        onClose={() => {
-          setLocationModalVisible(false);
-          setLocationError(null);
-        }}
-      >
-        <Text style={styles.modalTitle}>New location</Text>
-        <FormField label="Name" placeholder='e.g. "Ute 1" or "Main Warehouse"' value={newLocationName} onChangeText={setNewLocationName} />
-        <View style={styles.fieldSpacing}>
-          <FormField
-            label="Type (optional)"
-            placeholder="e.g. vehicle, warehouse, shelf"
-            value={newLocationType}
-            onChangeText={setNewLocationType}
-          />
-        </View>
-        {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
-        <View style={styles.modalActions}>
-          <Pressable
-            onPress={() => {
-              setLocationModalVisible(false);
-              setLocationError(null);
-            }}
-          >
-            <Text style={styles.link}>Cancel</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={handleCreateLocation}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
-        </View>
-      </CenteredModal>
-
-      <CenteredModal visible={itemModalVisible} onClose={() => setItemModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingItem ? "Edit item" : "New item"}</Text>
-
-        {newItemImageAsset ? (
-          <Image source={{ uri: newItemImageAsset.uri }} style={styles.itemImagePreview} />
-        ) : editingItem?.image_url && !newItemImageRemoved ? (
-          <Image source={{ uri: editingItem.image_url }} style={styles.itemImagePreview} />
-        ) : (
-          <View style={[styles.itemImagePreview, styles.itemImagePreviewEmpty]}>
-            <Text style={styles.itemImagePreviewEmptyText}>No photo</Text>
-          </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.empty}>
+                  {lowStockSupplierId ? "Nothing low on stock from this supplier." : "Nothing is low on stock right now."}
+                </Text>
+              }
+            />
+          </>
         )}
-        <View style={styles.itemImageActions}>
-          <Pressable onPress={pickItemImage}>
-            <Text style={styles.link}>{editingItem?.image_url || newItemImageAsset ? "Change photo" : "+ Add photo"}</Text>
-          </Pressable>
-          {(newItemImageAsset || (editingItem?.image_url && !newItemImageRemoved)) ? (
+
+        <ThemedModal
+          visible={locationModalVisible}
+          onClose={() => {
+            setLocationModalVisible(false);
+            setLocationError(null);
+          }}
+        >
+          <Text style={styles.modalTitle}>New Location</Text>
+          <ThemedFormField label="Name" placeholder='e.g. "Ute 1" or "Main Warehouse"' value={newLocationName} onChangeText={setNewLocationName} />
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField
+              label="Type (optional)"
+              placeholder="e.g. vehicle, warehouse, shelf"
+              value={newLocationType}
+              onChangeText={setNewLocationType}
+            />
+          </View>
+          {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
+          <View style={styles.modalActions}>
             <Pressable
               onPress={() => {
-                setNewItemImageAsset(null);
-                setNewItemImageRemoved(true);
+                setLocationModalVisible(false);
+                setLocationError(null);
               }}
             >
-              <Text style={styles.removeLink}>Remove</Text>
+              <Text style={styles.link}>Cancel</Text>
             </Pressable>
-          ) : null}
-        </View>
+            <ThemedButton label="Save" onPress={handleCreateLocation} />
+          </View>
+        </ThemedModal>
 
-        <View style={styles.fieldSpacing}>
-          <FormField label="Name" placeholder='e.g. "Silicone tube - clear"' value={newItemName} onChangeText={setNewItemName} />
-        </View>
+        <ThemedModal visible={itemModalVisible} onClose={() => setItemModalVisible(false)}>
+          <Text style={styles.modalTitle}>{editingItem ? "Edit Item" : "New Item"}</Text>
 
-        <View style={styles.fieldSpacing}>
-          <Pressable style={styles.pickerField} onPress={() => setItemCategoryPickerVisible(true)}>
-            <Text style={styles.pickerFieldLabel}>Category</Text>
-            <Text style={newItemCategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {newItemCategory?.name ?? "Select a category"}
-            </Text>
-          </Pressable>
-        </View>
+          {newItemImageAsset ? (
+            <Image source={{ uri: newItemImageAsset.uri }} style={styles.itemImagePreview} />
+          ) : editingItem?.image_url && !newItemImageRemoved ? (
+            <Image source={{ uri: editingItem.image_url }} style={styles.itemImagePreview} />
+          ) : (
+            <View style={[styles.itemImagePreview, styles.itemImagePreviewEmpty]}>
+              <Text style={styles.itemImagePreviewEmptyText}>No photo</Text>
+            </View>
+          )}
+          <View style={styles.itemImageActions}>
+            <Pressable onPress={pickItemImage}>
+              <Text style={styles.link}>{editingItem?.image_url || newItemImageAsset ? "Change photo" : "+ Add photo"}</Text>
+            </Pressable>
+            {(newItemImageAsset || (editingItem?.image_url && !newItemImageRemoved)) ? (
+              <Pressable
+                onPress={() => {
+                  setNewItemImageAsset(null);
+                  setNewItemImageRemoved(true);
+                }}
+              >
+                <Text style={styles.removeLink}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
 
-        {newItemSubcategoryOptions.length > 0 ? (
           <View style={styles.fieldSpacing}>
-            <Pressable style={styles.pickerField} onPress={() => setItemSubcategoryPickerVisible(true)}>
-              <Text style={styles.pickerFieldLabel}>Subcategory (optional)</Text>
-              <Text style={newItemSubcategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                {newItemSubcategory?.name ?? "None"}
+            <ThemedFormField label="Name" placeholder='e.g. "Silicone tube - clear"' value={newItemName} onChangeText={setNewItemName} />
+          </View>
+
+          <View style={styles.fieldSpacing}>
+            <Pressable style={styles.pickerField} onPress={() => setItemCategoryPickerVisible(true)}>
+              <Text style={styles.pickerFieldLabel}>Category</Text>
+              <Text style={newItemCategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {newItemCategory?.name ?? "Select a category"}
               </Text>
             </Pressable>
           </View>
-        ) : null}
 
-        <View style={styles.fieldSpacing}>
-          <Pressable style={styles.pickerField} onPress={() => setItemSupplierPickerVisible(true)}>
-            <Text style={styles.pickerFieldLabel}>Supplier (optional)</Text>
-            <Text style={newItemSupplier ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {newItemSupplier?.name ?? "None"}
-            </Text>
-          </Pressable>
-        </View>
+          {newItemSubcategoryOptions.length > 0 ? (
+            <View style={styles.fieldSpacing}>
+              <Pressable style={styles.pickerField} onPress={() => setItemSubcategoryPickerVisible(true)}>
+                <Text style={styles.pickerFieldLabel}>Subcategory (optional)</Text>
+                <Text style={newItemSubcategory ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                  {newItemSubcategory?.name ?? "None"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-        <View style={styles.targetFieldRow}>
-          <View style={styles.targetField}>
-            <FormField
-              label="Reorder threshold"
-              placeholder="5"
-              value={newItemReorderThreshold}
-              onChangeText={setNewItemReorderThreshold}
-              keyboardType="number-pad"
-            />
+          <View style={styles.fieldSpacing}>
+            <Pressable style={styles.pickerField} onPress={() => setItemSupplierPickerVisible(true)}>
+              <Text style={styles.pickerFieldLabel}>Supplier (optional)</Text>
+              <Text style={newItemSupplier ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {newItemSupplier?.name ?? "None"}
+              </Text>
+            </Pressable>
           </View>
-          <View style={styles.targetField}>
-            <FormField
-              label="Ideal stock"
-              placeholder="10"
-              value={newItemIdealStock}
-              onChangeText={setNewItemIdealStock}
-              keyboardType="number-pad"
-            />
+
+          <View style={styles.targetFieldRow}>
+            <View style={styles.targetField}>
+              <ThemedFormField
+                label="Reorder threshold"
+                placeholder="5"
+                value={newItemReorderThreshold}
+                onChangeText={setNewItemReorderThreshold}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={styles.targetField}>
+              <ThemedFormField
+                label="Ideal stock"
+                placeholder="10"
+                value={newItemIdealStock}
+                onChangeText={setNewItemIdealStock}
+                keyboardType="number-pad"
+              />
+            </View>
           </View>
-        </View>
-        <Text style={styles.helperText}>
-          Reorder threshold is when this item shows up in Out of Stock / Need to Order. Ideal stock is what a reorder
-          should bring a location back up to.
-        </Text>
+          <Text style={styles.helperText}>
+            Reorder threshold is when this item shows up in Out of Stock / Need to Order. Ideal stock is what a reorder
+            should bring a location back up to.
+          </Text>
 
-        {itemError ? <Text style={styles.error}>{itemError}</Text> : null}
-        <View style={styles.modalActions}>
-          <Pressable onPress={() => setItemModalVisible(false)}>
-            <Text style={styles.link}>Cancel</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveItem} disabled={savingItem}>
-            <Text style={styles.buttonText}>{savingItem ? "Saving..." : "Save"}</Text>
-          </Pressable>
-        </View>
-      </CenteredModal>
+          {itemError ? <Text style={styles.error}>{itemError}</Text> : null}
+          <View style={styles.modalActions}>
+            <Pressable onPress={() => setItemModalVisible(false)}>
+              <Text style={styles.link}>Cancel</Text>
+            </Pressable>
+            <ThemedButton label={savingItem ? "Saving..." : "Save"} onPress={handleSaveItem} disabled={savingItem} />
+          </View>
+        </ThemedModal>
 
-      <PickerModal
-        visible={locationPickerVisible}
-        title="Select location"
-        items={locations}
-        getKey={(l) => l.id}
-        getLabel={(l) => l.name}
-        onSelect={(location) => setSelectedLocationId(location.id)}
-        onClose={() => setLocationPickerVisible(false)}
-      />
+        <ThemedPickerModal
+          visible={locationPickerVisible}
+          title="Select location"
+          items={locations}
+          getKey={(l) => l.id}
+          getLabel={(l) => l.name}
+          onSelect={(location) => setSelectedLocationId(location.id)}
+          onClose={() => setLocationPickerVisible(false)}
+        />
 
-      <PickerModal
-        visible={itemCategoryPickerVisible}
-        title="Select category"
-        items={categories}
-        getKey={(c) => c.id}
-        getLabel={(c) => c.name}
-        onSelect={(category) => {
-          setNewItemCategory(category);
-          setNewItemSubcategory(null);
-        }}
-        onClose={() => setItemCategoryPickerVisible(false)}
-      />
+        <ThemedPickerModal
+          visible={itemCategoryPickerVisible}
+          title="Select category"
+          items={categories}
+          getKey={(c) => c.id}
+          getLabel={(c) => c.name}
+          onSelect={(category) => {
+            setNewItemCategory(category);
+            setNewItemSubcategory(null);
+          }}
+          onClose={() => setItemCategoryPickerVisible(false)}
+        />
 
-      <PickerModal
-        visible={itemSubcategoryPickerVisible}
-        title="Select subcategory"
-        items={newItemSubcategoryOptions}
-        getKey={(s) => s.id}
-        getLabel={(s) => s.name}
-        onSelect={setNewItemSubcategory}
-        onClose={() => setItemSubcategoryPickerVisible(false)}
-      />
+        <ThemedPickerModal
+          visible={itemSubcategoryPickerVisible}
+          title="Select subcategory"
+          items={newItemSubcategoryOptions}
+          getKey={(s) => s.id}
+          getLabel={(s) => s.name}
+          onSelect={setNewItemSubcategory}
+          onClose={() => setItemSubcategoryPickerVisible(false)}
+        />
 
-      <PickerModal
-        visible={itemSupplierPickerVisible}
-        title="Select supplier"
-        items={suppliers}
-        getKey={(s) => s.id}
-        getLabel={(s) => s.name}
-        onSelect={setNewItemSupplier}
-        onClose={() => setItemSupplierPickerVisible(false)}
-      />
-    </SafeAreaView>
+        <ThemedPickerModal
+          visible={itemSupplierPickerVisible}
+          title="Select supplier"
+          items={suppliers}
+          getKey={(s) => s.id}
+          getLabel={(s) => s.name}
+          onSelect={setNewItemSupplier}
+          onClose={() => setItemSupplierPickerVisible(false)}
+        />
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 20, fontWeight: "700" },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    // SafeAreaView (edges=["top"]) already clears the status bar/notch -
-    // this is just breathing room below that, not a substitute for it
-    // (a flat paddingTop here previously stood in for the safe-area inset
-    // entirely, which is wrong on any device with a taller status bar/
-    // notch than whatever px value was guessed).
-    paddingTop: 12,
-    paddingBottom: 12,
-    gap: 12,
-  },
-  headerLocationRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
-  locationButton: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    maxWidth: 170,
-  },
-  locationButtonText: { color: "#1d4ed8", fontWeight: "700", fontSize: 13 },
-  addLocationButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#1d4ed8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addLocationButtonText: { color: "#fff", fontWeight: "800", fontSize: 16, lineHeight: 18 },
-  tabRow: { flexDirection: "row", paddingHorizontal: 16, gap: 8 },
-  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
-  tabButtonActive: { backgroundColor: "#1d4ed8" },
-  tabButtonRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  tabButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
-  tabButtonTextActive: { color: "#fff" },
-  tabBadge: { backgroundColor: "#dc2626", borderRadius: 10, paddingHorizontal: 6, minWidth: 18, alignItems: "center" },
-  tabBadgeText: { color: "#fff", fontWeight: "700", fontSize: 11 },
-  chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: "center" },
-  categoryRow: { flexDirection: "row", alignItems: "center" },
-  categoryScroll: { flex: 1 },
-  // The category row's own ScrollView got an explicit style (flexGrow via
-  // categoryScroll's flex:1, needed to share the row with the pinned gear
-  // button) and renders correctly; this row never got one - a horizontal
-  // ScrollView with only contentContainerStyle set can size its own frame
-  // wrong before content is measured, clipping the top of taller glyphs
-  // (only visible on names with tall ascenders, e.g. "Roof"/"Blocking",
-  // not short ones like "All"). An explicit style fixes it the same way.
-  subcategoryScroll: { flexGrow: 0 },
-  manageButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#f3f4f6",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 16,
-  },
-  manageButtonText: { fontSize: 15 },
-  chip: { backgroundColor: "#f3f4f6", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  subChip: { backgroundColor: "#eef2ff", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipActive: { backgroundColor: "#1d4ed8" },
-  chipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  chipTextActive: { color: "#fff" },
-  tileRow: { justifyContent: "space-between" },
-  tile: { width: "48%", marginBottom: 12 },
-  tileTouchable: {
-    aspectRatio: 1.05,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  tilePlain: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    padding: 10,
-  },
-  tileEmoji: { fontSize: 28 },
-  tileLabel: { fontSize: 14, fontWeight: "700", color: "#111827", textAlign: "center" },
-  tileImageBg: { flex: 1, justifyContent: "flex-end" },
-  tileImageOverlay: { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, gap: 2 },
-  tileImageLabel: { fontSize: 14, fontWeight: "700", color: "#fff", textAlign: "center" },
-  tileImageMeta: { fontSize: 11, color: "#e5e7eb", textAlign: "center" },
-  tileStockBadge: { position: "absolute", top: 8, right: 8, marginTop: 0 },
-  itemName: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  itemMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  stockBadge: { alignSelf: "flex-start", backgroundColor: "#fef3c7", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginTop: 6 },
-  stockBadgeOut: { backgroundColor: "#fee2e2" },
-  stockBadgeText: { fontSize: 11, fontWeight: "700", color: "#92400e" },
-  stockBadgeTextOut: { color: "#dc2626" },
-  qtyControls: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
-  qtyButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#1d4ed8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qtyButtonText: { color: "#fff", fontWeight: "800", fontSize: 18, lineHeight: 20 },
-  qtyValue: { fontSize: 16, fontWeight: "700", color: "#111827", minWidth: 24, textAlign: "center" },
-  newItemButton: { backgroundColor: "#f3f4f6", borderRadius: 8, padding: 12, alignItems: "center", marginTop: 4 },
-  newItemButtonText: { color: "#1d4ed8", fontWeight: "700" },
-  itemImagePreview: { width: "100%", height: 140, borderRadius: 12, backgroundColor: "#f3f4f6" },
-  itemImagePreviewEmpty: { alignItems: "center", justifyContent: "center" },
-  itemImagePreviewEmptyText: { color: "#9ca3af", fontSize: 13 },
-  itemImageActions: { flexDirection: "row", gap: 20, marginTop: 8 },
-  removeLink: { color: "#dc2626", fontWeight: "600" },
-  lowStockRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-    gap: 8,
-  },
-  lowStockMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  shoppingListButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginBottom: 16 },
-  shoppingListButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  fieldSpacing: { marginTop: 16 },
-  error: { color: "#dc2626", marginTop: 8 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, gap: 4 },
-  pickerFieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151" },
-  pickerFieldText: { fontSize: 16, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
-  targetFieldRow: { flexDirection: "row", gap: 12, marginTop: 16 },
-  targetField: { flex: 1 },
-  helperText: { color: "#9ca3af", fontSize: 12, marginTop: 6 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    title: { fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    headerRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 12,
+      gap: 10,
+    },
+    headerLocationRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexShrink: 1 },
+    locationButton: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      backgroundColor: tokens.surface,
+      borderRadius: 3,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      maxWidth: 150,
+    },
+    locationButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    addLocationButton: {
+      width: 30,
+      height: 30,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentGlow,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    addLocationButtonSpacer: { width: 30, height: 30 },
+    addLocationButtonText: { color: tokens.accent, fontWeight: "800" as const, fontSize: 16, lineHeight: 18, ...mono },
+    tabRow: { flexDirection: "row" as const, paddingHorizontal: 16, gap: 8 },
+    tabButton: { flex: 1, paddingVertical: 10, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, alignItems: "center" as const },
+    tabButtonActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    tabButtonRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
+    tabButtonText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    tabButtonTextActive: { color: tokens.accent },
+    tabBadge: { backgroundColor: tokens.danger, borderRadius: 10, paddingHorizontal: 6, minWidth: 18, alignItems: "center" as const },
+    tabBadgeText: { color: tokens.background, fontWeight: "700" as const, fontSize: 11, ...mono },
+    chipRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: "center" as const },
+    categoryRow: { flexDirection: "row" as const, alignItems: "center" as const },
+    categoryScroll: { flex: 1 },
+    // The category row's own ScrollView got an explicit style (flexGrow via
+    // categoryScroll's flex:1, needed to share the row with the pinned gear
+    // button) and renders correctly; this row never got one - a horizontal
+    // ScrollView with only contentContainerStyle set can size its own frame
+    // wrong before content is measured, clipping the top of taller glyphs
+    // (only visible on names with tall ascenders, e.g. "Roof"/"Blocking",
+    // not short ones like "All"). An explicit style fixes it the same way.
+    subcategoryScroll: { flexGrow: 0 },
+    manageButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      backgroundColor: tokens.surface,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      marginRight: 16,
+    },
+    manageButtonText: { fontSize: 15 },
+    chip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 8 },
+    subChip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 8 },
+    chipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    chipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    chipTextActive: { color: tokens.accent },
+    tileRow: { justifyContent: "space-between" as const },
+    tile: { width: "48%" as const, marginBottom: 12 },
+    tileTouchable: {
+      aspectRatio: 1.05,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      overflow: "hidden" as const,
+      boxShadow: `0 0 10px ${tokens.accentGlow}`,
+    },
+    tilePlain: {
+      flex: 1,
+      backgroundColor: tokens.surface,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 4,
+      padding: 10,
+    },
+    tileEmoji: { fontSize: 28 },
+    tileLabel: { fontSize: font.label + 1, fontWeight: "700" as const, color: tokens.textPrimary, textAlign: "center" as const, ...mono },
+    tileImageBg: { flex: 1, justifyContent: "flex-end" as const },
+    tileImageOverlay: { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, gap: 2 },
+    tileImageLabel: { fontSize: font.label + 1, fontWeight: "700" as const, color: tokens.textPrimary, textAlign: "center" as const, ...mono },
+    tileImageMeta: { fontSize: font.label - 1, color: tokens.textMuted, textAlign: "center" as const, ...mono },
+    tileStockBadge: { position: "absolute" as const, top: 8, right: 8, marginTop: 0 },
+    itemName: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    itemMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    stockBadge: { alignSelf: "flex-start" as const, borderWidth: 1, borderColor: tokens.warning, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 2, marginTop: 6 },
+    stockBadgeOut: { borderColor: tokens.danger },
+    stockBadgeText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.warning, ...mono },
+    stockBadgeTextOut: { color: tokens.danger },
+    qtyControls: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 10, marginTop: 8 },
+    qtyButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentGlow,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    qtyButtonText: { color: tokens.accent, fontWeight: "800" as const, fontSize: 18, lineHeight: 20, ...mono },
+    qtyValue: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, minWidth: 24, textAlign: "center" as const, ...mono },
+    newItemButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, padding: 12, alignItems: "center" as const, marginTop: 4 },
+    newItemButtonText: { color: tokens.accent, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    itemImagePreview: { width: "100%" as const, height: 140, borderRadius: 4, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    itemImagePreviewEmpty: { alignItems: "center" as const, justifyContent: "center" as const },
+    itemImagePreviewEmptyText: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    itemImageActions: { flexDirection: "row" as const, gap: 20, marginTop: 8 },
+    removeLink: { color: tokens.danger, fontWeight: "600" as const, ...mono },
+    lowStockRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+      gap: 8,
+    },
+    lowStockMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    shoppingListButtonWrap: { marginBottom: 16 },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    fieldSpacing: { marginTop: 16 },
+    error: { color: tokens.danger, marginTop: 8, ...mono },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, gap: 4, backgroundColor: tokens.background },
+    pickerFieldLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    targetFieldRow: { flexDirection: "row" as const, gap: 12, marginTop: 16 },
+    targetField: { flex: 1 },
+    helperText: { color: tokens.textMuted, fontSize: font.label, marginTop: 6, ...mono },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 16 },
+  };
+}
