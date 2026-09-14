@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import { createCalendarEventSchema, type JobCard, type Profile, type Task } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
 import { supabase } from "../../lib/supabase";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
-import { DateField } from "../../components/DateField";
 import { getErrorMessage } from "../../lib/errors";
 import { pushCalendarEventUpsert } from "../../lib/google-calendar-sync";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../components/theme/ThemedDateField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Google-Calendar-style single creation flow: title, start, end, guests,
 // location, description/link, all in one screen rather than a multi-step
@@ -23,6 +27,7 @@ export default function NewCalendarEventScreen() {
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
   // Arriving here from the Schedule/dispatch screen's "tap an unassigned
   // job" flow (see app/schedule.tsx) pre-fills and locks the job the same
   // way "+ New quote for this job" does on quotes/new.tsx, and defaults the
@@ -154,90 +159,96 @@ export default function NewCalendarEventScreen() {
     }
   };
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Calendar" />
-      </View>
-    );
-  }
-
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <FormField
-          label="Title"
-          placeholder="e.g. Roof inspection - Smith residence"
-          value={title}
-          onChangeText={setTitle}
-        />
-
-        <Pressable style={styles.allDayRow} onPress={() => setAllDay((v) => !v)}>
-          <View style={[styles.checkbox, allDay && styles.checkboxChecked]} />
-          <Text style={styles.allDayLabel}>All day</Text>
-        </Pressable>
-
-        <View style={styles.fieldSpacing}>
-          <DateField label="Start" value={start} onChange={setStart} mode={allDay ? "date" : "datetime"} />
-        </View>
-        <View style={styles.fieldSpacing}>
-          <DateField label="End" value={end} onChange={setEnd} mode={allDay ? "date" : "datetime"} />
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+          <Text style={styles.title}>New Event</Text>
         </View>
 
-        <View style={styles.fieldSpacing}>
-          <FormField label="Guests (optional)" placeholder="email@example.com, another@example.com" value={guests} onChangeText={setGuests} autoCapitalize="none" />
-        </View>
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Calendar" />
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <ThemedFormField
+              label="Title"
+              placeholder="e.g. Roof inspection - Smith residence"
+              value={title}
+              onChangeText={setTitle}
+            />
 
-        <View style={styles.fieldSpacing}>
-          <FormField label="Location (optional)" placeholder="Address" value={location} onChangeText={setLocation} />
-        </View>
+            <Pressable style={styles.allDayRow} onPress={() => setAllDay((v) => !v)}>
+              <View style={[styles.checkbox, allDay && styles.checkboxChecked]} />
+              <Text style={styles.allDayLabel}>All day</Text>
+            </Pressable>
 
-        <View style={styles.fieldSpacing}>
-          <FormField
-            label="Description / link (optional)"
-            placeholder="Notes, video call link, etc."
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            style={styles.multiline}
-          />
-        </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedDateField label="Start" value={start} onChange={setStart} mode={allDay ? "date" : "datetime"} />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedDateField label="End" value={end} onChange={setEnd} mode={allDay ? "date" : "datetime"} />
+            </View>
 
-        <Text style={styles.sectionTitle}>Linked job{lockedFromJob ? "" : " (optional)"}</Text>
-        <Pressable
-          style={styles.pickerField}
-          onPress={() => !lockedFromJob && setJobPickerVisible(true)}
-          disabled={lockedFromJob}
-        >
-          <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {jobCard?.title ?? "None"}
-          </Text>
-        </Pressable>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Guests (optional)" placeholder="email@example.com, another@example.com" value={guests} onChangeText={setGuests} autoCapitalize="none" />
+            </View>
 
-        {jobCard ? (
-          <View style={styles.fieldSpacing}>
-            <Text style={styles.sectionTitle}>Technician (optional)</Text>
-            <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
-              <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                {technician?.full_name ?? "Unassigned"}
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Location (optional)" placeholder="Address" value={location} onChangeText={setLocation} />
+            </View>
+
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField
+                label="Description / link (optional)"
+                placeholder="Notes, video call link, etc."
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                style={styles.multiline}
+              />
+            </View>
+
+            <Text style={styles.sectionTitle}>Linked Job{lockedFromJob ? "" : " (optional)"}</Text>
+            <Pressable
+              style={styles.pickerField}
+              onPress={() => !lockedFromJob && setJobPickerVisible(true)}
+              disabled={lockedFromJob}
+            >
+              <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                {jobCard?.title ?? "None"}
               </Text>
             </Pressable>
-          </View>
-        ) : null}
 
-        <Text style={styles.sectionTitle}>Linked task (optional)</Text>
-        <Pressable style={styles.pickerField} onPress={() => setTaskPickerVisible(true)}>
-          <Text style={task ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>{task?.title ?? "None"}</Text>
-        </Pressable>
+            {jobCard ? (
+              <View style={styles.fieldSpacing}>
+                <Text style={styles.sectionTitle}>Technician (optional)</Text>
+                <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
+                  <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                    {technician?.full_name ?? "Unassigned"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
-        {formError ? <Text style={styles.error}>{formError}</Text> : null}
+            <Text style={styles.sectionTitle}>Linked Task (optional)</Text>
+            <Pressable style={styles.pickerField} onPress={() => setTaskPickerVisible(true)}>
+              <Text style={task ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>{task?.title ?? "None"}</Text>
+            </Pressable>
 
-        <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-          <Text style={styles.submitButtonText}>{submitting ? "Saving..." : "Create event"}</Text>
-        </Pressable>
-      </ScrollView>
+            {formError ? <Text style={styles.error}>{formError}</Text> : null}
 
-      <PickerModal
+            <View style={styles.submitButtonWrap}>
+              <ThemedButton label={submitting ? "Saving..." : "Create Event"} onPress={handleSubmit} disabled={submitting} />
+            </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
+
+      <ThemedPickerModal
         visible={jobPickerVisible}
         title="Select a job"
         items={jobCards}
@@ -246,7 +257,7 @@ export default function NewCalendarEventScreen() {
         onSelect={setJobCard}
         onClose={() => setJobPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={technicianPickerVisible}
         title="Select technician"
         items={technicians}
@@ -255,7 +266,7 @@ export default function NewCalendarEventScreen() {
         onSelect={setTechnician}
         onClose={() => setTechnicianPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={taskPickerVisible}
         title="Select task"
         items={tasks}
@@ -268,19 +279,34 @@ export default function NewCalendarEventScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 16, marginBottom: 6 },
-  fieldSpacing: { marginTop: 16 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  allDayRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
-  checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: "#9ca3af" },
-  checkboxChecked: { backgroundColor: "#1d4ed8", borderColor: "#1d4ed8" },
-  allDayLabel: { fontSize: 15 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldText: { fontSize: 16, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
-  error: { color: "#dc2626", marginTop: 12 },
-  submitButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  submitButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 16,
+      marginBottom: 6,
+      ...mono,
+    },
+    fieldSpacing: { marginTop: 16 },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    allDayRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, marginTop: 16 },
+    checkbox: { width: 20, height: 20, borderRadius: 3, borderWidth: 1, borderColor: tokens.border },
+    checkboxChecked: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    allDayLabel: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    submitButtonWrap: { marginTop: 20 },
+  };
+}

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   categoryForEvent,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
@@ -20,7 +22,8 @@ import {
   startOfMonth,
   startOfWeek,
 } from "../../lib/datetime";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
 
 type ViewMode = "day" | "week" | "month" | "year";
 const VIEW_MODES: ViewMode[] = ["day", "week", "month", "year"];
@@ -35,6 +38,7 @@ export default function CalendarScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: events, loading, refetch } = useSupabaseFetch<CalendarEvent[]>(async () => {
     const { data, error } = await supabase.from("calendar_events").select("*").order("start_at", { ascending: true });
@@ -110,7 +114,9 @@ export default function CalendarScreen() {
   // Full-tile fill, not just a colored accent - matches Google Calendar's
   // own event styling (a solid block in the category's color with white
   // text) rather than the flat white row every event used to render as
-  // regardless of category.
+  // regardless of category. Category colors are admin-configurable business
+  // data (Settings > Calendar colors), so they stay their own hex values
+  // rather than following the CRT accent palette.
   const renderEventRow = (event: CalendarEvent) => (
     <Pressable
       key={event.id}
@@ -230,116 +236,141 @@ export default function CalendarScreen() {
           ? `${MONTH_LABELS[anchor.getMonth()]} ${anchor.getFullYear()}`
           : String(anchor.getFullYear());
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Calendar" />
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.viewModeRow}>
-        {VIEW_MODES.map((mode) => (
-          <Pressable
-            key={mode}
-            style={[styles.viewModeChip, viewMode === mode && styles.viewModeChipActive]}
-            onPress={() => setViewMode(mode)}
-          >
-            <Text style={[styles.viewModeChipText, viewMode === mode && styles.viewModeChipTextActive]}>
-              {VIEW_MODE_LABELS[mode]}
-            </Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-        ))}
-      </View>
+          <Text style={styles.title}>Calendar</Text>
+          {profile?.role === "admin" ? (
+            <Pressable style={styles.addButton} onPress={() => router.push("/calendar/new")} hitSlop={8}>
+              <Text style={styles.addButtonText}>+</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.addButtonSpacer} />
+          )}
+        </View>
 
-      <View style={styles.navRow}>
-        <Pressable onPress={() => shiftAnchor(-1)} style={styles.navButton}>
-          <Text style={styles.navButtonText}>‹</Text>
-        </Pressable>
-        <Pressable onPress={goToday} style={styles.navHeading}>
-          <Text style={styles.navHeadingText}>{heading}</Text>
-        </Pressable>
-        <Pressable onPress={() => shiftAnchor(1)} style={styles.navButton}>
-          <Text style={styles.navButtonText}>›</Text>
-        </Pressable>
-      </View>
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Calendar" />
+        ) : (
+          <>
+            <View style={styles.viewModeRow}>
+              {VIEW_MODES.map((mode) => (
+                <Pressable
+                  key={mode}
+                  style={[styles.viewModeChip, viewMode === mode && styles.viewModeChipActive]}
+                  onPress={() => setViewMode(mode)}
+                >
+                  <Text style={[styles.viewModeChipText, viewMode === mode && styles.viewModeChipTextActive]}>
+                    {VIEW_MODE_LABELS[mode]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
-      {!loading ? (
-        <>
-          {viewMode === "day" ? renderDayView() : null}
-          {viewMode === "week" ? renderWeekView() : null}
-          {viewMode === "month" ? renderMonthView() : null}
-          {viewMode === "year" ? renderYearView() : null}
-        </>
-      ) : (
-        <Text style={styles.empty}>Loading...</Text>
-      )}
+            <View style={styles.navRow}>
+              <Pressable onPress={() => shiftAnchor(-1)} style={styles.navButton}>
+                <Text style={styles.navButtonText}>‹</Text>
+              </Pressable>
+              <Pressable onPress={goToday} style={styles.navHeading}>
+                <Text style={styles.navHeadingText}>{heading}</Text>
+              </Pressable>
+              <Pressable onPress={() => shiftAnchor(1)} style={styles.navButton}>
+                <Text style={styles.navButtonText}>›</Text>
+              </Pressable>
+            </View>
 
-      {profile?.role === "admin" ? (
-        <Pressable style={styles.fab} onPress={() => router.push("/calendar/new")}>
-          <Text style={styles.fabText}>+ New event</Text>
-        </Pressable>
-      ) : null}
-    </View>
+            {!loading ? (
+              <>
+                {viewMode === "day" ? renderDayView() : null}
+                {viewMode === "week" ? renderWeekView() : null}
+                {viewMode === "month" ? renderMonthView() : null}
+                {viewMode === "year" ? renderYearView() : null}
+              </>
+            ) : (
+              <Text style={styles.empty}>Loading...</Text>
+            )}
+          </>
+        )}
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  viewModeRow: { flexDirection: "row", gap: 8, padding: 12, paddingBottom: 4 },
-  viewModeChip: { flex: 1, paddingVertical: 8, borderRadius: 14, backgroundColor: "#f3f4f6", alignItems: "center" },
-  viewModeChipActive: { backgroundColor: "#111827" },
-  viewModeChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  viewModeChipTextActive: { color: "#fff" },
-  navRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-  },
-  navButton: { padding: 8 },
-  navButtonText: { fontSize: 22, color: "#1d4ed8", fontWeight: "700" },
-  navHeading: { flex: 1, alignItems: "center" },
-  navHeadingText: { fontSize: 16, fontWeight: "700" },
-  dayViewContent: { padding: 16 },
-  dayHeading: { fontSize: 17, fontWeight: "700", marginBottom: 12 },
-  eventRow: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 6 },
-  eventTime: { color: "rgba(255,255,255,0.85)", fontWeight: "600", fontSize: 12 },
-  eventTitle: { fontSize: 16, fontWeight: "600", marginTop: 2, color: "#fff" },
-  weekViewContent: { padding: 16 },
-  weekDaySection: { marginBottom: 18 },
-  weekDayHeading: { fontWeight: "700", color: "#374151", marginBottom: 6 },
-  todayText: { color: "#1d4ed8" },
-  weekDayEmpty: { color: "#9ca3af", fontSize: 13 },
-  monthViewContent: { padding: 16 },
-  monthHeading: { fontSize: 17, fontWeight: "700", marginBottom: 10, textAlign: "center" },
-  weekdayHeaderRow: { flexDirection: "row" },
-  weekdayHeaderText: { flex: 1, textAlign: "center", color: "#9ca3af", fontSize: 12, fontWeight: "600" },
-  monthGrid: { flexDirection: "row", flexWrap: "wrap" },
-  monthCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center", gap: 4 },
-  monthCellText: { fontSize: 14, color: "#111827" },
-  monthCellTextMuted: { color: "#d1d5db" },
-  todayBadge: { color: "#1d4ed8", fontWeight: "800" },
-  monthCellDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#1d4ed8" },
-  yearViewContent: { padding: 16 },
-  yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  yearTile: { width: "31%", backgroundColor: "#f3f4f6", borderRadius: 12, padding: 12, gap: 4 },
-  yearTileLabel: { fontWeight: "700", fontSize: 14 },
-  yearTileCount: { color: "#6b7280", fontSize: 12 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 16 },
-  fab: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    backgroundColor: "#1d4ed8",
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  fabText: { color: "#fff", fontWeight: "700" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 4,
+      gap: 6,
+    },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, flex: 1, ...mono },
+    addButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      backgroundColor: tokens.accentGlow,
+    },
+    addButtonSpacer: { width: 36, height: 36 },
+    addButtonText: { color: tokens.accent, fontSize: 22, fontWeight: "700" as const, marginTop: -2, ...mono },
+    viewModeRow: { flexDirection: "row" as const, gap: 8, padding: 12, paddingBottom: 4 },
+    viewModeChip: { flex: 1, paddingVertical: 8, borderRadius: 3, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, alignItems: "center" as const },
+    viewModeChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    viewModeChipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    viewModeChipTextActive: { color: tokens.accent },
+    navRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    navButton: { padding: 8 },
+    navButtonText: { fontSize: 22, color: tokens.accent, fontWeight: "700" as const, ...mono },
+    navHeading: { flex: 1, alignItems: "center" as const },
+    navHeadingText: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    dayViewContent: { padding: 16 },
+    dayHeading: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.textPrimary, marginBottom: 12, ...mono },
+    eventRow: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 4, marginBottom: 6 },
+    eventTime: { color: "rgba(255,255,255,0.85)", fontWeight: "600" as const, fontSize: font.label - 1, ...mono },
+    eventTitle: { fontSize: font.body, fontWeight: "600" as const, marginTop: 2, color: "#fff", ...mono },
+    weekViewContent: { padding: 16 },
+    weekDaySection: { marginBottom: 18 },
+    weekDayHeading: { fontWeight: "700" as const, color: tokens.textPrimary, marginBottom: 6, ...mono },
+    todayText: { color: tokens.accent },
+    weekDayEmpty: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    monthViewContent: { padding: 16 },
+    monthHeading: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.textPrimary, marginBottom: 10, textAlign: "center" as const, ...mono },
+    weekdayHeaderRow: { flexDirection: "row" as const },
+    weekdayHeaderText: { flex: 1, textAlign: "center" as const, color: tokens.textMuted, fontSize: font.label - 1, fontWeight: "600" as const, ...mono },
+    monthGrid: { flexDirection: "row" as const, flexWrap: "wrap" as const },
+    monthCell: { width: `${100 / 7}%` as const, aspectRatio: 1, alignItems: "center" as const, justifyContent: "center" as const, gap: 4 },
+    monthCellText: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    monthCellTextMuted: { color: tokens.border },
+    todayBadge: { color: tokens.accent, fontWeight: "800" as const },
+    monthCellDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: tokens.accent },
+    yearViewContent: { padding: 16 },
+    yearGrid: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 12 },
+    yearTile: { width: "31%" as const, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, gap: 4 },
+    yearTileLabel: { fontWeight: "700" as const, fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    yearTileCount: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 16, ...mono },
+  };
+}

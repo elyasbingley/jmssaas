@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import type { CalendarEvent, Profile } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
@@ -10,10 +12,12 @@ import { supabase } from "../../lib/supabase";
 import { openInMaps } from "../../lib/maps";
 import { getErrorMessage } from "../../lib/errors";
 import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../../lib/google-calendar-sync";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
-import { DateField } from "../../components/DateField";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedDateField } from "../../components/theme/ThemedDateField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 type CalendarEventRow = CalendarEvent & {
   job_cards: { title: string; assigned_technician_id: string | null } | null;
@@ -27,6 +31,7 @@ export default function CalendarEventDetailScreen() {
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: event, loading, refetch } = useSupabaseFetch<CalendarEventRow>(async () => {
     const { data, error } = await supabase
@@ -159,19 +164,36 @@ export default function CalendarEventDetailScreen() {
     ]);
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Event</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Calendar" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Calendar" />
+        </SafeAreaView>
+      </>
     );
   }
 
   if (loading || !event) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Loading...</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
@@ -185,129 +207,153 @@ export default function CalendarEventDetailScreen() {
   // other direction.
   if (event.source === "google_personal") {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.personalTitle}>{event.title}</Text>
-        <Text style={styles.personalMeta}>
-          {new Date(event.start_at).toLocaleString("en-AU")} - {new Date(event.end_at).toLocaleString("en-AU")}
-        </Text>
-        {event.location ? <Text style={styles.personalMeta}>{event.location}</Text> : null}
-        {event.description ? <Text style={styles.personalDescription}>{event.description}</Text> : null}
-        <Text style={styles.personalNotice}>
-          Personal Google Calendar event, shown here for scheduling visibility only. To change or remove it, edit it in Google
-          Calendar directly - the change syncs back here automatically.
-        </Text>
-      </ScrollView>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <Text style={styles.personalTitle}>{event.title}</Text>
+            <Text style={styles.personalMeta}>
+              {new Date(event.start_at).toLocaleString("en-AU")} - {new Date(event.end_at).toLocaleString("en-AU")}
+            </Text>
+            {event.location ? <Text style={styles.personalMeta}>{event.location}</Text> : null}
+            {event.description ? <Text style={styles.personalDescription}>{event.description}</Text> : null}
+            <Text style={styles.personalNotice}>
+              Personal Google Calendar event, shown here for scheduling visibility only. To change or remove it, edit it in Google
+              Calendar directly - the change syncs back here automatically.
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <FormField label="Title" value={title} onChangeText={setTitle} editable={!!canEdit} />
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <ThemedFormField label="Title" value={title} onChangeText={setTitle} editable={!!canEdit} />
 
-      <View style={styles.fieldSpacing}>
-        <DateField label="Start" value={start} onChange={setStart} mode={event.all_day ? "date" : "datetime"} />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <DateField label="End" value={end} onChange={setEnd} mode={event.all_day ? "date" : "datetime"} />
-      </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedDateField label="Start" value={start} onChange={setStart} mode={event.all_day ? "date" : "datetime"} />
+          </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedDateField label="End" value={end} onChange={setEnd} mode={event.all_day ? "date" : "datetime"} />
+          </View>
 
-      <View style={styles.fieldSpacing}>
-        <FormField label="Guests" placeholder="No guests" value={guests} onChangeText={setGuests} editable={!!canEdit} autoCapitalize="none" />
-      </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField label="Guests" placeholder="No guests" value={guests} onChangeText={setGuests} editable={!!canEdit} autoCapitalize="none" />
+          </View>
 
-      <View style={styles.fieldSpacing}>
-        <FormField label="Location" placeholder="No location" value={location} onChangeText={setLocation} editable={!!canEdit} />
-        {location ? (
-          <Pressable onPress={() => openInMaps(location)}>
-            <Text style={styles.mapsLink}>Open in Maps</Text>
-          </Pressable>
-        ) : null}
-      </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField label="Location" placeholder="No location" value={location} onChangeText={setLocation} editable={!!canEdit} />
+            {location ? (
+              <Pressable onPress={() => openInMaps(location)}>
+                <Text style={styles.mapsLink}>Open in Maps</Text>
+              </Pressable>
+            ) : null}
+          </View>
 
-      <View style={styles.fieldSpacing}>
-        <FormField
-          label="Description / link"
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          style={styles.multiline}
-          editable={!!canEdit}
-        />
-      </View>
+          <View style={styles.fieldSpacing}>
+            <ThemedFormField
+              label="Description / link"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              style={styles.multiline}
+              editable={!!canEdit}
+            />
+          </View>
 
-      {event.job_cards ? (
-        <Pressable onPress={() => router.push(`/jobs/${event.job_card_id}`)}>
-          <Text style={styles.link}>Linked job: {event.job_cards.title}</Text>
-        </Pressable>
-      ) : null}
+          {event.job_cards ? (
+            <Pressable onPress={() => router.push(`/jobs/${event.job_card_id}`)}>
+              <Text style={styles.link}>Linked job: {event.job_cards.title}</Text>
+            </Pressable>
+          ) : null}
 
-      {event.job_cards && isAdmin ? (
-        <View style={styles.fieldSpacing}>
-          <Text style={styles.techLabel}>Technician</Text>
-          <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
-            <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-              {technician?.full_name ?? "Unassigned"}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
+          {event.job_cards && isAdmin ? (
+            <View style={styles.fieldSpacing}>
+              <Text style={styles.techLabel}>Technician</Text>
+              <Pressable style={styles.pickerField} onPress={() => setTechnicianPickerVisible(true)}>
+                <Text style={technician ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                  {technician?.full_name ?? "Unassigned"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-      {event.tasks ? (
-        <Pressable onPress={() => router.push(`/tasks/${event.task_id}`)}>
-          <Text style={styles.link}>Linked task: {event.tasks.title}</Text>
-        </Pressable>
-      ) : null}
+          {event.tasks ? (
+            <Pressable onPress={() => router.push(`/tasks/${event.task_id}`)}>
+              <Text style={styles.link}>Linked task: {event.tasks.title}</Text>
+            </Pressable>
+          ) : null}
 
-      <Text style={styles.googleSyncNotice}>
-        {event.google_event_id ? "Synced with Google Calendar" : "Not synced with Google Calendar yet"}
-      </Text>
+          <Text style={styles.googleSyncNotice}>
+            {event.google_event_id ? "Synced with Google Calendar" : "Not synced with Google Calendar yet"}
+          </Text>
 
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+          {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
-      {canEdit ? (
-        <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
-          <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
-        </Pressable>
-      ) : null}
+          {canEdit ? (
+            <View style={styles.saveButtonWrap}>
+              <ThemedButton label={saving ? "Saving..." : "Save Changes"} onPress={handleSave} disabled={saving} />
+            </View>
+          ) : null}
 
-      {isAdmin ? (
-        <Pressable style={styles.deleteButton} onPress={handleDelete}>
-          <Text style={styles.deleteButtonText}>Delete event</Text>
-        </Pressable>
-      ) : null}
+          {isAdmin ? (
+            <Pressable style={styles.deleteButton} onPress={handleDelete}>
+              <Text style={styles.deleteButtonText}>Delete Event</Text>
+            </Pressable>
+          ) : null}
 
-      <PickerModal
-        visible={technicianPickerVisible}
-        title="Select technician"
-        items={technicians}
-        getKey={(t) => t.id}
-        getLabel={(t) => t.full_name}
-        onSelect={setTechnician}
-        onClose={() => setTechnicianPickerVisible(false)}
-      />
-    </ScrollView>
+          <ThemedPickerModal
+            visible={technicianPickerVisible}
+            title="Select technician"
+            items={technicians}
+            getKey={(t) => t.id}
+            getLabel={(t) => t.full_name}
+            onSelect={setTechnician}
+            onClose={() => setTechnicianPickerVisible(false)}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  fieldSpacing: { marginTop: 16 },
-  multiline: { minHeight: 70, textAlignVertical: "top" },
-  mapsLink: { color: "#1d4ed8", fontWeight: "600", marginTop: 6 },
-  link: { color: "#1d4ed8", fontWeight: "600", marginTop: 16 },
-  techLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldText: { fontSize: 16, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
-  googleSyncNotice: { color: "#9ca3af", fontSize: 12, marginTop: 16 },
-  personalTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
-  personalMeta: { fontSize: 14, color: "#374151", marginTop: 6 },
-  personalDescription: { fontSize: 14, color: "#374151", marginTop: 12 },
-  personalNotice: { fontSize: 12, color: "#6b7280", backgroundColor: "#f9fafb", borderRadius: 8, padding: 12, marginTop: 20 },
-  error: { color: "#dc2626", marginTop: 12 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  deleteButton: { borderRadius: 8, padding: 14, alignItems: "center", marginTop: 12, backgroundColor: "#fef2f2" },
-  deleteButtonText: { color: "#dc2626", fontWeight: "700" },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    fieldSpacing: { marginTop: 16 },
+    multiline: { minHeight: 70, textAlignVertical: "top" as const },
+    mapsLink: { color: tokens.accent, fontWeight: "600" as const, marginTop: 6, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, marginTop: 16, ...mono },
+    techLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginBottom: 6,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    googleSyncNotice: { color: tokens.textMuted, fontSize: font.label, marginTop: 16, ...mono },
+    personalTitle: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    personalMeta: { fontSize: font.body - 1, color: tokens.textPrimary, marginTop: 6, ...mono },
+    personalDescription: { fontSize: font.body - 1, color: tokens.textPrimary, marginTop: 12, ...mono },
+    personalNotice: { fontSize: font.label, color: tokens.textMuted, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, marginTop: 20, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    saveButtonWrap: { marginTop: 20 },
+    deleteButton: { borderRadius: 3, padding: 14, alignItems: "center" as const, marginTop: 12, borderWidth: 1, borderColor: tokens.danger },
+    deleteButtonText: { color: tokens.danger, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+  };
+}
