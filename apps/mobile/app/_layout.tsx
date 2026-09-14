@@ -73,11 +73,11 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="company-settings" options={{ headerShown: false }} />
       <Stack.Screen name="dashboard-settings" options={{ headerShown: false }} />
-      <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
-      <Stack.Screen name="team" options={{ headerShown: true, title: "Team/Staff" }} />
+      <Stack.Screen name="schedule" options={{ headerShown: false }} />
+      <Stack.Screen name="team" options={{ headerShown: false }} />
       <Stack.Screen name="job-setup" options={{ headerShown: false }} />
       <Stack.Screen name="inventory-setup" options={{ headerShown: false }} />
-      <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
+      <Stack.Screen name="automation-settings" options={{ headerShown: false }} />
       <Stack.Screen name="ui-settings" options={{ headerShown: false }} />
       <Stack.Screen name="google-calendar-settings" options={{ headerShown: false }} />
       <Stack.Screen name="real-estate" />

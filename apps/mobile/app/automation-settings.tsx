@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View, Pressable } from "react-native";
+import { ScrollView, Switch, Text, TextInput, View, Pressable } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import {
   ALL_PLACEHOLDER_TOKENS,
@@ -15,19 +18,20 @@ import { useIsOnline } from "../lib/connectivity";
 import { supabase } from "../lib/supabase";
 import { useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { getErrorMessage } from "../lib/errors";
-import { CenteredModal } from "../components/CenteredModal";
-import { FormField } from "../components/FormField";
-import { DateField } from "../components/DateField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedDateField } from "../components/theme/ThemedDateField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
-// Reached via a small admin-only "Automation & Messaging" link on the
-// Settings tab, alongside Company Details/Team/Job Setup/Inventory Setup.
-// communication_rules/communication_templates are PowerSync-synced
-// (tenant_reference_data bucket, admin-only write via RLS - see
-// powersync/sync-rules.yaml), so timing/message edits work offline like
-// Job Setup does. The one exception is the Google review link field below,
-// which lives on `tenants` directly (not PowerSync-synced, same as every
-// other Company Settings field) and so needs a live connection to save,
-// same RequiresConnectionNotice-style gating as company-settings.tsx.
+// Reached via More > Automation & Messaging, alongside Company Details/
+// Team/Job Setup/Inventory Setup. communication_rules/communication_
+// templates are PowerSync-synced (tenant_reference_data bucket, admin-only
+// write via RLS - see powersync/sync-rules.yaml), so timing/message edits
+// work offline like Job Setup does. The one exception is the Google review
+// link field below, which lives on `tenants` directly (not PowerSync-
+// synced, same as every other Company Settings field) and so needs a live
+// connection to save.
 //
 // Deliberately scoped to editing the six trigger_keys this migration seeds
 // and the triggers below actually know how to fire (see the
@@ -154,10 +158,12 @@ function dateToTimeString(date: Date): string {
 }
 
 export default function AutomationSettingsScreen() {
+  const router = useRouter();
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: rules } = useQuery<CommunicationRule>("SELECT * FROM communication_rules ORDER BY trigger_key");
   const { data: templates } = useQuery<CommunicationTemplate>(
@@ -312,86 +318,103 @@ export default function AutomationSettingsScreen() {
     setTemplateModalVisible(false);
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.title}>Automation & Messaging</Text>
+    </View>
+  );
+
   if (!isAdmin) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Only admins can manage automation & messaging.</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Only admins can manage automation & messaging.</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.subtitle}>
-          Control when automated emails go out, and edit their wording.
-        </Text>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.subtitle}>
+            Control when automated emails go out, and edit their wording.
+          </Text>
 
-        {TRIGGER_GROUPS.map((group) => (
-          <View key={group.title}>
-            <Text style={styles.sectionTitle}>{group.title}</Text>
-            {group.keys.map((key) => {
-              const rule = rules.find((r) => r.trigger_key === key);
-              const triggerTemplates = templates.filter((t) => t.trigger_key === key);
-              if (!rule) return null;
-              return (
-                <View key={key} style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.cardTitle}>{TRIGGER_LABELS[key] ?? key}</Text>
-                    <Switch value={!!rule.is_enabled} onValueChange={() => handleToggleRule(rule)} />
-                  </View>
-                  <Text style={styles.cardSummary}>{summarizeTiming(rule)}</Text>
-                  <Text style={styles.cardMeta}>
-                    Quiet hours {rule.quiet_hours_start.slice(0, 5)}-{rule.quiet_hours_end.slice(0, 5)}
-                  </Text>
-                  <Pressable onPress={() => openEditRule(rule)}>
-                    <Text style={styles.link}>Edit timing</Text>
-                  </Pressable>
-
-                  {triggerTemplates.map((template) => (
-                    <View key={template.id} style={styles.templateRow}>
-                      <View style={styles.templateRowText}>
-                        <Text style={styles.templateName}>
-                          {template.name} ({template.type})
-                        </Text>
-                        <Text style={styles.templatePreview} numberOfLines={2}>
-                          {template.body}
-                        </Text>
-                      </View>
-                      <Pressable onPress={() => openEditTemplate(template)}>
-                        <Text style={styles.link}>Edit message</Text>
-                      </Pressable>
+          {TRIGGER_GROUPS.map((group) => (
+            <View key={group.title}>
+              <Text style={styles.sectionTitle}>{group.title}</Text>
+              {group.keys.map((key) => {
+                const rule = rules.find((r) => r.trigger_key === key);
+                const triggerTemplates = templates.filter((t) => t.trigger_key === key);
+                if (!rule) return null;
+                return (
+                  <View key={key} style={styles.card}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.cardTitle}>{TRIGGER_LABELS[key] ?? key}</Text>
+                      <Switch value={!!rule.is_enabled} onValueChange={() => handleToggleRule(rule)} />
                     </View>
-                  ))}
-                </View>
-              );
-            })}
-          </View>
-        ))}
+                    <Text style={styles.cardSummary}>{summarizeTiming(rule)}</Text>
+                    <Text style={styles.cardMeta}>
+                      Quiet hours {rule.quiet_hours_start.slice(0, 5)}-{rule.quiet_hours_end.slice(0, 5)}
+                    </Text>
+                    <Pressable onPress={() => openEditRule(rule)}>
+                      <Text style={styles.link}>Edit timing</Text>
+                    </Pressable>
 
-        <Text style={styles.sectionTitle}>Review link</Text>
-        <Text style={styles.subtitle}>Used by the {"{google_review_link}"} tag in the review request message.</Text>
-        {!isOnline ? (
-          <Text style={styles.empty}>Connect to the internet to edit the review link.</Text>
-        ) : (
-          <>
-            <FormField
-              label="Google review link"
-              placeholder="https://g.page/r/..."
-              value={reviewLink}
-              onChangeText={setReviewLink}
-              autoCapitalize="none"
-            />
-            {reviewLinkError ? <Text style={styles.error}>{reviewLinkError}</Text> : null}
-            <Pressable style={styles.saveButton} onPress={handleSaveReviewLink} disabled={reviewLinkSaving}>
-              <Text style={styles.saveButtonText}>{reviewLinkSaving ? "Saving..." : "Save review link"}</Text>
-            </Pressable>
-          </>
-        )}
-      </ScrollView>
+                    {triggerTemplates.map((template) => (
+                      <View key={template.id} style={styles.templateRow}>
+                        <View style={styles.templateRowText}>
+                          <Text style={styles.templateName}>
+                            {template.name} ({template.type})
+                          </Text>
+                          <Text style={styles.templatePreview} numberOfLines={2}>
+                            {template.body}
+                          </Text>
+                        </View>
+                        <Pressable onPress={() => openEditTemplate(template)}>
+                          <Text style={styles.link}>Edit message</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
 
-      <CenteredModal visible={ruleModalVisible} onClose={() => setRuleModalVisible(false)}>
-        <Text style={styles.modalTitle}>Edit timing{editingRule ? ` - ${TRIGGER_LABELS[editingRule.trigger_key]}` : ""}</Text>
+          <Text style={styles.sectionTitle}>Review Link</Text>
+          <Text style={styles.subtitle}>Used by the {"{google_review_link}"} tag in the review request message.</Text>
+          {!isOnline ? (
+            <Text style={styles.empty}>Connect to the internet to edit the review link.</Text>
+          ) : (
+            <>
+              <ThemedFormField
+                label="Google review link"
+                placeholder="https://g.page/r/..."
+                value={reviewLink}
+                onChangeText={setReviewLink}
+                autoCapitalize="none"
+              />
+              {reviewLinkError ? <Text style={styles.error}>{reviewLinkError}</Text> : null}
+              <View style={styles.saveButtonWrap}>
+                <ThemedButton label={reviewLinkSaving ? "Saving..." : "Save Review Link"} onPress={handleSaveReviewLink} disabled={reviewLinkSaving} />
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+
+      <ThemedModal visible={ruleModalVisible} onClose={() => setRuleModalVisible(false)}>
+        <Text style={styles.modalTitle}>Edit Timing{editingRule ? ` - ${TRIGGER_LABELS[editingRule.trigger_key]}` : ""}</Text>
 
         {editingRule?.trigger_key === "maintenance_reminder" ? (
           <Text style={styles.subtitle}>
@@ -401,7 +424,7 @@ export default function AutomationSettingsScreen() {
           </Text>
         ) : (
           <>
-            <FormField
+            <ThemedFormField
               label={editingRule?.trigger_key === "dormant_client_reengagement" ? "Days of inactivity" : "Delay value"}
               value={ruleDelayValue}
               onChangeText={setRuleDelayValue}
@@ -444,10 +467,10 @@ export default function AutomationSettingsScreen() {
 
         <View style={styles.quietHoursRow}>
           <View style={styles.quietHoursItem}>
-            <DateField label="Quiet hours start" value={ruleQuietStart} onChange={setRuleQuietStart} mode="time" />
+            <ThemedDateField label="Quiet hours start" value={ruleQuietStart} onChange={setRuleQuietStart} mode="time" />
           </View>
           <View style={styles.quietHoursItem}>
-            <DateField label="Quiet hours end" value={ruleQuietEnd} onChange={setRuleQuietEnd} mode="time" />
+            <ThemedDateField label="Quiet hours end" value={ruleQuietEnd} onChange={setRuleQuietEnd} mode="time" />
           </View>
         </View>
 
@@ -456,17 +479,15 @@ export default function AutomationSettingsScreen() {
           <Pressable onPress={() => setRuleModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveRule}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveRule} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={templateModalVisible} onClose={() => setTemplateModalVisible(false)}>
+      <ThemedModal visible={templateModalVisible} onClose={() => setTemplateModalVisible(false)}>
         <Text style={styles.modalTitle}>{editingTemplate?.name}</Text>
 
         {editingTemplate?.type === "email" ? (
-          <FormField label="Subject" value={templateSubject} onChangeText={setTemplateSubject} />
+          <ThemedFormField label="Subject" value={templateSubject} onChangeText={setTemplateSubject} />
         ) : null}
 
         <Text style={styles.fieldLabel}>Insert tag</Text>
@@ -488,6 +509,7 @@ export default function AutomationSettingsScreen() {
             onChangeText={setTemplateBody}
             selection={bodySelection}
             onSelectionChange={(e) => setBodySelection(e.nativeEvent.selection)}
+            placeholderTextColor={styles.bodyInputPlaceholder.color}
           />
         </View>
 
@@ -501,78 +523,112 @@ export default function AutomationSettingsScreen() {
           <Pressable onPress={() => setTemplateModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveTemplate}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <ThemedButton label="Save" onPress={handleSaveTemplate} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  subtitle: { color: "#6b7280", marginTop: 2, marginBottom: 12 },
-  sectionTitle: { fontSize: 17, fontWeight: "700", color: "#111827", marginTop: 20, marginBottom: 8 },
-  card: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    gap: 4,
-  },
-  cardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  cardSummary: { fontSize: 14, color: "#374151" },
-  cardMeta: { fontSize: 12, color: "#6b7280", marginBottom: 4 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  templateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#d1d5db",
-  },
-  templateRowText: { flex: 1 },
-  templateName: { fontSize: 13, fontWeight: "600", color: "#111827" },
-  templatePreview: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  error: { color: "#dc2626", marginTop: 12 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 12 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginTop: 12, marginBottom: 6 },
-  fieldSpacing: { marginTop: 4 },
-  chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  chip: { borderWidth: 1, borderColor: "#ccc", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipSelected: { backgroundColor: "#1d4ed8", borderColor: "#1d4ed8" },
-  chipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  chipTextSelected: { color: "#fff" },
-  quietHoursRow: { flexDirection: "row", gap: 12, marginTop: 12 },
-  quietHoursItem: { flex: 1 },
-  tokenScroll: { marginBottom: 4 },
-  tokenChip: {
-    backgroundColor: "#eff6ff",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 6,
-  },
-  tokenChipText: { color: "#1d4ed8", fontSize: 12, fontWeight: "600" },
-  bodyInput: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    color: "#111827",
-    minHeight: 110,
-    textAlignVertical: "top",
-  },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    subtitle: { color: tokens.textMuted, marginTop: 2, marginBottom: 12, fontSize: font.body - 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 20,
+      marginBottom: 8,
+      ...mono,
+    },
+    card: {
+      backgroundColor: tokens.surface,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 4,
+      padding: 14,
+      marginBottom: 10,
+      gap: 4,
+    },
+    cardHeader: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
+    cardTitle: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    cardSummary: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
+    cardMeta: { fontSize: font.label, color: tokens.textMuted, marginBottom: 4, ...mono },
+    templateRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      gap: 8,
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: tokens.border,
+    },
+    templateRowText: { flex: 1 },
+    templateName: { fontSize: font.label, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    templatePreview: { fontSize: font.label - 1, color: tokens.textMuted, marginTop: 2, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    saveButtonWrap: { marginTop: 12 },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    fieldLabel: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      marginTop: 12,
+      marginBottom: 6,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    fieldSpacing: { marginTop: 4 },
+    chipRow: { flexDirection: "row" as const, gap: 8, flexWrap: "wrap" as const },
+    chip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 8 },
+    chipSelected: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    chipText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    chipTextSelected: { color: tokens.accent },
+    quietHoursRow: { flexDirection: "row" as const, gap: 12, marginTop: 12 },
+    quietHoursItem: { flex: 1 },
+    tokenScroll: { marginBottom: 4 },
+    tokenChip: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      backgroundColor: tokens.background,
+      borderRadius: 3,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginRight: 6,
+    },
+    tokenChipText: { color: tokens.accent, fontSize: font.label - 1, fontWeight: "600" as const, ...mono },
+    bodyInput: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 3,
+      padding: 12,
+      fontSize: font.body - 1,
+      color: tokens.textPrimary,
+      backgroundColor: tokens.background,
+      minHeight: 110,
+      textAlignVertical: "top" as const,
+      ...mono,
+    },
+    bodyInputPlaceholder: { color: tokens.textMuted },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 16 },
+  };
+}
