@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { EmailAttachment, KnowledgeArticle, Tenant } from "@jmssaas/shared";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../lib/auth-context";
@@ -10,12 +12,13 @@ import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildKnowledgeArticlePdfHtml } from "../../../lib/knowledge-pdf";
 import { exportPdf, buildPdfDataUri } from "../../../lib/print";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
 import { EmailComposeModal } from "../../../components/EmailComposeModal";
 
 const BUCKET = "knowledge-files";
 
-function ImageBlockView({ storagePath, caption }: { storagePath: string; caption?: string }) {
+function ImageBlockView({ storagePath, caption, styles }: { storagePath: string; caption?: string; styles: ReturnType<typeof createStyles> }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -41,8 +44,10 @@ function ImageBlockView({ storagePath, caption }: { storagePath: string; caption
 
 export default function KnowledgeArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: article } = useSupabaseFetch<KnowledgeArticle | null>(async () => {
     if (!isOnline) return null;
@@ -120,77 +125,109 @@ export default function KnowledgeArticleScreen() {
     await triggerImmediateDispatch(row.id);
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Article</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Knowledge" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Knowledge" />
+        </SafeAreaView>
+      </>
     );
   }
   if (!article) {
-    return <View style={styles.container} />;
+    return (
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+        </SafeAreaView>
+      </>
+    );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.title}>{article.title}</Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.title}>{article.title}</Text>
 
-      {article.content_blocks.map((block) => {
-        if (block.type === "text") {
-          return (
-            <Text key={block.id} style={styles.body}>
-              {block.body}
-            </Text>
-          );
-        }
-        if (block.type === "image") {
-          return <ImageBlockView key={block.id} storagePath={block.storagePath} caption={block.caption} />;
-        }
-        return (
-          <Pressable key={block.id} style={styles.block} onPress={() => Linking.openURL(block.url)}>
-            <Text style={styles.videoLink}>▶ Watch video</Text>
-            {block.caption ? <Text style={styles.caption}>{block.caption}</Text> : null}
-          </Pressable>
-        );
-      })}
+          {article.content_blocks.map((block) => {
+            if (block.type === "text") {
+              return (
+                <Text key={block.id} style={styles.body}>
+                  {block.body}
+                </Text>
+              );
+            }
+            if (block.type === "image") {
+              return <ImageBlockView key={block.id} storagePath={block.storagePath} caption={block.caption} styles={styles} />;
+            }
+            return (
+              <Pressable key={block.id} style={styles.block} onPress={() => Linking.openURL(block.url)}>
+                <Text style={styles.videoLink}>▶ Watch video</Text>
+                {block.caption ? <Text style={styles.caption}>{block.caption}</Text> : null}
+              </Pressable>
+            );
+          })}
 
-      {pdfError ? <Text style={styles.error}>{pdfError}</Text> : null}
+          {pdfError ? <Text style={styles.error}>{pdfError}</Text> : null}
 
-      <View style={styles.actions}>
-        <Pressable style={styles.actionButton} onPress={downloadPdf} disabled={pdfBusy}>
-          <Text style={styles.actionButtonText}>{pdfBusy ? "Preparing..." : "Download PDF"}</Text>
-        </Pressable>
-        <Pressable style={styles.actionButton} onPress={openEmailModal} disabled={pdfBusy}>
-          <Text style={styles.actionButtonText}>{pdfBusy ? "Preparing..." : "Email PDF"}</Text>
-        </Pressable>
-      </View>
+          <View style={styles.actions}>
+            <Pressable style={styles.actionButton} onPress={downloadPdf} disabled={pdfBusy}>
+              <Text style={styles.actionButtonText}>{pdfBusy ? "Preparing..." : "Download PDF"}</Text>
+            </Pressable>
+            <Pressable style={styles.actionButton} onPress={openEmailModal} disabled={pdfBusy}>
+              <Text style={styles.actionButtonText}>{pdfBusy ? "Preparing..." : "Email PDF"}</Text>
+            </Pressable>
+          </View>
 
-      <EmailComposeModal
-        visible={emailModalVisible}
-        onClose={() => setEmailModalVisible(false)}
-        title="Email article as PDF"
-        defaultTo=""
-        defaultSubject={article.title}
-        defaultBody={`Please find attached: ${article.title}`}
-        recipientOptions={[]}
-        defaultAttachments={emailAttachments}
-        onSend={handleSendEmail}
-        sendLabel="Send"
-      />
-    </ScrollView>
+          <EmailComposeModal
+            visible={emailModalVisible}
+            onClose={() => setEmailModalVisible(false)}
+            title="Email article as PDF"
+            defaultTo=""
+            defaultSubject={article.title}
+            defaultBody={`Please find attached: ${article.title}`}
+            recipientOptions={[]}
+            defaultAttachments={emailAttachments}
+            onSend={handleSendEmail}
+            sendLabel="Send"
+          />
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 16 },
-  body: { fontSize: 15, lineHeight: 22, color: "#1f2937", marginBottom: 12 },
-  block: { marginBottom: 16 },
-  image: { width: "100%", height: 220, borderRadius: 8, backgroundColor: "#f3f4f6" },
-  caption: { fontSize: 12, color: "#6b7280", marginTop: 4 },
-  videoLink: { fontSize: 15, fontWeight: "700", color: "#1d4ed8" },
-  error: { color: "#dc2626", marginBottom: 12 },
-  actions: { flexDirection: "row", gap: 12, marginTop: 8 },
-  actionButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  actionButtonText: { fontSize: 14, fontWeight: "700", color: "#374151" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, marginBottom: 16, ...mono },
+    body: { fontSize: font.body, lineHeight: 22, color: tokens.textPrimary, marginBottom: 12, ...mono },
+    block: { marginBottom: 16 },
+    image: { width: "100%" as const, height: 220, borderRadius: 4, backgroundColor: tokens.surface },
+    caption: { fontSize: font.label, color: tokens.textMuted, marginTop: 4, ...mono },
+    videoLink: { fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    error: { color: tokens.danger, marginBottom: 12, ...mono },
+    actions: { flexDirection: "row" as const, gap: 12, marginTop: 8 },
+    actionButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingVertical: 12, alignItems: "center" as const },
+    actionButtonText: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.accent, ...mono },
+  };
+}

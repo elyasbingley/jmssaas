@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { createClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
 import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { FormField } from "../../components/FormField";
-import { PickerModal } from "../../components/PickerModal";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
 
 const ATTACHMENT_BUCKET = "inbox-attachments";
 const JOB_FILES_BUCKET = "job-files";
@@ -52,6 +56,7 @@ export default function InboxMessageScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const styles = useThemedStyles(createStyles);
 
   const { data: message, refetch: refetchMessage } = useSupabaseFetch<InboxMessage | null>(async () => {
     if (!isOnline) return null;
@@ -202,153 +207,184 @@ export default function InboxMessageScreen() {
     }
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Message</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Inbox" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Inbox" />
+        </SafeAreaView>
+      </>
     );
   }
   if (!message) {
-    return <View style={styles.container} />;
+    return (
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+          {header}
+        </SafeAreaView>
+      </>
+    );
   }
 
   const canAct = message.status === "unprocessed" || message.status === "needs_review";
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.title}>{message.subject || "(no subject)"}</Text>
-      <Text style={styles.meta}>
-        {message.from_name ? `${message.from_name} · ` : ""}
-        {message.from_email} · {new Date(message.received_at).toLocaleString("en-AU")}
-      </Text>
-      {message.body_text ? <Text style={styles.body}>{message.body_text}</Text> : null}
-
-      {attachments && attachments.length > 0 ? (
-        <View style={styles.attachmentRow}>
-          {attachments.map((a) => (
-            <Pressable key={a.id} style={styles.attachmentChip} onPress={() => attachmentUrls[a.id] && Linking.openURL(attachmentUrls[a.id])}>
-              <Text style={styles.attachmentChipText}>📎 {a.file_name}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-
-      {!canAct ? (
-        <Text style={styles.resolvedText}>
-          {message.status === "attached" ? "Attached to a job." : "Dismissed."}
-        </Text>
-      ) : (
-        <>
-          {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.title}>{message.subject || "(no subject)"}</Text>
+          <Text style={styles.meta}>
+            {message.from_name ? `${message.from_name} · ` : ""}
+            {message.from_email} · {new Date(message.received_at).toLocaleString("en-AU")}
+          </Text>
+          {message.body_text ? <Text style={styles.body}>{message.body_text}</Text> : null}
 
           {attachments && attachments.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Attach to an existing job</Text>
-              <Pressable style={styles.pickerField} onPress={() => setJobPickerVisible(true)}>
-                <Text style={attachJob ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                  {attachJob ? `${attachJob.title} - ${attachJob.clients?.name ?? "Unknown client"}` : "Select a job"}
-                </Text>
-              </Pressable>
-              <Pressable style={[styles.button, !attachJob && styles.buttonDisabled]} disabled={!attachJob || busy} onPress={attachToExisting}>
-                <Text style={styles.buttonText}>{busy ? "Attaching..." : "Attach"}</Text>
-              </Pressable>
+            <View style={styles.attachmentRow}>
+              {attachments.map((a) => (
+                <Pressable key={a.id} style={styles.attachmentChip} onPress={() => attachmentUrls[a.id] && Linking.openURL(attachmentUrls[a.id])}>
+                  <Text style={styles.attachmentChipText}>📎 {a.file_name}</Text>
+                </Pressable>
+              ))}
             </View>
           ) : null}
 
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>{suggestion ? "AI-drafted job (review before creating)" : "Create a new job from this message"}</Text>
-              {suggestion ? (
-                <View style={styles.confidenceBadge}>
-                  <Text style={styles.confidenceBadgeText}>{suggestion.confidence} confidence</Text>
+          {!canAct ? (
+            <Text style={styles.resolvedText}>
+              {message.status === "attached" ? "Attached to a job." : "Dismissed."}
+            </Text>
+          ) : (
+            <>
+              {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
+
+              {attachments && attachments.length > 0 ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Attach to an Existing Job</Text>
+                  <Pressable style={styles.pickerField} onPress={() => setJobPickerVisible(true)}>
+                    <Text style={attachJob ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                      {attachJob ? `${attachJob.title} - ${attachJob.clients?.name ?? "Unknown client"}` : "Select a job"}
+                    </Text>
+                  </Pressable>
+                  <ThemedButton label={busy ? "Attaching..." : "Attach"} onPress={attachToExisting} disabled={!attachJob || busy} />
                 </View>
               ) : null}
-            </View>
-            {!showCreateForm ? (
-              <Pressable onPress={() => setShowCreateForm(true)}>
-                <Text style={styles.link}>+ New job</Text>
-              </Pressable>
-            ) : (
-              <>
-                <Pressable style={styles.pickerField} onPress={() => setClientPickerVisible(true)}>
-                  <Text style={existingClient ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                    {existingClient ? existingClient.name : "Use an existing client (optional)"}
-                  </Text>
-                </Pressable>
-                {!existingClient ? (
+
+              <View style={styles.section}>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>{suggestion ? "AI-Drafted Job (review before creating)" : "Create a New Job From This Message"}</Text>
+                  {suggestion ? (
+                    <View style={styles.confidenceBadge}>
+                      <Text style={styles.confidenceBadgeText}>{suggestion.confidence} confidence</Text>
+                    </View>
+                  ) : null}
+                </View>
+                {!showCreateForm ? (
+                  <Pressable onPress={() => setShowCreateForm(true)}>
+                    <Text style={styles.link}>+ New job</Text>
+                  </Pressable>
+                ) : (
                   <>
-                    <FormField label="Client name" value={clientName} onChangeText={setClientName} />
-                    <FormField label="Email (optional)" value={clientEmail} onChangeText={setClientEmail} keyboardType="email-address" autoCapitalize="none" />
-                    <FormField label="Phone (optional)" value={clientPhone} onChangeText={setClientPhone} keyboardType="phone-pad" />
+                    <Pressable style={styles.pickerField} onPress={() => setClientPickerVisible(true)}>
+                      <Text style={existingClient ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
+                        {existingClient ? existingClient.name : "Use an existing client (optional)"}
+                      </Text>
+                    </Pressable>
+                    {!existingClient ? (
+                      <>
+                        <ThemedFormField label="Client name" value={clientName} onChangeText={setClientName} />
+                        <ThemedFormField label="Email (optional)" value={clientEmail} onChangeText={setClientEmail} keyboardType="email-address" autoCapitalize="none" />
+                        <ThemedFormField label="Phone (optional)" value={clientPhone} onChangeText={setClientPhone} keyboardType="phone-pad" />
+                      </>
+                    ) : null}
+                    <ThemedFormField label="Job title" value={jobTitle} onChangeText={setJobTitle} />
+                    <ThemedFormField
+                      label="Description"
+                      value={jobDescription}
+                      onChangeText={setJobDescription}
+                      multiline
+                      style={styles.multiline}
+                    />
+                    {createError ? <Text style={styles.error}>{createError}</Text> : null}
+                    <ThemedButton label={busy ? "Creating..." : "Create Job"} onPress={createJob} disabled={busy} />
                   </>
-                ) : null}
-                <FormField label="Job title" value={jobTitle} onChangeText={setJobTitle} />
-                <FormField
-                  label="Description"
-                  value={jobDescription}
-                  onChangeText={setJobDescription}
-                  multiline
-                  style={styles.multiline}
-                />
-                {createError ? <Text style={styles.error}>{createError}</Text> : null}
-                <Pressable style={styles.button} disabled={busy} onPress={createJob}>
-                  <Text style={styles.buttonText}>{busy ? "Creating..." : "Create job"}</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
+                )}
+              </View>
 
-          <Pressable onPress={dismiss} disabled={busy}>
-            <Text style={styles.dismissLink}>Dismiss</Text>
-          </Pressable>
-        </>
-      )}
+              <Pressable onPress={dismiss} disabled={busy}>
+                <Text style={styles.dismissLink}>Dismiss</Text>
+              </Pressable>
+            </>
+          )}
 
-      <PickerModal
-        visible={jobPickerVisible}
-        title="Select job"
-        items={jobs ?? []}
-        getKey={(j) => j.id}
-        getLabel={(j) => `${j.title} - ${j.clients?.name ?? "Unknown client"}`}
-        onSelect={setAttachJob}
-        onClose={() => setJobPickerVisible(false)}
-      />
-      <PickerModal
-        visible={clientPickerVisible}
-        title="Select client"
-        items={clients ?? []}
-        getKey={(c) => c.id}
-        getLabel={(c) => c.company_name || c.name}
-        onSelect={setExistingClient}
-        onClose={() => setClientPickerVisible(false)}
-      />
-    </ScrollView>
+          <ThemedPickerModal
+            visible={jobPickerVisible}
+            title="Select job"
+            items={jobs ?? []}
+            getKey={(j) => j.id}
+            getLabel={(j) => `${j.title} - ${j.clients?.name ?? "Unknown client"}`}
+            onSelect={setAttachJob}
+            onClose={() => setJobPickerVisible(false)}
+          />
+          <ThemedPickerModal
+            visible={clientPickerVisible}
+            title="Select client"
+            items={clients ?? []}
+            getKey={(c) => c.id}
+            getLabel={(c) => c.company_name || c.name}
+            onSelect={setExistingClient}
+            onClose={() => setClientPickerVisible(false)}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  title: { fontSize: 19, fontWeight: "700", color: "#111827" },
-  meta: { fontSize: 13, color: "#6b7280", marginTop: 4, marginBottom: 12 },
-  body: { fontSize: 14, color: "#374151", lineHeight: 20, marginBottom: 12 },
-  attachmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  attachmentChip: { backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  attachmentChipText: { fontSize: 13, fontWeight: "600", color: "#1d4ed8" },
-  resolvedText: { fontSize: 14, color: "#6b7280" },
-  section: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 14, gap: 10, marginBottom: 16 },
-  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 },
-  confidenceBadge: { backgroundColor: "#fef3c7", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  confidenceBadgeText: { fontSize: 11, fontWeight: "700", color: "#b45309" },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldText: { fontSize: 16, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 16, color: "#9ca3af" },
-  multiline: { minHeight: 80, textAlignVertical: "top" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "700" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  dismissLink: { color: "#dc2626", fontWeight: "600", textAlign: "center", marginTop: 4 },
-  error: { color: "#dc2626", marginBottom: 4 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    meta: { fontSize: font.label, color: tokens.textMuted, marginTop: 4, marginBottom: 12, ...mono },
+    body: { fontSize: font.body - 1, color: tokens.textPrimary, lineHeight: 20, marginBottom: 12, ...mono },
+    attachmentRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginBottom: 16 },
+    attachmentChip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+    attachmentChipText: { fontSize: font.label, fontWeight: "600" as const, color: tokens.accent, ...mono },
+    resolvedText: { fontSize: font.body - 1, color: tokens.textMuted, ...mono },
+    section: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 14, gap: 10, marginBottom: 16 },
+    sectionHeaderRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      textTransform: "uppercase" as const,
+      letterSpacing: 1.2,
+      ...mono,
+    },
+    confidenceBadge: { borderWidth: 1, borderColor: tokens.warning, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 2 },
+    confidenceBadgeText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.warning, ...mono },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    multiline: { minHeight: 80, textAlignVertical: "top" as const },
+    dismissLink: { color: tokens.danger, fontWeight: "600" as const, textAlign: "center" as const, marginTop: 4, ...mono },
+    error: { color: tokens.danger, marginBottom: 4, ...mono },
+  };
+}
