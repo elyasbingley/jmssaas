@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@powersync/react";
 import {
   createReferralGroupSchema,
@@ -19,10 +22,12 @@ import { useIsOnline } from "../../lib/connectivity";
 import { useAuth } from "../../lib/auth-context";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Mobile port of desktop's B2BReferrals.tsx. referral_groups/referral_
 // partners/referral_reciprocity_logs aren't PowerSync tables (RLS is
@@ -77,11 +82,15 @@ const REWARD_TYPE_OPTIONS: { value: ReferralRewardType; label: string }[] = [
   { value: "flat_fee", label: "Flat fee" },
   { value: "gift_card", label: "Gift card" },
 ];
-export const TIER_BADGE_COLORS: Record<ReferralPartnerTier, { bg: string; text: string }> = {
-  bronze: { bg: "#fef3c7", text: "#92400e" },
-  silver: { bg: "#f3f4f6", text: "#374151" },
-  gold: { bg: "#fef9c3", text: "#854d0e" },
-  vip: { bg: "#f3e8ff", text: "#6b21a8" },
+// Fixed tier ranking colors (bronze/silver/gold/vip) - not user/tenant
+// configurable business data like the Calendar's category colors, just a
+// stable app-level distinction, chosen here to stay legible on the CRT
+// theme's dark background regardless of which accent preset is active.
+export const TIER_BADGE_COLORS: Record<ReferralPartnerTier, string> = {
+  bronze: "#d98c4a",
+  silver: "#b7c0cc",
+  gold: "#ffd23f",
+  vip: "#c78bff",
 };
 
 interface ReferredJob {
@@ -107,10 +116,12 @@ function inboundCentsForPartner(partnerId: string, referredJobs: ReferredJob[], 
 }
 
 export default function B2BReferralsScreen() {
+  const router = useRouter();
   const isOnline = useIsOnline();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
   const [tab, setTab] = useState<SubTab>("directory");
+  const styles = useThemedStyles(createStyles);
 
   const { data: groups, refetch: refetchGroups } = useSupabaseFetch<ReferralGroup[]>(async () => {
     if (!isOnline) return [];
@@ -145,46 +156,58 @@ export default function B2BReferralsScreen() {
     "SELECT id, referral_partner_id, referral_fee_amount_cents, referral_fee_paid, lifecycle_stage_id FROM job_cards WHERE referral_partner_id IS NOT NULL"
   );
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="B2B & Referrals" />;
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.tabRow}>
-        {(
-          [
-            { key: "directory", label: "Directory" },
-            { key: "reciprocity", label: "Reciprocity Ledger" },
-          ] as { key: SubTab; label: string }[]
-        ).map((t) => (
-          <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-        ))}
-      </View>
+          <Text style={styles.title}>B2B & Referrals</Text>
+        </View>
 
-      {tab === "directory" ? (
-        <DirectoryTab
-          groups={groups ?? []}
-          partners={partners ?? []}
-          referredJobs={referredJobRows}
-          referralInvoices={referralInvoices ?? []}
-          reciprocityLogs={reciprocityLogs ?? []}
-          isAdmin={isAdmin}
-          onGroupsChanged={refetchGroups}
-          onPartnersChanged={refetchPartners}
-          onLogsChanged={refetchLogs}
-        />
-      ) : (
-        <ReciprocityLedgerTab
-          partners={partners ?? []}
-          referredJobs={referredJobRows}
-          referralInvoices={referralInvoices ?? []}
-          reciprocityLogs={reciprocityLogs ?? []}
-        />
-      )}
-    </View>
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="B2B & Referrals" />
+        ) : (
+          <>
+            <View style={styles.tabRow}>
+              {(
+                [
+                  { key: "directory", label: "Directory" },
+                  { key: "reciprocity", label: "Reciprocity Ledger" },
+                ] as { key: SubTab; label: string }[]
+              ).map((t) => (
+                <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
+                  <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {tab === "directory" ? (
+              <DirectoryTab
+                groups={groups ?? []}
+                partners={partners ?? []}
+                referredJobs={referredJobRows}
+                referralInvoices={referralInvoices ?? []}
+                reciprocityLogs={reciprocityLogs ?? []}
+                isAdmin={isAdmin}
+                onGroupsChanged={refetchGroups}
+                onPartnersChanged={refetchPartners}
+                onLogsChanged={refetchLogs}
+              />
+            ) : (
+              <ReciprocityLedgerTab
+                partners={partners ?? []}
+                referredJobs={referredJobRows}
+                referralInvoices={referralInvoices ?? []}
+                reciprocityLogs={reciprocityLogs ?? []}
+              />
+            )}
+          </>
+        )}
+      </SafeAreaView>
+    </>
   );
 }
 
@@ -214,6 +237,7 @@ function DirectoryTab({
   onLogsChanged: () => void;
 }) {
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
   const [view, setView] = useState<"partner" | "group">("partner");
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const toggleGroup = (id: string) => {
@@ -437,14 +461,14 @@ function DirectoryTab({
     const closedRevenueCents = inboundCentsForPartner(partner.id, referredJobs, referralInvoices);
     const outboundCents = outboundByPartner.get(partner.id) ?? 0;
     const group = partner.group_id ? groupById.get(partner.group_id) : null;
-    const tierColors = TIER_BADGE_COLORS[partner.tier];
+    const tierColor = TIER_BADGE_COLORS[partner.tier];
 
     return (
       <View key={partner.id} style={styles.partnerCard}>
         <View style={styles.partnerCardHeader}>
           <Text style={styles.partnerCardName}>{partnerDisplayName(partner)}</Text>
-          <View style={[styles.tierBadge, { backgroundColor: tierColors.bg }]}>
-            <Text style={[styles.tierBadgeText, { color: tierColors.text }]}>{partner.tier.toUpperCase()}</Text>
+          <View style={[styles.tierBadge, { borderColor: tierColor }]}>
+            <Text style={[styles.tierBadgeText, { color: tierColor }]}>{partner.tier.toUpperCase()}</Text>
           </View>
         </View>
         <View style={styles.chipRow}>
@@ -555,37 +579,35 @@ function DirectoryTab({
         </View>
       )}
 
-      <CenteredModal visible={groupModalVisible} onClose={() => setGroupModalVisible(false)}>
-        <Text style={styles.modalTitle}>New BNI group / networking group</Text>
-        <FormField label="Name" value={groupName} onChangeText={setGroupName} placeholder="e.g. BNI Synergy Chapter" />
+      <ThemedModal visible={groupModalVisible} onClose={() => setGroupModalVisible(false)}>
+        <Text style={styles.modalTitle}>New BNI Group / Networking Group</Text>
+        <ThemedFormField label="Name" value={groupName} onChangeText={setGroupName} placeholder="e.g. BNI Synergy Chapter" />
         <Pressable style={styles.pickerField} onPress={() => setGroupTypePickerVisible(true)}>
           <Text style={styles.pickerFieldLabel}>Type</Text>
           <Text style={styles.pickerFieldValue}>{GROUP_TYPE_OPTIONS.find((o) => o.value === groupType)?.label}</Text>
         </Pressable>
-        <FormField label="Meeting day (optional)" value={meetingDay} onChangeText={setMeetingDay} placeholder="e.g. Tuesday" />
-        <FormField label="Notes (optional)" value={groupNotes} onChangeText={setGroupNotes} multiline style={styles.multiline} />
+        <ThemedFormField label="Meeting day (optional)" value={meetingDay} onChangeText={setMeetingDay} placeholder="e.g. Tuesday" />
+        <ThemedFormField label="Notes (optional)" value={groupNotes} onChangeText={setGroupNotes} multiline style={styles.multiline} />
         {groupError ? <Text style={styles.error}>{groupError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setGroupModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={saveGroup} disabled={groupSaving}>
-            <Text style={styles.primaryButtonText}>{groupSaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={groupSaving ? "Saving..." : "Save"} onPress={saveGroup} disabled={groupSaving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={partnerModalVisible} onClose={() => setPartnerModalVisible(false)}>
-        <Text style={styles.modalTitle}>New referral partner</Text>
+      <ThemedModal visible={partnerModalVisible} onClose={() => setPartnerModalVisible(false)}>
+        <Text style={styles.modalTitle}>New Referral Partner</Text>
         <Pressable style={styles.pickerField} onPress={() => setPGroupPickerVisible(true)}>
           <Text style={styles.pickerFieldLabel}>Group (optional)</Text>
           <Text style={styles.pickerFieldValue}>{groups.find((g) => g.id === pGroupId)?.name ?? "No group"}</Text>
         </Pressable>
-        <FormField label="Company name (optional)" value={pCompanyName} onChangeText={setPCompanyName} />
-        <FormField label="First name" value={pFirstName} onChangeText={setPFirstName} />
-        <FormField label="Last name" value={pLastName} onChangeText={setPLastName} />
-        <FormField label="Email" value={pEmail} onChangeText={setPEmail} keyboardType="email-address" autoCapitalize="none" />
-        <FormField label="Mobile" value={pMobile} onChangeText={setPMobile} keyboardType="phone-pad" />
+        <ThemedFormField label="Company name (optional)" value={pCompanyName} onChangeText={setPCompanyName} />
+        <ThemedFormField label="First name" value={pFirstName} onChangeText={setPFirstName} />
+        <ThemedFormField label="Last name" value={pLastName} onChangeText={setPLastName} />
+        <ThemedFormField label="Email" value={pEmail} onChangeText={setPEmail} keyboardType="email-address" autoCapitalize="none" />
+        <ThemedFormField label="Mobile" value={pMobile} onChangeText={setPMobile} keyboardType="phone-pad" />
         <Pressable style={styles.pickerField} onPress={() => setPPartnerTypePickerVisible(true)}>
           <Text style={styles.pickerFieldLabel}>Partner type</Text>
           <Text style={styles.pickerFieldValue}>{PARTNER_TYPE_OPTIONS.find((o) => o.value === pPartnerType)?.label}</Text>
@@ -599,10 +621,10 @@ function DirectoryTab({
           <Text style={styles.pickerFieldValue}>{REWARD_TYPE_OPTIONS.find((o) => o.value === pRewardType)?.label}</Text>
         </Pressable>
         {pRewardType === "commission_percent" ? (
-          <FormField label="Commission (%)" value={pRewardPercent} onChangeText={setPRewardPercent} keyboardType="decimal-pad" placeholder="e.g. 5" />
+          <ThemedFormField label="Commission (%)" value={pRewardPercent} onChangeText={setPRewardPercent} keyboardType="decimal-pad" placeholder="e.g. 5" />
         ) : null}
         {pRewardType === "flat_fee" || pRewardType === "gift_card" ? (
-          <FormField
+          <ThemedFormField
             label={pRewardType === "gift_card" ? "Gift card value ($)" : "Flat fee ($)"}
             value={pRewardFlat}
             onChangeText={setPRewardFlat}
@@ -615,22 +637,20 @@ function DirectoryTab({
           <Pressable onPress={() => setPartnerModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={savePartner} disabled={partnerSaving}>
-            <Text style={styles.primaryButtonText}>{partnerSaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={partnerSaving ? "Saving..." : "Save"} onPress={savePartner} disabled={partnerSaving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={logModalVisible} onClose={() => setLogModalVisible(false)}>
-        <Text style={styles.modalTitle}>Log referral passed out</Text>
+      <ThemedModal visible={logModalVisible} onClose={() => setLogModalVisible(false)}>
+        <Text style={styles.modalTitle}>Log Referral Passed Out</Text>
         <Pressable style={styles.pickerField} onPress={() => setLogPartnerPickerVisible(true)}>
           <Text style={styles.pickerFieldLabel}>Partner</Text>
           <Text style={styles.pickerFieldValue}>
             {partners.find((p) => p.id === logPartnerId) ? partnerDisplayName(partners.find((p) => p.id === logPartnerId)!) : "Select partner"}
           </Text>
         </Pressable>
-        <FormField label="Client / lead name" value={logClientName} onChangeText={setLogClientName} placeholder="Who was referred to them" />
-        <FormField
+        <ThemedFormField label="Client / lead name" value={logClientName} onChangeText={setLogClientName} placeholder="Who was referred to them" />
+        <ThemedFormField
           label="Description (optional)"
           value={logDescription}
           onChangeText={setLogDescription}
@@ -638,19 +658,17 @@ function DirectoryTab({
           style={styles.multiline}
           placeholder="e.g. Passed roof restoration lead to John"
         />
-        <FormField label="Estimated value ($, optional)" value={logEstimatedValue} onChangeText={setLogEstimatedValue} keyboardType="decimal-pad" />
+        <ThemedFormField label="Estimated value ($, optional)" value={logEstimatedValue} onChangeText={setLogEstimatedValue} keyboardType="decimal-pad" />
         {logError ? <Text style={styles.error}>{logError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setLogModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={saveLog} disabled={logSaving || !logPartnerId}>
-            <Text style={styles.primaryButtonText}>{logSaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={logSaving ? "Saving..." : "Save"} onPress={saveLog} disabled={logSaving || !logPartnerId} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <PickerModal
+      <ThemedPickerModal
         visible={groupTypePickerVisible}
         title="Group type"
         items={GROUP_TYPE_OPTIONS}
@@ -659,7 +677,7 @@ function DirectoryTab({
         onSelect={(o) => setGroupType(o.value)}
         onClose={() => setGroupTypePickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={pGroupPickerVisible}
         title="Select group"
         items={groups}
@@ -668,7 +686,7 @@ function DirectoryTab({
         onSelect={(g) => setPGroupId(g.id)}
         onClose={() => setPGroupPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={pPartnerTypePickerVisible}
         title="Partner type"
         items={PARTNER_TYPE_OPTIONS}
@@ -677,7 +695,7 @@ function DirectoryTab({
         onSelect={(o) => setPPartnerType(o.value)}
         onClose={() => setPPartnerTypePickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={pTierPickerVisible}
         title="Tier"
         items={TIER_OPTIONS}
@@ -686,7 +704,7 @@ function DirectoryTab({
         onSelect={(o) => setPTier(o.value)}
         onClose={() => setPTierPickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={pRewardTypePickerVisible}
         title="Reward type"
         items={REWARD_TYPE_OPTIONS}
@@ -695,7 +713,7 @@ function DirectoryTab({
         onSelect={(o) => setPRewardType(o.value)}
         onClose={() => setPRewardTypePickerVisible(false)}
       />
-      <PickerModal
+      <ThemedPickerModal
         visible={logPartnerPickerVisible}
         title="Select partner"
         items={partners}
@@ -722,13 +740,6 @@ function reciprocityStatus(inboundCents: number, outboundCents: number): Recipro
   return "balanced";
 }
 
-const STATUS_BADGE: Record<ReciprocityStatus, { label: string; bg: string; text: string }> = {
-  balanced: { label: "Balanced Partner", bg: "#dcfce7", text: "#15803d" },
-  net_exporter: { label: "Net Exporter", bg: "#fef9c3", text: "#854d0e" },
-  net_importer: { label: "Net Importer", bg: "#dbeafe", text: "#1d4ed8" },
-  no_data: { label: "No referral activity yet", bg: "#f3f4f6", text: "#6b7280" },
-};
-
 function ReciprocityLedgerTab({
   partners,
   referredJobs,
@@ -740,6 +751,14 @@ function ReciprocityLedgerTab({
   referralInvoices: ReferralInvoiceRow[];
   reciprocityLogs: ReferralReciprocityLog[];
 }) {
+  const styles = useThemedStyles(createStyles);
+  const STATUS_BADGE: Record<ReciprocityStatus, { label: string; color: string }> = {
+    balanced: { label: "Balanced Partner", color: styles.statusAccent.color },
+    net_exporter: { label: "Net Exporter", color: styles.statusWarning.color },
+    net_importer: { label: "Net Importer", color: styles.statusWarning.color },
+    no_data: { label: "No referral activity yet", color: styles.statusMuted.color },
+  };
+
   const outboundByPartner = useMemo(() => {
     const map = new Map<string, number>();
     for (const log of reciprocityLogs) {
@@ -769,8 +788,8 @@ function ReciprocityLedgerTab({
             <View key={partner.id} style={styles.ledgerCard}>
               <View style={styles.ledgerCardHeader}>
                 <Text style={styles.partnerCardName}>{partnerDisplayName(partner)}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
-                  <Text style={[styles.statusBadgeText, { color: badge.text }]}>{badge.label}</Text>
+                <View style={[styles.statusBadge, { borderColor: badge.color }]}>
+                  <Text style={[styles.statusBadgeText, { color: badge.color }]}>{badge.label}</Text>
                 </View>
               </View>
               <View style={styles.barBlock}>
@@ -796,7 +815,7 @@ function ReciprocityLedgerTab({
         })
       )}
 
-      <Text style={styles.sectionHeading}>Referrals passed out - recent log</Text>
+      <Text style={styles.sectionHeading}>Referrals Passed Out - Recent Log</Text>
       {reciprocityLogs.length === 0 ? (
         <Text style={styles.empty}>Nothing logged yet - use "Log Referral" on the Directory tab.</Text>
       ) : (
@@ -818,81 +837,112 @@ function ReciprocityLedgerTab({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  flex1: { flex: 1 },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabActive: { borderBottomColor: "#1d4ed8" },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
-  tabTextActive: { color: "#1d4ed8" },
-  tabBody: { flex: 1, padding: 16 },
-  error: { color: "#dc2626", marginTop: 8 },
-  empty: { color: "#6b7280", textAlign: "center", marginVertical: 16 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  smallLink: { color: "#1d4ed8", fontWeight: "600", fontSize: 12, marginTop: 8 },
-  multiline: { minHeight: 60, textAlignVertical: "top" },
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    flex1: { flex: 1 },
+    tabRow: { flexDirection: "row" as const, borderBottomWidth: 1, borderBottomColor: tokens.border, marginTop: 8 },
+    tab: { flex: 1, paddingVertical: 12, alignItems: "center" as const, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabActive: { borderBottomColor: tokens.accent },
+    tabText: { fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted, ...mono },
+    tabTextActive: { color: tokens.accent },
+    tabBody: { flex: 1, padding: 16 },
+    error: { color: tokens.danger, marginTop: 8, ...mono },
+    empty: { color: tokens.textMuted, textAlign: "center" as const, marginVertical: 16, ...mono },
+    smallLink: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label - 1, marginTop: 8, ...mono },
+    multiline: { minHeight: 60, textAlignVertical: "top" as const },
 
-  viewToggleRow: { flexDirection: "row", backgroundColor: "#f3f4f6", borderRadius: 8, padding: 4, marginBottom: 12, alignSelf: "flex-start" },
-  viewToggle: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  viewToggleActive: { backgroundColor: "#fff" },
-  viewToggleText: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
-  viewToggleTextActive: { color: "#111827" },
+    viewToggleRow: { flexDirection: "row" as const, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 4, marginBottom: 12, alignSelf: "flex-start" as const },
+    viewToggle: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 3 },
+    viewToggleActive: { backgroundColor: tokens.accentGlow },
+    viewToggleText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    viewToggleTextActive: { color: tokens.accent },
 
-  directoryActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  primaryButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  secondaryButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
-  secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
+    directoryActions: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginBottom: 12 },
+    primaryButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" as const },
+    primaryButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    secondaryButton: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" as const },
+    secondaryButtonText: { color: tokens.textPrimary, fontWeight: "700" as const, fontSize: font.label, ...mono },
 
-  partnerCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
-  partnerCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  partnerCardName: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
-  partnerCardMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  tierBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  tierBadgeText: { fontSize: 11, fontWeight: "700" },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8, marginBottom: 4 },
-  groupChip: { backgroundColor: "#eff6ff", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  groupChipText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  typeChip: { backgroundColor: "#f3f4f6", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  typeChipText: { fontSize: 11, fontWeight: "600", color: "#4b5563" },
-  inactiveChip: { backgroundColor: "#fef2f2", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  inactiveChipText: { fontSize: 11, fontWeight: "700", color: "#b91c1c" },
-  statsRow: { flexDirection: "row", gap: 12, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#f3f4f6" },
-  statLabel: { fontSize: 10, color: "#9ca3af", textTransform: "uppercase" },
-  statValue: { fontSize: 14, fontWeight: "700", color: "#111827", marginTop: 2 },
-  reciprocityText: { fontSize: 12, color: "#4b5563", marginTop: 8 },
+    partnerCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, marginBottom: 10, backgroundColor: tokens.surface },
+    partnerCardHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "flex-start" as const, gap: 8 },
+    partnerCardName: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    partnerCardMeta: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    tierBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+    tierBadgeText: { fontSize: font.label - 1, fontWeight: "700" as const, ...mono },
+    chipRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 8, marginBottom: 4 },
+    groupChip: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+    groupChipText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    typeChip: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+    typeChipText: { fontSize: font.label - 1, fontWeight: "600" as const, color: tokens.textMuted, ...mono },
+    inactiveChip: { borderWidth: 1, borderColor: tokens.danger, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+    inactiveChipText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.danger, ...mono },
+    statsRow: { flexDirection: "row" as const, gap: 12, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: tokens.border },
+    statLabel: { fontSize: font.label - 2, color: tokens.textMuted, textTransform: "uppercase" as const, ...mono },
+    statValue: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, marginTop: 2, ...mono },
+    reciprocityText: { fontSize: font.label, color: tokens.textMuted, marginTop: 8, ...mono },
 
-  treeCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
-  treeCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
-  treeChevron: { color: "#9ca3af", fontSize: 12 },
-  treeCardTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: "#111827" },
-  treeCardMeta: { fontSize: 11, color: "#9ca3af" },
-  treeCardBody: { borderTopWidth: 1, borderTopColor: "#f3f4f6", padding: 14 },
-  ungroupedTitle: { fontSize: 15, fontWeight: "700", color: "#111827", padding: 14, paddingBottom: 0 },
+    treeCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, marginBottom: 10, backgroundColor: tokens.surface },
+    treeCardHeader: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, padding: 14 },
+    treeChevron: { color: tokens.accent, fontSize: font.label },
+    treeCardTitle: { flex: 1, fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    treeCardMeta: { fontSize: font.label - 1, color: tokens.textMuted, ...mono },
+    treeCardBody: { borderTopWidth: 1, borderTopColor: tokens.border, padding: 14 },
+    ungroupedTitle: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, padding: 14, paddingBottom: 0, ...mono },
 
-  modalTitle: { fontSize: 17, fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16, marginTop: 4 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 16, marginTop: 4 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldLabel: {
+      fontSize: font.label - 1,
+      color: tokens.textMuted,
+      marginBottom: 2,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    pickerFieldValue: { fontSize: font.body - 1, color: tokens.textPrimary, ...mono },
 
-  ledgerCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
-  ledgerCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeText: { fontSize: 11, fontWeight: "700" },
-  barBlock: { marginTop: 8 },
-  barLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  barLabel: { fontSize: 11, color: "#6b7280" },
-  barValue: { fontSize: 12, fontWeight: "700", color: "#374151" },
-  barTrack: { height: 6, borderRadius: 3, backgroundColor: "#f3f4f6" },
-  barFillInbound: { height: 6, borderRadius: 3, backgroundColor: "#1d4ed8" },
-  barFillOutbound: { height: 6, borderRadius: 3, backgroundColor: "#f59e0b" },
+    ledgerCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, marginBottom: 10, backgroundColor: tokens.surface },
+    ledgerCardHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginBottom: 10 },
+    statusBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+    statusBadgeText: { fontSize: font.label - 1, fontWeight: "700" as const, ...mono },
+    statusAccent: { color: tokens.accent },
+    statusWarning: { color: tokens.warning },
+    statusMuted: { color: tokens.textMuted },
+    barBlock: { marginTop: 8 },
+    barLabelRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 4 },
+    barLabel: { fontSize: font.label - 1, color: tokens.textMuted, ...mono },
+    barValue: { fontSize: font.label, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    barTrack: { height: 6, borderRadius: 3, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    barFillInbound: { height: 6, borderRadius: 3, backgroundColor: tokens.accent },
+    barFillOutbound: { height: 6, borderRadius: 3, backgroundColor: tokens.warning },
 
-  sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
-  logRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  logDate: { fontSize: 11, color: "#9ca3af", width: 80 },
-  logPartner: { fontSize: 13, fontWeight: "600", color: "#111827" },
-  logClient: { fontSize: 12, color: "#6b7280" },
-  logValue: { fontSize: 13, fontWeight: "700", color: "#111827" },
-});
+    sectionHeading: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      textTransform: "uppercase" as const,
+      letterSpacing: 1.5,
+      marginTop: 20,
+      marginBottom: 10,
+      ...mono,
+    },
+    logRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    logDate: { fontSize: font.label - 1, color: tokens.textMuted, width: 80, ...mono },
+    logPartner: { fontSize: font.label, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    logClient: { fontSize: font.label - 1, color: tokens.textMuted, ...mono },
+    logValue: { fontSize: font.label, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+  };
+}
