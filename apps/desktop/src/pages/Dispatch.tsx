@@ -170,10 +170,11 @@ function EventBlock({
         width: `${widthPct}%`,
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         zIndex: isDragging ? 20 : 1,
+        border: "1px solid var(--jms-accent)",
+        backgroundColor: "var(--jms-accent-glow)",
+        opacity: isDragging ? 0.7 : 1,
       }}
-      className={`group absolute top-1 bottom-1 overflow-hidden rounded-md border border-blue-300 bg-blue-100 px-2 py-1 text-left shadow-sm hover:bg-blue-200 ${
-        isDragging ? "opacity-70" : ""
-      }`}
+      className="group absolute top-1 bottom-1 overflow-hidden rounded-md px-2 py-1 text-left"
     >
       <button
         type="button"
@@ -184,13 +185,28 @@ function EventBlock({
           e.stopPropagation();
           onRemove({ eventId: event.id, jobId: event.job_card_id! });
         }}
-        className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-xs font-bold leading-none text-gray-500 hover:bg-red-100 hover:text-red-600 group-hover:flex"
+        className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full text-xs font-bold leading-none group-hover:flex"
+        style={{ backgroundColor: "var(--jms-surface)", color: "var(--jms-text-muted)" }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "var(--jms-danger)";
+          e.currentTarget.style.color = "var(--jms-bg)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "var(--jms-surface)";
+          e.currentTarget.style.color = "var(--jms-text-muted)";
+        }}
       >
         &times;
       </button>
-      <p className="truncate text-xs font-bold text-blue-900">{formatTime(event.start_at)}</p>
-      <p className="truncate text-xs font-semibold text-gray-900">{event.job_cards?.title ?? event.title}</p>
-      <p className="truncate text-xs text-gray-600">{event.job_cards?.clients?.name}</p>
+      <p className="truncate text-xs font-bold" style={{ color: "var(--jms-accent)" }}>
+        {formatTime(event.start_at)}
+      </p>
+      <p className="truncate text-xs font-semibold" style={{ color: "var(--jms-text)" }}>
+        {event.job_cards?.title ?? event.title}
+      </p>
+      <p className="truncate text-xs" style={{ color: "var(--jms-text-muted)" }}>
+        {event.job_cards?.clients?.name}
+      </p>
     </div>
   );
 }
@@ -209,17 +225,21 @@ function TechnicianRow({
   const { setNodeRef, isOver } = useDroppable({ id: `tech:${technician.id}`, data: { technicianId: technician.id } });
 
   return (
-    <div className="flex border-b border-gray-200 last:border-0">
-      <div className="w-40 flex-shrink-0 border-r border-gray-200 p-3">
-        <p className="text-sm font-bold text-gray-900">{technician.full_name}</p>
-        <p className="text-xs text-gray-400">{events.length} job{events.length === 1 ? "" : "s"}</p>
+    <div className="flex last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+      <div className="w-40 flex-shrink-0 p-3" style={{ borderRight: "1px solid var(--jms-border)" }}>
+        <p className="text-sm font-bold" style={{ color: "var(--jms-text)" }}>
+          {technician.full_name}
+        </p>
+        <p className="text-xs" style={{ color: "var(--jms-text-muted)" }}>
+          {events.length} job{events.length === 1 ? "" : "s"}
+        </p>
       </div>
-      <div ref={setNodeRef} className={`relative h-16 flex-1 ${isOver ? "bg-blue-50" : ""}`}>
+      <div ref={setNodeRef} className="relative h-16 flex-1" style={{ backgroundColor: isOver ? "var(--jms-accent-glow)" : undefined }}>
         {HOURS.slice(0, -1).map((h) => (
           <div
             key={h}
-            className="absolute top-0 bottom-0 border-r border-gray-200"
-            style={{ left: `${((h - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%` }}
+            className="absolute top-0 bottom-0"
+            style={{ left: `${((h - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%`, borderRight: "1px solid var(--jms-border)" }}
           />
         ))}
         {events.map((event) => (
@@ -241,20 +261,31 @@ function UnassignedJobPill({ job, isMember }: { job: JobCardRow; isMember: boole
       {...listeners}
       {...attributes}
       onClick={() => !isDragging && navigate(`/jobs/${job.id}`)}
-      style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, zIndex: isDragging ? 20 : undefined }}
-      className={`flex-shrink-0 rounded-lg border bg-white px-3 py-2 text-left shadow-sm hover:bg-gray-50 ${
-        isMember ? "border-blue-300" : "border-gray-300"
-      } ${isDragging ? "opacity-70" : ""}`}
+      style={{
+        transform: transform ? CSS.Translate.toString(transform) : undefined,
+        zIndex: isDragging ? 20 : undefined,
+        border: `1px solid ${isMember ? "var(--jms-accent)" : "var(--jms-border)"}`,
+        backgroundColor: "var(--jms-surface)",
+        opacity: isDragging ? 0.7 : 1,
+      }}
+      className="flex-shrink-0 rounded-lg px-3 py-2 text-left"
     >
       <div className="flex items-center gap-1.5">
-        <p className="text-sm font-semibold text-gray-900">{job.title}</p>
+        <p className="text-sm font-semibold" style={{ color: "var(--jms-text)" }}>
+          {job.title}
+        </p>
         {isMember ? (
-          <span className="flex-shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+          <span
+            className="flex-shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold"
+            style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }}
+          >
             Member - Priority
           </span>
         ) : null}
       </div>
-      <p className="text-xs text-gray-500">{job.clients?.name ?? "Unknown client"}</p>
+      <p className="text-xs" style={{ color: "var(--jms-text-muted)" }}>
+        {job.clients?.name ?? "Unknown client"}
+      </p>
     </button>
   );
 }
@@ -480,23 +511,33 @@ export default function DispatchPage() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex h-full flex-col p-8">
+      <div className="flex h-full flex-col p-8" style={{ fontFamily: "var(--jms-font)" }}>
         <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Dispatch</h1>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Dispatch
+          </h1>
           <div className="flex items-center gap-3">
-            <button onClick={() => setSelectedDate((d) => addDays(d, -1))} className="text-xl font-bold text-blue-700">
+            <button onClick={() => setSelectedDate((d) => addDays(d, -1))} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
               &lsaquo;
             </button>
-            <button onClick={() => setSelectedDate(new Date())} className="text-sm font-bold text-gray-900 hover:underline">
+            <button
+              onClick={() => setSelectedDate(new Date())}
+              className="font-bold hover:underline"
+              style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+            >
               {selectedDate.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
             </button>
-            <button onClick={() => setSelectedDate((d) => addDays(d, 1))} className="text-xl font-bold text-blue-700">
+            <button onClick={() => setSelectedDate((d) => addDays(d, 1))} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
               &rsaquo;
             </button>
           </div>
         </div>
 
-        {dragError ? <p className="mb-2 text-sm text-red-600">{dragError}</p> : null}
+        {dragError ? (
+          <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {dragError}
+          </p>
+        ) : null}
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <input
@@ -504,12 +545,14 @@ export default function DispatchPage() {
             placeholder="Search jobs or clients..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full max-w-xs rounded border px-3 py-1.5 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           />
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            className="rounded border px-2 py-1.5"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">All categories</option>
             {(categories ?? []).map((c) => (
@@ -521,7 +564,8 @@ export default function DispatchPage() {
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            className="rounded border px-2 py-1.5"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">All stages</option>
             {(stages ?? []).map((s) => (
@@ -537,7 +581,8 @@ export default function DispatchPage() {
                 setCategoryFilter("");
                 setStageFilter("");
               }}
-              className="text-sm font-semibold text-blue-700 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
             >
               Clear filters
             </button>
@@ -546,14 +591,15 @@ export default function DispatchPage() {
 
         <div
           ref={setUnassignedRef}
-          className={`mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3 ${isOverUnassigned ? "bg-blue-50" : ""}`}
+          className="mb-4 rounded-lg p-3"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: isOverUnassigned ? "var(--jms-accent-glow)" : "var(--jms-surface)" }}
         >
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
+          <p className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             Unassigned jobs - drag onto a technician to dispatch (drag a booking back here, or hover it for &times;, to
             remove it)
           </p>
           {unassignedJobs.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               {hasActiveFilters ? "No unassigned jobs match your filters." : "Nothing waiting to be scheduled."}
             </p>
           ) : (
@@ -565,15 +611,15 @@ export default function DispatchPage() {
           )}
         </div>
 
-        <div className="flex-1 overflow-auto rounded-lg border border-gray-300 bg-white">
-          <div className="flex border-b border-gray-300 bg-gray-50">
-            <div className="w-40 flex-shrink-0 border-r border-gray-200" />
+        <div className="flex-1 overflow-auto rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <div className="flex" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+            <div className="w-40 flex-shrink-0" style={{ borderRight: "1px solid var(--jms-border)" }} />
             <div className="relative flex-1" style={{ height: 24 }}>
               {HOURS.map((h) => (
                 <span
                   key={h}
-                  className="absolute -translate-x-1/2 text-xs text-gray-400"
-                  style={{ left: `${((h - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%` }}
+                  className="absolute -translate-x-1/2 text-xs"
+                  style={{ left: `${((h - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%`, color: "var(--jms-text-muted)" }}
                 >
                   {h}:00
                 </span>
@@ -582,7 +628,9 @@ export default function DispatchPage() {
           </div>
 
           {!technicians || technicians.length === 0 ? (
-            <p className="p-6 text-sm text-gray-500">No technicians yet - add one from Team.</p>
+            <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              No technicians yet - add one from Team.
+            </p>
           ) : (
             technicians.map((tech) => (
               <TechnicianRow
