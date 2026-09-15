@@ -10,7 +10,8 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
 import { loadGoogleMaps } from "../../lib/google-maps";
-import { FormField } from "../FormField";
+import { ThemedFormField } from "../theme/ThemedFormField";
+import { ThemedButton } from "../theme/ThemedButton";
 
 // Linear Distance Measurer - draws named straight-line runs (gutters,
 // downpipes, flashing, fencing) over a satellite map and sums their
@@ -226,26 +227,31 @@ export function LinearMeasurer({ jobCardId }: { jobCardId: string }) {
   if (!drawing) {
     return (
       <div>
-        <button onClick={() => setDrawing(true)} className="mb-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+        <ThemedButton onClick={() => setDrawing(true)} className="mb-4">
           + New Measurement Set
-        </button>
+        </ThemedButton>
         {!measurements || measurements.length === 0 ? (
-          <p className="text-sm text-gray-500">No linear measurements saved yet.</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No linear measurements saved yet.</p>
         ) : (
           <div className="space-y-3">
             {measurements.map((m) => (
-              <div key={m.id} className="rounded-lg border border-gray-200 p-3">
+              <div key={m.id} className="rounded-lg p-3" style={{ border: "1px solid var(--jms-border)" }}>
                 <div className="mb-1 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-900">{m.title}</p>
-                  <p className="text-sm font-bold text-blue-700">{m.total_length_meters.toFixed(1)} m</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {m.title}
+                  </p>
+                  <p className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+                    {m.total_length_meters.toFixed(1)} m
+                  </p>
                 </div>
-                <p className="mb-2 text-xs text-gray-500">
+                <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   {m.segments.map((s) => `${s.label}: ${s.length_meters.toFixed(1)}m`).join(" · ")}
                 </p>
                 <button
                   onClick={() => copyToNotes.mutate(m)}
                   disabled={copyToNotes.isPending}
-                  className="text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60"
+                  className="font-semibold hover:underline disabled:opacity-60"
+                  style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                 >
                   {copiedId === m.id ? "Copied to Job Notes" : "Copy Summary to Job Notes"}
                 </button>
@@ -260,54 +266,93 @@ export function LinearMeasurer({ jobCardId }: { jobCardId: string }) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <FormField label="Measurement set name" placeholder='e.g. "Gutter Lengths"' value={title} onChange={(e) => setTitle(e.target.value)} />
+        <ThemedFormField label="Measurement set name" placeholder='e.g. "Gutter Lengths"' value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className="ml-4 flex-shrink-0 text-right">
-          <p className="text-xs text-gray-500">Total length</p>
-          <p className="text-lg font-bold text-blue-700">{totalLength.toFixed(1)} m</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total length</p>
+          <p className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {totalLength.toFixed(1)} m
+          </p>
         </div>
       </div>
 
       <div className="flex gap-4">
-        <div className="h-[420px] flex-1 overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
+        <div
+          className="h-[420px] flex-1 overflow-hidden rounded-lg"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
+        >
           {mapError ? (
-            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-600">{mapError}</div>
+            <div className="flex h-full items-center justify-center p-6 text-center" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {mapError}
+            </div>
           ) : (
             <div ref={mapDivRef} className="h-full w-full" />
           )}
         </div>
 
-        <div className="flex h-[420px] w-80 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white">
+        <div
+          className="flex h-[420px] w-80 flex-shrink-0 flex-col overflow-hidden rounded-lg"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+        >
           <div className="flex-1 overflow-y-auto p-3">
             {!activeSegmentId && segments.length === 0 ? (
-              <p className="mb-3 text-xs text-gray-500">Click "+ New Run" below, then click the map to trace a straight run.</p>
+              <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Click "+ New Run" below, then click the map to trace a straight run.
+              </p>
             ) : activeSegmentId ? (
-              <p className="mb-3 text-xs text-gray-500">Click the map to add points along this run, then "Finish run".</p>
+              <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Click the map to add points along this run, then "Finish run".
+              </p>
             ) : null}
             <div className="space-y-2">
               {segments.map((segment, index) => {
                 const isActive = segment.id === activeSegmentId;
                 return (
-                  <div key={segment.id} className={`rounded-lg p-2 ${isActive ? "bg-blue-50" : "bg-gray-50"}`}>
+                  <div
+                    key={segment.id}
+                    className="rounded-lg p-2"
+                    style={
+                      isActive
+                        ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)" }
+                        : { backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }
+                    }
+                  >
                     <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-full" style={{ backgroundColor: SEGMENT_COLORS[index % SEGMENT_COLORS.length] }} />
                         <input
                           value={segment.label}
                           onChange={(e) => setSegments((prev) => prev.map((s) => (s.id === segment.id ? { ...s, label: e.target.value } : s)))}
-                          className="w-32 rounded border border-transparent bg-transparent text-sm font-semibold text-gray-900 hover:border-gray-300 focus:border-blue-400 focus:outline-none"
+                          className="w-32 rounded border border-transparent bg-transparent font-semibold focus:outline-none"
+                          style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                         />
                       </div>
-                      <button onClick={() => handleDeleteSegment(segment.id)} className="text-xs font-semibold text-red-600">
+                      <button
+                        onClick={() => handleDeleteSegment(segment.id)}
+                        className="font-semibold"
+                        style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                      >
                         Delete
                       </button>
                     </div>
-                    <p className="text-xs text-gray-700">{(segmentLengths.get(segment.id) ?? 0).toFixed(1)} m</p>
+                    <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                      {(segmentLengths.get(segment.id) ?? 0).toFixed(1)} m
+                    </p>
                     {isActive ? (
-                      <div className="mt-1 flex justify-between text-xs">
-                        <button onClick={handleUndoPoint} disabled={segment.coordinates.length === 0} className="font-semibold text-blue-700 disabled:text-gray-400">
+                      <div className="mt-1 flex justify-between" style={{ fontSize: "var(--jms-font-label)" }}>
+                        <button
+                          onClick={handleUndoPoint}
+                          disabled={segment.coordinates.length === 0}
+                          className="font-semibold"
+                          style={{ color: segment.coordinates.length === 0 ? "var(--jms-text-muted)" : "var(--jms-accent)" }}
+                        >
                           Undo last point
                         </button>
-                        <button onClick={handleFinishSegment} disabled={segment.coordinates.length < 2} className="font-semibold text-blue-700 disabled:text-gray-400">
+                        <button
+                          onClick={handleFinishSegment}
+                          disabled={segment.coordinates.length < 2}
+                          className="font-semibold"
+                          style={{ color: segment.coordinates.length < 2 ? "var(--jms-text-muted)" : "var(--jms-accent)" }}
+                        >
                           Finish run
                         </button>
                       </div>
@@ -317,24 +362,28 @@ export function LinearMeasurer({ jobCardId }: { jobCardId: string }) {
               })}
             </div>
             {!activeSegmentId ? (
-              <button onClick={handleNewSegment} className="mt-3 w-full rounded-md bg-blue-700 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+              <ThemedButton onClick={handleNewSegment} className="mt-3 w-full">
                 + New Run
-              </button>
+              </ThemedButton>
             ) : null}
           </div>
-          <div className="border-t border-gray-300 p-3">
-            {saveError ? <p className="mb-2 text-xs text-red-600">{saveError}</p> : null}
+          <div className="p-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
+            {saveError ? (
+              <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+                {saveError}
+              </p>
+            ) : null}
             <div className="flex gap-2">
-              <button onClick={resetDraft} className="flex-1 rounded-md border border-gray-300 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <button
+                onClick={resetDraft}
+                className="flex-1 rounded-md py-2 font-semibold"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+              >
                 Cancel
               </button>
-              <button
-                onClick={() => save.mutate()}
-                disabled={save.isPending || savableSegments.length === 0}
-                className="flex-1 rounded-md bg-blue-700 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={() => save.mutate()} disabled={save.isPending || savableSegments.length === 0} className="flex-1">
                 {save.isPending ? "Saving..." : "Save"}
-              </button>
+              </ThemedButton>
             </div>
           </div>
         </div>

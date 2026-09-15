@@ -4,7 +4,8 @@ import { createJobMaterialTallySchema, type MaterialTallyItem } from "@jmssaas/s
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
-import { FormField } from "../FormField";
+import { ThemedFormField } from "../theme/ThemedFormField";
+import { ThemedButton } from "../theme/ThemedButton";
 
 // On-Site Material Tally Engine - a walkthrough counter for tallying
 // items as you move through a site (downlights, outlets, smoke alarms).
@@ -72,7 +73,12 @@ export function MaterialTally({ jobCardId, onTransferToOrder }: { jobCardId: str
 
   return (
     <div>
-      <FormField label="Tally name (optional)" placeholder='e.g. "Ground Floor Electrical Walkthrough"' value={tallyName} onChange={(e) => setTallyName(e.target.value)} />
+      <ThemedFormField
+        label="Tally name (optional)"
+        placeholder='e.g. "Ground Floor Electrical Walkthrough"'
+        value={tallyName}
+        onChange={(e) => setTallyName(e.target.value)}
+      />
 
       <div className="mt-3 mb-3 flex gap-2">
         <input
@@ -81,38 +87,47 @@ export function MaterialTally({ jobCardId, onTransferToOrder }: { jobCardId: str
           value={newItemName}
           onChange={(e) => setNewItemName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
-          className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
-        <button onClick={handleAddItem} disabled={!newItemName.trim()} className="flex-shrink-0 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60">
+        <ThemedButton onClick={handleAddItem} disabled={!newItemName.trim()} className="flex-shrink-0">
           + Create New Material
-        </button>
+        </ThemedButton>
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-gray-500">No materials added yet - start typing above.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No materials added yet - start typing above.</p>
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900" title={item.name}>
+            <div key={item.id} className="flex items-center gap-3 rounded-lg p-2" style={{ border: "1px solid var(--jms-border)" }}>
+              <span className="min-w-0 flex-1 truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }} title={item.name}>
                 {item.name}
               </span>
               <div className="flex flex-shrink-0 items-center gap-2">
                 <button
                   onClick={() => handleAdjust(item.id, -1)}
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-lg font-bold text-gray-700 hover:bg-gray-200"
+                  className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
+                  style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}
                 >
                   -
                 </button>
-                <span className="w-8 text-center text-base font-bold text-gray-900">{item.count}</span>
+                <span className="w-8 text-center font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+                  {item.count}
+                </span>
                 <button
                   onClick={() => handleAdjust(item.id, 1)}
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-700 text-lg font-bold text-white hover:bg-blue-800"
+                  className="flex h-11 w-11 items-center justify-center rounded-full font-bold"
+                  style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-title)" }}
                 >
                   +
                 </button>
               </div>
-              <button onClick={() => handleDelete(item.id)} className="flex-shrink-0 text-xs font-semibold text-red-600 hover:underline">
+              <button
+                onClick={() => handleDelete(item.id)}
+                className="flex-shrink-0 font-semibold hover:underline"
+                style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+              >
                 Delete
               </button>
             </div>
@@ -120,24 +135,24 @@ export function MaterialTally({ jobCardId, onTransferToOrder }: { jobCardId: str
         </div>
       )}
 
-      {saveError ? <p className="mt-3 text-sm text-red-600">{saveError}</p> : null}
-      {savedMessage ? <p className="mt-3 text-sm text-green-700">{savedMessage}</p> : null}
+      {saveError ? (
+        <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {savedMessage ? (
+        <p className="mt-3" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {savedMessage}
+        </p>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          onClick={() => saveToNotes.mutate()}
-          disabled={saveToNotes.isPending || items.length === 0}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => saveToNotes.mutate()} disabled={saveToNotes.isPending || items.length === 0}>
           {saveToNotes.isPending ? "Saving..." : "Save Tally to Job Notes"}
-        </button>
-        <button
-          onClick={() => onTransferToOrder(items)}
-          disabled={items.length === 0}
-          className="rounded-md border border-blue-700 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
-        >
+        </ThemedButton>
+        <ThemedButton variant="secondary" onClick={() => onTransferToOrder(items)} disabled={items.length === 0}>
           Transfer to Material Order Form
-        </button>
+        </ThemedButton>
       </div>
     </div>
   );
