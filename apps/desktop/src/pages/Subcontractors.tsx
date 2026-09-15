@@ -12,8 +12,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { ComplianceTrackerTab } from "../components/subcontractors/ComplianceTrackerTab";
 import { FinancialPerformanceTab } from "../components/subcontractors/FinancialPerformanceTab";
 
@@ -43,10 +44,16 @@ export const TIER_LABELS: Record<number, string> = {
   5: "Tier 5 - Last Resort",
 };
 
+// classes stays a Tailwind className string (its shape is relied on by
+// ComplianceTrackerTab.tsx, out of scope for this retheme) - themed here via
+// arbitrary-value classes reading the --jms-* custom properties (same
+// pattern already used for hover states in JobDetail.tsx) rather than fixed
+// hex, so a subcontractor's status pill still tracks the tenant's chosen
+// accent/danger tokens instead of a hardcoded green/red/gray.
 export const STATUS_BADGE: Record<SubcontractorStatus, { label: string; classes: string }> = {
-  active: { label: "🟢 Up to date", classes: "bg-green-50 text-green-700" },
-  inactive: { label: "Inactive", classes: "bg-gray-100 text-gray-500" },
-  compliance_hold: { label: "🔴 Compliance Hold", classes: "bg-red-50 text-red-700" },
+  active: { label: "🟢 Up to date", classes: "border border-[var(--jms-accent)] bg-[var(--jms-accent-glow)] text-[var(--jms-accent)]" },
+  inactive: { label: "Inactive", classes: "border border-[var(--jms-border)] text-[var(--jms-text-muted)]" },
+  compliance_hold: { label: "🔴 Compliance Hold", classes: "border border-[var(--jms-danger)] text-[var(--jms-danger)]" },
 };
 
 async function fetchSubcontractors(): Promise<SubcontractorCompany[]> {
@@ -73,11 +80,15 @@ export default function SubcontractorsPage() {
   const { data: purchaseOrders } = useQuery({ queryKey: ["purchase-orders"], queryFn: fetchPurchaseOrders });
 
   return (
-    <div className="p-8">
-      <h1 className="mb-1 text-xl font-bold text-gray-900">Subcontractors</h1>
-      <p className="mb-6 text-sm text-gray-500">Manage subcontractor companies, compliance, preference tiers, and purchase orders.</p>
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Subcontractors
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Manage subcontractor companies, compliance, preference tiers, and purchase orders.
+      </p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex gap-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
         {(
           [
             { key: "directory", label: "Directory & Tier Board" },
@@ -88,9 +99,12 @@ export default function SubcontractorsPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`border-b-2 px-4 py-2 text-sm font-semibold ${
-              tab === t.key ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className="border-b-2 px-4 py-2 font-semibold uppercase tracking-wide"
+            style={
+              tab === t.key
+                ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { borderColor: "transparent", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+            }
           >
             {t.label}
           </button>
@@ -229,16 +243,19 @@ function DirectoryTab({
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="w-64">
-          <FormField label="Search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search company, contact, or phone" />
+          <ThemedFormField label="Search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search company, contact, or phone" />
         </div>
         <div className="flex flex-wrap gap-1">
           {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
             <button
               key={trade}
               onClick={() => toggleTrade(trade)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                tradeFilter.has(trade) ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1 text-xs font-semibold"
+              style={
+                tradeFilter.has(trade)
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {TRADE_LABELS[trade]}
             </button>
@@ -249,9 +266,12 @@ function DirectoryTab({
             <button
               key={t}
               onClick={() => setTierFilter(tierFilter === t ? null : t)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                tierFilter === t ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1 text-xs font-semibold"
+              style={
+                tierFilter === t
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               Tier {t}
             </button>
@@ -260,20 +280,21 @@ function DirectoryTab({
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as SubcontractorStatus | "")}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm"
+          className="rounded-md border px-3 py-1.5 text-sm"
+          style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)" }}
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>
           <option value="compliance_hold">Compliance Hold</option>
           <option value="inactive">Inactive</option>
         </select>
-        <button onClick={openNew} className="ml-auto rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+        <ThemedButton onClick={openNew} className="ml-auto" style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add Subcontractor
-        </button>
+        </ThemedButton>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-gray-500">No subcontractors match these filters.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No subcontractors match these filters.</p>
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {filtered.map((sub) => {
@@ -283,31 +304,41 @@ function DirectoryTab({
               <Link
                 key={sub.id}
                 to={`/subcontractors/${sub.id}`}
-                className="rounded-lg border border-gray-300 bg-white p-4 hover:border-blue-400 hover:shadow-sm"
+                className="rounded-lg p-4"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
-                  <p className="font-bold text-gray-900">{sub.company_name}</p>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+                    {sub.company_name}
+                  </p>
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
+                    style={{ backgroundColor: "var(--jms-accent-glow)", color: "var(--jms-accent)" }}
+                  >
                     ⭐ Tier {sub.preference_tier}
                   </span>
                 </div>
                 <div className="mb-2 flex flex-wrap gap-1">
                   {sub.trades.map((t) => (
-                    <span key={t} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                    <span
+                      key={t}
+                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                      style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)" }}
+                    >
                       {TRADE_LABELS[t]}
                     </span>
                   ))}
                 </div>
                 {contact ? (
-                  <p className="mb-2 text-sm text-gray-600">
+                  <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                     {contact.first_name} {contact.last_name ?? ""}
                   </p>
                 ) : null}
-                <div className="flex items-center justify-between border-t border-gray-200 pt-2 text-xs">
+                <div className="flex items-center justify-between pt-2 text-xs" style={{ borderTop: "1px solid var(--jms-border)" }}>
                   <span className={`rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGE[sub.status].classes}`}>
                     {STATUS_BADGE[sub.status].label}
                   </span>
-                  <span className="text-gray-400">{jobCount} job(s) assigned</span>
+                  <span style={{ color: "var(--jms-text-muted)" }}>{jobCount} job(s) assigned</span>
                 </div>
               </Link>
             );
@@ -315,49 +346,54 @@ function DirectoryTab({
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New subcontractor company">
-        <FormField label="Company name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Apex Electrical Services" />
-        <FormField label="ABN (optional)" value={abn} onChange={(e) => setAbn(e.target.value)} />
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New subcontractor company">
+        <ThemedFormField label="Company name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Apex Electrical Services" />
+        <ThemedFormField label="ABN (optional)" value={abn} onChange={(e) => setAbn(e.target.value)} />
 
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Trades</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Trades
+        </label>
         <div className="mb-4 flex flex-wrap gap-1">
           {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
             <button
               key={trade}
               type="button"
               onClick={() => toggleFormTrade(trade)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                trades.has(trade) ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1 text-xs font-semibold"
+              style={
+                trades.has(trade)
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {TRADE_LABELS[trade]}
             </button>
           ))}
         </div>
 
-        <SelectField
+        <ThemedSelectField
           label="Preference tier"
           value={String(tier)}
           onChange={(v) => setTier(Number(v) || 3)}
           options={[1, 2, 3, 4, 5].map((t) => ({ value: String(t), label: TIER_LABELS[t] ?? String(t) }))}
         />
-        <FormField label="Payment terms (days)" type="number" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
-        <TextAreaField label="Notes (optional)" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <ThemedFormField label="Payment terms (days)" type="number" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
+        <ThemedTextAreaField label="Notes (optional)" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
 
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createSubcontractor.mutate()}
-            disabled={createSubcontractor.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createSubcontractor.mutate()} disabled={createSubcontractor.isPending}>
             {createSubcontractor.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

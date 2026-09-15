@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
+import type { ThemeTokens } from "@jmssaas/shared";
 import {
   createSubcontractorCompanySchema,
   type SubcontractorCompany,
@@ -13,11 +16,14 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useIsOnline } from "../../lib/connectivity";
 import { useAuth } from "../../lib/auth-context";
+import { useTheme } from "../../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { FormField } from "../../components/FormField";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Mobile port of desktop's Subcontractors.tsx. Like Real Estate & Strata
 // and Reports & Safety, none of subcontractor_companies/_contacts/
@@ -50,11 +56,13 @@ export const TIER_LABELS: Record<number, string> = {
   5: "Tier 5 - Last Resort",
 };
 
-export const STATUS_BADGE: Record<SubcontractorStatus, { bg: string; text: string; label: string }> = {
-  active: { bg: "#dcfce7", text: "#15803d", label: "Up to date" },
-  inactive: { bg: "#f3f4f6", text: "#6b7280", label: "Inactive" },
-  compliance_hold: { bg: "#fee2e2", text: "#b91c1c", label: "Compliance Hold" },
-};
+export function getStatusBadge(tokens: ThemeTokens): Record<SubcontractorStatus, { bg: string; border: string; text: string; label: string }> {
+  return {
+    active: { bg: tokens.accentGlow, border: tokens.accent, text: tokens.accent, label: "Up to date" },
+    inactive: { bg: tokens.surface, border: tokens.border, text: tokens.textMuted, label: "Inactive" },
+    compliance_hold: { bg: tokens.surface, border: tokens.danger, text: tokens.danger, label: "Compliance Hold" },
+  };
+}
 
 const DOC_TYPE_LABELS: Record<SubcontractorDocType, string> = {
   public_liability: "Public Liability",
@@ -73,10 +81,12 @@ function daysUntil(dateString: string): number {
 }
 
 export default function SubcontractorsScreen() {
+  const router = useRouter();
   const isOnline = useIsOnline();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
   const [tab, setTab] = useState<SubTab>("directory");
+  const styles = useThemedStyles(createStyles);
 
   const { data: subcontractors, refetch: refetchSubcontractors } = useSupabaseFetch<SubcontractorCompany[]>(async () => {
     if (!isOnline) return [];
@@ -99,31 +109,41 @@ export default function SubcontractorsScreen() {
 
   useRefetchOnFocus(refetchSubcontractors);
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Subcontractors" />;
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.tabRow}>
-        {(
-          [
-            { key: "directory", label: "Directory" },
-            { key: "compliance", label: "Compliance" },
-          ] as { key: SubTab; label: string }[]
-        ).map((t) => (
-          <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title}>Subcontractors</Text>
       </View>
 
-      {tab === "directory" ? (
-        <DirectoryTab subcontractors={subcontractors ?? []} contacts={contacts ?? []} isAdmin={isAdmin} onCreated={refetchSubcontractors} />
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Subcontractors" />
       ) : (
-        <ComplianceTab subcontractors={subcontractors ?? []} docs={complianceDocs ?? []} />
+        <View style={styles.container}>
+          <View style={styles.tabRow}>
+            {(
+              [
+                { key: "directory", label: "Directory" },
+                { key: "compliance", label: "Compliance" },
+              ] as { key: SubTab; label: string }[]
+            ).map((t) => (
+              <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
+                <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {tab === "directory" ? (
+            <DirectoryTab subcontractors={subcontractors ?? []} contacts={contacts ?? []} isAdmin={isAdmin} onCreated={refetchSubcontractors} />
+          ) : (
+            <ComplianceTab subcontractors={subcontractors ?? []} docs={complianceDocs ?? []} />
+          )}
+        </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -144,6 +164,9 @@ function DirectoryTab({
 }) {
   const router = useRouter();
   const { profile } = useAuth();
+  const { tokens } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const statusBadge = getStatusBadge(tokens);
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<number | null>(null);
 
@@ -231,7 +254,7 @@ function DirectoryTab({
 
   return (
     <ScrollView style={styles.tabBody} contentContainerStyle={{ paddingBottom: 40 }}>
-      <FormField label="Search" value={search} onChangeText={setSearch} placeholder="Search company or contact" />
+      <ThemedFormField label="Search" value={search} onChangeText={setSearch} placeholder="Search company or contact" />
       <View style={styles.tierFilterRow}>
         {[1, 2, 3, 4, 5].map((t) => (
           <Pressable
@@ -245,9 +268,9 @@ function DirectoryTab({
       </View>
 
       {isAdmin ? (
-        <Pressable style={styles.primaryButton} onPress={openNew}>
-          <Text style={styles.primaryButtonText}>+ Add Subcontractor</Text>
-        </Pressable>
+        <View style={{ marginVertical: 12 }}>
+          <ThemedButton label="+ Add Subcontractor" onPress={openNew} />
+        </View>
       ) : null}
 
       {filtered.length === 0 ? (
@@ -255,7 +278,7 @@ function DirectoryTab({
       ) : (
         filtered.map((sub) => {
           const contact = primaryContactBySub.get(sub.id);
-          const badge = STATUS_BADGE[sub.status];
+          const badge = statusBadge[sub.status];
           return (
             <Pressable key={sub.id} style={styles.subCard} onPress={() => router.push(`/subcontractors/${sub.id}`)}>
               <View style={styles.subCardHeader}>
@@ -278,7 +301,7 @@ function DirectoryTab({
                   {contact.first_name} {contact.last_name ?? ""}
                 </Text>
               ) : null}
-              <View style={[styles.statusBadge, { backgroundColor: badge.bg, alignSelf: "flex-start", marginTop: 6 }]}>
+              <View style={[styles.statusBadge, { backgroundColor: badge.bg, borderColor: badge.border, alignSelf: "flex-start", marginTop: 6 }]}>
                 <Text style={[styles.statusBadgeText, { color: badge.text }]}>{badge.label}</Text>
               </View>
             </Pressable>
@@ -286,10 +309,10 @@ function DirectoryTab({
         })
       )}
 
-      <CenteredModal visible={modalVisible} onClose={() => setModalVisible(false)}>
+      <ThemedModal visible={modalVisible} onClose={() => setModalVisible(false)}>
         <Text style={styles.modalTitle}>New subcontractor company</Text>
-        <FormField label="Company name" value={companyName} onChangeText={setCompanyName} placeholder="e.g. Apex Electrical Services" />
-        <FormField label="ABN (optional)" value={abn} onChangeText={setAbn} />
+        <ThemedFormField label="Company name" value={companyName} onChangeText={setCompanyName} placeholder="e.g. Apex Electrical Services" />
+        <ThemedFormField label="ABN (optional)" value={abn} onChangeText={setAbn} />
         <Text style={styles.fieldLabel}>Trades</Text>
         <View style={styles.tradeRow}>
           {(Object.keys(TRADE_LABELS) as SubcontractorTrade[]).map((trade) => (
@@ -310,18 +333,16 @@ function DirectoryTab({
             </Pressable>
           ))}
         </View>
-        <FormField label="Payment terms (days)" value={paymentTerms} onChangeText={setPaymentTerms} keyboardType="number-pad" />
-        <FormField label="Notes (optional)" value={notes} onChangeText={setNotes} multiline style={styles.multiline} />
+        <ThemedFormField label="Payment terms (days)" value={paymentTerms} onChangeText={setPaymentTerms} keyboardType="number-pad" />
+        <ThemedFormField label="Notes (optional)" value={notes} onChangeText={setNotes} multiline style={styles.multiline} />
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={save} disabled={saving}>
-            <Text style={styles.primaryButtonText}>{saving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={saving ? "Saving..." : "Save"} onPress={save} disabled={saving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
     </ScrollView>
   );
 }
@@ -329,11 +350,15 @@ function DirectoryTab({
 // ---------------------------------------------------------------------------
 // Compliance - a per-subcontractor card list (mobile-appropriate stand-in
 // for desktop's wide subcontractor x doc-type matrix, which doesn't fit a
-// phone screen), same red/amber/green expiry colouring.
+// phone screen), same expired/expiring/current/no-doc colouring mapped onto
+// theme tokens (danger/warning/accent/muted) instead of light-mode hexes.
 // ---------------------------------------------------------------------------
 
 function ComplianceTab({ subcontractors, docs }: { subcontractors: SubcontractorCompany[]; docs: SubcontractorComplianceDoc[] }) {
   const router = useRouter();
+  const { tokens } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const statusBadge = getStatusBadge(tokens);
   const [holdOnly, setHoldOnly] = useState(false);
 
   const docsBySub = useMemo(() => {
@@ -361,13 +386,13 @@ function ComplianceTab({ subcontractors, docs }: { subcontractors: Subcontractor
         <Text style={styles.empty}>No subcontractors to show.</Text>
       ) : (
         visibleSubs.map((sub) => {
-          const badge = STATUS_BADGE[sub.status];
+          const badge = statusBadge[sub.status];
           const subDocs = docsBySub.get(sub.id);
           return (
             <Pressable key={sub.id} style={styles.subCard} onPress={() => router.push(`/subcontractors/${sub.id}`)}>
               <View style={styles.subCardHeader}>
                 <Text style={styles.subCardName}>{sub.company_name}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                <View style={[styles.statusBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
                   <Text style={[styles.statusBadgeText, { color: badge.text }]}>{badge.label}</Text>
                 </View>
               </View>
@@ -376,15 +401,15 @@ function ComplianceTab({ subcontractors, docs }: { subcontractors: Subcontractor
                   const doc = subDocs?.get(type);
                   const expiry = doc?.expiry_date ?? null;
                   const days = expiry ? daysUntil(expiry) : null;
-                  const colors =
-                    days == null ? (doc ? { bg: "#f9fafb", text: "#9ca3af" } : { bg: "#f3f4f6", text: "#d1d5db" }) :
-                    days < 0 ? { bg: "#fee2e2", text: "#b91c1c" } :
-                    days <= 30 ? { bg: "#fef9c3", text: "#854d0e" } :
-                    { bg: "#dcfce7", text: "#15803d" };
+                  const color =
+                    days == null ? tokens.textMuted :
+                    days < 0 ? tokens.danger :
+                    days <= 30 ? tokens.warning :
+                    tokens.accent;
                   return (
-                    <View key={type} style={[styles.docCell, { backgroundColor: colors.bg }]}>
+                    <View key={type} style={[styles.docCell, { borderColor: color }]}>
                       <Text style={styles.docCellLabel}>{DOC_TYPE_LABELS[type]}</Text>
-                      <Text style={[styles.docCellValue, { color: colors.text }]}>
+                      <Text style={[styles.docCellValue, { color }]}>
                         {expiry ? new Date(`${expiry}T00:00:00`).toLocaleDateString("en-AU") : doc ? "No expiry" : "-"}
                       </Text>
                     </View>
@@ -399,54 +424,57 @@ function ComplianceTab({ subcontractors, docs }: { subcontractors: Subcontractor
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabActive: { borderBottomColor: "#1d4ed8" },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
-  tabTextActive: { color: "#1d4ed8" },
-  tabBody: { flex: 1, padding: 16 },
-  error: { color: "#dc2626", marginTop: 8 },
-  empty: { color: "#6b7280", textAlign: "center", marginTop: 16 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginTop: 10, marginBottom: 6 },
-  multiline: { minHeight: 60, textAlignVertical: "top" },
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    container: { flex: 1, backgroundColor: tokens.background },
+    tabRow: { flexDirection: "row" as const, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    tab: { flex: 1, paddingVertical: 12, alignItems: "center" as const, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabActive: { borderBottomColor: tokens.accent },
+    tabText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted, textTransform: "uppercase" as const },
+    tabTextActive: { color: tokens.accent },
+    tabBody: { flex: 1, padding: 16 },
+    error: { ...mono, color: tokens.danger, marginTop: 8, fontSize: font.body },
+    empty: { ...mono, color: tokens.textMuted, textAlign: "center" as const, marginTop: 16, fontSize: font.body },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
+    fieldLabel: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginTop: 10, marginBottom: 6, textTransform: "uppercase" as const, letterSpacing: 1 },
+    multiline: { minHeight: 60, textAlignVertical: "top" as const },
 
-  tierFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10, marginBottom: 4 },
-  tierChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  tierChipActive: { backgroundColor: "#f59e0b" },
-  tierChipText: { fontSize: 12, fontWeight: "600", color: "#374151" },
-  tierChipTextActive: { color: "#fff" },
+    tierFilterRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 10, marginBottom: 4 },
+    tierChip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    tierChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    tierChipText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted },
+    tierChipTextActive: { color: tokens.accent },
 
-  tradeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 },
-  tradeChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  tradeChipActive: { backgroundColor: "#1d4ed8" },
-  tradeChipText: { fontSize: 11, fontWeight: "600", color: "#374151" },
-  tradeChipTextActive: { color: "#fff" },
+    tradeRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginBottom: 6 },
+    tradeChip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    tradeChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    tradeChipText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted },
+    tradeChipTextActive: { color: tokens.accent },
 
-  primaryButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", marginVertical: 12 },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+    subCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, marginBottom: 10, backgroundColor: tokens.surface },
+    subCardHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "flex-start" as const, gap: 8 },
+    subCardName: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, flex: 1 },
+    subCardContact: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    tierBadge: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+    tierBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted },
+    statusBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+    statusBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const },
 
-  subCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10, backgroundColor: "#fff" },
-  subCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  subCardName: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
-  subCardContact: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  tierBadge: { backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  tierBadgeText: { fontSize: 11, fontWeight: "700", color: "#92400e" },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeText: { fontSize: 11, fontWeight: "700" },
+    holdFilterChip: { alignSelf: "flex-start" as const, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8 },
+    holdFilterChipActive: { borderColor: tokens.danger, backgroundColor: tokens.surface },
+    holdFilterChipText: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted },
+    holdFilterChipTextActive: { color: tokens.danger },
+    legend: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 12 },
+    docGrid: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 8 },
+    docCell: { borderWidth: 1, borderRadius: 4, backgroundColor: tokens.surface, paddingHorizontal: 8, paddingVertical: 6, minWidth: 100 },
+    docCellLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, fontWeight: "600" as const },
+    docCellValue: { ...mono, fontSize: font.label, fontWeight: "700" as const, marginTop: 2 },
 
-  holdFilterChip: { alignSelf: "flex-start", backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8 },
-  holdFilterChipActive: { backgroundColor: "#dc2626" },
-  holdFilterChipText: { fontSize: 12, fontWeight: "700", color: "#374151" },
-  holdFilterChipTextActive: { color: "#fff" },
-  legend: { fontSize: 11, color: "#9ca3af", marginBottom: 12 },
-  docGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  docCell: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 6, minWidth: 100 },
-  docCellLabel: { fontSize: 10, color: "#6b7280", fontWeight: "600" },
-  docCellValue: { fontSize: 11, fontWeight: "700", marginTop: 2 },
-
-  modalTitle: { fontSize: 17, fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16, marginTop: 4 },
-});
+    modalTitle: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 16, marginTop: 4 },
+  };
+}

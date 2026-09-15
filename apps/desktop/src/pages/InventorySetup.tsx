@@ -13,8 +13,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 // Direct port of apps/mobile/app/inventory-setup.tsx - same two-level
 // category hierarchy (Material/Tools -> Roofing/Power Tools) and flat
@@ -266,35 +267,43 @@ export default function InventorySetupPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
-      <h1 className="text-xl font-bold text-gray-900">Inventory Setup</h1>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Inventory Setup
+      </h1>
 
-      <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Categories</h2>
-      <p className="mb-3 text-sm text-gray-500">
+      <h2 className="mb-1 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Categories
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         "Material" and "Tools" as top-level categories, with "Roofing" or "Power Tools" as subcategories underneath.
       </p>
 
-      <div className="rounded-lg border border-gray-300 bg-white">
+      <div className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(categories ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No categories yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No categories yet.
+          </p>
         ) : (
-          (categories ?? []).map((category) => {
+          (categories ?? []).map((category, i) => {
             const categorySubcategories = (subcategories ?? []).filter((s) => s.category_id === category.id);
             return (
-              <div key={category.id} className="border-b border-gray-200 last:border-0">
+              <div key={category.id} className="last:border-0" style={i > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}>
                 <div className="flex items-center justify-between gap-3 p-3">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color ?? "#e5e7eb" }} />
-                    <span className="truncate text-sm font-semibold text-gray-900">{category.name}</span>
+                    <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color ?? "var(--jms-border)" }} />
+                    <span className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                      {category.name}
+                    </span>
                   </div>
-                  <div className="flex flex-shrink-0 items-center gap-3 text-sm">
-                    <button onClick={() => openEditCategory(category)} className="font-semibold text-blue-700 hover:underline">
+                  <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                    <button onClick={() => openEditCategory(category)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                       Edit
                     </button>
-                    <button onClick={() => handleDeleteCategory(category)} className="font-semibold text-red-600 hover:underline">
+                    <button onClick={() => handleDeleteCategory(category)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                       Delete
                     </button>
                   </div>
@@ -304,15 +313,17 @@ export default function InventorySetupPage() {
                     <div className="flex min-w-0 items-center gap-2">
                       <span
                         className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{ backgroundColor: subcategory.color ?? "#e5e7eb" }}
+                        style={{ backgroundColor: subcategory.color ?? "var(--jms-border)" }}
                       />
-                      <span className="truncate text-sm text-gray-800">{subcategory.name}</span>
+                      <span className="truncate" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                        {subcategory.name}
+                      </span>
                     </div>
-                    <div className="flex flex-shrink-0 items-center gap-3 text-sm">
-                      <button onClick={() => openEditSubcategory(subcategory)} className="font-semibold text-blue-700 hover:underline">
+                    <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                      <button onClick={() => openEditSubcategory(subcategory)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                         Edit
                       </button>
-                      <button onClick={() => handleDeleteSubcategory(subcategory)} className="font-semibold text-red-600 hover:underline">
+                      <button onClick={() => handleDeleteSubcategory(subcategory)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                         Delete
                       </button>
                     </div>
@@ -320,7 +331,8 @@ export default function InventorySetupPage() {
                 ))}
                 <button
                   onClick={() => openNewSubcategory(category.id)}
-                  className="w-full py-2 pl-8 text-left text-xs font-semibold text-blue-700 hover:underline"
+                  className="w-full py-2 pl-8 text-left font-semibold hover:underline"
+                  style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                 >
                   + Add subcategory
                 </button>
@@ -329,28 +341,39 @@ export default function InventorySetupPage() {
           })
         )}
       </div>
-      <button
-        onClick={openNewCategory}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        + New category
-      </button>
+      <div className="mt-3">
+        <ThemedButton onClick={openNewCategory} className="w-full">
+          + New category
+        </ThemedButton>
+      </div>
 
-      <h2 className="mb-1 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Suppliers</h2>
-      <p className="mb-3 text-sm text-gray-500">Who you buy each item from - e.g. "Bunnings", "Reece".</p>
+      <h2 className="mb-1 mt-8 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Suppliers
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Who you buy each item from - e.g. "Bunnings", "Reece".
+      </p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(suppliers ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No suppliers yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No suppliers yet.
+          </p>
         ) : (
-          (suppliers ?? []).map((supplier) => (
-            <div key={supplier.id} className="flex items-center justify-between gap-3 p-3">
-              <span className="text-sm font-semibold text-gray-900">{supplier.name}</span>
-              <div className="flex flex-shrink-0 items-center gap-3 text-sm">
-                <button onClick={() => openEditSupplier(supplier)} className="font-semibold text-blue-700 hover:underline">
+          (suppliers ?? []).map((supplier, i) => (
+            <div
+              key={supplier.id}
+              className="flex items-center justify-between gap-3 p-3"
+              style={i > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
+            >
+              <span className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                {supplier.name}
+              </span>
+              <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                <button onClick={() => openEditSupplier(supplier)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                   Edit
                 </button>
-                <button onClick={() => handleDeleteSupplier(supplier)} className="font-semibold text-red-600 hover:underline">
+                <button onClick={() => handleDeleteSupplier(supplier)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Delete
                 </button>
               </div>
@@ -358,65 +381,64 @@ export default function InventorySetupPage() {
           ))
         )}
       </div>
-      <button
-        onClick={openNewSupplier}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        + New supplier
-      </button>
+      <div className="mt-3">
+        <ThemedButton onClick={openNewSupplier} className="w-full">
+          + New supplier
+        </ThemedButton>
+      </div>
 
-      <Modal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title={editingCategory ? "Edit category" : "New category"}>
-        <FormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. Material, Tools, First Aid Kit" />
-        <FormField label="Color (optional hex, e.g. #1d4ed8)" value={categoryColor} onChange={(e) => setCategoryColor(e.target.value)} placeholder="#1d4ed8" />
-        {categoryError ? <p className="mb-4 text-sm text-red-600">{categoryError}</p> : null}
+      <ThemedModal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title={editingCategory ? "Edit category" : "New category"}>
+        <ThemedFormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. Material, Tools, First Aid Kit" />
+        <ThemedFormField label="Color (optional hex, e.g. #1d4ed8)" value={categoryColor} onChange={(e) => setCategoryColor(e.target.value)} placeholder="#1d4ed8" />
+        {categoryError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {categoryError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveCategory.mutate()}
-            disabled={saveCategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveCategory.mutate()} disabled={saveCategory.isPending}>
             {saveCategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={subcategoryModalOpen} onClose={() => setSubcategoryModalOpen(false)} title={editingSubcategory ? "Edit subcategory" : "New subcategory"}>
-        <FormField label="Name" value={subcategoryName} onChange={(e) => setSubcategoryName(e.target.value)} placeholder="e.g. Roofing, Power Tools" />
-        <FormField label="Color (optional hex, e.g. #1d4ed8)" value={subcategoryColor} onChange={(e) => setSubcategoryColor(e.target.value)} placeholder="#1d4ed8" />
-        {subcategoryError ? <p className="mb-4 text-sm text-red-600">{subcategoryError}</p> : null}
+      <ThemedModal open={subcategoryModalOpen} onClose={() => setSubcategoryModalOpen(false)} title={editingSubcategory ? "Edit subcategory" : "New subcategory"}>
+        <ThemedFormField label="Name" value={subcategoryName} onChange={(e) => setSubcategoryName(e.target.value)} placeholder="e.g. Roofing, Power Tools" />
+        <ThemedFormField label="Color (optional hex, e.g. #1d4ed8)" value={subcategoryColor} onChange={(e) => setSubcategoryColor(e.target.value)} placeholder="#1d4ed8" />
+        {subcategoryError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {subcategoryError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSubcategoryModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setSubcategoryModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveSubcategory.mutate()}
-            disabled={saveSubcategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveSubcategory.mutate()} disabled={saveSubcategory.isPending}>
             {saveSubcategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={supplierModalOpen} onClose={() => setSupplierModalOpen(false)} title={editingSupplier ? "Edit supplier" : "New supplier"}>
-        <FormField label="Name" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="e.g. Bunnings, Reece" />
-        {supplierError ? <p className="mb-4 text-sm text-red-600">{supplierError}</p> : null}
+      <ThemedModal open={supplierModalOpen} onClose={() => setSupplierModalOpen(false)} title={editingSupplier ? "Edit supplier" : "New supplier"}>
+        <ThemedFormField label="Name" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="e.g. Bunnings, Reece" />
+        {supplierError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {supplierError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSupplierModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setSupplierModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveSupplier.mutate()}
-            disabled={saveSupplier.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveSupplier.mutate()} disabled={saveSupplier.isPending}>
             {saveSupplier.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   type ReportAnswer,
   type ReportFormData,
   type ReportInstance,
+  type ReportInstanceStatus,
   type ReportSignature,
   type ReportSignerRole,
   type ReportTemplate,
@@ -32,7 +33,9 @@ import { getErrorMessage } from "../lib/errors";
 import { uploadReportPhoto } from "../lib/uploads";
 import { buildReportPdfBlob } from "../lib/report-pdf";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
-import { SelectField } from "../components/FormField";
+import { ThemedSelectField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { SignaturePad } from "../components/reports/SignaturePad";
 
 const BUCKET = "report-files";
@@ -87,13 +90,39 @@ function tryGetLocation(): Promise<{ lat: number; lng: number; captured_at: stri
   });
 }
 
-const RISK_LEVELS: RiskLikelihood[] = [1, 2, 3, 4, 5];
-const RISK_RATING_COLORS: Record<string, string> = {
-  low: "bg-green-100 text-green-800",
-  medium: "bg-yellow-100 text-yellow-800",
-  high: "bg-orange-100 text-orange-800",
-  extreme: "bg-red-100 text-red-800",
+// Report status (draft/completed/archived) is a workflow state, so like
+// the rest of the app it derives from the active theme's tokens - see
+// RISK_RATING_COLORS/PASS_FAIL_COLORS below for the WHS safety signals
+// that deliberately do NOT do this.
+const STATUS_COLORS: Record<ReportInstanceStatus, string> = {
+  draft: "var(--jms-warning)",
+  completed: "var(--jms-accent)",
+  archived: "var(--jms-text-muted)",
 };
+
+const RISK_LEVELS: RiskLikelihood[] = [1, 2, 3, 4, 5];
+
+// Fixed hex, not accent-derived - a WHS risk rating has to read the same
+// green/amber/orange/red regardless of which CRT accent colour the tenant
+// has picked, same reasoning as PASS_FAIL_COLORS below.
+const RISK_RATING_COLORS: Record<string, string> = {
+  low: "#4ade80",
+  medium: "#fbbf24",
+  high: "#fb923c",
+  extreme: "#f87171",
+};
+
+// Fixed hex, not accent-derived - a pass/fail safety result must stay
+// legible and unambiguous no matter which accent colour is active (an
+// amber accent tenant must never see "pass" rendered as amber).
+const PASS_FAIL_COLORS: Record<"pass" | "fail" | "na", string> = {
+  pass: "#4ade80",
+  fail: "#f87171",
+  na: "#94a3b8",
+};
+// Dark text sits on top of the bright fixed fill colours above - matches
+// the base CRT background so it reads on every accent preset.
+const PASS_FAIL_TEXT = "#0a0f0a";
 
 export default function ReportInstancePage() {
   const { id } = useParams<{ id: string }>();
@@ -317,33 +346,37 @@ export default function ReportInstancePage() {
   });
 
   if (!instance || !template) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/reports" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
-        &larr; Back to Reports
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/reports" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+        &larr; Back to Forms & Certificates
       </Link>
 
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">{template.title}</h1>
-          {template.description ? <p className="text-sm text-gray-500">{template.description}</p> : null}
+          <h1 className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+            {template.title}
+          </h1>
+          {template.description ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{template.description}</p>
+          ) : null}
         </div>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            instance.status === "draft" ? "bg-amber-100 text-amber-800" : instance.status === "completed" ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-600"
-          }`}
-        >
-          {instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
-        </span>
+        <ThemedBadge label={instance.status.charAt(0).toUpperCase() + instance.status.slice(1)} color={STATUS_COLORS[instance.status]} />
       </div>
 
       {!instance.job_card_id ? (
-        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3">
-          <p className="mb-2 text-sm font-semibold text-amber-800">Unlinked standalone report</p>
-          <SelectField
+        <div className="mb-4 rounded p-3" style={{ border: "1px solid var(--jms-warning)", backgroundColor: "var(--jms-bg)" }}>
+          <p className="mb-2 font-semibold" style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-body)" }}>
+            Unlinked standalone report
+          </p>
+          <ThemedSelectField
             label="Link to Job (optional)"
             value={jobCardId}
             onChange={(v) => {
@@ -355,7 +388,7 @@ export default function ReportInstancePage() {
             placeholder="Search by job number or title"
           />
           {!jobCardId ? (
-            <SelectField
+            <ThemedSelectField
               label="Client (optional)"
               value={clientId}
               onChange={setClientId}
@@ -364,15 +397,15 @@ export default function ReportInstancePage() {
             />
           ) : null}
           {isDraft && (jobCardId !== (instance.job_card_id ?? "") || clientId !== (instance.client_id ?? "")) ? (
-            <button onClick={() => saveDraft.mutate()} className="text-xs font-semibold text-blue-700 hover:underline">
+            <button onClick={() => saveDraft.mutate()} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
               Save link
             </button>
           ) : null}
         </div>
       ) : (
-        <p className="mb-4 text-sm text-gray-500">
+        <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Linked to job{" "}
-          <Link to={`/jobs/${instance.job_card_id}`} className="font-semibold text-blue-700 hover:underline">
+          <Link to={`/jobs/${instance.job_card_id}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
             {jobById.get(instance.job_card_id)?.number ?? jobById.get(instance.job_card_id)?.title ?? instance.job_card_id}
           </Link>
         </p>
@@ -380,51 +413,60 @@ export default function ReportInstancePage() {
 
       <div className="space-y-6">
         {template.structure_schema.map((section) => (
-          <div key={section.id} className="rounded-lg border border-gray-300 bg-white p-5">
-            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-gray-500">{section.title}</h2>
+          <div key={section.id} className="rounded p-5" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+            <h2 className="mb-4 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              {section.title}
+            </h2>
             <div className="space-y-5">
               {section.fields.map((field) => {
                 const answer = formData[field.id];
                 return (
                   <div key={field.id}>
-                    <label className="mb-1 block text-sm font-semibold text-gray-800">
+                    <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                       {field.label}
-                      {field.required ? <span className="text-red-600"> *</span> : null}
+                      {field.required ? <span style={{ color: "var(--jms-danger)" }}> *</span> : null}
                     </label>
-                    {field.helpText ? <p className="mb-1 text-xs text-gray-400">{field.helpText}</p> : null}
+                    {field.helpText ? (
+                      <p className="mb-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                        {field.helpText}
+                      </p>
+                    ) : null}
 
                     {field.type === "pass_fail" ? (
                       <div>
                         <div className="flex gap-2">
-                          {(["pass", "fail", "na"] as const).map((v) => (
-                            <button
-                              key={v}
-                              disabled={!isDraft}
-                              onClick={() => updateAnswer(field.id, { type: "pass_fail", value: v } as PassFailAnswer)}
-                              className={`rounded-md px-4 py-2 text-sm font-semibold ${
-                                (answer as PassFailAnswer)?.value === v
-                                  ? v === "pass"
-                                    ? "bg-green-600 text-white"
-                                    : v === "fail"
-                                      ? "bg-red-600 text-white"
-                                      : "bg-gray-500 text-white"
-                                  : "bg-gray-100 text-gray-600"
-                              } disabled:opacity-70`}
-                            >
-                              {v.toUpperCase()}
-                            </button>
-                          ))}
+                          {(["pass", "fail", "na"] as const).map((v) => {
+                            const selected = (answer as PassFailAnswer)?.value === v;
+                            return (
+                              <button
+                                key={v}
+                                disabled={!isDraft}
+                                onClick={() => updateAnswer(field.id, { type: "pass_fail", value: v } as PassFailAnswer)}
+                                className="rounded px-4 py-2 font-semibold disabled:opacity-70"
+                                style={
+                                  selected
+                                    ? { backgroundColor: PASS_FAIL_COLORS[v], color: PASS_FAIL_TEXT, fontSize: "var(--jms-font-body)" }
+                                    : { backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+                                }
+                              >
+                                {v.toUpperCase()}
+                              </button>
+                            );
+                          })}
                         </div>
                         {field.requireActionOnFail && (answer as PassFailAnswer)?.value === "fail" ? (
-                          <div className="mt-3 rounded-md bg-red-50 p-3">
-                            <p className="mb-2 text-xs font-semibold text-red-800">Action required</p>
+                          <div className="mt-3 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: `1px solid ${PASS_FAIL_COLORS.fail}` }}>
+                            <p className="mb-2 font-semibold" style={{ color: PASS_FAIL_COLORS.fail, fontSize: "var(--jms-font-label)" }}>
+                              Action required
+                            </p>
                             <textarea
                               disabled={!isDraft}
                               value={(answer as PassFailAnswer)?.actionNote ?? ""}
                               onChange={(e) => updateAnswer(field.id, { actionNote: e.target.value } as Partial<PassFailAnswer>)}
                               placeholder="What needs to be done?"
                               rows={2}
-                              className="mb-2 w-full rounded-md border border-red-200 px-3 py-2 text-sm focus:border-red-400 focus:outline-none"
+                              className="mb-2 w-full rounded px-3 py-2 focus:outline-none"
+                              style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                             />
                             <PhotoField
                               disabled={!isDraft}
@@ -455,7 +497,8 @@ export default function ReportInstancePage() {
                         disabled={!isDraft}
                         value={(answer as { value: string })?.value ?? ""}
                         onChange={(e) => updateAnswer(field.id, { type: "text", value: e.target.value } as ReportAnswer)}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
+                        className="w-full rounded px-3 py-2 focus:outline-none"
+                        style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                       />
                     ) : field.type === "long_text" ? (
                       <textarea
@@ -463,7 +506,8 @@ export default function ReportInstancePage() {
                         value={(answer as { value: string })?.value ?? ""}
                         onChange={(e) => updateAnswer(field.id, { type: "long_text", value: e.target.value } as ReportAnswer)}
                         rows={3}
-                        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
+                        className="w-full rounded px-3 py-2 focus:outline-none"
+                        style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                       />
                     ) : field.type === "meter_reading" ? (
                       <input
@@ -471,7 +515,8 @@ export default function ReportInstancePage() {
                         value={(answer as { value: string })?.value ?? ""}
                         onChange={(e) => updateAnswer(field.id, { type: "meter_reading", value: e.target.value } as ReportAnswer)}
                         placeholder="e.g. 1234.5"
-                        className="w-48 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
+                        className="w-48 rounded px-3 py-2 focus:outline-none"
+                        style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                       />
                     ) : field.type === "signature" ? (
                       <div>
@@ -480,7 +525,8 @@ export default function ReportInstancePage() {
                           value={(answer as SignatureAnswer)?.signerName ?? ""}
                           onChange={(e) => updateAnswer(field.id, { signerName: e.target.value } as Partial<SignatureAnswer>)}
                           placeholder="Signer name"
-                          className="mb-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
+                          className="mb-2 w-full rounded px-3 py-2 focus:outline-none"
+                          style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                         />
                         {isDraft ? (
                           <SignaturePad
@@ -488,7 +534,12 @@ export default function ReportInstancePage() {
                             onChange={(dataUrl) => updateAnswer(field.id, { svgData: dataUrl } as Partial<SignatureAnswer>)}
                           />
                         ) : (answer as SignatureAnswer)?.svgData ? (
-                          <img src={(answer as SignatureAnswer).svgData} alt="Signature" className="h-24 rounded-md border border-gray-300 bg-white" />
+                          <img
+                            src={(answer as SignatureAnswer).svgData}
+                            alt="Signature"
+                            className="h-24 rounded bg-white"
+                            style={{ border: "1px solid var(--jms-border)" }}
+                          />
                         ) : null}
                       </div>
                     ) : null}
@@ -500,17 +551,23 @@ export default function ReportInstancePage() {
         ))}
 
         {template.is_swms ? (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-5">
-            <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-orange-800">Worker Sign-Off Roster</h2>
-            <p className="mb-4 text-xs text-orange-700">Every worker on site signs individually before this SWMS is complete.</p>
+          <div className="rounded p-5" style={{ border: "1px solid var(--jms-warning)", backgroundColor: "var(--jms-bg)" }}>
+            <h2 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}>
+              Worker Sign-Off Roster
+            </h2>
+            <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Every worker on site signs individually before this SWMS is complete.
+            </p>
 
             {(signatures ?? []).length > 0 ? (
               <div className="mb-4 space-y-2">
                 {(signatures ?? []).map((sig) => (
-                  <div key={sig.id} className="flex items-center justify-between rounded-md bg-white p-3">
+                  <div key={sig.id} className="flex items-center justify-between rounded p-3" style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)" }}>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">{sig.signer_name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                        {sig.signer_name}
+                      </p>
+                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                         {sig.signer_role.replace("_", " ")} - signed {new Date(sig.signed_at).toLocaleString("en-AU")}
                       </p>
                     </div>
@@ -521,18 +578,20 @@ export default function ReportInstancePage() {
             ) : null}
 
             {isDraft ? (
-              <div className="rounded-md bg-white p-3">
+              <div className="rounded p-3" style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)" }}>
                 <div className="mb-2 grid grid-cols-2 gap-2">
                   <input
                     value={signerName}
                     onChange={(e) => setSignerName(e.target.value)}
                     placeholder="Worker name"
-                    className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    className="rounded px-3 py-2 focus:outline-none"
+                    style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                   />
                   <select
                     value={signerRole}
                     onChange={(e) => setSignerRole(e.target.value as ReportSignerRole)}
-                    className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    className="rounded px-3 py-2"
+                    style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                   >
                     <option value="technician">Technician</option>
                     <option value="sub_contractor">Sub-contractor</option>
@@ -541,14 +600,16 @@ export default function ReportInstancePage() {
                   </select>
                 </div>
                 <SignaturePad value={signerSvg} onChange={setSignerSvg} />
-                {signatureError ? <p className="mt-2 text-sm text-red-600">{signatureError}</p> : null}
-                <button
-                  onClick={() => addSignature.mutate()}
-                  disabled={addSignature.isPending || !signerName || !signerSvg}
-                  className="mt-2 rounded-md bg-orange-700 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-800 disabled:opacity-60"
-                >
-                  {addSignature.isPending ? "Adding..." : "+ Add worker sign-off"}
-                </button>
+                {signatureError ? (
+                  <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                    {signatureError}
+                  </p>
+                ) : null}
+                <div className="mt-2">
+                  <ThemedButton onClick={() => addSignature.mutate()} disabled={addSignature.isPending || !signerName || !signerSvg}>
+                    {addSignature.isPending ? "Adding..." : "+ Add worker sign-off"}
+                  </ThemedButton>
+                </div>
               </div>
             ) : null}
           </div>
@@ -557,50 +618,38 @@ export default function ReportInstancePage() {
 
       {isDraft ? (
         <div className="mt-6 space-y-2">
-          {saveError ? <p className="text-sm text-red-600">{saveError}</p> : null}
-          {saved ? <p className="text-sm text-green-700">Draft saved.</p> : null}
-          {completeError ? <p className="text-sm text-red-600">{completeError}</p> : null}
+          {saveError ? (
+            <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{saveError}</p>
+          ) : null}
+          {saved ? <p style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>Draft saved.</p> : null}
+          {completeError ? (
+            <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{completeError}</p>
+          ) : null}
           <div className="flex gap-3">
-            <button
-              onClick={() => saveDraft.mutate()}
-              disabled={saveDraft.isPending}
-              className="rounded-md border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-            >
+            <ThemedButton variant="secondary" onClick={() => saveDraft.mutate()} disabled={saveDraft.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
               {saveDraft.isPending ? "Saving..." : "Save draft"}
-            </button>
-            <button
-              onClick={() => complete.mutate()}
-              disabled={complete.isPending}
-              className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            </ThemedButton>
+            <ThemedButton onClick={() => complete.mutate()} disabled={complete.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
               {complete.isPending ? "Completing & generating PDF..." : "Complete report"}
-            </button>
+            </ThemedButton>
           </div>
         </div>
       ) : (
         <div className="mt-6 space-y-2">
-          {sendError ? <p className="text-sm text-red-600">{sendError}</p> : null}
-          {sendResult ? <p className="text-sm text-green-700">{sendResult}</p> : null}
+          {sendError ? <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{sendError}</p> : null}
+          {sendResult ? <p style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>{sendResult}</p> : null}
           <div className="flex flex-wrap gap-3">
-            <button
-              onClick={downloadPdf}
-              disabled={pdfBusy || !instance.pdf_storage_path}
-              className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={downloadPdf} disabled={pdfBusy || !instance.pdf_storage_path} style={{ paddingBlock: 12, paddingInline: 24 }}>
               {pdfBusy ? "Preparing..." : "Download PDF"}
-            </button>
-            <button
-              onClick={() => sendEmail.mutate()}
-              disabled={sendEmail.isPending}
-              className="rounded-md border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-            >
+            </ThemedButton>
+            <ThemedButton variant="secondary" onClick={() => sendEmail.mutate()} disabled={sendEmail.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
               {sendEmail.isPending ? "Sending..." : "Send via Email"}
-            </button>
+            </ThemedButton>
           </div>
           {downloadUrl ? (
-            <p className="text-xs text-gray-400">
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               If the download didn't open,{" "}
-              <a href={downloadUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+              <a href={downloadUrl} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                 click here
               </a>
               .
@@ -667,11 +716,14 @@ function PhotoField({
         <div className="mb-2 flex flex-wrap gap-2">
           {paths.map((p) => (
             <div key={p} className="relative">
-              {urls[p] ? <img src={urls[p]} alt="" className="h-20 w-20 rounded-md border border-gray-300 object-cover" /> : null}
+              {urls[p] ? (
+                <img src={urls[p]} alt="" className="h-20 w-20 rounded object-cover" style={{ border: "1px solid var(--jms-border)" }} />
+              ) : null}
               {!disabled ? (
                 <button
                   onClick={() => onChange(paths.filter((x) => x !== p))}
-                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white"
+                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-xs"
+                  style={{ backgroundColor: "var(--jms-danger)", color: PASS_FAIL_TEXT }}
                 >
                   &times;
                 </button>
@@ -681,7 +733,7 @@ function PhotoField({
         </div>
       ) : null}
       {!disabled ? (
-        <label className="inline-block cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+        <label className="inline-block cursor-pointer rounded px-3 py-1.5 font-semibold" style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
           {uploading ? "Uploading..." : "+ Add photo(s)"}
           <input
             type="file"
@@ -696,7 +748,11 @@ function PhotoField({
           />
         </label>
       ) : null}
-      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+      {error ? (
+        <p className="mt-1" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -734,14 +790,20 @@ function RiskMatrixField({
 
   return (
     <div>
-      {rows.length === 0 ? <p className="mb-2 text-sm text-gray-400">No hazards recorded yet.</p> : null}
+      {rows.length === 0 ? (
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          No hazards recorded yet.
+        </p>
+      ) : null}
       <div className="space-y-3">
         {rows.map((row, index) => (
-          <div key={row.id} className="rounded-md border border-gray-300 bg-gray-50 p-3">
+          <div key={row.id} className="rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-400">Hazard #{index + 1}</span>
+              <span className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Hazard #{index + 1}
+              </span>
               {!disabled ? (
-                <button onClick={() => removeRow(row.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                <button onClick={() => removeRow(row.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                   Remove
                 </button>
               ) : null}
@@ -752,16 +814,20 @@ function RiskMatrixField({
               onChange={(e) => updateRow(row.id, { hazard: e.target.value })}
               placeholder="Hazard identified (e.g. fall from roof edge)"
               rows={2}
-              className="mb-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+              className="mb-2 w-full rounded px-3 py-2 focus:outline-none"
+              style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
             />
             <div className="mb-2 grid grid-cols-2 gap-3">
               <div>
-                <p className="mb-1 text-xs font-semibold text-gray-500">Likelihood</p>
+                <p className="mb-1 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Likelihood
+                </p>
                 <select
                   disabled={disabled}
                   value={row.likelihood}
                   onChange={(e) => updateRow(row.id, { likelihood: Number(e.target.value) as RiskLikelihood })}
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
+                  className="w-full rounded px-3 py-2"
+                  style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                 >
                   {RISK_LEVELS.map((l) => (
                     <option key={l} value={l}>
@@ -771,12 +837,15 @@ function RiskMatrixField({
                 </select>
               </div>
               <div>
-                <p className="mb-1 text-xs font-semibold text-gray-500">Consequence</p>
+                <p className="mb-1 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Consequence
+                </p>
                 <select
                   disabled={disabled}
                   value={row.consequence}
                   onChange={(e) => updateRow(row.id, { consequence: Number(e.target.value) as RiskConsequence })}
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-50"
+                  className="w-full rounded px-3 py-2"
+                  style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                 >
                   {RISK_LEVELS.map((c) => (
                     <option key={c} value={c}>
@@ -786,8 +855,8 @@ function RiskMatrixField({
                 </select>
               </div>
             </div>
-            <span className={`mb-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${RISK_RATING_COLORS[row.rating]}`}>
-              {RISK_RATING_LABELS[row.rating]} risk
+            <span className="mb-2 inline-block">
+              <ThemedBadge label={`${RISK_RATING_LABELS[row.rating]} risk`} color={RISK_RATING_COLORS[row.rating]} />
             </span>
             <textarea
               disabled={disabled}
@@ -795,13 +864,18 @@ function RiskMatrixField({
               onChange={(e) => updateRow(row.id, { controlMeasures: e.target.value })}
               placeholder="Control measures - what will be done to control this risk?"
               rows={2}
-              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+              className="mt-2 w-full rounded px-3 py-2 focus:outline-none"
+              style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
             />
           </div>
         ))}
       </div>
       {!disabled ? (
-        <button onClick={addRow} className="mt-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+        <button
+          onClick={addRow}
+          className="mt-2 rounded px-3 py-1.5 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+        >
           + Add hazard
         </button>
       ) : null}

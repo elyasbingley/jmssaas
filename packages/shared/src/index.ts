@@ -12,3 +12,4 @@ export * from "./knowledge";
 export * from "./inbox";
 export * from "./channels";
 export * from "./powersync/schema";
+export * from "./theme";

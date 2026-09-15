@@ -5,8 +5,9 @@ import { createKnowledgeCategorySchema, type KnowledgeArticle, type KnowledgeCat
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 async function fetchCategories(): Promise<KnowledgeCategory[]> {
   const { data, error } = await supabase.from("knowledge_categories").select("*").order("sort_order").order("name");
@@ -73,78 +74,87 @@ export default function KnowledgeBasePage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Knowledge</h1>
-          <p className="text-sm text-gray-500">SOPs, how-tos and training material for your team.</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Knowledge
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>SOPs, how-tos and training material for your team.</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-3">
             <button
               onClick={() => setModalOpen(true)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="rounded px-4 py-2 font-semibold"
+              style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
             >
               + New category
             </button>
-            <button
-              onClick={() => createArticle.mutate()}
-              disabled={createArticle.isPending}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={() => createArticle.mutate()} disabled={createArticle.isPending}>
               {createArticle.isPending ? "Creating..." : "+ New article"}
-            </button>
+            </ThemedButton>
           </div>
-          {articleError ? <p className="text-sm text-red-600">{articleError}</p> : null}
+          {articleError ? (
+            <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{articleError}</p>
+          ) : null}
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
           {(categories ?? []).map((category) => (
             <Link
               key={category.id}
               to={`/knowledge/categories/${category.id}`}
-              className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+              className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
             >
               <span className="text-3xl">📚</span>
-              <span className="font-bold text-gray-900">{category.name}</span>
+              <span className="font-bold" style={{ color: "var(--jms-text)" }}>
+                {category.name}
+              </span>
             </Link>
           ))}
           {!uncategorisedCount ? null : (
             <Link
               to="/knowledge/categories/uncategorised"
-              className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+              className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
             >
               <span className="text-3xl">📄</span>
-              <span className="font-bold text-gray-900">Uncategorised</span>
-              <span className="text-xs text-gray-500">{uncategorisedCount} article{uncategorisedCount === 1 ? "" : "s"}</span>
+              <span className="font-bold" style={{ color: "var(--jms-text)" }}>
+                Uncategorised
+              </span>
+              <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                {uncategorisedCount} article{uncategorisedCount === 1 ? "" : "s"}
+              </span>
             </Link>
           )}
         </div>
       )}
       {!isLoading && (categories ?? []).length === 0 && !uncategorisedCount ? (
-        <p className="text-sm text-gray-500">No articles yet - create your first one above.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No articles yet - create your first one above.</p>
       ) : null}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New category">
-        <FormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Roofing SOPs" />
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New category">
+        <ThemedFormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Roofing SOPs" />
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createCategory.mutate()}
-            disabled={createCategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createCategory.mutate()} disabled={createCategory.isPending}>
             {createCategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* CRT theme nav link states - plain CSS classes (rather than inline
+   styles) purely so :hover works; colours still come from the --jms-*
+   custom properties ThemeProvider sets on :root, so these track the
+   active accent/font preference like everything else in the theme. */
+.jms-nav-link {
+  color: var(--jms-text-muted);
+}
+.jms-nav-link:hover {
+  background-color: var(--jms-bg);
+  color: var(--jms-text);
+}
+.jms-nav-link-active {
+  background-color: var(--jms-accent-glow);
+  color: var(--jms-accent);
+}

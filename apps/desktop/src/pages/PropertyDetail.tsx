@@ -20,8 +20,10 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { AssetsSection } from "../components/AssetsSection";
 
 async function fetchProperty(id: string): Promise<Property> {
@@ -372,7 +374,11 @@ export default function PropertyDetailPage() {
   });
 
   if (!property) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
   const quotesByJob = new Map<string, Quote[]>();
@@ -387,46 +393,39 @@ export default function PropertyDetailPage() {
   }
 
   return (
-    <div className="p-8">
-      <Link to="/real-estate" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/real-estate" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Real Estate & Strata
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+      <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl font-bold text-gray-900">{property.address_line1}</h1>
-              <span className="text-sm text-gray-500">
+              <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+                {property.address_line1}
+              </h1>
+              <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                 {property.suburb} {property.state} {property.postcode}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {agency ? (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">{agency.name}</span>
-              ) : null}
-              {propertyManager ? (
-                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                  PM: {propertyManager.first_name} {propertyManager.last_name}
-                </span>
-              ) : null}
-              {property.key_tag_number ? (
-                <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
-                  🔑 {property.key_tag_number}
-                </span>
-              ) : null}
+              {agency ? <ThemedBadge label={agency.name} color="var(--jms-text-muted)" /> : null}
+              {propertyManager ? <ThemedBadge label={`PM: ${propertyManager.first_name} ${propertyManager.last_name}`} /> : null}
+              {property.key_tag_number ? <ThemedBadge label={`🔑 ${property.key_tag_number}`} color="var(--jms-warning)" /> : null}
             </div>
           </div>
           <button
             onClick={openEditDetails}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            className="rounded px-3 py-1.5 font-semibold"
+            style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             Edit property
           </button>
         </div>
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex gap-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
         {(
           [
             { key: "access", label: "Access & Contacts" },
@@ -437,9 +436,12 @@ export default function PropertyDetailPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`border-b-2 px-4 py-2 text-sm font-semibold ${
-              tab === t.key ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className="border-b-2 px-4 py-2 font-semibold uppercase tracking-wide"
+            style={
+              tab === t.key
+                ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { borderColor: "transparent", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+            }
           >
             {t.label}
           </button>
@@ -451,89 +453,110 @@ export default function PropertyDetailPage() {
           <div className="mb-4 flex justify-end">
             <button
               onClick={openEditContact}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="rounded px-3 py-1.5 font-semibold"
+              style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               Edit
             </button>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg border border-gray-300 bg-white p-6">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Landlord / Owner</h2>
-              {property.owner_landlord_name ? <p className="text-sm font-semibold text-gray-900">{property.owner_landlord_name}</p> : null}
-              <div className="mt-1 flex flex-col gap-1 text-sm">
+            <div className="rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                Landlord / Owner
+              </h2>
+              {property.owner_landlord_name ? (
+                <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {property.owner_landlord_name}
+                </p>
+              ) : null}
+              <div className="mt-1 flex flex-col gap-1" style={{ fontSize: "var(--jms-font-body)" }}>
                 {property.owner_landlord_phone ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-700">{property.owner_landlord_phone}</span>
-                    <a href={`tel:${property.owner_landlord_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <span style={{ color: "var(--jms-text-muted)" }}>{property.owner_landlord_phone}</span>
+                    <a href={`tel:${property.owner_landlord_phone}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       Call
                     </a>
-                    <a href={`sms:${property.owner_landlord_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <a href={`sms:${property.owner_landlord_phone}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       SMS
                     </a>
                   </div>
                 ) : null}
                 {property.owner_landlord_email ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-700">{property.owner_landlord_email}</span>
-                    <a href={`mailto:${property.owner_landlord_email}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <span style={{ color: "var(--jms-text-muted)" }}>{property.owner_landlord_email}</span>
+                    <a href={`mailto:${property.owner_landlord_email}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       Email
                     </a>
                   </div>
                 ) : null}
                 {!property.owner_landlord_name && !property.owner_landlord_phone && !property.owner_landlord_email ? (
-                  <p className="text-gray-500">Not on file</p>
+                  <p style={{ color: "var(--jms-text-muted)" }}>Not on file</p>
                 ) : null}
               </div>
             </div>
-            <div className="rounded-lg border border-gray-300 bg-white p-6">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Tenant Contact</h2>
-              {property.tenant_name ? <p className="text-sm font-semibold text-gray-900">{property.tenant_name}</p> : null}
-              <div className="mt-1 flex flex-col gap-1 text-sm">
+            <div className="rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                Tenant Contact
+              </h2>
+              {property.tenant_name ? (
+                <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {property.tenant_name}
+                </p>
+              ) : null}
+              <div className="mt-1 flex flex-col gap-1" style={{ fontSize: "var(--jms-font-body)" }}>
                 {property.tenant_phone ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-700">{property.tenant_phone}</span>
-                    <a href={`tel:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <span style={{ color: "var(--jms-text-muted)" }}>{property.tenant_phone}</span>
+                    <a href={`tel:${property.tenant_phone}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       Call
                     </a>
-                    <a href={`sms:${property.tenant_phone}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <a href={`sms:${property.tenant_phone}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       SMS
                     </a>
                   </div>
                 ) : null}
                 {property.tenant_email ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-700">{property.tenant_email}</span>
-                    <a href={`mailto:${property.tenant_email}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <span style={{ color: "var(--jms-text-muted)" }}>{property.tenant_email}</span>
+                    <a href={`mailto:${property.tenant_email}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                       Email
                     </a>
                   </div>
                 ) : null}
-                {!property.tenant_phone && !property.tenant_email ? <p className="text-gray-500">Not on file</p> : null}
+                {!property.tenant_phone && !property.tenant_email ? <p style={{ color: "var(--jms-text-muted)" }}>Not on file</p> : null}
               </div>
             </div>
-            <div className="col-span-2 rounded-lg border border-gray-300 bg-white p-6">
+            <div className="col-span-2 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Additional Tenants</h2>
-                <button onClick={openNewTenant} className="text-xs font-semibold text-blue-700 hover:underline">
+                <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                  Additional Tenants
+                </h2>
+                <button onClick={openNewTenant} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                   + Add tenant
                 </button>
               </div>
               {!additionalTenants || additionalTenants.length === 0 ? (
-                <p className="text-sm text-gray-500">No additional tenants on file.</p>
+                <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No additional tenants on file.</p>
               ) : (
                 <div className="space-y-2">
                   {additionalTenants.map((tenant) => (
-                    <div key={tenant.id} className="flex items-start justify-between rounded-md bg-gray-50 p-2">
-                      <div className="text-sm">
-                        <p className="font-semibold text-gray-900">{tenant.name}</p>
-                        {tenant.phone ? <p className="text-xs text-gray-600">{tenant.phone}</p> : null}
-                        {tenant.email ? <p className="text-xs text-gray-600">{tenant.email}</p> : null}
+                    <div key={tenant.id} className="flex items-start justify-between rounded p-2" style={{ backgroundColor: "var(--jms-bg)" }}>
+                      <div style={{ fontSize: "var(--jms-font-body)" }}>
+                        <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                          {tenant.name}
+                        </p>
+                        {tenant.phone ? (
+                          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{tenant.phone}</p>
+                        ) : null}
+                        {tenant.email ? (
+                          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{tenant.email}</p>
+                        ) : null}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button onClick={() => openEditTenant(tenant)} className="text-xs font-semibold text-blue-700 hover:underline">
+                        <button onClick={() => openEditTenant(tenant)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                           Edit
                         </button>
-                        <button onClick={() => deleteTenant.mutate(tenant.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                        <button onClick={() => deleteTenant.mutate(tenant.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                           Remove
                         </button>
                       </div>
@@ -542,9 +565,13 @@ export default function PropertyDetailPage() {
                 </div>
               )}
             </div>
-            <div className="col-span-2 rounded-lg border border-gray-300 bg-white p-6">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Access Notes</h2>
-              <p className="whitespace-pre-wrap text-sm text-gray-700">{property.access_notes || "No access notes on file."}</p>
+            <div className="col-span-2 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                Access Notes
+              </h2>
+              <p className="whitespace-pre-wrap" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                {property.access_notes || "No access notes on file."}
+              </p>
             </div>
           </div>
         </div>
@@ -555,37 +582,36 @@ export default function PropertyDetailPage() {
       {tab === "history" ? (
         <div>
           <div className="mb-4 flex justify-end">
-            <button
-              onClick={openNewJob}
-              className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-            >
+            <ThemedButton onClick={openNewJob} style={{ paddingBlock: 6, paddingInline: 12 }}>
               + New Job
-            </button>
+            </ThemedButton>
           </div>
           {!jobs || jobs.length === 0 ? (
-            <p className="text-sm text-gray-500">No jobs recorded for this property yet.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No jobs recorded for this property yet.</p>
           ) : (
             <div className="space-y-3">
               {jobs.map((job) => (
-                <div key={job.id} className="rounded-lg border border-gray-300 bg-white p-4">
+                <div key={job.id} className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
                   <div className="flex items-center justify-between">
-                    <Link to={`/jobs/${job.id}`} className="font-semibold text-blue-700 hover:underline">
+                    <Link to={`/jobs/${job.id}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                       {job.number ?? "Pending"} - {job.title}
                     </Link>
-                    <span className="text-xs text-gray-400">{new Date(job.created_at).toLocaleDateString("en-AU")}</span>
+                    <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                      {new Date(job.created_at).toLocaleDateString("en-AU")}
+                    </span>
                   </div>
                   {(quotesByJob.get(job.id) ?? []).length > 0 || (invoicesByJob.get(job.id) ?? []).length > 0 ? (
-                    <div className="mt-2 space-y-1 text-sm">
+                    <div className="mt-2 space-y-1" style={{ fontSize: "var(--jms-font-body)" }}>
                       {(quotesByJob.get(job.id) ?? []).map((q) => (
                         <Link key={q.id} to={`/quotes/${q.id}`} className="flex justify-between hover:underline">
-                          <span className="text-gray-700">Quote {q.quote_number}</span>
-                          <span className="text-gray-500">{formatCentsAsAud(q.total_cents)}</span>
+                          <span style={{ color: "var(--jms-text)" }}>Quote {q.quote_number}</span>
+                          <span style={{ color: "var(--jms-text-muted)" }}>{formatCentsAsAud(q.total_cents)}</span>
                         </Link>
                       ))}
                       {(invoicesByJob.get(job.id) ?? []).map((inv) => (
                         <Link key={inv.id} to={`/invoices/${inv.id}`} className="flex justify-between hover:underline">
-                          <span className="text-gray-700">Invoice {inv.invoice_number}</span>
-                          <span className="text-gray-500">{formatCentsAsAud(inv.total_cents)}</span>
+                          <span style={{ color: "var(--jms-text)" }}>Invoice {inv.invoice_number}</span>
+                          <span style={{ color: "var(--jms-text-muted)" }}>{formatCentsAsAud(inv.total_cents)}</span>
                         </Link>
                       ))}
                     </div>
@@ -597,47 +623,51 @@ export default function PropertyDetailPage() {
         </div>
       ) : null}
 
-      <Modal open={contactModalOpen} onClose={() => setContactModalOpen(false)} title="Edit access & contacts">
-        <FormField label="Owner / landlord name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+      <ThemedModal open={contactModalOpen} onClose={() => setContactModalOpen(false)} title="Edit access & contacts">
+        <ThemedFormField label="Owner / landlord name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Landlord mobile" value={ownerPhone} onChange={(e) => setOwnerPhone(e.target.value)} />
-          <FormField label="Landlord email" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
+          <ThemedFormField label="Landlord mobile" value={ownerPhone} onChange={(e) => setOwnerPhone(e.target.value)} />
+          <ThemedFormField label="Landlord email" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
         </div>
-        <FormField label="Tenant name" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
+        <ThemedFormField label="Tenant name" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Tenant mobile" value={tenantPhone} onChange={(e) => setTenantPhone(e.target.value)} />
-          <FormField label="Tenant email" type="email" value={tenantEmail} onChange={(e) => setTenantEmail(e.target.value)} />
+          <ThemedFormField label="Tenant mobile" value={tenantPhone} onChange={(e) => setTenantPhone(e.target.value)} />
+          <ThemedFormField label="Tenant email" type="email" value={tenantEmail} onChange={(e) => setTenantEmail(e.target.value)} />
         </div>
-        <FormField label="Key tag number" value={keyTagNumber} onChange={(e) => setKeyTagNumber(e.target.value)} placeholder="e.g. Key #42" />
-        <TextAreaField label="Access notes" value={accessNotes} onChange={(e) => setAccessNotes(e.target.value)} placeholder="Gate codes, alarm codes, pet warnings, parking..." />
+        <ThemedFormField label="Key tag number" value={keyTagNumber} onChange={(e) => setKeyTagNumber(e.target.value)} placeholder="e.g. Key #42" />
+        <ThemedTextAreaField label="Access notes" value={accessNotes} onChange={(e) => setAccessNotes(e.target.value)} placeholder="Gate codes, alarm codes, pet warnings, parking..." />
 
-        {contactError ? <p className="mb-4 text-sm text-red-600">{contactError}</p> : null}
+        {contactError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {contactError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setContactModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setContactModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveContact.mutate()}
-            disabled={saveContact.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveContact.mutate()} disabled={saveContact.isPending}>
             {saveContact.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={newJobModalOpen} onClose={() => setNewJobModalOpen(false)} title="New job for this property">
-        <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm">
-          <p className="font-semibold text-gray-900">{property.address_line1}</p>
-          <p className="text-gray-600">
+      <ThemedModal open={newJobModalOpen} onClose={() => setNewJobModalOpen(false)} title="New job for this property">
+        <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", fontSize: "var(--jms-font-body)" }}>
+          <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
+            {property.address_line1}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)" }}>
             {agency?.name}
             {propertyManager ? ` - ${propertyManager.first_name} ${propertyManager.last_name}` : ""}
           </p>
         </div>
         {agency?.client_id ? (
-          <p className="-mt-2 mb-4 text-xs text-gray-500">This job will bill against {agency.name}'s linked client automatically.</p>
+          <p className="-mt-2 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            This job will bill against {agency.name}'s linked client automatically.
+          </p>
         ) : (
-          <SelectField
+          <ThemedSelectField
             label="Client to bill (this agency has no linked client yet)"
             value={jobManualClientId}
             onChange={setJobManualClientId}
@@ -645,27 +675,27 @@ export default function PropertyDetailPage() {
             placeholder="Select a client"
           />
         )}
-        <FormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-        <TextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
+        <ThemedFormField label="Title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        <ThemedTextAreaField label="Description" rows={3} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
         {agency?.require_work_order_num ? (
-          <FormField label="Work order number" value={jobWorkOrderNumber} onChange={(e) => setJobWorkOrderNumber(e.target.value)} />
+          <ThemedFormField label="Work order number" value={jobWorkOrderNumber} onChange={(e) => setJobWorkOrderNumber(e.target.value)} />
         ) : null}
-        {jobError ? <p className="mb-4 text-sm text-red-600">{jobError}</p> : null}
+        {jobError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {jobError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setNewJobModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setNewJobModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createJob.mutate()}
-            disabled={createJob.isPending || !jobTitle.trim() || (!agency?.client_id && !jobManualClientId)}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending || !jobTitle.trim() || (!agency?.client_id && !jobManualClientId)}>
             {createJob.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal
+      <ThemedModal
         open={tenantModalOpen}
         onClose={() => {
           setTenantModalOpen(false);
@@ -673,37 +703,38 @@ export default function PropertyDetailPage() {
         }}
         title={editingTenantId ? "Edit tenant" : "Add tenant"}
       >
-        <FormField label="Name" value={tenantForm.name} onChange={(e) => setTenantForm({ ...tenantForm, name: e.target.value })} />
-        <FormField label="Phone" value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value })} />
-        <FormField
+        <ThemedFormField label="Name" value={tenantForm.name} onChange={(e) => setTenantForm({ ...tenantForm, name: e.target.value })} />
+        <ThemedFormField label="Phone" value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value })} />
+        <ThemedFormField
           label="Email"
           type="email"
           value={tenantForm.email}
           onChange={(e) => setTenantForm({ ...tenantForm, email: e.target.value })}
         />
-        {tenantError ? <p className="mb-4 text-sm text-red-600">{tenantError}</p> : null}
+        {tenantError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {tenantError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setTenantModalOpen(false);
               setEditingTenantId(null);
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => saveTenant.mutate()}
-            disabled={saveTenant.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveTenant.mutate()} disabled={saveTenant.isPending}>
             {saveTenant.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)} title="Edit property details">
-        <SelectField
+      <ThemedModal open={detailsModalOpen} onClose={() => setDetailsModalOpen(false)} title="Edit property details">
+        <ThemedSelectField
           label="Agency"
           value={detailsAgencyId}
           onChange={(v) => {
@@ -713,20 +744,20 @@ export default function PropertyDetailPage() {
           options={(allAgencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
           placeholder="Select agency"
         />
-        <SelectField
+        <ThemedSelectField
           label="Property manager"
           value={detailsPmId}
           onChange={setDetailsPmId}
           options={detailsPmsForAgency(detailsAgencyId).map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
           placeholder="Unassigned"
         />
-        <FormField label="Address line 1" value={detailsAddress} onChange={(e) => setDetailsAddress(e.target.value)} />
+        <ThemedFormField label="Address line 1" value={detailsAddress} onChange={(e) => setDetailsAddress(e.target.value)} />
         <div className="grid grid-cols-3 gap-3">
-          <FormField label="Suburb" value={detailsSuburb} onChange={(e) => setDetailsSuburb(e.target.value)} />
-          <FormField label="State" value={detailsState} onChange={(e) => setDetailsState(e.target.value)} />
-          <FormField label="Postcode" value={detailsPostcode} onChange={(e) => setDetailsPostcode(e.target.value)} />
+          <ThemedFormField label="Suburb" value={detailsSuburb} onChange={(e) => setDetailsSuburb(e.target.value)} />
+          <ThemedFormField label="State" value={detailsState} onChange={(e) => setDetailsState(e.target.value)} />
+          <ThemedFormField label="Postcode" value={detailsPostcode} onChange={(e) => setDetailsPostcode(e.target.value)} />
         </div>
-        <SelectField
+        <ThemedSelectField
           label="Property type"
           value={detailsPropertyType}
           onChange={setDetailsPropertyType}
@@ -734,20 +765,20 @@ export default function PropertyDetailPage() {
           placeholder="Select type"
         />
 
-        {detailsError ? <p className="mb-4 text-sm text-red-600">{detailsError}</p> : null}
+        {detailsError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {detailsError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setDetailsModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setDetailsModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveDetails.mutate()}
-            disabled={saveDetails.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveDetails.mutate()} disabled={saveDetails.isPending}>
             {saveDetails.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

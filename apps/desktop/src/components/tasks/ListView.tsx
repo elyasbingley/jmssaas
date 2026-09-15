@@ -52,19 +52,24 @@ export function ListView({
   return (
     <div className="space-y-4">
       {groups.map((group) => (
-        <div key={group.key} className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+        <div key={group.key} className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
           <button
             onClick={() => toggleCollapsed(group.key)}
-            className="flex w-full items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-2 text-left"
+            className="flex w-full items-center justify-between px-4 py-2 text-left"
+            style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
           >
-            <span className="text-sm font-bold text-gray-900">
+            <span className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
               {collapsed.has(group.key) ? "▸" : "▾"} {group.label}
             </span>
-            <span className="text-xs font-semibold text-gray-400">{group.tasks.length}</span>
+            <span className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              {group.tasks.length}
+            </span>
           </button>
           {!collapsed.has(group.key) ? (
             group.tasks.length === 0 ? (
-              <p className="p-4 text-sm text-gray-500">No tasks</p>
+              <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                No tasks
+              </p>
             ) : (
               <div>
                 {group.tasks.map((task) => (
@@ -83,7 +88,11 @@ export function ListView({
           ) : null}
         </div>
       ))}
-      {groups.every((g) => g.tasks.length === 0) ? <p className="p-6 text-sm text-gray-500">No tasks match your filters.</p> : null}
+      {groups.every((g) => g.tasks.length === 0) ? (
+        <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          No tasks match your filters.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -122,10 +131,13 @@ function TaskRow({
   };
 
   return (
-    <div className={`border-b border-gray-200 last:border-0 ${indent ? "bg-gray-50 pl-8" : ""}`}>
+    <div
+      className="jms-nav-link last:border-0"
+      style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: indent ? "var(--jms-bg)" : undefined, paddingLeft: indent ? 32 : undefined }}
+    >
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
         {subtasks.length > 0 ? (
-          <button onClick={() => setSubtasksOpen((v) => !v)} className="text-xs text-gray-400 hover:text-gray-700">
+          <button onClick={() => setSubtasksOpen((v) => !v)} style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             {subtasksOpen ? "▾" : "▸"}
           </button>
         ) : (
@@ -153,27 +165,30 @@ function TaskRow({
                   setEditingTitle(false);
                 }
               }}
-              className="w-full rounded border border-blue-400 px-1.5 py-0.5 text-sm"
+              className="w-full rounded border px-1.5 py-0.5"
+              style={{ borderColor: "var(--jms-accent)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             />
           ) : (
             <button
               onClick={() => setEditingTitle(true)}
               onDoubleClick={(e) => e.stopPropagation()}
-              className={`text-left text-sm font-medium hover:underline ${task.status === "done" ? "text-gray-400 line-through" : "text-gray-900"}`}
+              className="text-left font-medium hover:underline"
+              style={{ color: task.status === "done" ? "var(--jms-text-muted)" : "var(--jms-text)", textDecoration: task.status === "done" ? "line-through" : undefined, fontSize: "var(--jms-font-body)" }}
             >
               {task.is_milestone ? "🔶 " : ""}
               {task.title}
             </button>
           )}
           {progress ? (
-            <span className="ml-2 text-xs font-semibold text-gray-400">
+            <span className="ml-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               {progress.done}/{progress.total} subtasks
             </span>
           ) : null}
           {jobNumber ? (
             <button
               onClick={() => navigate(`/jobs/${task.job_card_id}`)}
-              className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-200"
+              className="ml-2 rounded-full border px-2 py-0.5 font-semibold hover:opacity-80"
+              style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
             >
               Job {jobNumber}
             </button>
@@ -183,7 +198,8 @@ function TaskRow({
         <select
           value={task.assigned_to ?? ""}
           onChange={(e) => onUpdateTask(task.id, { assigned_to: e.target.value || null })}
-          className="rounded border border-gray-300 bg-white px-1.5 py-1 text-xs"
+          className="rounded border px-1.5 py-1"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
         >
           <option value="">Unassigned</option>
           {profiles.map((p) => (
@@ -197,13 +213,20 @@ function TaskRow({
           type="date"
           value={task.due_date ?? ""}
           onChange={(e) => onUpdateTask(task.id, { due_date: e.target.value || null })}
-          className={`rounded border px-1.5 py-1 text-xs ${overdue ? "border-red-300 text-red-600" : "border-gray-300 text-gray-700"}`}
+          className="rounded border px-1.5 py-1"
+          style={{
+            backgroundColor: "var(--jms-bg)",
+            borderColor: overdue ? "var(--jms-danger)" : "var(--jms-border)",
+            color: overdue ? "var(--jms-danger)" : "var(--jms-text)",
+            fontSize: "var(--jms-font-label)",
+          }}
         />
 
         <select
           value={task.priority}
           onChange={(e) => onUpdateTask(task.id, { priority: e.target.value as TaskPriority })}
-          className="rounded border border-gray-300 bg-white px-1.5 py-1 text-xs"
+          className="rounded border px-1.5 py-1"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
         >
           {PRIORITY_ORDER.map((p) => (
             <option key={p} value={p}>
@@ -215,7 +238,8 @@ function TaskRow({
         <select
           value={task.status}
           onChange={(e) => onUpdateTask(task.id, { status: e.target.value as TaskStatus })}
-          className="rounded border border-gray-300 bg-white px-1.5 py-1 text-xs"
+          className="rounded border px-1.5 py-1"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
         >
           {(["todo", "in_progress", "done"] as TaskStatus[]).map((s) => (
             <option key={s} value={s}>
@@ -224,7 +248,11 @@ function TaskRow({
           ))}
         </select>
 
-        <button onClick={() => navigate(`/tasks/${task.id}`)} className="text-xs font-semibold text-blue-700 hover:underline">
+        <button
+          onClick={() => navigate(`/tasks/${task.id}`)}
+          className="font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+        >
           Open
         </button>
       </div>

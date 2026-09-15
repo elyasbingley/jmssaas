@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { updateCompanySettingsSchema, updateSmsPhoneNumberSchema, updateWhatsappPhoneNumberSchema, type Tenant } from "@jmssaas/shared";
@@ -8,8 +11,10 @@ import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
-import { FormField } from "../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 const LOGO_BUCKET = "company-logos";
 
@@ -27,13 +32,14 @@ interface FacebookStatus {
 
 // Minimal, single-screen settings - just the fields the Phase 5 PDF export
 // needs (company name, ABN, business address, license number, bank
-// details). A real Settings tab/section is deliberately not built yet
-// (see docs/SETUP.md known-gaps) - this screen is reached via a small
-// admin-only link on Home rather than its own tab.
+// details), plus channel connections (SMS/WhatsApp/Messenger/Instagram),
+// Xero and the Inbox address. Reached via Settings > Company Details.
 export default function CompanySettingsScreen() {
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: tenant, refetch } = useSupabaseFetch<Tenant>(async () => {
     const { data, error } = await supabase.from("tenants").select("*").eq("id", profile?.tenant_id).single();
@@ -354,286 +360,310 @@ export default function CompanySettingsScreen() {
     }
   };
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Company settings" />
-      </View>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Only admins can view company settings.</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={styles.subtitle}>Used on exported quote/invoice PDFs.</Text>
-
-      <Text style={styles.sectionTitle}>Logo</Text>
-      {tenant?.logo_url ? (
-        <Image source={{ uri: tenant.logo_url }} style={styles.logoPreview} resizeMode="contain" />
-      ) : (
-        <View style={styles.logoPlaceholder}>
-          <Text style={styles.logoPlaceholderText}>No logo uploaded</Text>
-        </View>
-      )}
-      <View style={styles.logoActions}>
-        <Pressable style={styles.logoButton} onPress={pickLogo} disabled={uploadingLogo}>
-          <Text style={styles.logoButtonText}>{uploadingLogo ? "Uploading..." : tenant?.logo_url ? "Change logo" : "Upload logo"}</Text>
-        </Pressable>
-        {tenant?.logo_url ? (
-          <Pressable onPress={removeLogo} disabled={uploadingLogo}>
-            <Text style={styles.link}>Remove</Text>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
           </Pressable>
-        ) : null}
-      </View>
-      {logoError ? <Text style={styles.error}>{logoError}</Text> : null}
-
-      <Text style={styles.sectionTitle}>Inbox</Text>
-      {tenant?.inbox_local_part && process.env.EXPO_PUBLIC_INBOX_DOMAIN ? (
-        <View style={styles.inboxCard}>
-          <Text style={styles.inboxCardHint}>
-            Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
-            review an AI-drafted job.
-          </Text>
-          <Text style={styles.inboxAddress} selectable>
-            {tenant.inbox_local_part}@{process.env.EXPO_PUBLIC_INBOX_DOMAIN}
-          </Text>
+          <Text style={styles.title}>Company Details</Text>
         </View>
-      ) : (
-        <Text style={styles.logoPlaceholderText}>
-          Not configured yet - set EXPO_PUBLIC_INBOX_DOMAIN to your verified Resend inbound domain (see
-          docs/SETUP.md's Inbox section).
-        </Text>
-      )}
 
-      <Text style={styles.sectionTitle}>Channels</Text>
-      <View style={styles.inboxCard}>
-        <View style={styles.channelHeaderRow}>
-          <Text style={styles.channelLabel}>💬 SMS</Text>
-          <View style={[styles.channelBadge, tenant?.sms_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
-            <Text style={tenant?.sms_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
-              {tenant?.sms_phone_number ? "Connected" : "Not connected"}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.inboxCardHint}>
-          The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
-          section) - E.164 or local format both work, e.g. 0491 570 156.
-        </Text>
-        <FormField label="Phone number" placeholder="0491 570 156" value={smsPhoneNumberInput} onChangeText={setSmsPhoneNumberInput} keyboardType="phone-pad" />
-        <Pressable style={styles.logoButton} onPress={saveSmsPhoneNumber} disabled={savingSms}>
-          <Text style={styles.logoButtonText}>{savingSms ? "Saving..." : smsSaved ? "Saved!" : "Save"}</Text>
-        </Pressable>
-        {smsError ? <Text style={styles.error}>{smsError}</Text> : null}
-      </View>
-
-      <View style={styles.inboxCard}>
-        <View style={styles.channelHeaderRow}>
-          <Text style={styles.channelLabel}>🟢 WhatsApp</Text>
-          <View style={[styles.channelBadge, tenant?.whatsapp_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
-            <Text style={tenant?.whatsapp_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
-              {tenant?.whatsapp_phone_number ? "Connected" : "Not connected"}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.inboxCardHint}>
-          A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
-          messaging real clients first needs Meta Business verification and an approved template. See
-          docs/SETUP.md's Channels section.
-        </Text>
-        <FormField label="Phone number" placeholder="0491 570 156" value={whatsappPhoneNumberInput} onChangeText={setWhatsappPhoneNumberInput} keyboardType="phone-pad" />
-        <Pressable style={styles.logoButton} onPress={saveWhatsappPhoneNumber} disabled={savingWhatsapp}>
-          <Text style={styles.logoButtonText}>{savingWhatsapp ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}</Text>
-        </Pressable>
-        {whatsappError ? <Text style={styles.error}>{whatsappError}</Text> : null}
-      </View>
-
-      <View style={styles.inboxCard}>
-        <View style={styles.channelHeaderRow}>
-          <Text style={styles.channelLabel}>🔵 Messenger</Text>
-          <View style={[styles.channelBadge, facebookStatus?.connected ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
-            <Text style={facebookStatus?.connected ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
-              {facebookStatus?.connected ? "Connected" : "Not connected"}
-            </Text>
-          </View>
-        </View>
-        {facebookStatus?.connected ? (
-          <>
-            <Text style={styles.xeroMeta}>
-              Connected to {facebookStatus.page_name || "your Facebook Page"}
-              {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
-            </Text>
-            <Pressable onPress={disconnectFacebook} disabled={facebookDisconnecting} style={{ marginTop: 8 }}>
-              <Text style={styles.xeroDisconnectLink}>{facebookDisconnecting ? "Disconnecting..." : "Disconnect Messenger"}</Text>
-            </Pressable>
-          </>
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Company settings" />
+        ) : !isAdmin ? (
+          <Text style={styles.empty}>Only admins can view company settings.</Text>
         ) : (
-          <>
-            <Text style={styles.inboxCardHint}>
-              Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
-              Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
-              section.
-            </Text>
-            <Pressable style={styles.xeroConnectButton} onPress={connectFacebook} disabled={facebookConnecting}>
-              <Text style={styles.xeroConnectButtonText}>{facebookConnecting ? "Opening Facebook..." : "Connect to Facebook"}</Text>
-            </Pressable>
-          </>
-        )}
-        {facebookConnectError ? <Text style={styles.error}>{facebookConnectError}</Text> : null}
-      </View>
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <Text style={styles.subtitle}>Used on exported quote/invoice PDFs.</Text>
 
-      {[
-        { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
-      ].map((channel) => (
-        <View key={channel.label} style={styles.inboxCard}>
-          <View style={styles.channelHeaderRow}>
-            <Text style={styles.channelLabel}>
-              {channel.icon} {channel.label}
-            </Text>
-            <View style={[styles.channelBadge, styles.channelBadgeNotConnected]}>
-              <Text style={styles.channelBadgeTextNotConnected}>Not connected</Text>
+            <Text style={styles.sectionTitle}>Logo</Text>
+            {tenant?.logo_url ? (
+              <Image source={{ uri: tenant.logo_url }} style={styles.logoPreview} resizeMode="contain" />
+            ) : (
+              <View style={styles.logoPlaceholder}>
+                <Text style={styles.logoPlaceholderText}>No logo uploaded</Text>
+              </View>
+            )}
+            <View style={styles.logoActions}>
+              <Pressable style={styles.logoButton} onPress={pickLogo} disabled={uploadingLogo}>
+                <Text style={styles.logoButtonText}>{uploadingLogo ? "Uploading..." : tenant?.logo_url ? "Change logo" : "Upload logo"}</Text>
+              </Pressable>
+              {tenant?.logo_url ? (
+                <Pressable onPress={removeLogo} disabled={uploadingLogo}>
+                  <Text style={styles.deleteLink}>Remove</Text>
+                </Pressable>
+              ) : null}
             </View>
-          </View>
-          <Text style={styles.inboxCardHint}>{channel.note}</Text>
-        </View>
-      ))}
+            {logoError ? <Text style={styles.error}>{logoError}</Text> : null}
 
-      <View style={styles.fieldSpacing}>
-        <FormField label="Company name" value={name} onChangeText={setName} />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="ABN" placeholder="e.g. 12 345 678 901" value={abn} onChangeText={setAbn} />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="Email" placeholder="info@yourcompany.com.au" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="Phone" placeholder="e.g. 0400 000 000" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="Website" placeholder="yourcompany.com.au" value={website} onChangeText={setWebsite} autoCapitalize="none" />
-      </View>
+            <Text style={styles.sectionTitle}>Inbox</Text>
+            {tenant?.inbox_local_part && process.env.EXPO_PUBLIC_INBOX_DOMAIN ? (
+              <View style={styles.inboxCard}>
+                <Text style={styles.inboxCardHint}>
+                  Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
+                  review an AI-drafted job.
+                </Text>
+                <Text style={styles.inboxAddress} selectable>
+                  {tenant.inbox_local_part}@{process.env.EXPO_PUBLIC_INBOX_DOMAIN}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.logoPlaceholderText}>
+                Not configured yet - set EXPO_PUBLIC_INBOX_DOMAIN to your verified Resend inbound domain (see
+                docs/SETUP.md's Inbox section).
+              </Text>
+            )}
 
-      <Text style={styles.sectionTitle}>Business address</Text>
-      <FormField label="Address line 1" value={addressLine1} onChangeText={setAddressLine1} />
-      <View style={styles.fieldSpacing}>
-        <FormField label="Address line 2 (optional)" value={addressLine2} onChangeText={setAddressLine2} />
-      </View>
-      <View style={styles.addressRow}>
-        <View style={styles.addressRowItem}>
-          <FormField label="Suburb" value={suburb} onChangeText={setSuburb} />
-        </View>
-        <View style={styles.addressRowItemSmall}>
-          <FormField label="State" value={state} onChangeText={setState} autoCapitalize="characters" />
-        </View>
-        <View style={styles.addressRowItemSmall}>
-          <FormField label="Postcode" value={postcode} onChangeText={setPostcode} keyboardType="number-pad" />
-        </View>
-      </View>
+            <Text style={styles.sectionTitle}>Channels</Text>
+            <View style={styles.inboxCard}>
+              <View style={styles.channelHeaderRow}>
+                <Text style={styles.channelLabel}>💬 SMS</Text>
+                <View style={[styles.channelBadge, tenant?.sms_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+                  <Text style={tenant?.sms_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+                    {tenant?.sms_phone_number ? "Connected" : "Not connected"}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.inboxCardHint}>
+                The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
+                section) - E.164 or local format both work, e.g. 0491 570 156.
+              </Text>
+              <ThemedFormField label="Phone number" placeholder="0491 570 156" value={smsPhoneNumberInput} onChangeText={setSmsPhoneNumberInput} keyboardType="phone-pad" />
+              <Pressable style={styles.logoButton} onPress={saveSmsPhoneNumber} disabled={savingSms}>
+                <Text style={styles.logoButtonText}>{savingSms ? "Saving..." : smsSaved ? "Saved!" : "Save"}</Text>
+              </Pressable>
+              {smsError ? <Text style={styles.error}>{smsError}</Text> : null}
+            </View>
 
-      <View style={styles.fieldSpacing}>
-        <FormField label="License number" value={licenseNumber} onChangeText={setLicenseNumber} />
-      </View>
+            <View style={styles.inboxCard}>
+              <View style={styles.channelHeaderRow}>
+                <Text style={styles.channelLabel}>🟢 WhatsApp</Text>
+                <View style={[styles.channelBadge, tenant?.whatsapp_phone_number ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+                  <Text style={tenant?.whatsapp_phone_number ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+                    {tenant?.whatsapp_phone_number ? "Connected" : "Not connected"}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.inboxCardHint}>
+                A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
+                messaging real clients first needs Meta Business verification and an approved template. See
+                docs/SETUP.md's Channels section.
+              </Text>
+              <ThemedFormField label="Phone number" placeholder="0491 570 156" value={whatsappPhoneNumberInput} onChangeText={setWhatsappPhoneNumberInput} keyboardType="phone-pad" />
+              <Pressable style={styles.logoButton} onPress={saveWhatsappPhoneNumber} disabled={savingWhatsapp}>
+                <Text style={styles.logoButtonText}>{savingWhatsapp ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}</Text>
+              </Pressable>
+              {whatsappError ? <Text style={styles.error}>{whatsappError}</Text> : null}
+            </View>
 
-      <Text style={styles.sectionTitle}>Bank details</Text>
-      <FormField label="Account name" value={bankAccountName} onChangeText={setBankAccountName} />
-      <View style={styles.fieldSpacing}>
-        <FormField label="Account number" value={bankAccountNumber} onChangeText={setBankAccountNumber} keyboardType="number-pad" />
-      </View>
-      <View style={styles.fieldSpacing}>
-        <FormField label="BSB" value={bankBsb} onChangeText={setBankBsb} keyboardType="number-pad" />
-      </View>
+            <View style={styles.inboxCard}>
+              <View style={styles.channelHeaderRow}>
+                <Text style={styles.channelLabel}>🔵 Messenger</Text>
+                <View style={[styles.channelBadge, facebookStatus?.connected ? styles.channelBadgeConnected : styles.channelBadgeNotConnected]}>
+                  <Text style={facebookStatus?.connected ? styles.channelBadgeTextConnected : styles.channelBadgeTextNotConnected}>
+                    {facebookStatus?.connected ? "Connected" : "Not connected"}
+                  </Text>
+                </View>
+              </View>
+              {facebookStatus?.connected ? (
+                <>
+                  <Text style={styles.meta}>
+                    Connected to {facebookStatus.page_name || "your Facebook Page"}
+                    {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
+                  </Text>
+                  <Pressable onPress={disconnectFacebook} disabled={facebookDisconnecting} style={{ marginTop: 8 }}>
+                    <Text style={styles.deleteLink}>{facebookDisconnecting ? "Disconnecting..." : "Disconnect Messenger"}</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.inboxCardHint}>
+                    Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
+                    Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
+                    section.
+                  </Text>
+                  <View style={styles.connectButtonWrap}>
+                    <ThemedButton label={facebookConnecting ? "Opening Facebook..." : "Connect to Facebook"} onPress={connectFacebook} disabled={facebookConnecting} />
+                  </View>
+                </>
+              )}
+              {facebookConnectError ? <Text style={styles.error}>{facebookConnectError}</Text> : null}
+            </View>
 
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+            {[
+              { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
+            ].map((channel) => (
+              <View key={channel.label} style={styles.inboxCard}>
+                <View style={styles.channelHeaderRow}>
+                  <Text style={styles.channelLabel}>
+                    {channel.icon} {channel.label}
+                  </Text>
+                  <View style={[styles.channelBadge, styles.channelBadgeNotConnected]}>
+                    <Text style={styles.channelBadgeTextNotConnected}>Not connected</Text>
+                  </View>
+                </View>
+                <Text style={styles.inboxCardHint}>{channel.note}</Text>
+              </View>
+            ))}
 
-      <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
-        <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
-      </Pressable>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Company name" value={name} onChangeText={setName} />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="ABN" placeholder="e.g. 12 345 678 901" value={abn} onChangeText={setAbn} />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Email" placeholder="info@yourcompany.com.au" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Phone" placeholder="e.g. 0400 000 000" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Website" placeholder="yourcompany.com.au" value={website} onChangeText={setWebsite} autoCapitalize="none" />
+            </View>
 
-      <Text style={styles.sectionTitle}>Xero</Text>
-      <View style={styles.xeroCard}>
-        {xeroStatus?.connected ? (
-          <>
-            <Text style={styles.xeroConnectedText}>Connected to {xeroStatus.org_name || "Xero"}</Text>
-            {xeroStatus.connected_at ? (
-              <Text style={styles.xeroMeta}>Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</Text>
+            <Text style={styles.sectionTitle}>Business Address</Text>
+            <ThemedFormField label="Address line 1" value={addressLine1} onChangeText={setAddressLine1} />
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Address line 2 (optional)" value={addressLine2} onChangeText={setAddressLine2} />
+            </View>
+            <View style={styles.addressRow}>
+              <View style={styles.addressRowItem}>
+                <ThemedFormField label="Suburb" value={suburb} onChangeText={setSuburb} />
+              </View>
+              <View style={styles.addressRowItemSmall}>
+                <ThemedFormField label="State" value={state} onChangeText={setState} autoCapitalize="characters" />
+              </View>
+              <View style={styles.addressRowItemSmall}>
+                <ThemedFormField label="Postcode" value={postcode} onChangeText={setPostcode} keyboardType="number-pad" />
+              </View>
+            </View>
+
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="License number" value={licenseNumber} onChangeText={setLicenseNumber} />
+            </View>
+
+            <Text style={styles.sectionTitle}>Bank Details</Text>
+            <ThemedFormField label="Account name" value={bankAccountName} onChangeText={setBankAccountName} />
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="Account number" value={bankAccountNumber} onChangeText={setBankAccountNumber} keyboardType="number-pad" />
+            </View>
+            <View style={styles.fieldSpacing}>
+              <ThemedFormField label="BSB" value={bankBsb} onChangeText={setBankBsb} keyboardType="number-pad" />
+            </View>
+
+            {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+
+            <View style={styles.saveButtonWrap}>
+              <ThemedButton label={saving ? "Saving..." : "Save Changes"} onPress={handleSave} disabled={saving} />
+            </View>
+
+            <Text style={styles.sectionTitle}>Xero</Text>
+            <View style={styles.xeroCard}>
+              {xeroStatus?.connected ? (
+                <>
+                  <Text style={styles.connectedText}>Connected to {xeroStatus.org_name || "Xero"}</Text>
+                  {xeroStatus.connected_at ? (
+                    <Text style={styles.meta}>Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</Text>
+                  ) : null}
+                  <Pressable onPress={disconnectXero} disabled={xeroDisconnecting} style={{ marginTop: 8 }}>
+                    <Text style={styles.deleteLink}>{xeroDisconnecting ? "Disconnecting..." : "Disconnect Xero"}</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.meta}>
+                    Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
+                    Xero" button once connected.
+                  </Text>
+                  <View style={styles.connectButtonWrap}>
+                    <ThemedButton label={xeroConnecting ? "Opening Xero..." : "Connect to Xero"} onPress={connectXero} disabled={xeroConnecting} />
+                  </View>
+                </>
+              )}
+              {xeroConnectError ? <Text style={styles.error}>{xeroConnectError}</Text> : null}
+            </View>
+
+            {xeroStatus?.connected ? (
+              <View style={styles.fieldSpacing}>
+                <ThemedFormField
+                  label="Xero sales account code"
+                  placeholder="200"
+                  value={xeroSalesAccountCode}
+                  onChangeText={setXeroSalesAccountCode}
+                  keyboardType="number-pad"
+                />
+                <Text style={styles.meta}>
+                  The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
+                  default "Sales" code.
+                </Text>
+              </View>
             ) : null}
-            <Pressable onPress={disconnectXero} disabled={xeroDisconnecting} style={{ marginTop: 8 }}>
-              <Text style={styles.xeroDisconnectLink}>{xeroDisconnecting ? "Disconnecting..." : "Disconnect Xero"}</Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={styles.xeroMeta}>
-              Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
-              Xero" button once connected.
-            </Text>
-            <Pressable style={styles.xeroConnectButton} onPress={connectXero} disabled={xeroConnecting}>
-              <Text style={styles.xeroConnectButtonText}>{xeroConnecting ? "Opening Xero..." : "Connect to Xero"}</Text>
-            </Pressable>
-          </>
+          </ScrollView>
         )}
-        {xeroConnectError ? <Text style={styles.error}>{xeroConnectError}</Text> : null}
-      </View>
-
-      {xeroStatus?.connected ? (
-        <View style={styles.fieldSpacing}>
-          <FormField
-            label="Xero sales account code"
-            placeholder="200"
-            value={xeroSalesAccountCode}
-            onChangeText={setXeroSalesAccountCode}
-            keyboardType="number-pad"
-          />
-          <Text style={styles.xeroMeta}>
-            The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
-            default "Sales" code.
-          </Text>
-        </View>
-      ) : null}
-    </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  subtitle: { color: "#6b7280", marginTop: 2, marginBottom: 16 },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 24, marginBottom: 6 },
-  fieldSpacing: { marginTop: 16 },
-  addressRow: { flexDirection: "row", gap: 8, marginTop: 16 },
-  addressRowItem: { flex: 2 },
-  addressRowItemSmall: { flex: 1 },
-  error: { color: "#dc2626", marginTop: 12 },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 24 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  logoPreview: { width: "100%", height: 100, backgroundColor: "#f9fafb", borderRadius: 8 },
-  logoPlaceholder: { width: "100%", height: 100, backgroundColor: "#f3f4f6", borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  logoPlaceholderText: { color: "#9ca3af" },
-  logoActions: { flexDirection: "row", alignItems: "center", gap: 20, marginTop: 10 },
-  logoButton: { backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  logoButtonText: { color: "#1d4ed8", fontWeight: "600" },
-  link: { color: "#dc2626", fontWeight: "600" },
-  xeroCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 4 },
-  xeroConnectedText: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  xeroMeta: { fontSize: 13, color: "#6b7280" },
-  xeroDisconnectLink: { color: "#dc2626", fontWeight: "600" },
-  xeroConnectButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start", marginTop: 8 },
-  xeroConnectButtonText: { color: "#fff", fontWeight: "700" },
-  inboxCard: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14, gap: 8, marginBottom: 8 },
-  inboxCardHint: { fontSize: 13, color: "#6b7280" },
-  inboxAddress: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  channelHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  channelLabel: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  channelBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  channelBadgeConnected: { backgroundColor: "#dcfce7" },
-  channelBadgeNotConnected: { backgroundColor: "#f3f4f6" },
-  channelBadgeTextConnected: { fontSize: 11, fontWeight: "700", color: "#15803d" },
-  channelBadgeTextNotConnected: { fontSize: 11, fontWeight: "700", color: "#6b7280" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    subtitle: { color: tokens.textMuted, marginTop: 2, marginBottom: 16, fontSize: font.body - 1, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 24,
+      marginBottom: 8,
+      ...mono,
+    },
+    fieldSpacing: { marginTop: 16 },
+    addressRow: { flexDirection: "row" as const, gap: 8, marginTop: 16 },
+    addressRowItem: { flex: 2 },
+    addressRowItemSmall: { flex: 1 },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    saveButtonWrap: { marginTop: 24 },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    logoPreview: { width: "100%" as const, height: 100, backgroundColor: tokens.surface, borderRadius: 4, borderWidth: 1, borderColor: tokens.border },
+    logoPlaceholder: {
+      width: "100%" as const,
+      height: 100,
+      backgroundColor: tokens.surface,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    logoPlaceholderText: { color: tokens.textMuted, ...mono },
+    logoActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 20, marginTop: 10 },
+    logoButton: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: tokens.surface, alignSelf: "flex-start" as const, marginTop: 8 },
+    logoButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    deleteLink: { color: tokens.danger, fontWeight: "600" as const, ...mono },
+    meta: { fontSize: font.body - 2, color: tokens.textMuted, ...mono },
+    connectedText: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    connectButtonWrap: { alignSelf: "flex-start" as const, marginTop: 8 },
+    xeroCard: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, gap: 4, boxShadow: `0 0 10px ${tokens.accentGlow}` },
+    inboxCard: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, gap: 8, marginBottom: 8, boxShadow: `0 0 10px ${tokens.accentGlow}` },
+    inboxCardHint: { fontSize: font.body - 2, color: tokens.textMuted, ...mono },
+    inboxAddress: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    channelHeaderRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, marginBottom: 4 },
+    channelLabel: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    channelBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2 },
+    channelBadgeConnected: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    channelBadgeNotConnected: { backgroundColor: "transparent", borderColor: tokens.border },
+    channelBadgeTextConnected: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    channelBadgeTextNotConnected: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+  };
+}

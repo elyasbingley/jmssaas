@@ -5,7 +5,8 @@ import { createPurchaseOrderSchema, type JobCard, type PoLineItemInput, type Sub
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { SelectField } from "../components/FormField";
+import { ThemedSelectField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import { PoLineItemEditor } from "../components/subcontractors/PoLineItemEditor";
 
 async function fetchSubcontractor(id: string): Promise<SubcontractorCompany> {
@@ -97,24 +98,31 @@ export default function PurchaseOrderNewPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="mb-1 text-xl font-bold text-gray-900">{isQuoteRequest ? "New quote request" : "New work order"}</h1>
-      <p className="mb-6 text-sm text-gray-500">{subcontractor?.company_name ?? "..."}</p>
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        {isQuoteRequest ? "New quote request" : "New work order"}
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        {subcontractor?.company_name ?? "..."}
+      </p>
 
       {complianceHold ? (
-        <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-800">
+        <p
+          className="mb-4 rounded p-3"
+          style={{ border: "1px solid var(--jms-danger)", backgroundColor: "var(--jms-surface)", color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
+        >
           This subcontractor is on compliance hold - resolve their expired compliance documents before issuing new orders.
         </p>
       ) : null}
 
-      <SelectField
+      <ThemedSelectField
         label="Job"
         value={jobCardId}
         onChange={(v) => !lockedFromJob && setJobCardId(v)}
         options={(jobs ?? []).map((j) => ({ value: j.id, label: j.title }))}
         placeholder="Select a job"
       />
-      <SelectField
+      <ThemedSelectField
         label="Contact (optional)"
         value={contactId}
         onChange={setContactId}
@@ -122,20 +130,25 @@ export default function PurchaseOrderNewPage() {
         placeholder="Use primary contact"
       />
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         {isQuoteRequest ? "Scope of work" : "Line items"}
       </h2>
       <PoLineItemEditor items={lineItems} onChange={setLineItems} />
 
-      {formError ? <p className="mt-4 text-sm text-red-600">{formError}</p> : null}
+      {formError ? (
+        <p className="mt-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {formError}
+        </p>
+      ) : null}
 
-      <button
+      <ThemedButton
         onClick={() => create.mutate()}
         disabled={create.isPending || !jobCardId || complianceHold}
-        className="mt-4 rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+        className="mt-4"
+        style={{ paddingBlock: 12, paddingInline: 24 }}
       >
         {create.isPending ? "Saving..." : isQuoteRequest ? "Create quote request" : "Create work order"}
-      </button>
+      </ThemedButton>
     </div>
   );
 }

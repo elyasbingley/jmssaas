@@ -31,10 +31,14 @@ function DraggableCard({
       role="button"
       tabIndex={0}
       onClick={() => !isDragging && navigate(`/tasks/${task.id}`)}
-      style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, zIndex: isDragging ? 20 : undefined }}
-      className={`mb-2 cursor-pointer rounded-lg border border-gray-300 bg-white p-3 shadow-sm hover:border-blue-400 ${
-        isDragging ? "opacity-70" : ""
-      }`}
+      style={{
+        transform: transform ? CSS.Translate.toString(transform) : undefined,
+        zIndex: isDragging ? 20 : undefined,
+        border: "1px solid var(--jms-border)",
+        backgroundColor: "var(--jms-surface)",
+        opacity: isDragging ? 0.7 : 1,
+      }}
+      className="mb-2 cursor-pointer rounded p-3"
     >
       <TaskCard task={task} allTasks={allTasks} profilesById={profilesById} jobCardsById={jobCardsById} />
     </div>
@@ -57,16 +61,28 @@ function Column({
   const { setNodeRef, isOver } = useDroppable({ id: `section:${section.id}`, data: { sectionId: section.id } });
 
   return (
-    <div className="flex w-72 flex-shrink-0 flex-col rounded-lg bg-gray-50">
-      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2">
-        <p className="text-sm font-bold text-gray-900">{section.name}</p>
-        <span className="text-xs font-semibold text-gray-400">{tasks.length}</span>
+    <div className="flex w-72 flex-shrink-0 flex-col rounded" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
+      <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+        <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+          {section.name}
+        </p>
+        <span className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          {tasks.length}
+        </span>
       </div>
-      <div ref={setNodeRef} className={`min-h-[4rem] flex-1 p-2 ${isOver ? "bg-blue-50" : ""}`}>
+      <div
+        ref={setNodeRef}
+        className="min-h-[4rem] flex-1 p-2"
+        style={isOver ? { backgroundColor: "var(--jms-accent-glow)" } : undefined}
+      >
         {tasks.map((task) => (
           <DraggableCard key={task.id} task={task} allTasks={allTasks} profilesById={profilesById} jobCardsById={jobCardsById} />
         ))}
-        {tasks.length === 0 ? <p className="p-2 text-xs text-gray-400">No tasks</p> : null}
+        {tasks.length === 0 ? (
+          <p className="p-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            No tasks
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -118,7 +134,11 @@ export function BoardView({
             jobCardsById={jobCardsById}
           />
         ))}
-        {sections.length === 0 ? <p className="p-6 text-sm text-gray-500">Add a section to start this board.</p> : null}
+        {sections.length === 0 ? (
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Add a section to start this board.
+          </p>
+        ) : null}
       </div>
     </DndContext>
   );

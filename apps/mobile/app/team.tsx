@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { createTechnicianSchema, type Profile } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
@@ -7,22 +10,23 @@ import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
-import { CenteredModal } from "../components/CenteredModal";
-import { FormField } from "../components/FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
-// Reached via a small admin-only "Team" link on Home, alongside "Company
-// Settings" rather than as a tile of its own (see Home's tile grid) -
-// both are occasional setup/administration screens a person visits when
-// onboarding someone or configuring the business, not a daily operational
-// tool the way Sales/Tasks/Calendar/Schedule are, so they share that
-// header-link treatment rather than spending tile-grid space on them.
+// Reached via More > Team/Staff - an occasional setup/administration
+// screen a person visits when onboarding someone, not a daily operational
+// tool.
 const ROLE_LABELS: Record<Profile["role"], string> = { admin: "Admin", technician: "Technician" };
 
 export default function TeamScreen() {
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: teamMembers, refetch } = useSupabaseFetch<Profile[]>(async () => {
     const { data, error } = await supabase.from("profiles").select("*").order("full_name");
@@ -129,59 +133,80 @@ export default function TeamScreen() {
     }
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.title}>Team / Staff</Text>
+    </View>
+  );
+
   if (!isOnline) {
     return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Team/Staff" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Team/Staff" />
+        </SafeAreaView>
+      </>
     );
   }
 
   if (!isAdmin) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Only admins can view the team.</Text>
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Only admins can view the team.</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-        <Text style={styles.subtitle}>Everyone with sign-in access, and their role in the company.</Text>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Text style={styles.subtitle}>Everyone with sign-in access, and their role in the company.</Text>
 
-        {(teamMembers ?? []).map((member) => (
-          <Pressable key={member.id} style={styles.techRow} onPress={() => openEditModal(member)}>
-            <View style={styles.techRowTop}>
-              <Text style={styles.techName}>{member.full_name}</Text>
-              <View style={[styles.roleBadge, member.role === "admin" && styles.roleBadgeAdmin]}>
-                <Text style={[styles.roleBadgeText, member.role === "admin" && styles.roleBadgeTextAdmin]}>
-                  {ROLE_LABELS[member.role]}
-                </Text>
+          {(teamMembers ?? []).map((member) => (
+            <Pressable key={member.id} style={styles.techRow} onPress={() => openEditModal(member)}>
+              <View style={styles.techRowTop}>
+                <Text style={styles.techName}>{member.full_name}</Text>
+                <View style={[styles.roleBadge, member.role === "admin" && styles.roleBadgeAdmin]}>
+                  <Text style={[styles.roleBadgeText, member.role === "admin" && styles.roleBadgeTextAdmin]}>
+                    {ROLE_LABELS[member.role]}
+                  </Text>
+                </View>
               </View>
-            </View>
-            {member.job_title ? <Text style={styles.techJobTitle}>{member.job_title}</Text> : null}
-            <Text style={styles.techEmail}>{member.email}</Text>
+              {member.job_title ? <Text style={styles.techJobTitle}>{member.job_title}</Text> : null}
+              <Text style={styles.techEmail}>{member.email}</Text>
+            </Pressable>
+          ))}
+          {(teamMembers ?? []).length === 0 ? <Text style={styles.empty}>No team members yet.</Text> : null}
+
+          <Pressable style={styles.addButton} onPress={() => setModalVisible(true)}>
+            <Text style={styles.addButtonText}>+ New Technician</Text>
           </Pressable>
-        ))}
-        {(teamMembers ?? []).length === 0 ? <Text style={styles.empty}>No team members yet.</Text> : null}
+        </ScrollView>
+      </SafeAreaView>
 
-        <Pressable style={styles.addButton} onPress={() => setModalVisible(true)}>
-          <Text style={styles.addButtonText}>+ New technician</Text>
-        </Pressable>
-      </ScrollView>
-
-      <CenteredModal
+      <ThemedModal
         visible={modalVisible}
         onClose={() => {
           setModalVisible(false);
           resetForm();
         }}
       >
-        <Text style={styles.modalTitle}>New technician</Text>
-        <FormField label="Full name" placeholder="e.g. Sam Taylor" value={fullName} onChangeText={setFullName} />
+        <Text style={styles.modalTitle}>New Technician</Text>
+        <ThemedFormField label="Full name" placeholder="e.g. Sam Taylor" value={fullName} onChangeText={setFullName} />
         <View style={styles.fieldSpacing}>
-          <FormField
+          <ThemedFormField
             label="Email"
             placeholder="sam@example.com"
             value={email}
@@ -191,7 +216,7 @@ export default function TeamScreen() {
           />
         </View>
         <View style={styles.fieldSpacing}>
-          <FormField
+          <ThemedFormField
             label="Password"
             placeholder="At least 8 characters"
             value={password}
@@ -210,17 +235,15 @@ export default function TeamScreen() {
           >
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleCreate} disabled={submitting}>
-            <Text style={styles.buttonText}>{submitting ? "Creating..." : "Create"}</Text>
-          </Pressable>
+          <ThemedButton label={submitting ? "Creating..." : "Create"} onPress={handleCreate} disabled={submitting} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={!!editingMember} onClose={() => setEditingMember(null)}>
-        <Text style={styles.modalTitle}>Edit team member</Text>
-        <FormField label="Full name" placeholder="e.g. Sam Taylor" value={editName} onChangeText={setEditName} />
+      <ThemedModal visible={!!editingMember} onClose={() => setEditingMember(null)}>
+        <Text style={styles.modalTitle}>Edit Team Member</Text>
+        <ThemedFormField label="Full name" placeholder="e.g. Sam Taylor" value={editName} onChangeText={setEditName} />
         <View style={styles.fieldSpacing}>
-          <FormField
+          <ThemedFormField
             label="Job title (optional)"
             placeholder="e.g. Foreman, Office Manager, Apprentice"
             value={editJobTitle}
@@ -232,44 +255,62 @@ export default function TeamScreen() {
           <Pressable onPress={() => setEditingMember(null)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={handleSaveEdit} disabled={editSaving}>
-            <Text style={styles.buttonText}>{editSaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={editSaving ? "Saving..." : "Save"} onPress={handleSaveEdit} disabled={editSaving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  subtitle: { color: "#6b7280", marginBottom: 16 },
-  techRow: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-  },
-  // Not justifyContent: "space-between" with two auto-width children - see
-  // LineItemEditor.tsx's totalsRow comment for why that silently clips a
-  // long name with no ellipsis on some devices. techName gets flex: 1 (it
-  // absorbs the row's leftover width after the badge's own natural size)
-  // and roleBadge stays flexShrink: 0 at its fixed intrinsic width.
-  techRowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-  techName: { fontSize: 16, fontWeight: "600", color: "#111827", flex: 1 },
-  techJobTitle: { fontSize: 13, color: "#374151", marginTop: 2 },
-  techEmail: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  roleBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#e5e7eb", flexShrink: 0 },
-  roleBadgeAdmin: { backgroundColor: "#dbeafe" },
-  roleBadgeText: { fontSize: 11, fontWeight: "700", color: "#374151" },
-  roleBadgeTextAdmin: { color: "#1e40af" },
-  empty: { textAlign: "center", color: "#6b7280", padding: 24 },
-  addButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  fieldSpacing: { marginTop: 16 },
-  error: { color: "#dc2626", marginTop: 12 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    subtitle: { color: tokens.textMuted, marginBottom: 16, fontSize: font.body - 1, ...mono },
+    techRow: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    // Not justifyContent: "space-between" with two auto-width children - see
+    // LineItemEditor.tsx's totalsRow comment for why that silently clips a
+    // long name with no ellipsis on some devices. techName gets flex: 1 (it
+    // absorbs the row's leftover width after the badge's own natural size)
+    // and roleBadge stays flexShrink: 0 at its fixed intrinsic width.
+    techRowTop: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    techName: { fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary, flex: 1, ...mono },
+    techJobTitle: { fontSize: font.label, color: tokens.textPrimary, marginTop: 2, ...mono },
+    techEmail: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    roleBadge: { borderRadius: 3, borderWidth: 1, borderColor: tokens.border, paddingHorizontal: 8, paddingVertical: 2, flexShrink: 0 },
+    roleBadgeAdmin: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    roleBadgeText: { fontSize: font.label - 1, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    roleBadgeTextAdmin: { color: tokens.accent },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
+    addButton: {
+      borderWidth: 1,
+      borderColor: tokens.accent,
+      backgroundColor: tokens.accentGlow,
+      borderRadius: 3,
+      padding: 14,
+      alignItems: "center" as const,
+      marginTop: 20,
+    },
+    addButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.body, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    fieldSpacing: { marginTop: 16 },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    modalTitle: {
+      fontSize: font.title,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      marginBottom: 4,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 20, marginTop: 16 },
+  };
+}

@@ -17,8 +17,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { BoardView } from "../components/tasks/BoardView";
 import { ListView } from "../components/tasks/ListView";
 import { CalendarView } from "../components/tasks/CalendarView";
@@ -257,14 +258,15 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="flex h-full">
-      <div className="w-56 flex-shrink-0 border-r border-gray-300 bg-gray-50 p-4">
-        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">Projects</p>
+    <div className="flex h-full" style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="w-56 flex-shrink-0 p-4" style={{ borderRight: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+        <p className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Projects
+        </p>
         <button
           onClick={() => setSelectedProjectId(null)}
-          className={`mb-1 w-full rounded-md px-3 py-1.5 text-left text-sm font-semibold ${
-            selectedProjectId === null ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-200"
-          }`}
+          className={`jms-nav-link mb-1 w-full rounded px-3 py-1.5 text-left font-semibold ${selectedProjectId === null ? "jms-nav-link-active" : ""}`}
+          style={{ fontSize: "var(--jms-font-body)" }}
         >
           All Tasks
         </button>
@@ -272,37 +274,40 @@ export default function TasksPage() {
           <button
             key={project.id}
             onClick={() => setSelectedProjectId(project.id)}
-            className={`mb-1 flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm font-semibold ${
-              selectedProjectId === project.id ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-200"
+            className={`jms-nav-link mb-1 flex w-full items-center gap-2 rounded px-3 py-1.5 text-left font-semibold ${
+              selectedProjectId === project.id ? "jms-nav-link-active" : ""
             }`}
+            style={{ fontSize: "var(--jms-font-body)" }}
           >
             <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: project.color_hex }} />
             <span className="truncate">{project.name}</span>
           </button>
         ))}
-        <button onClick={() => setProjectModalOpen(true)} className="mt-2 w-full text-left text-sm font-semibold text-blue-700 hover:underline">
+        <button
+          onClick={() => setProjectModalOpen(true)}
+          className="mt-2 w-full text-left font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           + New Project
         </button>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-xl font-bold text-gray-900">{selectedProject?.name ?? "All Tasks"}</h1>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {selectedProject?.name ?? "All Tasks"}
+          </h1>
           <div className="flex gap-2">
             {selectedProjectId && viewType === "BOARD" ? (
               <button
                 onClick={() => setSectionModalOpen(true)}
-                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                className="rounded px-3 py-2 font-semibold"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
               >
                 + New Section
               </button>
             ) : null}
-            <button
-              onClick={() => setTaskModalOpen(true)}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              + New Task
-            </button>
+            <ThemedButton onClick={() => setTaskModalOpen(true)}>+ New Task</ThemedButton>
           </div>
         </div>
 
@@ -311,7 +316,12 @@ export default function TasksPage() {
             <button
               key={v}
               onClick={() => setViewType(v)}
-              className={`rounded-md px-3 py-1.5 text-sm font-semibold ${viewType === v ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={
+                viewType === v
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {VIEW_LABELS[v]}
             </button>
@@ -323,7 +333,12 @@ export default function TasksPage() {
             <button
               key={f}
               onClick={() => setQuickFilter(f)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${quickFilter === f ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={
+                quickFilter === f
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {f === "all" ? "All" : f === "mine" ? "My Tasks" : f === "overdue" ? "Overdue" : "Unassigned"}
             </button>
@@ -331,7 +346,8 @@ export default function TasksPage() {
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "")}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            className="rounded border px-2 py-1.5"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">All priorities</option>
             {PRIORITY_ORDER.map((p) => (
@@ -345,13 +361,14 @@ export default function TasksPage() {
             placeholder="Search tasks..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="rounded border px-3 py-1.5"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           />
         </div>
 
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <p className="text-sm text-gray-500">Loading...</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
           ) : viewType === "BOARD" && selectedProjectId ? (
             <BoardView
               sections={sections ?? []}
@@ -381,57 +398,58 @@ export default function TasksPage() {
       </div>
 
       {drawerMatch ? (
-        <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={() => navigate("/tasks")}>
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/70" onClick={() => navigate("/tasks")}>
           <div
-            className="h-full w-full max-w-lg overflow-y-auto border-l border-gray-300 bg-white shadow-2xl"
+            className="h-full w-full max-w-lg overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
+            style={{ borderLeft: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 16px var(--jms-accent-glow)" }}
           >
             <Outlet />
           </div>
         </div>
       ) : null}
 
-      <Modal open={projectModalOpen} onClose={() => setProjectModalOpen(false)} title="New project">
-        <FormField label="Name" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
-        <SelectField
+      <ThemedModal open={projectModalOpen} onClose={() => setProjectModalOpen(false)} title="New project">
+        <ThemedFormField label="Name" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
+        <ThemedSelectField
           label="Default view"
           value={projectViewType}
           onChange={(v) => setProjectViewType((v || "BOARD") as TaskProjectViewType)}
           options={VIEW_TYPES.map((v) => ({ value: v, label: VIEW_LABELS[v] }))}
         />
-        {projectError ? <p className="mb-4 text-sm text-red-600">{projectError}</p> : null}
+        {projectError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {projectError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setProjectModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setProjectModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createProject.mutate()}
-            disabled={createProject.isPending || !projectName.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createProject.mutate()} disabled={createProject.isPending || !projectName.trim()}>
             {createProject.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={sectionModalOpen} onClose={() => setSectionModalOpen(false)} title="New section">
-        <FormField label="Name" value={sectionName} onChange={(e) => setSectionName(e.target.value)} />
-        {sectionError ? <p className="mb-4 text-sm text-red-600">{sectionError}</p> : null}
+      <ThemedModal open={sectionModalOpen} onClose={() => setSectionModalOpen(false)} title="New section">
+        <ThemedFormField label="Name" value={sectionName} onChange={(e) => setSectionName(e.target.value)} />
+        {sectionError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {sectionError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSectionModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setSectionModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createSection.mutate()}
-            disabled={createSection.isPending || !sectionName.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createSection.mutate()} disabled={createSection.isPending || !sectionName.trim()}>
             {createSection.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal
+      <ThemedModal
         open={taskModalOpen}
         onClose={() => {
           setTaskModalOpen(false);
@@ -439,10 +457,10 @@ export default function TasksPage() {
         }}
         title="New task"
       >
-        <FormField label="Title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
-        <TextAreaField label="Description (optional)" rows={3} value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} />
+        <ThemedFormField label="Title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
+        <ThemedTextAreaField label="Description (optional)" rows={3} value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} />
         {selectedProjectId && (sections ?? []).length > 0 ? (
-          <SelectField
+          <ThemedSelectField
             label="Section"
             value={taskSectionId}
             onChange={(v) => setTaskSectionId(v)}
@@ -450,40 +468,41 @@ export default function TasksPage() {
             options={(sections ?? []).map((s) => ({ value: s.id, label: s.name }))}
           />
         ) : null}
-        <SelectField
+        <ThemedSelectField
           label="Assignee"
           value={taskAssignee}
           onChange={(v) => setTaskAssignee(v)}
           placeholder="Unassigned"
           options={(profiles ?? []).map((p) => ({ value: p.id, label: p.full_name }))}
         />
-        <FormField label="Due date (optional)" type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
-        <SelectField
+        <ThemedFormField label="Due date (optional)" type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
+        <ThemedSelectField
           label="Priority"
           value={taskPriority}
           onChange={(v) => setTaskPriority((v || "medium") as TaskPriority)}
           options={PRIORITY_ORDER.map((p) => ({ value: p, label: PRIORITY_LABELS[p] }))}
         />
-        {taskError ? <p className="mb-4 text-sm text-red-600">{taskError}</p> : null}
+        {taskError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {taskError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setTaskModalOpen(false);
               resetTaskForm();
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => createTask.mutate()}
-            disabled={createTask.isPending || !taskTitle.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createTask.mutate()} disabled={createTask.isPending || !taskTitle.trim()}>
             {createTask.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

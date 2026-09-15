@@ -11,7 +11,7 @@ import {
   type OperatingExpense,
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
-import { FormField } from "../../components/FormField";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
 
 async function fetchSettings(): Promise<CostOfOpsSettings> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").single();
@@ -57,7 +57,9 @@ export default function QuoteCheckerPage() {
   const [contractorHoursRequired, setContractorHoursRequired] = useState("8");
 
   if (!settings || !coo) {
-    return <p className="text-sm text-gray-500">Loading...</p>;
+    return (
+      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>Loading...</p>
+    );
   }
 
   const result = calculateQuoteChecker(
@@ -79,28 +81,41 @@ export default function QuoteCheckerPage() {
   );
 
   return (
-    <div>
-      <p className="mb-6 text-sm text-gray-500">
+    <div style={{ fontFamily: "var(--jms-font)" }}>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         A quick, ad-hoc check for one job - nothing here is saved. Compare pricing your own labour, a flat alternate rate, and
         subcontracting the same job, side by side.
       </p>
 
       <div className="grid grid-cols-3 gap-4">
         {/* PROFITABILITY - own labour */}
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Profitability (Your Labour)</h2>
-          <FormField label="Hours required" type="number" value={hoursRequired} onChange={(e) => setHoursRequired(e.target.value)} />
-          <FormField label="Resources required" type="number" value={resourcesRequired} onChange={(e) => setResourcesRequired(e.target.value)} />
-          <FormField label="Labour profit margin (%)" type="number" step="0.1" value={labourMargin} onChange={(e) => setLabourMargin(e.target.value)} />
-          <FormField label="Materials cost ($)" type="number" value={materialsCost} onChange={(e) => setMaterialsCost(e.target.value)} />
-          <FormField
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Profitability (Your Labour)
+          </h2>
+          <ThemedFormField label="Hours required" type="number" value={hoursRequired} onChange={(e) => setHoursRequired(e.target.value)} />
+          <ThemedFormField
+            label="Resources required"
+            type="number"
+            value={resourcesRequired}
+            onChange={(e) => setResourcesRequired(e.target.value)}
+          />
+          <ThemedFormField
+            label="Labour profit margin (%)"
+            type="number"
+            step="0.1"
+            value={labourMargin}
+            onChange={(e) => setLabourMargin(e.target.value)}
+          />
+          <ThemedFormField label="Materials cost ($)" type="number" value={materialsCost} onChange={(e) => setMaterialsCost(e.target.value)} />
+          <ThemedFormField
             label="Materials profit margin (%)"
             type="number"
             step="0.1"
             value={materialsMargin}
             onChange={(e) => setMaterialsMargin(e.target.value)}
           />
-          <FormField
+          <ThemedFormField
             label="Actual hours taken (optional)"
             type="number"
             value={actualHoursTaken}
@@ -108,53 +123,55 @@ export default function QuoteCheckerPage() {
             placeholder="Leave blank if not started/finished yet"
           />
 
-          <div className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-sm">
+          <div className="mt-4 space-y-1 pt-3" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
             <div className="flex justify-between">
-              <span className="text-gray-500">Cost @ Efficiency</span>
-              <span>{formatCentsAsAud(result.profitability.costAtEfficiencyCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Cost @ Efficiency</span>
+              <span style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(result.profitability.costAtEfficiencyCents)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Required Charge (Labour)</span>
-              <span className="font-semibold">{formatCentsAsAud(result.profitability.requiredChargeLabourOnlyCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Required Charge (Labour)</span>
+              <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                {formatCentsAsAud(result.profitability.requiredChargeLabourOnlyCents)}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Profit/Loss on Labour</span>
-              <span className={result.profitability.profitLossOnLabourCents < 0 ? "text-red-600" : "text-green-700"}>
+              <span style={{ color: "var(--jms-text-muted)" }}>Profit/Loss on Labour</span>
+              <span style={{ color: result.profitability.profitLossOnLabourCents < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}>
                 {formatCentsAsAud(result.profitability.profitLossOnLabourCents)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Required Charge (Materials)</span>
-              <span>{formatCentsAsAud(result.profitability.requiredChargeMaterialsOnlyCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Required Charge (Materials)</span>
+              <span style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(result.profitability.requiredChargeMaterialsOnlyCents)}</span>
             </div>
-            <div className="flex justify-between border-t border-gray-200 pt-1 font-semibold">
+            <div className="flex justify-between pt-1 font-semibold" style={{ borderTop: "1px solid var(--jms-border)", color: "var(--jms-text)" }}>
               <span>Total Charge For Job</span>
               <span>{formatCentsAsAud(result.profitability.totalChargeForJobCents)}</span>
             </div>
-            <div className="flex justify-between text-gray-500">
+            <div className="flex justify-between" style={{ color: "var(--jms-text-muted)" }}>
               <span>GST</span>
               <span>{formatCentsAsAud(result.profitability.gstCents)}</span>
             </div>
-            <div className="flex justify-between font-bold text-blue-700">
+            <div className="flex justify-between font-bold" style={{ color: "var(--jms-accent)" }}>
               <span>Total Job Value (inc GST)</span>
               <span>{formatCentsAsAud(result.profitability.totalJobValueIncGstCents)}</span>
             </div>
-            <div className="flex justify-between font-bold">
+            <div className="flex justify-between font-bold" style={{ color: "var(--jms-text)" }}>
               <span>Total Profit For Job</span>
-              <span className={result.profitability.totalProfitForJobCents < 0 ? "text-red-600" : "text-green-700"}>
+              <span style={{ color: result.profitability.totalProfitForJobCents < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}>
                 {formatCentsAsAud(result.profitability.totalProfitForJobCents)}
               </span>
             </div>
             {result.profitability.actualProfitLossCents !== null ? (
               <>
-                <div className="flex justify-between border-t border-gray-200 pt-1">
-                  <span className="text-gray-500">Actual Profit/Loss</span>
-                  <span className={result.profitability.actualProfitLossCents < 0 ? "text-red-600" : "text-green-700"}>
+                <div className="flex justify-between pt-1" style={{ borderTop: "1px solid var(--jms-border)" }}>
+                  <span style={{ color: "var(--jms-text-muted)" }}>Actual Profit/Loss</span>
+                  <span style={{ color: result.profitability.actualProfitLossCents < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}>
                     {formatCentsAsAud(result.profitability.actualProfitLossCents)}
                   </span>
                 </div>
                 {result.profitability.profitLostPerExtraHourCents ? (
-                  <div className="flex justify-between text-xs text-red-600">
+                  <div className="flex justify-between" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                     <span>Profit lost / extra hour</span>
                     <span>{formatCentsAsAud(result.profitability.profitLostPerExtraHourCents)}</span>
                   </div>
@@ -165,71 +182,86 @@ export default function QuoteCheckerPage() {
         </div>
 
         {/* ALTERNATE PRICING */}
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Alternate Pricing</h2>
-          <FormField
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Alternate Pricing
+          </h2>
+          <ThemedFormField
             label="Rate (excl GST, e.g. per m²/day)"
             type="number"
             value={alternateRate}
             onChange={(e) => setAlternateRate(e.target.value)}
           />
-          <FormField label="Quantity (e.g. m²/days)" type="number" value={alternateQuantity} onChange={(e) => setAlternateQuantity(e.target.value)} />
+          <ThemedFormField
+            label="Quantity (e.g. m²/days)"
+            type="number"
+            value={alternateQuantity}
+            onChange={(e) => setAlternateQuantity(e.target.value)}
+          />
 
-          <div className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-sm">
+          <div className="mt-4 space-y-1 pt-3" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
             <div className="flex justify-between">
-              <span className="text-gray-500">Total (ex GST)</span>
-              <span className="font-semibold">{formatCentsAsAud(result.alternatePricing.totalExGstCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Total (ex GST)</span>
+              <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                {formatCentsAsAud(result.alternatePricing.totalExGstCents)}
+              </span>
             </div>
-            <div className="flex justify-between text-gray-500">
+            <div className="flex justify-between" style={{ color: "var(--jms-text-muted)" }}>
               <span>GST</span>
               <span>{formatCentsAsAud(result.alternatePricing.gstCents)}</span>
             </div>
-            <div className="flex justify-between font-bold text-blue-700">
+            <div className="flex justify-between font-bold" style={{ color: "var(--jms-accent)" }}>
               <span>Total (inc GST)</span>
               <span>{formatCentsAsAud(result.alternatePricing.totalIncGstCents)}</span>
             </div>
           </div>
-          <p className="mt-3 text-xs text-gray-400">A flat, externally-priced comparison for the same job - no profit calc, just a reference point.</p>
+          <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            A flat, externally-priced comparison for the same job - no profit calc, just a reference point.
+          </p>
         </div>
 
         {/* USING CONTRACT LABOUR */}
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Using Contract Labour</h2>
-          <FormField
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Using Contract Labour
+          </h2>
+          <ThemedFormField
             label="Contractor cost ($/hr)"
             type="number"
             value={contractorCostPerHour}
             onChange={(e) => setContractorCostPerHour(e.target.value)}
           />
-          <FormField
+          <ThemedFormField
             label="Contractor charge-out rate ($/hr)"
             type="number"
             value={contractorChargeOutRate}
             onChange={(e) => setContractorChargeOutRate(e.target.value)}
           />
-          <FormField
+          <ThemedFormField
             label="Contractor hours required"
             type="number"
             value={contractorHoursRequired}
             onChange={(e) => setContractorHoursRequired(e.target.value)}
           />
 
-          <div className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-sm">
+          <div className="mt-4 space-y-1 pt-3" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
             <div className="flex justify-between">
-              <span className="text-gray-500">Cost</span>
-              <span>{formatCentsAsAud(result.contractLabour.costCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Cost</span>
+              <span style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(result.contractLabour.costCents)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Charge (ex GST)</span>
-              <span className="font-semibold">{formatCentsAsAud(result.contractLabour.chargeExGstCents)}</span>
+              <span style={{ color: "var(--jms-text-muted)" }}>Charge (ex GST)</span>
+              <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                {formatCentsAsAud(result.contractLabour.chargeExGstCents)}
+              </span>
             </div>
-            <div className="flex justify-between font-bold text-blue-700">
+            <div className="flex justify-between font-bold" style={{ color: "var(--jms-accent)" }}>
               <span>Charge (inc GST)</span>
               <span>{formatCentsAsAud(result.contractLabour.chargeIncGstCents)}</span>
             </div>
-            <div className="flex justify-between font-bold">
+            <div className="flex justify-between font-bold" style={{ color: "var(--jms-text)" }}>
               <span>Profit/Loss</span>
-              <span className={result.contractLabour.profitLossCents < 0 ? "text-red-600" : "text-green-700"}>
+              <span style={{ color: result.contractLabour.profitLossCents < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}>
                 {formatCentsAsAud(result.contractLabour.profitLossCents)}
               </span>
             </div>

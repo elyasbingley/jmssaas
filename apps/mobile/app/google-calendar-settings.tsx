@@ -1,23 +1,30 @@
 import { useState } from "react";
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { GoogleCalendarConnectionListItem, GoogleCalendarConnectionStatus } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 // Every profile connects their own Google account here (technician or
-// admin) - not admin-gated, unlike the rest of (tabs)/settings/index.tsx's
-// list. Same "open the OAuth flow in the device browser, refetch on focus
-// to pick up the result" shape as company-settings.tsx's Xero connect -
-// see that screen's own comment for why (the callback redirects to the
-// desktop app's Settings page, not back into this native screen).
+// admin) - not admin-gated, unlike most of the Settings screen's list. Same
+// "open the OAuth flow in the device browser, refetch on focus to pick up
+// the result" shape as company-settings.tsx's Xero connect - see that
+// screen's own comment for why (the callback redirects to the desktop
+// app's Settings page, not back into this native screen).
 export default function GoogleCalendarSettingsScreen() {
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data: status, refetch: refetchStatus } = useSupabaseFetch<GoogleCalendarConnectionStatus>(async () => {
     const { data, error } = await supabase.rpc("get_google_calendar_connection_status");
@@ -84,104 +91,127 @@ export default function GoogleCalendarSettingsScreen() {
     }
   };
 
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Google Calendar settings" />
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <View style={styles.card}>
-        {status?.connected ? (
-          <>
-            <View style={styles.rowBetween}>
-              <Text style={styles.connectedText}>Connected as {status.email || "your Google account"}</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>Connected</Text>
-              </View>
-            </View>
-            {status.connected_at ? (
-              <Text style={styles.meta}>Since {new Date(status.connected_at).toLocaleDateString("en-AU")}</Text>
-            ) : null}
-            <Pressable onPress={() => disconnect(undefined)} disabled={disconnectingProfileId !== null} style={{ marginTop: 10 }}>
-              <Text style={styles.disconnectLink}>
-                {disconnectingProfileId === (profile?.id ?? "self") ? "Disconnecting..." : "Disconnect Google Calendar"}
-              </Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={styles.meta}>
-              Connect your Google Calendar to sync jobs both ways - scheduled jobs show up on your phone, and any change you make
-              there (or in the app) updates the other side automatically. Your own personal Google events show up here as "Busy"
-              blocks so scheduling avoids clashes; only you can see their real details.
-            </Text>
-            <Pressable style={styles.connectButton} onPress={connect} disabled={connecting}>
-              <Text style={styles.connectButtonText}>{connecting ? "Opening Google..." : "Connect Google Calendar"}</Text>
-            </Pressable>
-          </>
-        )}
-        {connectError ? <Text style={styles.error}>{connectError}</Text> : null}
-      </View>
-
-      {isAdmin && connections && connections.length > 0 ? (
-        <View style={[styles.card, { marginTop: 12 }]}>
-          <Text style={styles.sectionTitle}>Team Google Calendar connections</Text>
-          {connections.map((c, i) => (
-            <View key={c.profile_id} style={[styles.teamRow, i === 0 ? { borderTopWidth: 0 } : null]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.teamName}>{c.full_name || c.email}</Text>
-                {c.google_account_email ? (
-                  <Text style={styles.meta}>
-                    Connected as {c.google_account_email}
-                    {c.connected_at ? ` · since ${new Date(c.connected_at).toLocaleDateString("en-AU")}` : ""}
-                  </Text>
-                ) : (
-                  <Text style={styles.metaMuted}>Not connected</Text>
-                )}
-              </View>
-              {c.google_account_email ? (
-                disconnectingProfileId === c.profile_id ? (
-                  <ActivityIndicator />
-                ) : (
-                  <Pressable onPress={() => disconnect(c.profile_id)} disabled={disconnectingProfileId !== null}>
-                    <Text style={styles.disconnectLink}>Disconnect</Text>
-                  </Pressable>
-                )
-              ) : null}
-            </View>
-          ))}
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+          <Text style={styles.title}>Google Calendar</Text>
         </View>
-      ) : null}
-    </ScrollView>
+
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Google Calendar settings" />
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <View style={styles.card}>
+              {status?.connected ? (
+                <>
+                  <View style={styles.rowBetween}>
+                    <Text style={styles.connectedText}>Connected as {status.email || "your Google account"}</Text>
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>Connected</Text>
+                    </View>
+                  </View>
+                  {status.connected_at ? (
+                    <Text style={styles.meta}>Since {new Date(status.connected_at).toLocaleDateString("en-AU")}</Text>
+                  ) : null}
+                  <Pressable onPress={() => disconnect(undefined)} disabled={disconnectingProfileId !== null} style={{ marginTop: 10 }}>
+                    <Text style={styles.disconnectLink}>
+                      {disconnectingProfileId === (profile?.id ?? "self") ? "Disconnecting..." : "Disconnect Google Calendar"}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.meta}>
+                    Connect your Google Calendar to sync jobs both ways - scheduled jobs show up on your phone, and any change you
+                    make there (or in the app) updates the other side automatically. Your own personal Google events show up here as
+                    "Busy" blocks so scheduling avoids clashes; only you can see their real details.
+                  </Text>
+                  <View style={styles.connectButtonWrap}>
+                    <ThemedButton label={connecting ? "Opening Google..." : "Connect Google Calendar"} onPress={connect} disabled={connecting} />
+                  </View>
+                </>
+              )}
+              {connectError ? <Text style={styles.error}>{connectError}</Text> : null}
+            </View>
+
+            {isAdmin && connections && connections.length > 0 ? (
+              <View style={[styles.card, { marginTop: 12 }]}>
+                <Text style={styles.sectionTitle}>Team Google Calendar connections</Text>
+                {connections.map((c, i) => (
+                  <View key={c.profile_id} style={[styles.teamRow, i === 0 ? { borderTopWidth: 0 } : null]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.teamName}>{c.full_name || c.email}</Text>
+                      {c.google_account_email ? (
+                        <Text style={styles.meta}>
+                          Connected as {c.google_account_email}
+                          {c.connected_at ? ` · since ${new Date(c.connected_at).toLocaleDateString("en-AU")}` : ""}
+                        </Text>
+                      ) : (
+                        <Text style={styles.metaMuted}>Not connected</Text>
+                      )}
+                    </View>
+                    {c.google_account_email ? (
+                      disconnectingProfileId === c.profile_id ? (
+                        <ActivityIndicator color={styles.spinner.color} />
+                      ) : (
+                        <Pressable onPress={() => disconnect(c.profile_id)} disabled={disconnectingProfileId !== null}>
+                          <Text style={styles.disconnectLink}>Disconnect</Text>
+                        </Pressable>
+                      )
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  card: { backgroundColor: "#f9fafb", borderRadius: 8, padding: 14 },
-  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  connectedText: { fontSize: 14, fontWeight: "700", color: "#111827", flexShrink: 1 },
-  badge: { backgroundColor: "#dcfce7", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  badgeText: { color: "#15803d", fontSize: 11, fontWeight: "700" },
-  meta: { fontSize: 13, color: "#6b7280", marginTop: 4 },
-  metaMuted: { fontSize: 13, color: "#9ca3af", marginTop: 2 },
-  error: { color: "#dc2626", marginTop: 12 },
-  connectButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start", marginTop: 10 },
-  connectButtonText: { color: "#fff", fontWeight: "700" },
-  disconnectLink: { color: "#dc2626", fontWeight: "600" },
-  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 8 },
-  teamRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#d1d5db",
-  },
-  teamName: { fontSize: 14, fontWeight: "600", color: "#111827" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    card: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 14, boxShadow: `0 0 10px ${tokens.accentGlow}` },
+    rowBetween: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, gap: 8 },
+    connectedText: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, flexShrink: 1, ...mono },
+    badge: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 2 },
+    badgeText: { color: tokens.accent, fontSize: font.label - 1, fontWeight: "700" as const, ...mono },
+    meta: { fontSize: font.label, color: tokens.textMuted, marginTop: 4, ...mono },
+    metaMuted: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    connectButtonWrap: { alignSelf: "flex-start" as const, marginTop: 10 },
+    disconnectLink: { color: tokens.danger, fontWeight: "600" as const, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      textTransform: "uppercase" as const,
+      letterSpacing: 1.5,
+      marginBottom: 8,
+      ...mono,
+    },
+    teamRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      gap: 8,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: tokens.border,
+    },
+    teamName: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    spinner: { color: tokens.accent },
+  };
+}

@@ -15,7 +15,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField } from "../components/FormField";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 
 const LOGO_BUCKET = "company-logos";
 
@@ -488,23 +490,40 @@ export default function SettingsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block text-sm hover:underline" style={{ color: "var(--jms-accent)" }}>
         &larr; Back to Settings
       </Link>
-      <h1 className="text-xl font-bold text-gray-900">Company Settings</h1>
-      <p className="mb-6 text-sm text-gray-500">Used on exported quote/invoice PDFs.</p>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Company Settings
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Used on exported quote/invoice PDFs.
+      </p>
 
-      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Logo</h2>
+      <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Logo
+      </h2>
       {tenant?.logo_url ? (
-        <img src={tenant.logo_url} alt="Company logo" className="mb-2 h-24 w-full rounded-md bg-gray-50 object-contain" />
+        <img
+          src={tenant.logo_url}
+          alt="Company logo"
+          className="mb-2 h-24 w-full rounded-md object-contain"
+          style={{ backgroundColor: "var(--jms-bg)" }}
+        />
       ) : (
-        <div className="mb-2 flex h-24 w-full items-center justify-center rounded-md bg-gray-100 text-sm text-gray-400">
+        <div
+          className="mb-2 flex h-24 w-full items-center justify-center rounded-md"
+          style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+        >
           No logo uploaded
         </div>
       )}
       <div className="mb-2 flex items-center gap-4">
-        <label className="cursor-pointer rounded-md bg-gray-100 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-gray-200">
+        <label
+          className="cursor-pointer rounded-md px-4 py-2 font-semibold"
+          style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           {uploadLogo.isPending ? "Uploading..." : tenant?.logo_url ? "Change logo" : "Upload logo"}
           <input
             type="file"
@@ -519,22 +538,35 @@ export default function SettingsPage() {
           />
         </label>
         {tenant?.logo_url ? (
-          <button onClick={() => removeLogo.mutate()} className="text-sm font-semibold text-red-600">
+          <button
+            onClick={() => removeLogo.mutate()}
+            className="font-semibold"
+            style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
+          >
             Remove
           </button>
         ) : null}
       </div>
-      {logoError ? <p className="mb-4 text-sm text-red-600">{logoError}</p> : null}
+      {logoError ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {logoError}
+        </p>
+      ) : null}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Inbox</h2>
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Inbox
+      </h2>
       {tenant?.inbox_local_part && import.meta.env.VITE_INBOX_DOMAIN ? (
-        <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4">
-          <p className="mb-1 text-sm text-gray-600">
+        <div className="mb-6 rounded-md p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="mb-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Forward quote requests and job files to this address - see the Inbox screen to attach them to a job or
             review an AI-drafted job.
           </p>
           <div className="flex items-center gap-3">
-            <code className="rounded bg-white px-2 py-1 text-sm font-semibold text-gray-900">
+            <code
+              className="rounded px-2 py-1 font-semibold"
+              style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+            >
               {tenant.inbox_local_part}@{import.meta.env.VITE_INBOX_DOMAIN}
             </code>
             <button
@@ -543,34 +575,39 @@ export default function SettingsPage() {
                 setInboxAddressCopied(true);
                 setTimeout(() => setInboxAddressCopied(false), 2000);
               }}
-              className="text-sm font-semibold text-blue-700 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
             >
               {inboxAddressCopied ? "Copied!" : "Copy"}
             </button>
           </div>
         </div>
       ) : (
-        <p className="mb-6 text-sm text-gray-500">
+        <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Not configured yet - set <code>VITE_INBOX_DOMAIN</code> to your verified Resend inbound domain (see
           docs/SETUP.md's Inbox section).
         </p>
       )}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Channels</h2>
-      <p className="mb-3 text-sm text-gray-500">
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Channels
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         Connect a phone number/account for each channel - see the Channels screen to view and reply to
         conversations, or create a job/task from one.
       </p>
-      <div className="mb-3 rounded-md border border-gray-200 p-4">
+      <div className="mb-3 rounded-md p-4" style={{ border: "1px solid var(--jms-border)" }}>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-900">💬 SMS</p>
+          <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+            💬 SMS
+          </p>
           {tenant?.sms_phone_number ? (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+            <ThemedBadge label="Connected" color="var(--jms-accent)" />
           ) : (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+            <ThemedBadge label="Not connected" color="var(--jms-text-muted)" />
           )}
         </div>
-        <p className="mb-2 text-sm text-gray-500">
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           The phone number you bought/ported in the platform's Twilio account (see docs/SETUP.md's Channels
           section) - E.164 or local format both work, e.g. 0491 570 156.
         </p>
@@ -580,29 +617,38 @@ export default function SettingsPage() {
             value={smsPhoneNumberInput}
             onChange={(e) => setSmsPhoneNumberInput(e.target.value)}
             placeholder="0491 570 156"
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 rounded-md border px-3 py-2 focus:outline-none"
+            style={{
+              backgroundColor: "var(--jms-bg)",
+              borderColor: "var(--jms-border)",
+              color: "var(--jms-text)",
+              fontFamily: "var(--jms-font)",
+              fontSize: "var(--jms-font-body)",
+            }}
           />
-          <button
-            onClick={() => saveSmsPhoneNumber.mutate()}
-            disabled={saveSmsPhoneNumber.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveSmsPhoneNumber.mutate()} disabled={saveSmsPhoneNumber.isPending}>
             {saveSmsPhoneNumber.isPending ? "Saving..." : smsSaved ? "Saved!" : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-        {smsError ? <p className="mt-2 text-sm text-red-600">{smsError}</p> : null}
+        {smsError ? (
+          <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {smsError}
+          </p>
+        ) : null}
       </div>
 
-      <div className="mb-3 rounded-md border border-gray-200 p-4">
+      <div className="mb-3 rounded-md p-4" style={{ border: "1px solid var(--jms-border)" }}>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-900">🟢 WhatsApp</p>
+          <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+            🟢 WhatsApp
+          </p>
           {tenant?.whatsapp_phone_number ? (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+            <ThemedBadge label="Connected" color="var(--jms-accent)" />
           ) : (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+            <ThemedBadge label="Not connected" color="var(--jms-text-muted)" />
           )}
         </div>
-        <p className="mb-2 text-sm text-gray-500">
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           A Twilio Sandbox number works for testing right now with no Meta approval needed - a permanent number for
           messaging real clients first needs Meta Business verification and an approved template. See
           docs/SETUP.md's Channels section.
@@ -613,55 +659,69 @@ export default function SettingsPage() {
             value={whatsappPhoneNumberInput}
             onChange={(e) => setWhatsappPhoneNumberInput(e.target.value)}
             placeholder="0491 570 156"
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 rounded-md border px-3 py-2 focus:outline-none"
+            style={{
+              backgroundColor: "var(--jms-bg)",
+              borderColor: "var(--jms-border)",
+              color: "var(--jms-text)",
+              fontFamily: "var(--jms-font)",
+              fontSize: "var(--jms-font-body)",
+            }}
           />
-          <button
-            onClick={() => saveWhatsappPhoneNumber.mutate()}
-            disabled={saveWhatsappPhoneNumber.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveWhatsappPhoneNumber.mutate()} disabled={saveWhatsappPhoneNumber.isPending}>
             {saveWhatsappPhoneNumber.isPending ? "Saving..." : whatsappSaved ? "Saved!" : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-        {whatsappError ? <p className="mt-2 text-sm text-red-600">{whatsappError}</p> : null}
+        {whatsappError ? (
+          <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {whatsappError}
+          </p>
+        ) : null}
       </div>
 
-      <div className="mb-3 rounded-md border border-gray-200 p-4">
+      <div className="mb-3 rounded-md p-4" style={{ border: "1px solid var(--jms-border)" }}>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-900">🔵 Messenger</p>
+          <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+            🔵 Messenger
+          </p>
           {facebookStatus?.connected ? (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+            <ThemedBadge label="Connected" color="var(--jms-accent)" />
           ) : (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+            <ThemedBadge label="Not connected" color="var(--jms-text-muted)" />
           )}
         </div>
         {facebookStatus?.connected ? (
           <>
-            <p className="mb-2 text-sm text-gray-500">
+            <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Connected to {facebookStatus.page_name || "your Facebook Page"}
               {facebookStatus.connected_at ? ` since ${new Date(facebookStatus.connected_at).toLocaleDateString("en-AU")}` : ""}.
             </p>
-            <button onClick={() => disconnectFacebook.mutate()} disabled={disconnectFacebook.isPending} className="text-sm font-semibold text-red-600">
+            <button
+              onClick={() => disconnectFacebook.mutate()}
+              disabled={disconnectFacebook.isPending}
+              className="font-semibold"
+              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
+            >
               {disconnectFacebook.isPending ? "Disconnecting..." : "Disconnect Messenger"}
             </button>
           </>
         ) : (
           <>
-            <p className="mb-2 text-sm text-gray-500">
+            <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Connect your Facebook Page to send and receive Messenger conversations here - works right away for a
               Page you personally admin, wider client Pages need Meta App Review first. See docs/SETUP.md's Channels
               section.
             </p>
-            <button
-              onClick={connectFacebook}
-              disabled={facebookConnecting}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={connectFacebook} disabled={facebookConnecting}>
               {facebookConnecting ? "Redirecting to Facebook..." : "Connect to Facebook"}
-            </button>
+            </ThemedButton>
           </>
         )}
-        {facebookConnectError ? <p className="mt-2 text-sm text-red-600">{facebookConnectError}</p> : null}
+        {facebookConnectError ? (
+          <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {facebookConnectError}
+          </p>
+        ) : null}
       </div>
 
       {(
@@ -669,66 +729,81 @@ export default function SettingsPage() {
           { icon: "📷", label: "Instagram", note: "Needs Meta App Review before this app can message through your Instagram account - see docs/SETUP.md." },
         ] as const
       ).map((channel) => (
-        <div key={channel.label} className="mb-3 rounded-md border border-gray-200 p-4">
+        <div key={channel.label} className="mb-3 rounded-md p-4" style={{ border: "1px solid var(--jms-border)" }}>
           <div className="mb-1 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
               {channel.icon} {channel.label}
             </p>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Not connected</span>
+            <ThemedBadge label="Not connected" color="var(--jms-text-muted)" />
           </div>
-          <p className="text-sm text-gray-500">{channel.note}</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{channel.note}</p>
         </div>
       ))}
 
-      <FormField label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
-      <FormField label="ABN" value={abn} onChange={(e) => setAbn(e.target.value)} placeholder="e.g. 12 345 678 901" />
-      <FormField label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@yourcompany.com.au" />
-      <FormField label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0400 000 000" />
-      <FormField label="Website" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="yourcompany.com.au" />
+      <ThemedFormField label="Company name" value={name} onChange={(e) => setName(e.target.value)} />
+      <ThemedFormField label="ABN" value={abn} onChange={(e) => setAbn(e.target.value)} placeholder="e.g. 12 345 678 901" />
+      <ThemedFormField label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@yourcompany.com.au" />
+      <ThemedFormField label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0400 000 000" />
+      <ThemedFormField label="Website" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="yourcompany.com.au" />
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Business address</h2>
-      <FormField label="Address line 1" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} />
-      <FormField label="Address line 2 (optional)" value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} />
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Business address
+      </h2>
+      <ThemedFormField label="Address line 1" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} />
+      <ThemedFormField label="Address line 2 (optional)" value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} />
       <div className="grid grid-cols-3 gap-3">
-        <FormField label="Suburb" value={suburb} onChange={(e) => setSuburb(e.target.value)} />
-        <FormField label="State" value={state} onChange={(e) => setState(e.target.value)} />
-        <FormField label="Postcode" value={postcode} onChange={(e) => setPostcode(e.target.value)} />
+        <ThemedFormField label="Suburb" value={suburb} onChange={(e) => setSuburb(e.target.value)} />
+        <ThemedFormField label="State" value={state} onChange={(e) => setState(e.target.value)} />
+        <ThemedFormField label="Postcode" value={postcode} onChange={(e) => setPostcode(e.target.value)} />
       </div>
 
-      <FormField label="License number" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} />
+      <ThemedFormField label="License number" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} />
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Bank details</h2>
-      <FormField label="Account name" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} />
-      <FormField label="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} />
-      <FormField label="BSB" value={bankBsb} onChange={(e) => setBankBsb(e.target.value)} />
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Bank details
+      </h2>
+      <ThemedFormField label="Account name" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} />
+      <ThemedFormField label="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} />
+      <ThemedFormField label="BSB" value={bankBsb} onChange={(e) => setBankBsb(e.target.value)} />
 
-      {saveError ? <p className="mb-2 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mb-2 text-sm text-green-700">Saved.</p> : null}
+      {saveError ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
 
-      <button
-        onClick={() => save.mutate()}
-        disabled={save.isPending}
-        className="mt-2 rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
+      <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ marginTop: 8, paddingBlock: 12, paddingInline: 24 }}>
         {save.isPending ? "Saving..." : "Save changes"}
-      </button>
+      </ThemedButton>
 
-      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Xero</h2>
-      <div className="rounded-lg border border-gray-300 bg-white p-4">
+      <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Xero
+      </h2>
+      <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {xeroStatus?.connected ? (
           <div>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="flex items-center font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
               Connected to {xeroStatus.org_name || "Xero"}
-              <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">Connected</span>
+              <span className="ml-2">
+                <ThemedBadge label="Connected" color="var(--jms-accent)" />
+              </span>
             </p>
             {xeroStatus.connected_at ? (
-              <p className="mt-1 text-xs text-gray-500">Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}</p>
+              <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Since {new Date(xeroStatus.connected_at).toLocaleDateString("en-AU")}
+              </p>
             ) : null}
             {isAdmin ? (
               <button
                 onClick={() => disconnectXero.mutate()}
                 disabled={disconnectXero.isPending}
-                className="mt-3 text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+                className="mt-3 font-semibold hover:underline disabled:opacity-60"
+                style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
               >
                 {disconnectXero.isPending ? "Disconnecting..." : "Disconnect Xero"}
               </button>
@@ -736,133 +811,153 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div>
-            <p className="mb-3 text-sm text-gray-600">
+            <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Connect Xero to push invoices (as they're sent/accepted) straight into your accounting - each invoice gets a "Sync to
               Xero" button once connected.
             </p>
             {isAdmin ? (
-              <button
-                onClick={connectXero}
-                disabled={xeroConnecting}
-                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={connectXero} disabled={xeroConnecting}>
                 {xeroConnecting ? "Redirecting to Xero..." : "Connect to Xero"}
-              </button>
+              </ThemedButton>
             ) : (
-              <p className="text-sm text-gray-400">Only an admin can connect Xero.</p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Only an admin can connect Xero.</p>
             )}
           </div>
         )}
-        {xeroConnectError ? <p className="mt-3 text-sm text-red-600">{xeroConnectError}</p> : null}
+        {xeroConnectError ? (
+          <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {xeroConnectError}
+          </p>
+        ) : null}
       </div>
       {xeroStatus?.connected ? (
         <div className="mt-3">
-          <FormField
+          <ThemedFormField
             label="Xero sales account code"
             value={xeroSalesAccountCode}
             onChange={(e) => setXeroSalesAccountCode(e.target.value)}
             placeholder="200"
           />
-          <p className="-mt-3 mb-4 text-xs text-gray-400">
+          <p className="-mt-3 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
             default "Sales" code - check Xero's Chart of Accounts if yours differs.
           </p>
         </div>
       ) : null}
 
-      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Membership - Stripe Connect</h2>
-      <div className="rounded-lg border border-gray-300 bg-white p-4">
+      <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Membership - Stripe Connect
+      </h2>
+      <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {tenant?.stripe_connect_onboarded ? (
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="flex items-center font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             Connected
-            <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">Ready to accept payments</span>
+            <span className="ml-2">
+              <ThemedBadge label="Ready to accept payments" color="var(--jms-accent)" />
+            </span>
           </p>
         ) : (
           <div>
-            <p className="mb-3 text-sm text-gray-600">
+            <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Connect Stripe to accept membership payments - each membership payment settles directly into your own bank account, not a
               shared account. Required before you can enrol any client in the Membership page.
             </p>
             {isAdmin ? (
-              <button
-                onClick={connectStripeMembership}
-                disabled={stripeConnecting}
-                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={connectStripeMembership} disabled={stripeConnecting}>
                 {stripeConnecting
                   ? "Redirecting to Stripe..."
                   : tenant?.stripe_connect_account_id
                     ? "Finish Stripe setup"
                     : "Connect Stripe"}
-              </button>
+              </ThemedButton>
             ) : (
-              <p className="text-sm text-gray-400">Only an admin can connect Stripe.</p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Only an admin can connect Stripe.</p>
             )}
           </div>
         )}
-        {stripeConnectError ? <p className="mt-3 text-sm text-red-600">{stripeConnectError}</p> : null}
+        {stripeConnectError ? (
+          <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {stripeConnectError}
+          </p>
+        ) : null}
       </div>
 
-      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Google Calendar</h2>
-      <div className="rounded-lg border border-gray-300 bg-white p-4">
+      <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Google Calendar
+      </h2>
+      <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {googleStatus?.connected ? (
           <div>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="flex items-center font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
               Connected as {googleStatus.email || "your Google account"}
-              <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">Connected</span>
+              <span className="ml-2">
+                <ThemedBadge label="Connected" color="var(--jms-accent)" />
+              </span>
             </p>
             {googleStatus.connected_at ? (
-              <p className="mt-1 text-xs text-gray-500">Since {new Date(googleStatus.connected_at).toLocaleDateString("en-AU")}</p>
+              <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Since {new Date(googleStatus.connected_at).toLocaleDateString("en-AU")}
+              </p>
             ) : null}
             <button
               onClick={() => disconnectGoogleCalendar.mutate(undefined)}
               disabled={disconnectGoogleCalendar.isPending}
-              className="mt-3 text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+              className="mt-3 font-semibold hover:underline disabled:opacity-60"
+              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
             >
               {disconnectGoogleCalendar.isPending ? "Disconnecting..." : "Disconnect Google Calendar"}
             </button>
           </div>
         ) : (
           <div>
-            <p className="mb-3 text-sm text-gray-600">
+            <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Connect your Google Calendar to sync jobs both ways - scheduled jobs show up on your phone, and any change you make there
               (or in the app) updates the other side automatically. Your own personal Google events show up here as "Busy" blocks so
               scheduling avoids clashes; only you can see their real details.
             </p>
-            <button
-              onClick={connectGoogleCalendar}
-              disabled={googleConnecting}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={connectGoogleCalendar} disabled={googleConnecting}>
               {googleConnecting ? "Redirecting to Google..." : "Connect Google Calendar"}
-            </button>
+            </ThemedButton>
           </div>
         )}
-        {googleConnectError ? <p className="mt-3 text-sm text-red-600">{googleConnectError}</p> : null}
+        {googleConnectError ? (
+          <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {googleConnectError}
+          </p>
+        ) : null}
       </div>
 
       {isAdmin && googleConnections && googleConnections.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-gray-300 bg-white p-4">
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Team Google Calendar connections</h3>
-          <ul className="divide-y divide-gray-100">
-            {googleConnections.map((c) => (
-              <li key={c.profile_id} className="flex items-center justify-between py-2">
+        <div className="mt-3 rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <h3 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Team Google Calendar connections
+          </h3>
+          <ul>
+            {googleConnections.map((c, i) => (
+              <li
+                key={c.profile_id}
+                className="flex items-center justify-between py-2"
+                style={i > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
+              >
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{c.full_name || c.email}</p>
+                  <p className="font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {c.full_name || c.email}
+                  </p>
                   {c.google_account_email ? (
-                    <p className="text-xs text-gray-500">
+                    <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                       Connected as {c.google_account_email}
                       {c.connected_at ? ` · since ${new Date(c.connected_at).toLocaleDateString("en-AU")}` : ""}
                     </p>
                   ) : (
-                    <p className="text-xs text-gray-400">Not connected</p>
+                    <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Not connected</p>
                   )}
                 </div>
                 {c.google_account_email ? (
                   <button
                     onClick={() => disconnectGoogleCalendar.mutate(c.profile_id)}
                     disabled={disconnectGoogleCalendar.isPending}
-                    className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+                    className="font-semibold hover:underline disabled:opacity-60"
+                    style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
                   >
                     Disconnect
                   </button>
@@ -873,9 +968,11 @@ export default function SettingsPage() {
         </div>
       ) : null}
 
-      <h2 className="mb-2 mt-8 text-sm font-bold uppercase tracking-wide text-gray-500">Calendar colors</h2>
-      <div className="rounded-lg border border-gray-300 bg-white p-4">
-        <p className="mb-3 text-sm text-gray-600">
+      <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Calendar colors
+      </h2>
+      <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Every calendar event is colored automatically by what it's linked to - pick the color for each category (Save changes
           below to apply).
         </p>
@@ -893,9 +990,10 @@ export default function SettingsPage() {
                 type="color"
                 value={categoryColors[row.key]}
                 onChange={(e) => setCategoryColors((prev) => ({ ...prev, [row.key]: e.target.value }))}
-                className="h-8 w-10 cursor-pointer rounded border border-gray-300"
+                className="h-8 w-10 cursor-pointer rounded border"
+                style={{ borderColor: "var(--jms-border)" }}
               />
-              <span className="text-sm text-gray-700">{row.label}</span>
+              <span style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>{row.label}</span>
             </div>
           ))}
         </div>

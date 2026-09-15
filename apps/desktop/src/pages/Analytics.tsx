@@ -176,7 +176,7 @@ function DeltaBadge({ current, previous }: { current: number; previous: number }
   const pct = ((current - previous) / Math.abs(previous)) * 100;
   const up = pct >= 0;
   return (
-    <span className={`ml-2 text-xs font-semibold ${up ? "text-green-600" : "text-red-600"}`}>
+    <span className="ml-2 text-xs font-semibold" style={{ color: up ? "var(--jms-accent)" : "var(--jms-danger)" }}>
       {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% vs prior period
     </span>
   );
@@ -188,12 +188,16 @@ function BarChart({ data, formatValue }: { data: { label: string; value: number 
     <div className="flex h-56 items-end gap-2 overflow-x-auto pb-1">
       {data.map((d) => (
         <div key={d.label} className="flex min-w-[44px] flex-1 flex-col items-center justify-end" title={`${d.label}: ${formatValue(d.value)}`}>
-          <span className="mb-1 whitespace-nowrap text-[10px] font-semibold text-gray-600">{d.value > 0 ? formatValue(d.value) : ""}</span>
+          <span className="mb-1 whitespace-nowrap text-[10px] font-semibold" style={{ color: "var(--jms-text-muted)" }}>
+            {d.value > 0 ? formatValue(d.value) : ""}
+          </span>
           <div
-            className="w-full rounded-t bg-blue-600"
-            style={{ height: `${Math.max(2, (d.value / max) * 180)}px` }}
+            className="w-full rounded-t"
+            style={{ height: `${Math.max(2, (d.value / max) * 180)}px`, backgroundColor: "var(--jms-accent)", boxShadow: "0 0 8px var(--jms-accent-glow)" }}
           />
-          <span className="mt-1 whitespace-nowrap text-[10px] text-gray-400">{d.label}</span>
+          <span className="mt-1 whitespace-nowrap text-[10px]" style={{ color: "var(--jms-text-muted)" }}>
+            {d.label}
+          </span>
         </div>
       ))}
     </div>
@@ -459,15 +463,19 @@ export default function AnalyticsPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-500">Revenue, job profitability, and quote conversion across your business.</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Analytics
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Revenue, job profitability, and quote conversion across your business.
+          </p>
         </div>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-gray-300 bg-white p-4">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div className="flex gap-1">
           {(
             [
@@ -481,9 +489,12 @@ export default function AnalyticsPage() {
             <button
               key={p.value}
               onClick={() => setPreset(p.value)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                preset === p.value ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={
+                preset === p.value
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+              }
             >
               {p.label}
             </button>
@@ -491,7 +502,9 @@ export default function AnalyticsPage() {
         </div>
         <div className="flex items-end gap-2">
           <div>
-            <label className="mb-1 block text-xs font-semibold text-gray-500">From</label>
+            <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              From
+            </label>
             <input
               type="date"
               value={preset === "custom" ? customFrom : range.from}
@@ -499,11 +512,14 @@ export default function AnalyticsPage() {
                 setPreset("custom");
                 setCustomFrom(e.target.value);
               }}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+              className="rounded-md px-3 py-1.5"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-gray-500">To</label>
+            <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              To
+            </label>
             <input
               type="date"
               value={preset === "custom" ? customTo : range.to}
@@ -511,85 +527,120 @@ export default function AnalyticsPage() {
                 setPreset("custom");
                 setCustomTo(e.target.value);
               }}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+              className="rounded-md px-3 py-1.5"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             />
           </div>
         </div>
-        <p className="ml-auto text-xs text-gray-400">Compared against {prevRange.from} to {prevRange.to}</p>
+        <p className="ml-auto" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Compared against {prevRange.from} to {prevRange.to}
+        </p>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
       ) : (
         <>
           <div className="mb-6 grid grid-cols-5 gap-4">
-            <div className="rounded-lg border border-gray-300 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Revenue Invoiced</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(revenueInvoiced)}</p>
+            <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Revenue Invoiced
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-accent)" }}>
+                {formatCentsAsAud(revenueInvoiced)}
+              </p>
               <DeltaBadge current={revenueInvoiced} previous={revenueInvoicedPrev} />
             </div>
-            <div className="rounded-lg border border-gray-300 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Revenue Collected</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(revenueCollected)}</p>
+            <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Revenue Collected
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-accent)" }}>
+                {formatCentsAsAud(revenueCollected)}
+              </p>
               <DeltaBadge current={revenueCollected} previous={revenueCollectedPrev} />
             </div>
-            <div className="rounded-lg border border-gray-300 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Outstanding (unpaid)</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(outstandingCents)}</p>
-              <p className="text-xs text-gray-400">All open invoices, not period-limited</p>
+            <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Outstanding (unpaid)
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-accent)" }}>
+                {formatCentsAsAud(outstandingCents)}
+              </p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>All open invoices, not period-limited</p>
             </div>
-            <div className="rounded-lg border border-gray-300 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Quote Conversion Rate</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{conversion.rate.toFixed(0)}%</p>
+            <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Quote Conversion Rate
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-accent)" }}>
+                {conversion.rate.toFixed(0)}%
+              </p>
               <DeltaBadge current={conversion.rate} previous={conversionPrev.rate} />
             </div>
-            <div className="rounded-lg border border-gray-300 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Avg. Job Margin</p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{avgMarginPercent.toFixed(1)}%</p>
+            <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Avg. Job Margin
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-accent)" }}>
+                {avgMarginPercent.toFixed(1)}%
+              </p>
               <DeltaBadge current={avgMarginPercent} previous={avgMarginPercentPrev} />
             </div>
           </div>
 
-          <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+          <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Revenue Over Time</h2>
-                <p className="text-xs text-gray-400">Invoiced revenue by month, excluding voided invoices.</p>
+                <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Revenue Over Time
+                </h2>
+                <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Invoiced revenue by month, excluding voided invoices.</p>
               </div>
               <button
                 onClick={exportRevenueCsv}
                 disabled={revenueByMonth.length === 0}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-60"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
               >
                 Export CSV
               </button>
             </div>
             {revenueByMonth.length === 0 ? (
-              <p className="py-6 text-center text-sm text-gray-500">No invoices in this range.</p>
+              <p className="py-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                No invoices in this range.
+              </p>
             ) : (
               <BarChart data={revenueByMonth.map((m) => ({ label: m.label, value: m.cents }))} formatValue={formatCentsAsAud} />
             )}
           </div>
 
-          <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+          <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quote Conversion by Month</h2>
-                <p className="text-xs text-gray-400">Accepted quotes as a share of all non-draft quotes issued each month.</p>
+                <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Quote Conversion by Month
+                </h2>
+                <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Accepted quotes as a share of all non-draft quotes issued each month.
+                </p>
               </div>
               <button
                 onClick={exportConversionCsv}
                 disabled={conversionByMonth.length === 0}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-60"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
               >
                 Export CSV
               </button>
             </div>
             {conversionByMonth.every((m) => m.sent === 0) ? (
-              <p className="py-6 text-center text-sm text-gray-500">No quotes sent in this range.</p>
+              <p className="py-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                No quotes sent in this range.
+              </p>
             ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-gray-300 text-xs uppercase text-gray-500">
+              <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+                <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   <tr>
                     <th className="py-2 font-semibold">Month</th>
                     <th className="py-2 text-right font-semibold">Sent</th>
@@ -602,13 +653,21 @@ export default function AnalyticsPage() {
                 </thead>
                 <tbody>
                   {conversionByMonth.map((m) => (
-                    <tr key={m.key} className="border-b border-gray-200 last:border-0">
+                    <tr key={m.key} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text)" }}>
                       <td className="py-2">{m.label}</td>
                       <td className="py-2 text-right">{m.sent}</td>
-                      <td className="py-2 text-right text-green-700">{m.accepted}</td>
-                      <td className="py-2 text-right text-red-600">{m.declined}</td>
-                      <td className="py-2 text-right text-gray-500">{m.expired}</td>
-                      <td className="py-2 text-right text-gray-500">{m.pending}</td>
+                      <td className="py-2 text-right" style={{ color: "var(--jms-accent)" }}>
+                        {m.accepted}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: "var(--jms-danger)" }}>
+                        {m.declined}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: "var(--jms-text-muted)" }}>
+                        {m.expired}
+                      </td>
+                      <td className="py-2 text-right" style={{ color: "var(--jms-text-muted)" }}>
+                        {m.pending}
+                      </td>
                       <td className="py-2 text-right font-semibold">{m.rate.toFixed(0)}%</td>
                     </tr>
                   ))}
@@ -617,16 +676,19 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          <div className="rounded-lg border border-gray-300 bg-white p-6">
+          <div className="rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Job Profitability</h2>
-                <p className="text-xs text-gray-400">Every job with a quote or invoice issued in this range.</p>
+                <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Job Profitability
+                </h2>
+                <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Every job with a quote or invoice issued in this range.</p>
               </div>
               <button
                 onClick={exportJobProfitCsv}
                 disabled={sortedJobRows.length === 0}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-60"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
               >
                 Export CSV
               </button>
@@ -638,10 +700,11 @@ export default function AnalyticsPage() {
                 placeholder="Search by job title or client..."
                 value={jobSearch}
                 onChange={(e) => setJobSearch(e.target.value)}
-                className="w-72 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                className="w-72 rounded-md px-3 py-2 focus:outline-none"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
               />
-              <div className="ml-auto flex items-center gap-2 text-sm">
-                <span className="text-gray-500">Sort:</span>
+              <div className="ml-auto flex items-center gap-2" style={{ fontSize: "var(--jms-font-body)" }}>
+                <span style={{ color: "var(--jms-text-muted)" }}>Sort:</span>
                 {(
                   [
                     { value: "margin_percent", label: "Margin %" },
@@ -653,9 +716,12 @@ export default function AnalyticsPage() {
                   <button
                     key={opt.value}
                     onClick={() => setJobSortKey(opt.value)}
-                    className={`rounded-full px-3 py-1 font-semibold ${
-                      jobSortKey === opt.value ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                    }`}
+                    className="rounded-full border px-3 py-1 font-semibold"
+                    style={
+                      jobSortKey === opt.value
+                        ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                        : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+                    }
                   >
                     {opt.label}
                   </button>
@@ -664,11 +730,13 @@ export default function AnalyticsPage() {
             </div>
 
             {sortedJobRows.length === 0 ? (
-              <p className="p-6 text-center text-sm text-gray-500">No jobs with a linked quote or invoice in this range.</p>
+              <p className="p-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                No jobs with a linked quote or invoice in this range.
+              </p>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+              <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)" }}>
+                <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+                  <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     <tr>
                       <th className="px-4 py-2 font-semibold">Job</th>
                       <th className="px-4 py-2 font-semibold">Client</th>
@@ -682,21 +750,31 @@ export default function AnalyticsPage() {
                   </thead>
                   <tbody>
                     {pagedJobRows.map((row) => (
-                      <tr key={row.job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                      <tr key={row.job.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                         <td className="px-4 py-3">
-                          <Link to={`/jobs/${row.job.id}`} className="font-medium text-blue-700 hover:underline">
+                          <Link to={`/jobs/${row.job.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                             {row.job.number ?? "Pending"} - {row.job.title}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{row.job.clients?.name ?? "Unknown"}</td>
-                        <td className="px-4 py-3 text-right">{formatCentsAsAud(row.labourCents)}</td>
-                        <td className="px-4 py-3 text-right">{formatCentsAsAud(row.materialCents)}</td>
-                        <td className="px-4 py-3 text-right">{formatCentsAsAud(row.subcontractorCents)}</td>
-                        <td className="px-4 py-3 text-right">{formatCentsAsAud(row.chargedCents)}</td>
-                        <td className={`px-4 py-3 text-right font-semibold ${row.marginCents < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                          {row.job.clients?.name ?? "Unknown"}
+                        </td>
+                        <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(row.labourCents)}
+                        </td>
+                        <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(row.materialCents)}
+                        </td>
+                        <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(row.subcontractorCents)}
+                        </td>
+                        <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(row.chargedCents)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold" style={{ color: row.marginCents < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                           {formatCentsAsAud(row.marginCents)}
                         </td>
-                        <td className={`px-4 py-3 text-right font-semibold ${row.marginPercent < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        <td className="px-4 py-3 text-right font-semibold" style={{ color: row.marginPercent < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                           {row.marginPercent.toFixed(1)}%
                         </td>
                       </tr>
@@ -707,13 +785,14 @@ export default function AnalyticsPage() {
             )}
 
             {sortedJobRows.length > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2 text-gray-500">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                <div className="flex items-center gap-2" style={{ color: "var(--jms-text-muted)" }}>
                   <span>Show</span>
                   <select
                     value={jobPageSize}
                     onChange={(e) => setJobPageSize(Number(e.target.value))}
-                    className="rounded-md border border-gray-300 bg-white px-2 py-1"
+                    className="rounded-md px-2 py-1"
+                    style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)" }}
                   >
                     {[30, 60, 100].map((size) => (
                       <option key={size} value={size}>
@@ -730,17 +809,19 @@ export default function AnalyticsPage() {
                   <button
                     onClick={() => setJobPage((p) => Math.max(1, p - 1))}
                     disabled={jobPage <= 1}
-                    className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+                    className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-40"
+                    style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)" }}
                   >
                     Previous
                   </button>
-                  <span className="text-gray-500">
+                  <span style={{ color: "var(--jms-text-muted)" }}>
                     Page {jobPage} of {jobPageCount}
                   </span>
                   <button
                     onClick={() => setJobPage((p) => Math.min(jobPageCount, p + 1))}
                     disabled={jobPage >= jobPageCount}
-                    className="rounded-md border border-gray-300 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
+                    className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-40"
+                    style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)" }}
                   >
                     Next
                   </button>
@@ -748,31 +829,39 @@ export default function AnalyticsPage() {
               </div>
             ) : null}
 
-            <p className="mt-3 text-xs text-gray-400">
+            <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               Total charged is GST-inclusive while labour/material cost are GST-exclusive, so margin here slightly overstates the true
               figure. A quote that's since been converted to an invoice within the same window is counted under both - same basis as
               the Job Costing report.
             </p>
           </div>
 
-          <div className="mb-6 rounded-lg border border-gray-300 bg-white p-4">
+          <div className="mb-6 rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-4">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Customer Feedback</h2>
-              <p className="text-xs text-gray-400">Google review stars recorded from the client card, in this range.</p>
+              <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Customer Feedback
+              </h2>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Google review stars recorded from the client card, in this range.</p>
             </div>
 
             {reviewsInRange.length === 0 ? (
-              <p className="p-6 text-center text-sm text-gray-500">No reviews recorded in this range.</p>
+              <p className="p-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                No reviews recorded in this range.
+              </p>
             ) : (
               <div className="grid grid-cols-1 gap-6 md:grid-cols-[200px_1fr]">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Average rating</p>
-                  <p className="text-3xl font-extrabold text-gray-900">{avgStars.toFixed(1)}</p>
-                  <p className="text-yellow-500">
+                  <p className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    Average rating
+                  </p>
+                  <p className="text-3xl font-extrabold" style={{ color: "var(--jms-accent)" }}>
+                    {avgStars.toFixed(1)}
+                  </p>
+                  <p style={{ color: "var(--jms-warning)" }}>
                     {"★".repeat(Math.round(avgStars))}
                     {"☆".repeat(5 - Math.round(avgStars))}
                   </p>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     {reviewsInRange.length} review{reviewsInRange.length === 1 ? "" : "s"} recorded
                   </p>
                 </div>

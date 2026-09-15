@@ -5,8 +5,9 @@ import { createPriceBookCategorySchema, type PriceBookCategory } from "@jmssaas/
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 const IMAGE_BUCKET = "price-book-images";
 
@@ -59,24 +60,21 @@ export default function PriceBookPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Price Book</h1>
-          <p className="text-sm text-gray-500">{categories?.length ?? 0} categories</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Price Book
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{categories?.length ?? 0} categories</p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New category
-        </button>
+        <ThemedButton onClick={() => setModalOpen(true)}>+ New category</ThemedButton>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
       ) : !categories || categories.length === 0 ? (
-        <p className="text-sm text-gray-500">No categories yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No categories yet.</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
           {categories.map((category) =>
@@ -84,50 +82,59 @@ export default function PriceBookPage() {
               <Link
                 key={category.id}
                 to={`/price-book/categories/${category.id}`}
-                className="flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-xl bg-gray-100 bg-cover bg-center text-center hover:opacity-90"
-                style={{ backgroundImage: `url(${category.image_url})` }}
+                className="flex aspect-[4/3] flex-col justify-end overflow-hidden rounded-xl bg-cover bg-center text-center hover:opacity-90"
+                style={{ backgroundImage: `url(${category.image_url})`, border: "1px solid var(--jms-border)" }}
               >
-                <span className="bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 font-bold text-white">{category.name}</span>
+                <span
+                  className="bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 font-bold"
+                  style={{ color: "var(--jms-text)" }}
+                >
+                  {category.name}
+                </span>
               </Link>
             ) : (
               <Link
                 key={category.id}
                 to={`/price-book/categories/${category.id}`}
-                className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+                className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
               >
                 <span className="text-3xl">📋</span>
-                <span className="font-bold text-gray-900">{category.name}</span>
+                <span className="font-bold" style={{ color: "var(--jms-text)" }}>
+                  {category.name}
+                </span>
               </Link>
             ),
           )}
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New category">
-        <FormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gutters and Downpipes" />
-        <label className="mb-4 block text-sm font-semibold text-gray-700">
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New category">
+        <ThemedFormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gutters and Downpipes" />
+        <label className="mb-4 block font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           Tile image (optional)
           <input
             type="file"
             accept="image/*"
-            className="mt-1 block w-full text-sm text-gray-600"
+            className="mt-1 block w-full"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
             onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
           />
         </label>
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createCategory.mutate()}
-            disabled={createCategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createCategory.mutate()} disabled={createCategory.isPending}>
             {createCategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

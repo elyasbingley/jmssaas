@@ -5,8 +5,9 @@ import { createClientSchema, type Client } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
@@ -75,18 +76,15 @@ export default function ClientsPage() {
   );
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Clients</h1>
-          <p className="text-sm text-gray-500">{clients?.length ?? 0} clients</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Clients
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{clients?.length ?? 0} clients</p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New client
-        </button>
+        <ThemedButton onClick={() => setModalOpen(true)}>+ New client</ThemedButton>
       </div>
 
       <input
@@ -94,17 +92,25 @@ export default function ClientsPage() {
         placeholder="Search clients..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full max-w-sm rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+        className="mb-4 w-full max-w-sm rounded border px-3 py-2 focus:outline-none"
+        style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
       />
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : filteredClients.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No clients found.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No clients found.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Phone</th>
@@ -113,17 +119,21 @@ export default function ClientsPage() {
             </thead>
             <tbody>
               {filteredClients.map((client) => (
-                <tr key={client.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                <tr key={client.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                   <td className="px-4 py-3">
-                    <Link to={`/clients/${client.id}`} className="font-medium text-blue-700 hover:underline">
+                    <Link to={`/clients/${client.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                       {client.client_type === "company" && client.company_name ? client.company_name : client.name}
                     </Link>
                     {client.client_type === "company" ? (
-                      <p className="text-xs text-gray-500">Contact: {client.name}</p>
+                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Contact: {client.name}</p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{client.phone ?? "-"}</td>
-                  <td className="px-4 py-3 text-gray-600">{client.email ?? "-"}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {client.phone ?? "-"}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {client.email ?? "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -131,87 +141,93 @@ export default function ClientsPage() {
         )}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New client">
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New client">
         <div className="mb-4 flex gap-2">
           <button
             type="button"
             onClick={() => setForm({ ...form, client_type: "individual" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              form.client_type === "individual" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded border px-3 py-2 font-semibold"
+            style={
+              form.client_type === "individual"
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+            }
           >
             Individual / COD
           </button>
           <button
             type="button"
             onClick={() => setForm({ ...form, client_type: "company" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              form.client_type === "company" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded border px-3 py-2 font-semibold"
+            style={
+              form.client_type === "company"
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+            }
           >
             Company
           </button>
         </div>
         {form.client_type === "company" ? (
-          <FormField
+          <ThemedFormField
             label="Company name"
             value={form.company_name}
             onChange={(e) => setForm({ ...form, company_name: e.target.value })}
             placeholder="e.g. Copano Property Services"
           />
         ) : null}
-        <FormField
+        <ThemedFormField
           label={form.client_type === "company" ? "Primary contact full name" : "Full name"}
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           placeholder={form.client_type === "company" ? "e.g. Andrew Smith" : undefined}
         />
-        <FormField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-        <FormField
+        <ThemedFormField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <ThemedFormField
           label="Email"
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Address line 1"
           value={form.address_line1}
           onChange={(e) => setForm({ ...form, address_line1: e.target.value })}
         />
-        <FormField
+        <ThemedFormField
           label="Address line 2"
           value={form.address_line2}
           onChange={(e) => setForm({ ...form, address_line2: e.target.value })}
         />
         <div className="grid grid-cols-3 gap-3">
-          <FormField label="Suburb" value={form.suburb} onChange={(e) => setForm({ ...form, suburb: e.target.value })} />
-          <FormField label="State" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
-          <FormField
+          <ThemedFormField label="Suburb" value={form.suburb} onChange={(e) => setForm({ ...form, suburb: e.target.value })} />
+          <ThemedFormField label="State" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+          <ThemedFormField
             label="Postcode"
             value={form.postcode}
             onChange={(e) => setForm({ ...form, postcode: e.target.value })}
           />
         </div>
-        <FormField
+        <ThemedFormField
           label="WorkDrive link (optional)"
           value={form.workdrive_url}
           onChange={(e) => setForm({ ...form, workdrive_url: e.target.value })}
           placeholder="https://workdrive.zoho.com/..."
         />
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createClient.mutate()}
-            disabled={createClient.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createClient.mutate()} disabled={createClient.isPending}>
             {createClient.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

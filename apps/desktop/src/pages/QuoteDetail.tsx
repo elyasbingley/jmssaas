@@ -26,7 +26,8 @@ import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
 import { blobToDataUrl, buildQuotePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
-import { Modal } from "../components/Modal";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
@@ -440,23 +441,36 @@ export default function QuoteDetailPage() {
   };
 
   if (isLoading || !data) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
+  const approvalColor =
+    data.quote.approval_status === "accepted"
+      ? "var(--jms-accent)"
+      : data.quote.approval_status === "declined"
+        ? "var(--jms-danger)"
+        : "var(--jms-warning)";
+
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/quotes" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/quotes" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Quotes
       </Link>
 
-      <h1 className="text-xl font-bold text-gray-900">{data.quote.quote_number}</h1>
-      <p className="text-sm text-gray-500">{data.quote.clients?.name ?? "Unknown client"}</p>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        {data.quote.quote_number}
+      </h1>
+      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{data.quote.clients?.name ?? "Unknown client"}</p>
       {data.quote.job_cards ? (
-        <Link to={`/jobs/${data.quote.job_card_id}`} className="text-sm text-blue-700 hover:underline">
+        <Link to={`/jobs/${data.quote.job_card_id}`} className="hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           Job: {data.quote.job_cards.title}
         </Link>
       ) : null}
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         {currentSite ? `${currentSite.label ? `${currentSite.label}: ` : ""}${formatSiteAddress(currentSite)}` : "Client's main address"}{" "}
         <button
           onClick={() => {
@@ -464,7 +478,8 @@ export default function QuoteDetailPage() {
             setAddressError(null);
             setAddressModalOpen(true);
           }}
-          className="text-xs font-semibold text-blue-700 hover:underline"
+          className="font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
         >
           Edit address
         </button>
@@ -472,16 +487,17 @@ export default function QuoteDetailPage() {
 
       {jobCard ? (
         jobCard.is_real_estate_job ? (
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Real estate / strata job{agency ? ` - ${agency.name}` : ""}{" "}
-            <button onClick={() => setRealEstateModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+            <button onClick={() => setRealEstateModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
               Edit
             </button>
           </p>
         ) : (
           <button
             onClick={() => setRealEstateModalOpen(true)}
-            className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+            className="mt-1 font-semibold hover:underline"
+            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
           >
             Mark as real estate / strata job
           </button>
@@ -489,58 +505,47 @@ export default function QuoteDetailPage() {
       ) : null}
 
       {jobCard?.is_real_estate_job ? (
-        <p className="mt-1 text-sm text-gray-600">
+        <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Work order #: {jobCard.work_order_number ?? "Not set"}{" "}
-          <button onClick={() => setWorkOrderModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+          <button onClick={() => setWorkOrderModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
             {jobCard.work_order_number ? "Edit" : "+ Add"}
           </button>
         </p>
       ) : null}
 
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         Referral source: {referralPartner ? referralPartnerLabel(referralPartner) : "None"}{" "}
-        <button onClick={() => setReferralModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+        <button onClick={() => setReferralModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
           {data.quote.referral_partner_id ? "Edit" : "+ Add"}
         </button>
       </p>
 
-      <p className="mt-1 text-sm text-gray-600">
+      <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         PO number: {data.quote.po_number ?? "Not set"}{" "}
-        <button onClick={() => setPoModalOpen(true)} className="text-xs font-semibold text-blue-700 hover:underline">
+        <button onClick={() => setPoModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
           {data.quote.po_number ? "Edit" : "+ Add"}
         </button>
       </p>
 
       {data.quote.approval_status ? (
         <div
-          className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${
-            data.quote.approval_status === "accepted"
-              ? "bg-green-100 text-green-700"
-              : data.quote.approval_status === "declined"
-                ? "bg-red-100 text-red-700"
-                : "bg-yellow-100 text-yellow-800"
-          }`}
+          className="mt-2 inline-block rounded-full border px-3 py-1 font-bold"
+          style={{ borderColor: approvalColor, color: approvalColor, fontSize: "var(--jms-font-label)" }}
         >
           {APPROVAL_STATUS_LABELS[data.quote.approval_status]}
         </div>
       ) : null}
       {data.quote.approval_status === "declined" && data.quote.decline_reason ? (
-        <p className="mt-2 text-sm text-red-700">Reason: {data.quote.decline_reason}</p>
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          Reason: {data.quote.decline_reason}
+        </p>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-3">
-        <button
-          onClick={() => openSendEmail()}
-          disabled={openingEmail}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => openSendEmail()} disabled={openingEmail}>
           {openingEmail ? "Preparing..." : "Send Quote via Email"}
-        </button>
-        <button
-          onClick={() => generateLink.mutate()}
-          disabled={generateLink.isPending}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-        >
+        </ThemedButton>
+        <ThemedButton variant="secondary" onClick={() => generateLink.mutate()} disabled={generateLink.isPending}>
           {generateLink.isPending
             ? "Generating..."
             : linkCopied
@@ -548,29 +553,46 @@ export default function QuoteDetailPage() {
               : data.quote.access_token
                 ? "Copy approval link"
                 : "Generate approval link"}
-        </button>
-        <button
-          onClick={handleExportPdf}
-          disabled={exporting || !tenant}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-        >
+        </ThemedButton>
+        <ThemedButton variant="secondary" onClick={handleExportPdf} disabled={exporting || !tenant}>
           {exporting ? "Preparing PDF..." : "Export PDF"}
-        </button>
+        </ThemedButton>
       </div>
-      {exportError ? <p className="mt-2 text-sm text-red-600">{exportError}</p> : null}
-      {sendEmailError ? <p className="mt-2 text-sm text-red-600">{sendEmailError}</p> : null}
-      {sendResult ? <p className="mt-2 text-sm text-green-700">{sendResult}</p> : null}
-      {linkError ? <p className="mt-2 text-sm text-red-600">{linkError}</p> : null}
+      {exportError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {exportError}
+        </p>
+      ) : null}
+      {sendEmailError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {sendEmailError}
+        </p>
+      ) : null}
+      {sendResult ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {sendResult}
+        </p>
+      ) : null}
+      {linkError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {linkError}
+        </p>
+      ) : null}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Status</h2>
+      <h2 className="mb-2 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        Status
+      </h2>
       <div className="flex flex-wrap gap-2">
         {STATUSES.map((status) => (
           <button
             key={status}
             onClick={() => changeStatus.mutate(status)}
-            className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-              data.quote.status === status ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="rounded-full border px-3 py-1.5 font-semibold"
+            style={
+              data.quote.status === status
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+            }
           >
             {STATUS_LABELS[status]}
           </button>
@@ -578,19 +600,24 @@ export default function QuoteDetailPage() {
       </div>
 
       <div className="mt-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Expiry date</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Expiry date
+        </label>
         <input
           type="date"
           value={expiryDate}
           disabled={isLocked}
           onChange={(e) => setExpiryDate(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+          className="w-full rounded border px-3 py-2 disabled:opacity-50"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
       </div>
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Line items</h2>
+      <h2 className="mb-2 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        Line items
+      </h2>
       {isLocked ? (
-        <p className="mb-2 text-sm text-gray-500">
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
@@ -606,71 +633,87 @@ export default function QuoteDetailPage() {
       )}
 
       <div className="mt-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Notes</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Notes
+        </label>
         <textarea
           rows={3}
           disabled={isLocked}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+          className="w-full rounded border px-3 py-2 disabled:opacity-50"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
       </div>
 
-      {saveError ? <p className="mt-2 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mt-2 text-sm text-green-700">Saved.</p> : null}
-
-      {!isLocked ? (
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="mt-4 rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
-          {save.isPending ? "Saving..." : "Save changes"}
-        </button>
+      {saveError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
       ) : null}
 
-      <button
-        onClick={() => setConvertOpen(true)}
-        className="ml-3 mt-4 rounded-md bg-gray-100 px-6 py-3 text-sm font-semibold text-blue-700 hover:bg-gray-200"
-      >
-        Convert to invoice
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        {!isLocked ? (
+          <div className="mt-4">
+            <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
+              {save.isPending ? "Saving..." : "Save changes"}
+            </ThemedButton>
+          </div>
+        ) : null}
 
-      <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to invoice">
-        <p className="mb-4 text-2xl font-extrabold text-gray-900">
+        <div className="mt-4">
+          <ThemedButton variant="secondary" onClick={() => setConvertOpen(true)} style={{ paddingBlock: 12, paddingInline: 24 }}>
+            Convert to invoice
+          </ThemedButton>
+        </div>
+      </div>
+
+      <ThemedModal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to invoice">
+        <p className="mb-4 text-2xl font-extrabold" style={{ color: "var(--jms-text)" }}>
           {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents - data.quote.membership_discount_cents)}
         </p>
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Due date (optional)</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Due date (optional)
+          </label>
           <input
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-full rounded border px-3 py-2"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           />
         </div>
-        {convertError ? <p className="mb-4 text-sm text-red-600">{convertError}</p> : null}
+        {convertError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {convertError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setConvertOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setConvertOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => convert.mutate()}
-            disabled={convert.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => convert.mutate()} disabled={convert.isPending}>
             {convert.isPending ? "Converting..." : "Create invoice"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit quote address">
+      <ThemedModal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} title="Edit quote address">
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Address</label>
+          <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Address
+          </label>
           <select
             value={addressSiteChoice}
             onChange={(e) => setAddressSiteChoice(e.target.value)}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           >
             <option value="">Client's main address</option>
             {(clientSites ?? []).map((site) => (
@@ -679,24 +722,24 @@ export default function QuoteDetailPage() {
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             To add a brand new address, add it on the client's card first (Clients &rarr; this client &rarr; Addresses).
           </p>
         </div>
-        {addressError ? <p className="mb-4 text-sm text-red-600">{addressError}</p> : null}
+        {addressError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {addressError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setAddressModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => updateSite.mutate()}
-            disabled={updateSite.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => updateSite.mutate()} disabled={updateSite.isPending}>
             {updateSite.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
       {jobCard ? (
         <RealEstateAssignmentModal

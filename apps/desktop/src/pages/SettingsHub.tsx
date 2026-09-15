@@ -15,6 +15,7 @@ import { Navigate, Link, useSearchParams } from "react-router-dom";
 const TILES = [
   { to: "/settings/company", label: "Company Details", emoji: "🏢" },
   { to: "/settings/dashboard", label: "Dashboard", emoji: "📈" },
+  { to: "/settings/ui-settings", label: "UI Settings", emoji: "🎨" },
   { to: "/settings/automation", label: "Automation & Messaging", emoji: "💬" },
   { to: "/settings/job-setup", label: "Job Setup", emoji: "🛠️" },
   { to: "/settings/job-templates", label: "Job Templates", emoji: "📝" },
@@ -33,17 +34,22 @@ export default function SettingsHubPage() {
   }
 
   return (
-    <div className="p-8">
-      <h1 className="mb-6 text-xl font-bold text-gray-900">Settings</h1>
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-6 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Settings
+      </h1>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
         {TILES.map((tile) => (
           <Link
             key={tile.to}
             to={tile.to}
-            className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center hover:bg-gray-200"
+            className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center"
+            style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
           >
             <span className="text-3xl">{tile.emoji}</span>
-            <span className="font-bold text-gray-900">{tile.label}</span>
+            <span className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {tile.label}
+            </span>
           </Link>
         ))}
       </div>

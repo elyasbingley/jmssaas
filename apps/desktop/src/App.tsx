@@ -20,6 +20,7 @@ import PriceBookItemPage from "./pages/PriceBookItem";
 import CalendarPage from "./pages/Calendar";
 import SettingsHubPage from "./pages/SettingsHub";
 import SettingsPage from "./pages/Settings";
+import UISettingsPage from "./pages/UISettings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import JobSetupPage from "./pages/JobSetup";
 import JobTemplatesPage from "./pages/JobTemplates";
@@ -116,6 +117,7 @@ export default function App() {
                 <Route path="/settings" element={<SettingsHubPage />} />
                 <Route path="/settings/company" element={<SettingsPage />} />
                 <Route path="/settings/dashboard" element={<DashboardSettingsPage />} />
+                <Route path="/settings/ui-settings" element={<UISettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/job-templates" element={<JobTemplatesPage />} />

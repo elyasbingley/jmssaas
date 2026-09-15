@@ -49,10 +49,15 @@ function StatCard({ to, label, value }: { to: string; label: string; value: numb
   return (
     <Link
       to={to}
-      className="flex flex-col justify-between rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:border-blue-300 hover:shadow-md"
+      className="flex flex-col justify-between rounded p-6"
+      style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 12px var(--jms-accent-glow)" }}
     >
-      <p className="text-sm font-semibold text-gray-500">{label}</p>
-      <p className="mt-2 text-4xl font-bold text-gray-900">{value ?? "-"}</p>
+      <p className="font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        {label}
+      </p>
+      <p className="mt-2 text-4xl font-bold" style={{ color: "var(--jms-accent)" }}>
+        {value ?? "-"}
+      </p>
     </Link>
   );
 }
@@ -67,13 +72,21 @@ function BreakdownCard({
   rows: { label: string; value: number | undefined }[];
 }) {
   return (
-    <Link to={to} className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:border-blue-300 hover:shadow-md">
-      <p className="mb-3 text-sm font-semibold text-gray-500">{title}</p>
+    <Link
+      to={to}
+      className="rounded p-6"
+      style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 12px var(--jms-accent-glow)" }}
+    >
+      <p className="mb-3 font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        {title}
+      </p>
       <div className="space-y-2">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">{row.label}</span>
-            <span className="text-lg font-bold text-gray-900">{row.value ?? "-"}</span>
+            <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{row.label}</span>
+            <span className="text-lg font-bold" style={{ color: "var(--jms-text)" }}>
+              {row.value ?? "-"}
+            </span>
           </div>
         ))}
       </div>
@@ -122,10 +135,12 @@ export default function DashboardPage() {
   }, [quotes, invoices]);
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-        <Link to="/settings/dashboard" className="text-sm font-semibold text-blue-700 hover:underline">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Dashboard
+        </h1>
+        <Link to="/settings/dashboard" className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           Customise
         </Link>
       </div>
@@ -158,9 +173,12 @@ export default function DashboardPage() {
       </div>
 
       {!widgets.jobs_today && !widgets.jobs_tomorrow && !widgets.invoices && !widgets.quotes ? (
-        <p className="text-sm text-gray-500">
-          Every widget is turned off. <Link to="/settings/dashboard" className="text-blue-700 hover:underline">Customise your Dashboard</Link> to
-          show some again.
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          Every widget is turned off.{" "}
+          <Link to="/settings/dashboard" className="hover:underline" style={{ color: "var(--jms-accent)" }}>
+            Customise your Dashboard
+          </Link>{" "}
+          to show some again.
         </p>
       ) : null}
     </div>

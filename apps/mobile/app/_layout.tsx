@@ -6,15 +6,18 @@ import { StatusBar } from "expo-status-bar";
 import { PowerSyncContext } from "@powersync/react";
 import { powersync } from "../lib/powersync";
 import { AuthProvider, useAuth } from "../lib/auth-context";
+import { ThemeProvider } from "../lib/theme-context";
 
 export default function RootLayout() {
   return (
     <PowerSyncContext.Provider value={powersync}>
       <AuthProvider>
-        <SafeAreaProvider>
-          <StatusBar style="dark" />
-          <RootNavigator />
-        </SafeAreaProvider>
+        <ThemeProvider>
+          <SafeAreaProvider>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </SafeAreaProvider>
+        </ThemeProvider>
       </AuthProvider>
     </PowerSyncContext.Provider>
   );
@@ -60,33 +63,34 @@ function RootNavigator() {
   }
 
   // Outside the tab bar entirely: the (tabs) group (its own Tabs
-  // navigator, each tab wrapping its own native Stack - see
-  // app/(tabs)/_layout.tsx), login, and a couple of standalone admin
-  // screens (company-settings, schedule, team, job-setup) - see
-  // docs/SETUP.md for why Schedule/dispatch was placed this way instead of
-  // a new tab. company-settings/team/job-setup are now reached from the
-  // Settings tab's list (see (tabs)/settings/index.tsx) rather than a
-  // header link on Home - the route names/files are unchanged, only the
-  // header titles below were renamed to match that list's labels (Company
-  // Details/Team-Staff/Job Card Setup).
+  // navigator - just Home/Jobs/Notifications/More now, see
+  // app/(tabs)/_layout.tsx), login, and every other section - each with
+  // its own nested Stack/header, reached via a Home icon, a More button,
+  // or drilling into a job/client/etc, not its own tab.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="company-settings" options={{ headerShown: true, title: "Company Details" }} />
-      <Stack.Screen name="dashboard-settings" options={{ headerShown: true, title: "Dashboard" }} />
-      <Stack.Screen name="schedule" options={{ headerShown: true, title: "Schedule" }} />
-      <Stack.Screen name="team" options={{ headerShown: true, title: "Team/Staff" }} />
-      <Stack.Screen name="job-setup" options={{ headerShown: true, title: "Job Card Setup" }} />
-      <Stack.Screen name="inventory-setup" options={{ headerShown: true, title: "Inventory Setup" }} />
-      <Stack.Screen name="automation-settings" options={{ headerShown: true, title: "Automation & Messaging" }} />
-      <Stack.Screen name="google-calendar-settings" options={{ headerShown: true, title: "Google Calendar" }} />
+      <Stack.Screen name="company-settings" options={{ headerShown: false }} />
+      <Stack.Screen name="dashboard-settings" options={{ headerShown: false }} />
+      <Stack.Screen name="schedule" options={{ headerShown: false }} />
+      <Stack.Screen name="team" options={{ headerShown: false }} />
+      <Stack.Screen name="job-setup" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory-setup" options={{ headerShown: false }} />
+      <Stack.Screen name="automation-settings" options={{ headerShown: false }} />
+      <Stack.Screen name="ui-settings" options={{ headerShown: false }} />
+      <Stack.Screen name="google-calendar-settings" options={{ headerShown: false }} />
       <Stack.Screen name="real-estate" />
       <Stack.Screen name="reports" />
       <Stack.Screen name="subcontractors" />
       <Stack.Screen name="b2b-referrals" />
       <Stack.Screen name="knowledge" />
       <Stack.Screen name="inbox" />
+      <Stack.Screen name="channels" />
+      <Stack.Screen name="tasks" />
+      <Stack.Screen name="calendar" />
+      <Stack.Screen name="settings" />
+      <Stack.Screen name="sales" />
     </Stack>
   );
 }

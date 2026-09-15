@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import {
   formatCentsAsAud,
@@ -16,13 +18,15 @@ import {
 import { supabase } from "../../../lib/supabase";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useAuth } from "../../../lib/auth-context";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildPdfDataUri, exportPdf } from "../../../lib/print";
 import { buildPurchaseOrderPdfHtml } from "../../../lib/po-pdf";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../../components/PickerModal";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { PoLineItemEditor } from "../../../components/PoLineItemEditor";
 
 const BUCKET = "subcontractor-files";
@@ -42,6 +46,7 @@ export default function PurchaseOrderDetailScreen() {
   const router = useRouter();
   const isOnline = useIsOnline();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
 
   const { data: po, refetch: refetchPo } = useSupabaseFetch<PurchaseOrder | null>(async () => {
     if (!isOnline) return null;
@@ -296,149 +301,161 @@ export default function PurchaseOrderDetailScreen() {
     }
   };
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Purchase orders" />;
-  }
-  if (!po) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
-    );
-  }
-
-  const marginCents = billedCents ? Math.round(parseFloat(billedCents) * 100) - po.total_cost_cents : null;
+  const marginCents = billedCents && po ? Math.round(parseFloat(billedCents) * 100) - po.total_cost_cents : null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Pressable onPress={() => router.push(`/subcontractors/${po.subcontractor_id}`)}>
-        <Text style={styles.backLink}>&larr; Back to {subcontractor?.company_name ?? "subcontractor"}</Text>
-      </Pressable>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title} numberOfLines={1}>{po?.po_number ?? "Purchase Order"}</Text>
+      </View>
 
-      <View style={styles.headerRow}>
-        <Text style={styles.heading}>{po.po_number ?? "Pending PO number"}</Text>
-        <View style={styles.typeBadge}>
-          <Text style={styles.typeBadgeText}>{po.is_quote_request ? "Quote Request" : "Work Order"}</Text>
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Purchase orders" />
+      ) : !po ? (
+        <View style={styles.center}>
+          <Text style={styles.empty}>Loading...</Text>
         </View>
-      </View>
-      {job ? (
-        <Pressable onPress={() => router.push(`/sales/jobs/${po.job_card_id}`)}>
-          <Text style={styles.link}>Job: {job.title}</Text>
-        </Pressable>
-      ) : null}
-
-      {complianceHold ? <Text style={styles.holdNotice}>This subcontractor is on compliance hold - sending is disabled.</Text> : null}
-
-      <Text style={styles.sectionHeading}>Status</Text>
-      <View style={styles.statusRow}>
-        {STATUSES.map((status) => (
-          <Pressable
-            key={status}
-            style={[styles.statusChip, po.status === status && styles.statusChipActive]}
-            onPress={() => changeStatus(status)}
-          >
-            <Text style={[styles.statusChipText, po.status === status && styles.statusChipTextActive]}>{STATUS_LABELS[status]}</Text>
+      ) : (
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <Pressable onPress={() => router.push(`/subcontractors/${po.subcontractor_id}`)}>
+            <Text style={styles.backLink}>&larr; Back to {subcontractor?.company_name ?? "subcontractor"}</Text>
           </Pressable>
-        ))}
-      </View>
 
-      <View style={styles.actionsRow}>
-        {po.is_quote_request ? (
-          <Pressable style={styles.primaryButton} onPress={sendQuoteRequest} disabled={sending || complianceHold}>
-            <Text style={styles.primaryButtonText}>{sending ? "Sending..." : "Send Quote Request"}</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.heading}>{po.po_number ?? "Pending PO number"}</Text>
+            <View style={styles.typeBadge}>
+              <Text style={styles.typeBadgeText}>{po.is_quote_request ? "Quote Request" : "Work Order"}</Text>
+            </View>
+          </View>
+          {job ? (
+            <Pressable onPress={() => router.push(`/jobs/${po.job_card_id}`)}>
+              <Text style={styles.link}>Job: {job.title}</Text>
+            </Pressable>
+          ) : null}
+
+          {complianceHold ? <Text style={styles.holdNotice}>This subcontractor is on compliance hold - sending is disabled.</Text> : null}
+
+          <Text style={styles.sectionHeading}>Status</Text>
+          <View style={styles.statusRow}>
+            {STATUSES.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.statusChip, po.status === status && styles.statusChipActive]}
+                onPress={() => changeStatus(status)}
+              >
+                <Text style={[styles.statusChipText, po.status === status && styles.statusChipTextActive]}>{STATUS_LABELS[status]}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.actionsRow}>
+            {po.is_quote_request ? (
+              <View style={styles.flex1}>
+                <ThemedButton label={sending ? "Sending..." : "Send Quote Request"} onPress={sendQuoteRequest} disabled={sending || complianceHold} />
+              </View>
+            ) : (
+              <View style={styles.flex1}>
+                <ThemedButton label={sending ? "Sending..." : "Send Work Order"} onPress={sendWorkOrder} disabled={sending || complianceHold} />
+              </View>
+            )}
+            <Pressable style={styles.secondaryButton} onPress={handleDownloadPdf} disabled={downloading}>
+              <Text style={styles.secondaryButtonText}>{downloading ? "Preparing..." : "Download PDF"}</Text>
+            </Pressable>
+          </View>
+          {sendError ? <Text style={styles.error}>{sendError}</Text> : null}
+          {sendResult ? <Text style={styles.saved}>{sendResult}</Text> : null}
+
+          <Pressable style={[styles.pickerField, styles.fieldSpacing]} onPress={() => !isLocked && setContactPickerVisible(true)}>
+            <Text style={styles.pickerFieldLabel}>Contact</Text>
+            <Text style={styles.pickerFieldValue}>
+              {recipientContact ? `${recipientContact.first_name} ${recipientContact.last_name ?? ""} - ${recipientContact.email}` : "Use primary contact"}
+            </Text>
           </Pressable>
-        ) : (
-          <Pressable style={styles.primaryButton} onPress={sendWorkOrder} disabled={sending || complianceHold}>
-            <Text style={styles.primaryButtonText}>{sending ? "Sending..." : "Send Work Order"}</Text>
-          </Pressable>
-        )}
-        <Pressable style={styles.secondaryButton} onPress={handleDownloadPdf} disabled={downloading}>
-          <Text style={styles.secondaryButtonText}>{downloading ? "Preparing..." : "Download PDF"}</Text>
-        </Pressable>
-      </View>
-      {sendError ? <Text style={styles.error}>{sendError}</Text> : null}
-      {sendResult ? <Text style={styles.saved}>{sendResult}</Text> : null}
 
-      <Pressable style={[styles.pickerField, styles.fieldSpacing]} onPress={() => !isLocked && setContactPickerVisible(true)}>
-        <Text style={styles.pickerFieldLabel}>Contact</Text>
-        <Text style={styles.pickerFieldValue}>
-          {recipientContact ? `${recipientContact.first_name} ${recipientContact.last_name ?? ""} - ${recipientContact.email}` : "Use primary contact"}
-        </Text>
-      </Pressable>
+          <Text style={styles.sectionHeading}>{po.is_quote_request ? "Scope of work" : "Line items"}</Text>
+          <PoLineItemEditor items={lineItems} onChange={setLineItems} readOnly={isLocked} />
 
-      <Text style={styles.sectionHeading}>{po.is_quote_request ? "Scope of work" : "Line items"}</Text>
-      <PoLineItemEditor items={lineItems} onChange={setLineItems} readOnly={isLocked} />
+          <View style={styles.fieldSpacing}>
+            <Text style={styles.fieldLabel}>Client billed price (optional)</Text>
+            <TextInput
+              editable={!isLocked}
+              keyboardType="decimal-pad"
+              value={billedCents}
+              onChangeText={setBilledCents}
+              placeholder="What the client is charged for this work"
+              placeholderTextColor={styles.placeholder.color}
+              style={[styles.textInput, isLocked && styles.textInputDisabled]}
+            />
+            {marginCents != null ? (
+              <Text style={[styles.marginText, marginCents < 0 && styles.marginNegative]}>Margin: {formatCentsAsAud(marginCents)}</Text>
+            ) : null}
+          </View>
 
-      <View style={styles.fieldSpacing}>
-        <Text style={styles.fieldLabel}>Client billed price (optional)</Text>
-        <TextInput
-          editable={!isLocked}
-          keyboardType="decimal-pad"
-          value={billedCents}
-          onChangeText={setBilledCents}
-          placeholder="What the client is charged for this work"
-          style={[styles.textInput, isLocked && styles.textInputDisabled]}
-        />
-        {marginCents != null ? (
-          <Text style={[styles.marginText, marginCents < 0 && styles.marginNegative]}>Margin: {formatCentsAsAud(marginCents)}</Text>
-        ) : null}
-      </View>
+          {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+          {saved ? <Text style={styles.saved}>Saved.</Text> : null}
 
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-      {saved ? <Text style={styles.saved}>Saved.</Text> : null}
+          {!isLocked ? (
+            <View style={{ marginTop: 20 }}>
+              <ThemedButton label={saving ? "Saving..." : "Save changes"} onPress={save} disabled={saving} />
+            </View>
+          ) : null}
 
-      {!isLocked ? (
-        <Pressable style={styles.saveButton} onPress={save} disabled={saving}>
-          <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save changes"}</Text>
-        </Pressable>
-      ) : null}
-
-      <PickerModal
-        visible={contactPickerVisible}
-        title="Select contact"
-        items={contacts ?? []}
-        getKey={(c) => c.id}
-        getLabel={(c) => `${c.first_name} ${c.last_name ?? ""} ${c.is_primary_contact ? "(Primary)" : ""} - ${c.email}`}
-        onSelect={(c) => setContactId(c.id)}
-        onClose={() => setContactPickerVisible(false)}
-      />
-    </ScrollView>
+          <ThemedPickerModal
+            visible={contactPickerVisible}
+            title="Select contact"
+            items={contacts ?? []}
+            getKey={(c) => c.id}
+            getLabel={(c) => `${c.first_name} ${c.last_name ?? ""} ${c.is_primary_contact ? "(Primary)" : ""} - ${c.email}`}
+            onSelect={(c) => setContactId(c.id)}
+            onClose={() => setContactPickerVisible(false)}
+          />
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  empty: { color: "#6b7280" },
-  backLink: { color: "#1d4ed8", fontWeight: "600", marginBottom: 12 },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  heading: { fontSize: 19, fontWeight: "700", color: "#111827" },
-  typeBadge: { backgroundColor: "#f3f4f6", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  typeBadgeText: { fontSize: 11, fontWeight: "700", color: "#4b5563" },
-  link: { color: "#1d4ed8", fontWeight: "600", marginTop: 4 },
-  holdNotice: { color: "#b91c1c", backgroundColor: "#fef2f2", borderRadius: 8, padding: 10, fontSize: 12, marginTop: 12 },
-  sectionHeading: { fontSize: 13, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
-  statusChipActive: { backgroundColor: "#1d4ed8" },
-  statusChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  statusChipTextActive: { color: "#fff" },
-  actionsRow: { flexDirection: "row", gap: 10, marginTop: 16 },
-  primaryButton: { flex: 1, backgroundColor: "#1d4ed8", borderRadius: 8, padding: 12, alignItems: "center" },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  secondaryButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, alignItems: "center" },
-  secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
-  error: { color: "#dc2626", marginTop: 8 },
-  saved: { color: "#15803d", marginTop: 8 },
-  fieldSpacing: { marginTop: 16 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
-  textInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, fontSize: 15 },
-  textInputDisabled: { backgroundColor: "#f3f4f6" },
-  marginText: { fontSize: 14, fontWeight: "700", color: "#15803d", marginTop: 8 },
-  marginNegative: { color: "#dc2626" },
-  saveButton: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 20 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary, flexShrink: 1 },
+    container: { flex: 1, backgroundColor: tokens.background },
+    center: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
+    flex1: { flex: 1 },
+    empty: { ...mono, color: tokens.textMuted, fontSize: font.body },
+    backLink: { ...mono, color: tokens.accent, fontWeight: "600" as const, marginBottom: 12, fontSize: font.body },
+    headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    heading: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    typeBadge: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+    typeBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, marginTop: 4, fontSize: font.body },
+    holdNotice: { ...mono, color: tokens.danger, borderWidth: 1, borderColor: tokens.danger, backgroundColor: tokens.surface, borderRadius: 4, padding: 10, fontSize: font.label, marginTop: 12 },
+    sectionHeading: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginTop: 20, marginBottom: 10 },
+    statusRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8 },
+    statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 4, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface },
+    statusChipActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    statusChipText: { ...mono, color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label },
+    statusChipTextActive: { color: tokens.accent },
+    actionsRow: { flexDirection: "row" as const, gap: 10, marginTop: 16, alignItems: "stretch" as const },
+    secondaryButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, alignItems: "center" as const, justifyContent: "center" as const },
+    secondaryButtonText: { ...mono, color: tokens.accent, fontWeight: "700" as const, fontSize: font.button, letterSpacing: 1, textTransform: "uppercase" as const },
+    error: { ...mono, color: tokens.danger, marginTop: 8, fontSize: font.body },
+    saved: { ...mono, color: tokens.accent, marginTop: 8, fontSize: font.body },
+    fieldSpacing: { marginTop: 16 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.surface },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 2 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
+    fieldLabel: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginBottom: 6, textTransform: "uppercase" as const, letterSpacing: 1 },
+    textInput: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, fontSize: font.body, color: tokens.textPrimary, backgroundColor: tokens.background, ...mono },
+    textInputDisabled: { backgroundColor: tokens.surface },
+    placeholder: { color: tokens.textMuted },
+    marginText: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.accent, marginTop: 8 },
+    marginNegative: { color: tokens.danger },
+  };
+}

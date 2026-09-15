@@ -8,8 +8,9 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "./Modal";
-import { FormField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedFormField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 
 // Sub-tab 4: trigger-based automated partner emails. Reuses the exact same
 // communication_rules/communication_templates tables the rest of the app's
@@ -122,7 +123,7 @@ export function ReferralWorkflowsTab() {
 
   return (
     <div className="max-w-2xl">
-      <p className="mb-4 text-sm text-gray-500">
+      <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         Configure the automated emails sent to referral partners as thank-yous and updates. Uses the same Automation engine as the
         rest of the app.
       </p>
@@ -133,25 +134,35 @@ export function ReferralWorkflowsTab() {
           const triggerTemplates = (templates ?? []).filter((t) => t.trigger_key === key);
           if (!rule) return null;
           return (
-            <div key={key} className="rounded-lg border border-gray-300 bg-white p-4">
+            <div key={key} className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
               <div className="mb-1 flex items-center justify-between">
-                <p className="font-bold text-gray-900">{TRIGGER_LABELS[key]}</p>
-                <label className="flex items-center gap-2 text-sm text-gray-600">
+                <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+                  {TRIGGER_LABELS[key]}
+                </p>
+                <label className="flex items-center gap-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                   <input type="checkbox" checked={rule.is_enabled} onChange={() => toggleRule.mutate(rule)} />
                   Enabled
                 </label>
               </div>
-              <p className="mb-2 text-sm text-gray-500">{TRIGGER_DESCRIPTIONS[key]}</p>
+              <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                {TRIGGER_DESCRIPTIONS[key]}
+              </p>
 
               {triggerTemplates.map((template) => (
-                <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2">
+                <div key={template.id} className="mt-2 flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--jms-border)" }}>
                   <div className="min-w-0 flex-1 pr-3">
-                    <p className="text-sm font-semibold text-gray-900">
+                    <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                       {template.name} ({template.type})
                     </p>
-                    <p className="truncate text-xs text-gray-500">{template.body}</p>
+                    <p className="truncate" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                      {template.body}
+                    </p>
                   </div>
-                  <button onClick={() => openEditTemplate(template)} className="flex-shrink-0 text-sm font-semibold text-blue-700 hover:underline">
+                  <button
+                    onClick={() => openEditTemplate(template)}
+                    className="flex-shrink-0 font-semibold hover:underline"
+                    style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+                  >
                     Edit message
                   </button>
                 </div>
@@ -161,16 +172,19 @@ export function ReferralWorkflowsTab() {
         })}
       </div>
 
-      <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={editingTemplate ? `Edit message - ${editingTemplate.name}` : "Edit message"}>
-        <FormField label="Subject" value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} />
+      <ThemedModal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={editingTemplate ? `Edit message - ${editingTemplate.name}` : "Edit message"}>
+        <ThemedFormField label="Subject" value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} />
         <div className="mb-2">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Body</label>
+          <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Body
+          </label>
           <textarea
             ref={bodyRef}
             value={templateBody}
             onChange={(e) => setTemplateBody(e.target.value)}
             rows={6}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
           />
         </div>
         <div className="mb-4 flex flex-wrap gap-1">
@@ -180,30 +194,31 @@ export function ReferralWorkflowsTab() {
               <button
                 key={token}
                 onClick={() => insertToken(token)}
-                className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+                className="rounded-full border px-2 py-1 font-semibold"
+                style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
               >
                 {`{${token}}`}
               </button>
             ))}
         </div>
-        <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+        <label className="mb-4 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={templateActive} onChange={(e) => setTemplateActive(e.target.checked)} />
           Active
         </label>
-        {templateError ? <p className="mb-4 text-sm text-red-600">{templateError}</p> : null}
+        {templateError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {templateError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setTemplateModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setTemplateModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveTemplate.mutate()}
-            disabled={saveTemplate.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveTemplate.mutate()} disabled={saveTemplate.isPending}>
             {saveTemplate.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

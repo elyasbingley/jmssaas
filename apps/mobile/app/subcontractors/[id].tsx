@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import {
@@ -17,14 +19,17 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useIsOnline } from "../../lib/connectivity";
 import { useAuth } from "../../lib/auth-context";
+import { useTheme } from "../../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
 import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
 import { uploadComplianceDoc } from "../../lib/po-pdf";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
-import { STATUS_BADGE, TIER_LABELS, TRADE_LABELS } from "./index";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { getStatusBadge, TIER_LABELS, TRADE_LABELS } from "./index";
 
 const BUCKET = "subcontractor-files";
 type DetailTab = "contacts" | "orders" | "compliance";
@@ -43,9 +48,12 @@ export default function SubcontractorDetailScreen() {
   const router = useRouter();
   const isOnline = useIsOnline();
   const { profile } = useAuth();
+  const { tokens } = useTheme();
   const isAdmin = profile?.role === "admin";
   const [tab, setTab] = useState<DetailTab>("contacts");
   const [tierPickerVisible, setTierPickerVisible] = useState(false);
+  const styles = useThemedStyles(createStyles);
+  const statusBadge = getStatusBadge(tokens);
 
   const { data: sub, refetch: refetchSub } = useSupabaseFetch<SubcontractorCompany | null>(async () => {
     if (!isOnline) return null;
@@ -87,91 +95,99 @@ export default function SubcontractorDetailScreen() {
     if (!error) refetchSub();
   };
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Subcontractors" />;
-  }
-  if (!sub) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
-    );
-  }
-
-  const badge = STATUS_BADGE[sub.status];
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
+  const badge = sub ? statusBadge[sub.status] : null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <View style={styles.section}>
-        <Text style={styles.heading}>{sub.company_name}</Text>
-        {sub.abn ? <Text style={styles.subheading}>ABN {sub.abn}</Text> : null}
-        {sub.trades.length > 0 ? (
-          <View style={styles.tradeRow}>
-            {sub.trades.map((t) => (
-              <View key={t} style={styles.tradeChip}>
-                <Text style={styles.tradeChipText}>{TRADE_LABELS[t]}</Text>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title} numberOfLines={1}>{sub?.company_name ?? "Subcontractor"}</Text>
+      </View>
+
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Subcontractors" />
+      ) : !sub ? (
+        <View style={styles.center}>
+          <Text style={styles.empty}>Loading...</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+          <View style={styles.section}>
+            {sub.abn ? <Text style={styles.subheading}>ABN {sub.abn}</Text> : null}
+            {sub.trades.length > 0 ? (
+              <View style={styles.tradeRow}>
+                {sub.trades.map((t) => (
+                  <View key={t} style={styles.tradeChip}>
+                    <Text style={styles.tradeChipText}>{TRADE_LABELS[t]}</Text>
+                  </View>
+                ))}
               </View>
+            ) : null}
+            <View style={styles.headerRow}>
+              <Pressable style={styles.tierPickerField} onPress={() => isAdmin && setTierPickerVisible(true)}>
+                <Text style={styles.tierPickerFieldText}>{TIER_LABELS[sub.preference_tier]}</Text>
+              </Pressable>
+              {badge ? (
+                <View style={[styles.statusBadge, { backgroundColor: badge.bg, borderColor: badge.border }]}>
+                  <Text style={[styles.statusBadgeText, { color: badge.text }]}>{badge.label}</Text>
+                </View>
+              ) : null}
+            </View>
+            {sub.status === "compliance_hold" ? (
+              <Text style={styles.holdNotice}>
+                This subcontractor cannot receive new Purchase Orders or Work Orders until their expired compliance documents are renewed.
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.tabRow}>
+            {(
+              [
+                { key: "contacts", label: "Contacts" },
+                { key: "orders", label: "Orders" },
+                { key: "compliance", label: "Compliance" },
+              ] as { key: DetailTab; label: string }[]
+            ).map((t) => (
+              <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
+                <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+              </Pressable>
             ))}
           </View>
-        ) : null}
-        <View style={styles.headerRow}>
-          <Pressable style={styles.tierPickerField} onPress={() => isAdmin && setTierPickerVisible(true)}>
-            <Text style={styles.tierPickerFieldText}>{TIER_LABELS[sub.preference_tier]}</Text>
-          </Pressable>
-          <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
-            <Text style={[styles.statusBadgeText, { color: badge.text }]}>{badge.label}</Text>
+
+          <View style={styles.tabBody}>
+            {tab === "contacts" ? (
+              <ContactsTab subcontractorId={id} contacts={contacts ?? []} onCreated={refetchContacts} />
+            ) : tab === "orders" ? (
+              <OrdersTab
+                purchaseOrders={purchaseOrders ?? []}
+                jobById={jobById}
+                complianceHold={sub.status === "compliance_hold"}
+                isAdmin={isAdmin}
+                onCreate={(isQuoteRequest) =>
+                  router.push(`/subcontractors/purchase-order/new?subcontractorId=${id}&quoteRequest=${isQuoteRequest}`)
+                }
+              />
+            ) : (
+              <ComplianceRecordsTab subcontractorId={id} docs={complianceDocs ?? []} isAdmin={isAdmin} onChanged={refetchDocs} />
+            )}
           </View>
-        </View>
-        {sub.status === "compliance_hold" ? (
-          <Text style={styles.holdNotice}>
-            This subcontractor cannot receive new Purchase Orders or Work Orders until their expired compliance documents are renewed.
-          </Text>
-        ) : null}
-      </View>
 
-      <View style={styles.tabRow}>
-        {(
-          [
-            { key: "contacts", label: "Contacts" },
-            { key: "orders", label: "Orders" },
-            { key: "compliance", label: "Compliance" },
-          ] as { key: DetailTab; label: string }[]
-        ).map((t) => (
-          <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.tabBody}>
-        {tab === "contacts" ? (
-          <ContactsTab subcontractorId={id} contacts={contacts ?? []} onCreated={refetchContacts} />
-        ) : tab === "orders" ? (
-          <OrdersTab
-            purchaseOrders={purchaseOrders ?? []}
-            jobById={jobById}
-            complianceHold={sub.status === "compliance_hold"}
-            isAdmin={isAdmin}
-            onCreate={(isQuoteRequest) =>
-              router.push(`/subcontractors/purchase-order/new?subcontractorId=${id}&quoteRequest=${isQuoteRequest}`)
-            }
+          <ThemedPickerModal
+            visible={tierPickerVisible}
+            title="Preference tier"
+            items={[1, 2, 3, 4, 5]}
+            getKey={(t) => String(t)}
+            getLabel={(t) => TIER_LABELS[t] ?? String(t)}
+            onSelect={updateTier}
+            onClose={() => setTierPickerVisible(false)}
           />
-        ) : (
-          <ComplianceRecordsTab subcontractorId={id} docs={complianceDocs ?? []} isAdmin={isAdmin} onChanged={refetchDocs} />
-        )}
-      </View>
-
-      <PickerModal
-        visible={tierPickerVisible}
-        title="Preference tier"
-        items={[1, 2, 3, 4, 5]}
-        getKey={(t) => String(t)}
-        getLabel={(t) => TIER_LABELS[t] ?? String(t)}
-        onSelect={updateTier}
-        onClose={() => setTierPickerVisible(false)}
-      />
-    </ScrollView>
+        </ScrollView>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -189,6 +205,7 @@ function ContactsTab({
   onCreated: () => void;
 }) {
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
   const [modalVisible, setModalVisible] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -256,9 +273,7 @@ function ContactsTab({
 
   return (
     <View>
-      <Pressable style={styles.primaryButton} onPress={openNew}>
-        <Text style={styles.primaryButtonText}>+ Add Contact</Text>
-      </Pressable>
+      <ThemedButton label="+ Add Contact" onPress={openNew} />
 
       {contacts.length === 0 ? (
         <Text style={styles.empty}>No contacts yet.</Text>
@@ -282,14 +297,14 @@ function ContactsTab({
         ))
       )}
 
-      <CenteredModal visible={modalVisible} onClose={() => setModalVisible(false)}>
+      <ThemedModal visible={modalVisible} onClose={() => setModalVisible(false)}>
         <Text style={styles.modalTitle}>New contact</Text>
-        <FormField label="First name" value={firstName} onChangeText={setFirstName} />
-        <FormField label="Last name" value={lastName} onChangeText={setLastName} />
-        <FormField label="Role / title" value={roleTitle} onChangeText={setRoleTitle} placeholder="e.g. Lead Estimator" />
-        <FormField label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        <FormField label="Mobile" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" />
-        <FormField label="Work phone" value={workPhone} onChangeText={setWorkPhone} keyboardType="phone-pad" />
+        <ThemedFormField label="First name" value={firstName} onChangeText={setFirstName} />
+        <ThemedFormField label="Last name" value={lastName} onChangeText={setLastName} />
+        <ThemedFormField label="Role / title" value={roleTitle} onChangeText={setRoleTitle} placeholder="e.g. Lead Estimator" />
+        <ThemedFormField label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+        <ThemedFormField label="Mobile" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" />
+        <ThemedFormField label="Work phone" value={workPhone} onChangeText={setWorkPhone} keyboardType="phone-pad" />
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Primary contact</Text>
           <Switch value={isPrimary} onValueChange={setIsPrimary} />
@@ -299,11 +314,9 @@ function ContactsTab({
           <Pressable onPress={() => setModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={save} disabled={saving}>
-            <Text style={styles.primaryButtonText}>{saving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={saving ? "Saving..." : "Save"} onPress={save} disabled={saving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
     </View>
   );
 }
@@ -326,16 +339,17 @@ function OrdersTab({
   onCreate: (isQuoteRequest: boolean) => void;
 }) {
   const router = useRouter();
+  const styles = useThemedStyles(createStyles);
   return (
     <View>
       {isAdmin ? (
         <View style={styles.ordersActionsRow}>
-          <Pressable style={styles.secondaryButton} onPress={() => onCreate(true)} disabled={complianceHold}>
+          <Pressable style={[styles.secondaryButton, complianceHold && styles.disabled]} onPress={() => onCreate(true)} disabled={complianceHold}>
             <Text style={styles.secondaryButtonText}>Send Quote Request</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={() => onCreate(false)} disabled={complianceHold}>
-            <Text style={styles.primaryButtonText}>Issue Work Order</Text>
-          </Pressable>
+          <View style={styles.flex1}>
+            <ThemedButton label="Issue Work Order" onPress={() => onCreate(false)} disabled={complianceHold} />
+          </View>
         </View>
       ) : null}
       {complianceHold ? <Text style={styles.holdNotice}>Compliance hold - new orders are blocked.</Text> : null}
@@ -376,6 +390,7 @@ function ComplianceRecordsTab({
   onChanged: () => void;
 }) {
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
   const [docType, setDocType] = useState<SubcontractorDocType>("public_liability");
   const [docTypePickerVisible, setDocTypePickerVisible] = useState(false);
   const [docNumber, setDocNumber] = useState("");
@@ -478,15 +493,13 @@ function ComplianceRecordsTab({
             <Text style={styles.pickerFieldLabel}>Document type</Text>
             <Text style={styles.pickerFieldValue}>{DOC_TYPE_OPTIONS.find((o) => o.value === docType)?.label}</Text>
           </Pressable>
-          <FormField label="Doc / policy number (optional)" value={docNumber} onChangeText={setDocNumber} />
-          <FormField label="Expiry date (YYYY-MM-DD)" value={expiryDate} onChangeText={setExpiryDate} placeholder="2026-12-31" />
+          <ThemedFormField label="Doc / policy number (optional)" value={docNumber} onChangeText={setDocNumber} />
+          <ThemedFormField label="Expiry date (YYYY-MM-DD)" value={expiryDate} onChangeText={setExpiryDate} placeholder="2026-12-31" />
           <Pressable style={styles.secondaryButton} onPress={pickFile}>
             <Text style={styles.secondaryButtonText}>{pickedFile ? pickedFile.name : "Choose file"}</Text>
           </Pressable>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable style={styles.primaryButton} onPress={upload} disabled={uploading || !pickedFile}>
-            <Text style={styles.primaryButtonText}>{uploading ? "Uploading..." : "Upload"}</Text>
-          </Pressable>
+          <ThemedButton label={uploading ? "Uploading..." : "Upload"} onPress={upload} disabled={uploading || !pickedFile} />
         </View>
       ) : null}
 
@@ -527,7 +540,7 @@ function ComplianceRecordsTab({
         })
       )}
 
-      <PickerModal
+      <ThemedPickerModal
         visible={docTypePickerVisible}
         title="Document type"
         items={DOC_TYPE_OPTIONS}
@@ -540,68 +553,72 @@ function ComplianceRecordsTab({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  flex1: { flex: 1 },
-  section: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  heading: { fontSize: 19, fontWeight: "700", color: "#111827" },
-  subheading: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
-  holdNotice: { color: "#b91c1c", backgroundColor: "#fef2f2", borderRadius: 8, padding: 10, fontSize: 12, marginTop: 10 },
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary, flexShrink: 1 },
+    container: { flex: 1, backgroundColor: tokens.background },
+    center: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
+    flex1: { flex: 1 },
+    section: { padding: 16, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    subheading: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    headerRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 10 },
+    holdNotice: { ...mono, color: tokens.danger, borderWidth: 1, borderColor: tokens.danger, backgroundColor: tokens.surface, borderRadius: 4, padding: 10, fontSize: font.label, marginTop: 10 },
 
-  tradeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  tradeChip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  tradeChipText: { fontSize: 11, fontWeight: "600", color: "#374151" },
+    tradeRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 8 },
+    tradeChip: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    tradeChipText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted },
 
-  tierPickerField: { backgroundColor: "#fef3c7", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  tierPickerFieldText: { fontSize: 12, fontWeight: "700", color: "#92400e" },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
-  statusBadgeText: { fontSize: 12, fontWeight: "700" },
+    tierPickerField: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 6 },
+    tierPickerFieldText: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted },
+    statusBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    statusBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const },
 
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabActive: { borderBottomColor: "#1d4ed8" },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
-  tabTextActive: { color: "#1d4ed8" },
-  tabBody: { padding: 16 },
-  empty: { color: "#6b7280", textAlign: "center", marginVertical: 16 },
-  error: { color: "#dc2626", marginTop: 8 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  deleteLink: { color: "#dc2626", fontWeight: "600" },
+    tabRow: { flexDirection: "row" as const, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    tab: { flex: 1, paddingVertical: 12, alignItems: "center" as const, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabActive: { borderBottomColor: tokens.accent },
+    tabText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted, textTransform: "uppercase" as const },
+    tabTextActive: { color: tokens.accent },
+    tabBody: { padding: 16 },
+    empty: { ...mono, color: tokens.textMuted, textAlign: "center" as const, marginVertical: 16, fontSize: font.body },
+    error: { ...mono, color: tokens.danger, marginTop: 8, fontSize: font.body },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
+    deleteLink: { ...mono, color: tokens.danger, fontWeight: "600" as const, fontSize: font.body },
 
-  primaryButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", marginTop: 8 },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  secondaryButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", marginTop: 8 },
-  secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
-  ordersActionsRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
+    secondaryButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" as const, marginTop: 8 },
+    secondaryButtonText: { ...mono, color: tokens.accent, fontWeight: "700" as const, fontSize: font.button, letterSpacing: 1, textTransform: "uppercase" as const },
+    disabled: { opacity: 0.5 },
+    ordersActionsRow: { flexDirection: "row" as const, gap: 8, marginBottom: 4, alignItems: "flex-start" as const },
 
-  contactCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginTop: 10, gap: 2 },
-  contactName: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  primaryTag: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  contactMeta: { fontSize: 12, color: "#6b7280" },
+    contactCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginTop: 10, gap: 2 },
+    contactName: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary },
+    primaryTag: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent },
+    contactMeta: { ...mono, fontSize: font.label, color: tokens.textMuted },
 
-  poRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginTop: 10 },
-  poNumber: { fontSize: 14, fontWeight: "700", color: "#1d4ed8" },
-  poMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  poCost: { fontSize: 14, fontWeight: "700", color: "#111827", flexShrink: 0 },
+    poRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginTop: 10 },
+    poNumber: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.accent },
+    poMeta: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    poCost: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, flexShrink: 0 },
 
-  uploadCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 16, gap: 8 },
-  uploadCardTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 4 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
+    uploadCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 14, marginBottom: 16, gap: 8 },
+    uploadCardTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 4 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 2 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
 
-  docCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginTop: 10 },
-  docCardTitle: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  docCardMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  docCardExpired: { color: "#dc2626", fontWeight: "700" },
-  docCardActions: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 8 },
-  verifyRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  verifyLabel: { fontSize: 12, color: "#4b5563" },
+    docCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginTop: 10 },
+    docCardTitle: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary },
+    docCardMeta: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    docCardExpired: { color: tokens.danger, fontWeight: "700" as const },
+    docCardActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 16, marginTop: 8 },
+    verifyRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
+    verifyLabel: { ...mono, fontSize: font.label, color: tokens.textMuted },
 
-  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
-  switchLabel: { fontSize: 14, fontWeight: "600", color: "#374151" },
-  modalTitle: { fontSize: 17, fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16, marginTop: 4 },
-});
+    switchRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 8 },
+    switchLabel: { ...mono, fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary },
+    modalTitle: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 16, marginTop: 4 },
+  };
+}

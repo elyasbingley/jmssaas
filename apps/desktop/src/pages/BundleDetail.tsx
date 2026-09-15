@@ -12,8 +12,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
@@ -244,21 +245,25 @@ export default function BundleDetailPage() {
   const canSaveItem = itemForm.mode === "price_book" ? !!itemForm.priceBookItemId : itemForm.description.trim().length > 0;
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings/bundles" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings/bundles" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Bundles
       </Link>
 
       <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-xl font-bold text-gray-900">{bundle?.name ?? ""}</h1>
-        <button onClick={() => setRenameOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          {bundle?.name ?? ""}
+        </h1>
+        <button onClick={() => setRenameOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           Rename
         </button>
       </div>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {!items || items.length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No items yet in this bundle.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No items yet in this bundle.
+          </p>
         ) : (
           items.map((row) => {
             const breakdown = resolvedBreakdown(row);
@@ -267,62 +272,70 @@ export default function BundleDetailPage() {
               <button
                 key={row.id}
                 onClick={() => openEditItem(row)}
-                className="flex w-full items-center justify-between gap-3 p-3 text-left hover:bg-gray-50"
+                className="jms-nav-link flex w-full items-center justify-between gap-3 p-3 text-left last:border-0"
+                style={{ borderBottom: "1px solid var(--jms-border)" }}
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-900">{breakdown.description}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {breakdown.description}
+                  </p>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     Qty {row.quantity} &times; {formatCentsAsAud(unitPriceCents)}
                     {row.price_book_item_id ? " (from Price Book)" : ""}
                   </p>
                 </div>
-                <span className="flex-shrink-0 text-sm font-semibold text-gray-900">{formatCentsAsAud(unitPriceCents * row.quantity)}</span>
+                <span className="flex-shrink-0 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                  {formatCentsAsAud(unitPriceCents * row.quantity)}
+                </span>
               </button>
             );
           })
         )}
       </div>
-      <button
-        onClick={openNewItem}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
+      <ThemedButton onClick={openNewItem} className="mt-3 w-full" style={{ paddingBlock: 12, paddingInline: 24 }}>
         + New item
-      </button>
+      </ThemedButton>
 
-      <Modal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename bundle">
-        <FormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
-        {renameError ? <p className="mb-4 text-sm text-red-600">{renameError}</p> : null}
+      <ThemedModal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename bundle">
+        <ThemedFormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+        {renameError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {renameError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => rename.mutate()}
-            disabled={rename.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => rename.mutate()} disabled={rename.isPending}>
             {rename.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={itemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Edit item" : "New item"}>
+      <ThemedModal open={itemModalOpen} onClose={() => setItemModalOpen(false)} title={editingItem ? "Edit item" : "New item"}>
         <div className="mb-4 flex gap-2">
           <button
             type="button"
             onClick={() => setItemForm({ ...itemForm, mode: "custom" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              itemForm.mode === "custom" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded px-3 py-2 font-semibold"
+            style={
+              itemForm.mode === "custom"
+                ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                : { backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+            }
           >
             Custom item
           </button>
           <button
             type="button"
             onClick={() => setItemForm({ ...itemForm, mode: "price_book" })}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-              itemForm.mode === "price_book" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-            }`}
+            className="flex-1 rounded px-3 py-2 font-semibold"
+            style={
+              itemForm.mode === "price_book"
+                ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                : { backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+            }
           >
             From Price Book
           </button>
@@ -331,11 +344,17 @@ export default function BundleDetailPage() {
         {itemForm.mode === "price_book" ? (
           <div className="mb-4">
             {itemForm.priceBookItemId ? (
-              <div className="mb-2 flex items-center justify-between rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm">
-                <span className="truncate font-semibold text-gray-900">{itemForm.priceBookItemDescription}</span>
+              <div
+                className="mb-2 flex items-center justify-between rounded px-3 py-2"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", fontSize: "var(--jms-font-body)" }}
+              >
+                <span className="truncate font-semibold" style={{ color: "var(--jms-text)" }}>
+                  {itemForm.priceBookItemDescription}
+                </span>
                 <button
                   onClick={() => setItemForm({ ...itemForm, priceBookItemId: "", priceBookItemDescription: "", priceBookItemBreakdown: null })}
-                  className="ml-2 flex-shrink-0 text-xs font-semibold text-red-600"
+                  className="ml-2 flex-shrink-0 font-semibold"
+                  style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
                 >
                   Change
                 </button>
@@ -344,13 +363,20 @@ export default function BundleDetailPage() {
               <>
                 <input
                   type="text"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded border px-3 py-2 focus:outline-none"
+                  style={{
+                    backgroundColor: "var(--jms-bg)",
+                    borderColor: "var(--jms-border)",
+                    color: "var(--jms-text)",
+                    fontFamily: "var(--jms-font)",
+                    fontSize: "var(--jms-font-body)",
+                  }}
                   placeholder="Search Price Book (3+ characters)"
                   value={pbQuery}
                   onChange={(e) => setPbQuery(e.target.value)}
                 />
                 {pbResults.length > 0 ? (
-                  <div className="mt-2 overflow-hidden rounded-md border border-gray-300">
+                  <div className="mt-2 overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)" }}>
                     {pbResults.map((pb) => (
                       <button
                         key={pb.id}
@@ -367,7 +393,8 @@ export default function BundleDetailPage() {
                             },
                           })
                         }
-                        className="block w-full truncate border-b border-gray-200 px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+                        className="jms-nav-link block w-full truncate px-3 py-2 text-left last:border-0"
+                        style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                       >
                         {pb.description}
                       </button>
@@ -379,33 +406,41 @@ export default function BundleDetailPage() {
           </div>
         ) : (
           <>
-            <FormField
+            <ThemedFormField
               label="Description"
               value={itemForm.description}
               onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })}
               placeholder="e.g. 250L Hot Water Unit"
             />
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Labour rate ($/hr)" value={itemForm.labourRate} onChange={(e) => setItemForm({ ...itemForm, labourRate: e.target.value })} />
-              <FormField label="Labour hours" value={itemForm.labourHours} onChange={(e) => setItemForm({ ...itemForm, labourHours: e.target.value })} />
+              <ThemedFormField label="Labour rate ($/hr)" value={itemForm.labourRate} onChange={(e) => setItemForm({ ...itemForm, labourRate: e.target.value })} />
+              <ThemedFormField label="Labour hours" value={itemForm.labourHours} onChange={(e) => setItemForm({ ...itemForm, labourHours: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Material cost ($)" value={itemForm.materialCost} onChange={(e) => setItemForm({ ...itemForm, materialCost: e.target.value })} />
-              <FormField label="Markup (%)" value={itemForm.markupPercent} onChange={(e) => setItemForm({ ...itemForm, markupPercent: e.target.value })} />
+              <ThemedFormField label="Material cost ($)" value={itemForm.materialCost} onChange={(e) => setItemForm({ ...itemForm, materialCost: e.target.value })} />
+              <ThemedFormField label="Markup (%)" value={itemForm.markupPercent} onChange={(e) => setItemForm({ ...itemForm, markupPercent: e.target.value })} />
             </div>
           </>
         )}
 
-        <FormField label="Quantity" value={itemForm.quantity} onChange={(e) => setItemForm({ ...itemForm, quantity: e.target.value })} />
+        <ThemedFormField label="Quantity" value={itemForm.quantity} onChange={(e) => setItemForm({ ...itemForm, quantity: e.target.value })} />
 
         {previewCents !== null ? (
-          <div className="mb-4 rounded-md bg-gray-50 p-3">
-            <p className="text-xs font-bold text-gray-500">Computed unit price</p>
-            <p className="text-lg font-extrabold text-gray-900">{formatCentsAsAud(previewCents)}</p>
+          <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
+            <p className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Computed unit price
+            </p>
+            <p className="text-lg font-extrabold" style={{ color: "var(--jms-accent)" }}>
+              {formatCentsAsAud(previewCents)}
+            </p>
           </div>
         ) : null}
 
-        {itemError ? <p className="mb-4 text-sm text-red-600">{itemError}</p> : null}
+        {itemError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {itemError}
+          </p>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           {editingItem ? (
             <button
@@ -415,7 +450,8 @@ export default function BundleDetailPage() {
                   setItemModalOpen(false);
                 }
               }}
-              className="text-sm font-semibold text-red-600 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
             >
               Delete
             </button>
@@ -423,19 +459,15 @@ export default function BundleDetailPage() {
             <span />
           )}
           <div className="flex gap-3">
-            <button onClick={() => setItemModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            <button onClick={() => setItemModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Cancel
             </button>
-            <button
-              onClick={() => saveItem.mutate()}
-              disabled={saveItem.isPending || !canSaveItem}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={() => saveItem.mutate()} disabled={saveItem.isPending || !canSaveItem}>
               {saveItem.isPending ? "Saving..." : "Save"}
-            </button>
+            </ThemedButton>
           </div>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

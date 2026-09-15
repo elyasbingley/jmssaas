@@ -114,11 +114,15 @@ export default function ChannelsPage() {
   const isLoading = conversationsLoading || inboxLoading;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="flex min-w-0 flex-1 flex-col p-6">
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-gray-900">Channels</h1>
-          <p className="text-sm text-gray-500">Every conversation with a client, in one place - reply, or turn one into a job or task.</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Channels
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Every conversation with a client, in one place - reply, or turn one into a job or task.
+          </p>
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -126,7 +130,12 @@ export default function ChannelsPage() {
             <button
               key={f}
               onClick={() => setChannelFilter(f)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${channelFilter === f ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"}`}
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={
+                channelFilter === f
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+              }
             >
               {f === "all" ? "All" : `${CHANNEL_ICONS[f]} ${CHANNEL_LABELS[f]}`}
             </button>
@@ -136,31 +145,42 @@ export default function ChannelsPage() {
             placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="ml-auto rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="ml-auto rounded border px-3 py-1.5 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           />
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-gray-500">Loading...</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-gray-500">No conversations yet.</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No conversations yet.</p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             {rows.map((row) => (
               <button
                 key={row.id}
                 onClick={() => navigate(`/channels/${row.id}`)}
-                className="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-left last:border-0 hover:bg-gray-50"
+                className="jms-nav-link flex w-full items-center gap-3 px-4 py-3 text-left last:border-0"
+                style={{ borderBottom: "1px solid var(--jms-border)" }}
               >
                 <span className="flex-shrink-0 text-xl">{CHANNEL_ICONS[row.channelType]}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`truncate font-semibold ${row.unread ? "text-gray-900" : "text-gray-700"}`}>{row.title}</span>
-                    {row.unread ? <span className="h-2 w-2 flex-shrink-0 rounded-full bg-blue-600" /> : null}
+                    <span
+                      className="truncate font-semibold"
+                      style={{ color: row.unread ? "var(--jms-text)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+                    >
+                      {row.title}
+                    </span>
+                    {row.unread ? <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: "var(--jms-accent)" }} /> : null}
                   </div>
-                  <p className="truncate text-sm text-gray-500">{row.preview || row.subtitle}</p>
+                  <p className="truncate" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    {row.preview || row.subtitle}
+                  </p>
                 </div>
-                <span className="flex-shrink-0 text-xs text-gray-400">{new Date(row.timestamp).toLocaleDateString("en-AU")}</span>
+                <span className="flex-shrink-0" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  {new Date(row.timestamp).toLocaleDateString("en-AU")}
+                </span>
               </button>
             ))}
           </div>

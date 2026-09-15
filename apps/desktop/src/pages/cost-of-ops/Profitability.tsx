@@ -13,8 +13,9 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { getErrorMessage } from "../../lib/errors";
-import { Modal } from "../../components/Modal";
-import { FormField } from "../../components/FormField";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
 
 async function fetchSettings(): Promise<CostOfOpsSettings> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").single();
@@ -98,34 +99,54 @@ export default function ProfitabilityPage() {
   });
 
   if (!settings || !profitability) {
-    return <p className="text-sm text-gray-500">Loading...</p>;
+    return (
+      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>Loading...</p>
+    );
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between rounded-lg border border-gray-300 bg-white p-4">
-        <div className="flex gap-8 text-sm">
+    <div style={{ fontFamily: "var(--jms-font)" }}>
+      <div
+        className="mb-6 flex items-center justify-between rounded-lg p-4"
+        style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+      >
+        <div className="flex gap-8" style={{ fontSize: "var(--jms-font-body)" }}>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">COO/Hour (RAW)</p>
-            <p className="font-bold text-gray-900">{formatCentsAsAud(profitability.cooPerHourRawCents)}</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              COO/Hour (RAW)
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {formatCentsAsAud(profitability.cooPerHourRawCents)}
+            </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Actual Charge Rate (ex GST)</p>
-            <p className="font-bold text-gray-900">{formatCentsAsAud(settings.actual_charge_rate_cents)}</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Actual Charge Rate (ex GST)
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {formatCentsAsAud(settings.actual_charge_rate_cents)}
+            </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Target Labour Profit Margin</p>
-            <p className="font-bold text-gray-900">{(settings.target_labour_profit_margin * 100).toFixed(1)}%</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Target Labour Profit Margin
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {(settings.target_labour_profit_margin * 100).toFixed(1)}%
+            </p>
           </div>
         </div>
-        <button onClick={openAssumptions} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <ThemedButton variant="secondary" onClick={openAssumptions} style={{ paddingBlock: 6, paddingInline: 12 }}>
           Edit
-        </button>
+        </ThemedButton>
       </div>
 
-      <div className="mb-6 overflow-x-auto rounded-lg border border-gray-300 bg-white">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+      <div className="mb-6 overflow-x-auto rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+          <thead
+            className="uppercase"
+            style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             <tr>
               <th className="px-4 py-2 font-semibold">Metric</th>
               {profitability.columns.map((c) => (
@@ -136,86 +157,106 @@ export default function ProfitabilityPage() {
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">COO/Hr</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                COO/Hr
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right">
+                <td key={c.label} className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.cooPerHourCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">Required Charge-out Rate</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                Required Charge-out Rate
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right font-semibold">
+                <td key={c.label} className="px-4 py-2 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.requiredChargeRateCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">vs. Your Actual Rate</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                vs. Your Actual Rate
+              </td>
               {profitability.columns.map((c) => {
                 const diff = settings.actual_charge_rate_cents - c.requiredChargeRateCents;
                 return (
-                  <td key={c.label} className={`px-4 py-2 text-right ${diff < 0 ? "text-red-600" : "text-green-700"}`}>
+                  <td key={c.label} className="px-4 py-2 text-right" style={{ color: diff < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}>
                     {diff >= 0 ? "+" : ""}
                     {formatCentsAsAud(diff)}
                   </td>
                 );
               })}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">Billable Hrs / Resource / Week</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                Billable Hrs / Resource / Week
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right">
+                <td key={c.label} className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
                   {c.billableHoursPerResourcePerWeek.toFixed(1)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">Profit / Billable Hr</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                Profit / Billable Hr
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right">
+                <td key={c.label} className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.profitPerBillableHourCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">Profit / Resource / Month</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                Profit / Resource / Month
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right">
+                <td key={c.label} className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.profitPerResourceMonthCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 font-semibold text-gray-900">Estimated Labour Profit (Monthly)</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text)" }}>
+                Estimated Labour Profit (Monthly)
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right font-semibold text-gray-900">
+                <td key={c.label} className="px-4 py-2 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.estimatedLabourProfitCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b border-gray-200">
-              <td className="px-4 py-2 text-gray-600">Estimated Contractor Profit (Monthly)</td>
+            <tr style={{ borderBottom: "1px solid var(--jms-border)" }}>
+              <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                Estimated Contractor Profit (Monthly)
+              </td>
               {profitability.columns.map((c) => (
-                <td key={c.label} className="px-4 py-2 text-right">
+                <td key={c.label} className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
                   {formatCentsAsAud(c.estimatedContractorProfitCents)}
                 </td>
               ))}
             </tr>
-            <tr className="border-b-2 border-gray-300 bg-gray-50">
-              <td className="px-4 py-2 font-bold text-gray-900">Estimated Total Monthly Profit</td>
+            <tr style={{ borderBottom: "2px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+              <td className="px-4 py-2 font-bold" style={{ color: "var(--jms-text)" }}>
+                Estimated Total Monthly Profit
+              </td>
               {profitability.estimatedTotalMonthlyProfitCents.map((v, i) => (
-                <td key={i} className="px-4 py-2 text-right font-bold text-blue-700">
+                <td key={i} className="px-4 py-2 text-right font-bold" style={{ color: "var(--jms-accent)" }}>
                   {formatCentsAsAud(v)}
                 </td>
               ))}
             </tr>
             <tr>
-              <td className="px-4 py-2 font-bold text-gray-900">Estimated Annual Profit</td>
+              <td className="px-4 py-2 font-bold" style={{ color: "var(--jms-text)" }}>
+                Estimated Annual Profit
+              </td>
               {profitability.estimatedAnnualProfitCents.map((v, i) => (
-                <td key={i} className="px-4 py-2 text-right font-bold text-blue-700">
+                <td key={i} className="px-4 py-2 text-right font-bold" style={{ color: "var(--jms-accent)" }}>
                   {formatCentsAsAud(v)}
                 </td>
               ))}
@@ -225,80 +266,112 @@ export default function ProfitabilityPage() {
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Estimated Material Profit (Monthly)</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(profitability.estimatedMaterialProfitCents)}</p>
-          <p className="text-xs text-gray-500">Same across every efficiency scenario - doesn't depend on labour efficiency.</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Estimated Material Profit (Monthly)
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(profitability.estimatedMaterialProfitCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Same across every efficiency scenario - doesn't depend on labour efficiency.
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Owner's Wages + Super (Annual)</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(profitability.ownerWagesAndSuperCents)}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Owner's Wages + Super (Annual)
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(profitability.ownerWagesAndSuperCents)}
+          </p>
         </div>
       </div>
 
-      <div className="rounded-lg border border-blue-300 bg-blue-50 p-6">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-blue-800">
+      <div className="rounded-lg p-6" style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-accent-glow)" }}>
+        <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
           Total Benefit From Business (Actual Efficiency)
         </h2>
-        <div className="grid grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-3 gap-4" style={{ fontSize: "var(--jms-font-body)" }}>
           <div>
-            <p className="text-xs text-blue-700">Annual Profit</p>
-            <p className="text-xl font-bold text-blue-900">{formatCentsAsAud(profitability.estimatedAnnualProfitCents[3]!)}</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Annual Profit</p>
+            <p className="text-xl font-bold" style={{ color: "var(--jms-text)" }}>
+              {formatCentsAsAud(profitability.estimatedAnnualProfitCents[3]!)}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-blue-700">+ Owner's Wages &amp; Super</p>
-            <p className="text-xl font-bold text-blue-900">{formatCentsAsAud(profitability.ownerWagesAndSuperCents)}</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>+ Owner's Wages &amp; Super</p>
+            <p className="text-xl font-bold" style={{ color: "var(--jms-text)" }}>
+              {formatCentsAsAud(profitability.ownerWagesAndSuperCents)}
+            </p>
           </div>
           <div>
-            <p className="text-xs text-blue-700">= Total Benefit From Business</p>
-            <p className="text-xl font-bold text-blue-900">{formatCentsAsAud(profitability.totalBenefitFromBusinessCents)}</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>= Total Benefit From Business</p>
+            <p className="text-xl font-bold" style={{ color: "var(--jms-text)" }}>
+              {formatCentsAsAud(profitability.totalBenefitFromBusinessCents)}
+            </p>
           </div>
         </div>
       </div>
 
-      <Modal open={assumptionsOpen} onClose={() => setAssumptionsOpen(false)} title="Edit profitability assumptions">
+      <ThemedModal open={assumptionsOpen} onClose={() => setAssumptionsOpen(false)} title="Edit profitability assumptions">
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Actual charge rate (ex GST, $/hr)"
             type="number"
             step="0.01"
             value={actualChargeRate}
             onChange={(e) => setActualChargeRate(e.target.value)}
           />
-          <FormField label="Target labour profit margin (%)" type="number" step="0.1" value={targetMargin} onChange={(e) => setTargetMargin(e.target.value)} />
+          <ThemedFormField
+            label="Target labour profit margin (%)"
+            type="number"
+            step="0.1"
+            value={targetMargin}
+            onChange={(e) => setTargetMargin(e.target.value)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Materials avg monthly spend ($)"
             type="number"
             value={materialsSpend}
             onChange={(e) => setMaterialsSpend(e.target.value)}
           />
-          <FormField label="Materials avg markup (%)" type="number" step="0.1" value={materialsMarkup} onChange={(e) => setMaterialsMarkup(e.target.value)} />
+          <ThemedFormField
+            label="Materials avg markup (%)"
+            type="number"
+            step="0.1"
+            value={materialsMarkup}
+            onChange={(e) => setMaterialsMarkup(e.target.value)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Contractors weekly spend ($)"
             type="number"
             value={contractorsSpend}
             onChange={(e) => setContractorsSpend(e.target.value)}
           />
-          <FormField label="Contractors weekly hours" type="number" value={contractorsHours} onChange={(e) => setContractorsHours(e.target.value)} />
+          <ThemedFormField label="Contractors weekly hours" type="number" value={contractorsHours} onChange={(e) => setContractorsHours(e.target.value)} />
         </div>
-        {assumptionsError ? <p className="mb-4 text-sm text-red-600">{assumptionsError}</p> : null}
+        {assumptionsError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {assumptionsError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAssumptionsOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => setAssumptionsOpen(false)}
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => saveAssumptions.mutate()}
-            disabled={saveAssumptions.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveAssumptions.mutate()} disabled={saveAssumptions.isPending}>
             {saveAssumptions.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

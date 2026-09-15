@@ -1,6 +1,9 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
+import type { ThemeTokens } from "@jmssaas/shared";
 import {
   createReportCategorySchema,
   createReportSubcategorySchema,
@@ -16,12 +19,15 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useIsOnline } from "../../lib/connectivity";
 import { useAuth } from "../../lib/auth-context";
+import { useTheme } from "../../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../lib/errors";
-import { RequiresConnectionNotice } from "../../components/RequiresConnectionNotice";
-import { CenteredModal } from "../../components/CenteredModal";
-import { PickerModal } from "../../components/PickerModal";
-import { FormField } from "../../components/FormField";
+import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
+import { ThemedButton } from "../../components/theme/ThemedButton";
 
 // Mobile port of apps/desktop/src/pages/Reports.tsx's three sub-tabs. Like
 // Real Estate & Strata (app/real-estate/), none of report_categories/
@@ -33,11 +39,13 @@ import { FormField } from "../../components/FormField";
 
 type SubTab = "new" | "history" | "studio";
 
-const STATUS_COLORS: Record<ReportInstanceStatus, { bg: string; text: string }> = {
-  draft: { bg: "#fef9c3", text: "#854d0e" },
-  completed: { bg: "#dcfce7", text: "#15803d" },
-  archived: { bg: "#e5e7eb", text: "#4b5563" },
-};
+export function getStatusColors(tokens: ThemeTokens): Record<ReportInstanceStatus, { color: string }> {
+  return {
+    draft: { color: tokens.warning },
+    completed: { color: tokens.accent },
+    archived: { color: tokens.textMuted },
+  };
+}
 
 export default function ReportsScreen() {
   const router = useRouter();
@@ -45,6 +53,7 @@ export default function ReportsScreen() {
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
   const [tab, setTab] = useState<SubTab>("new");
+  const styles = useThemedStyles(createStyles);
 
   const { data: categories, refetch: refetchCategories } = useSupabaseFetch<ReportCategory[]>(async () => {
     if (!isOnline) return [];
@@ -93,52 +102,62 @@ export default function ReportsScreen() {
     await Promise.all([refetchCategories(), refetchSubcategories(), refetchTemplates(), refetchInstances()]);
   });
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Reports & Safety" />;
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.tabRow}>
-        {(
-          [
-            { key: "new", label: "New Report" },
-            { key: "history", label: "History" },
-            { key: "studio", label: "Template Studio" },
-          ] as { key: SubTab; label: string }[]
-        ).map((t) => (
-          <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title}>Forms & Certificates</Text>
       </View>
 
-      {tab === "new" ? (
-        <NewReportTab
-          categories={categories ?? []}
-          subcategories={subcategories ?? []}
-          templates={(templates ?? []).filter((t) => t.is_active)}
-        />
-      ) : tab === "history" ? (
-        <ReportHistoryTab
-          instances={instances ?? []}
-          templates={templates ?? []}
-          jobs={jobs ?? []}
-          clients={clients ?? []}
-          profiles={profiles ?? []}
-          onLinked={refetchInstances}
-        />
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Reports & Safety" />
       ) : (
-        <TemplateStudioTab
-          categories={categories ?? []}
-          subcategories={subcategories ?? []}
-          templates={templates ?? []}
-          isAdmin={isAdmin}
-          onCategoriesChanged={refetchCategories}
-          onSubcategoriesChanged={refetchSubcategories}
-        />
+        <View style={styles.container}>
+          <View style={styles.tabRow}>
+            {(
+              [
+                { key: "new", label: "New Report" },
+                { key: "history", label: "History" },
+                { key: "studio", label: "Template Studio" },
+              ] as { key: SubTab; label: string }[]
+            ).map((t) => (
+              <Pressable key={t.key} style={[styles.tab, tab === t.key && styles.tabActive]} onPress={() => setTab(t.key)}>
+                <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {tab === "new" ? (
+            <NewReportTab
+              categories={categories ?? []}
+              subcategories={subcategories ?? []}
+              templates={(templates ?? []).filter((t) => t.is_active)}
+            />
+          ) : tab === "history" ? (
+            <ReportHistoryTab
+              instances={instances ?? []}
+              templates={templates ?? []}
+              jobs={jobs ?? []}
+              clients={clients ?? []}
+              profiles={profiles ?? []}
+              onLinked={refetchInstances}
+            />
+          ) : (
+            <TemplateStudioTab
+              categories={categories ?? []}
+              subcategories={subcategories ?? []}
+              templates={templates ?? []}
+              isAdmin={isAdmin}
+              onCategoriesChanged={refetchCategories}
+              onSubcategoriesChanged={refetchSubcategories}
+            />
+          )}
+        </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -157,6 +176,7 @@ function NewReportTab({
 }) {
   const router = useRouter();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
   const [search, setSearch] = useState("");
   const [starting, setStarting] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -187,7 +207,7 @@ function NewReportTab({
 
   return (
     <ScrollView style={styles.tabBody} contentContainerStyle={{ paddingBottom: 40 }}>
-      <FormField label="Search templates" value={search} onChangeText={setSearch} placeholder="Search by title..." />
+      <ThemedFormField label="Search templates" value={search} onChangeText={setSearch} placeholder="Search by title..." />
       {startError ? <Text style={styles.error}>{startError}</Text> : null}
 
       {categories.length === 0 ? (
@@ -253,6 +273,9 @@ function ReportHistoryTab({
   onLinked: () => void;
 }) {
   const router = useRouter();
+  const { tokens } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const statusColors = getStatusColors(tokens);
   const templateById = new Map(templates.map((t) => [t.id, t]));
   const jobById = new Map(jobs.map((j) => [j.id, j]));
   const clientById = new Map(clients.map((c) => [c.id, c]));
@@ -285,13 +308,13 @@ function ReportHistoryTab({
           const template = templateById.get(instance.template_id);
           const job = instance.job_card_id ? jobById.get(instance.job_card_id) : null;
           const author = instance.created_by ? profileById.get(instance.created_by) : null;
-          const colors = STATUS_COLORS[instance.status];
+          const color = statusColors[instance.status].color;
           return (
             <Pressable key={instance.id} style={styles.historyRow} onPress={() => router.push(`/reports/instance/${instance.id}`)}>
               <View style={styles.historyRowHeader}>
                 <Text style={styles.historyTitle}>{template?.title ?? "Unknown template"}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: colors.bg }]}>
-                  <Text style={[styles.statusBadgeText, { color: colors.text }]}>
+                <View style={[styles.statusBadge, { borderColor: color }]}>
+                  <Text style={[styles.statusBadgeText, { color }]}>
                     {instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
                   </Text>
                 </View>
@@ -321,7 +344,7 @@ function ReportHistoryTab({
 
       {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
 
-      <PickerModal
+      <ThemedPickerModal
         visible={jobPickerVisible}
         title="Select job"
         items={jobs}
@@ -355,6 +378,7 @@ function TemplateStudioTab({
 }) {
   const router = useRouter();
   const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const toggleCategory = (id: string) => {
     setExpandedCategoryIds((prev) => {
@@ -446,9 +470,7 @@ function TemplateStudioTab({
           <Pressable style={styles.secondaryButton} onPress={() => openNewSubcategory()}>
             <Text style={styles.secondaryButtonText}>+ Add Subcategory</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={openNewCategory}>
-            <Text style={styles.primaryButtonText}>+ Add Category</Text>
-          </Pressable>
+          <ThemedButton label="+ Add Category" onPress={openNewCategory} />
         </View>
       ) : null}
 
@@ -508,10 +530,10 @@ function TemplateStudioTab({
         })
       )}
 
-      <CenteredModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)}>
+      <ThemedModal visible={categoryModalVisible} onClose={() => setCategoryModalVisible(false)}>
         <Text style={styles.modalTitle}>New category</Text>
-        <FormField label="Name" value={categoryName} onChangeText={setCategoryName} placeholder="e.g. WHS & Safety" />
-        <FormField
+        <ThemedFormField label="Name" value={categoryName} onChangeText={setCategoryName} placeholder="e.g. WHS & Safety" />
+        <ThemedFormField
           label="Description (optional)"
           value={categoryDescription}
           onChangeText={setCategoryDescription}
@@ -523,13 +545,11 @@ function TemplateStudioTab({
           <Pressable onPress={() => setCategoryModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={saveCategory} disabled={categorySaving}>
-            <Text style={styles.primaryButtonText}>{categorySaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={categorySaving ? "Saving..." : "Save"} onPress={saveCategory} disabled={categorySaving} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <CenteredModal visible={subcategoryModalVisible} onClose={() => setSubcategoryModalVisible(false)}>
+      <ThemedModal visible={subcategoryModalVisible} onClose={() => setSubcategoryModalVisible(false)}>
         <Text style={styles.modalTitle}>New subcategory</Text>
         <Pressable style={styles.pickerField} onPress={() => setCategoryPickerVisible(true)}>
           <Text style={styles.pickerFieldLabel}>Category</Text>
@@ -537,19 +557,17 @@ function TemplateStudioTab({
             {categories.find((c) => c.id === subCategoryId)?.name ?? "Select category"}
           </Text>
         </Pressable>
-        <FormField label="Name" value={subName} onChangeText={setSubName} placeholder="e.g. Safety Forms" />
+        <ThemedFormField label="Name" value={subName} onChangeText={setSubName} placeholder="e.g. Safety Forms" />
         {subError ? <Text style={styles.error}>{subError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable onPress={() => setSubcategoryModalVisible(false)}>
             <Text style={styles.link}>Cancel</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={saveSubcategory} disabled={subSaving || !subCategoryId}>
-            <Text style={styles.primaryButtonText}>{subSaving ? "Saving..." : "Save"}</Text>
-          </Pressable>
+          <ThemedButton label={subSaving ? "Saving..." : "Save"} onPress={saveSubcategory} disabled={subSaving || !subCategoryId} />
         </View>
-      </CenteredModal>
+      </ThemedModal>
 
-      <PickerModal
+      <ThemedPickerModal
         visible={categoryPickerVisible}
         title="Select category"
         items={categories}
@@ -562,55 +580,59 @@ function TemplateStudioTab({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#d1d5db" },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabActive: { borderBottomColor: "#1d4ed8" },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#6b7280" },
-  tabTextActive: { color: "#1d4ed8" },
-  tabBody: { flex: 1, padding: 16 },
-  error: { color: "#dc2626", marginTop: 8 },
-  empty: { color: "#6b7280", textAlign: "center", marginTop: 16 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  smallLink: { color: "#1d4ed8", fontWeight: "600", fontSize: 12, marginTop: 4 },
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    container: { flex: 1, backgroundColor: tokens.background },
+    tabRow: { flexDirection: "row" as const, borderBottomWidth: 1, borderBottomColor: tokens.border },
+    tab: { flex: 1, paddingVertical: 12, alignItems: "center" as const, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabActive: { borderBottomColor: tokens.accent },
+    tabText: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted, textTransform: "uppercase" as const },
+    tabTextActive: { color: tokens.accent },
+    tabBody: { flex: 1, padding: 16 },
+    error: { ...mono, color: tokens.danger, marginTop: 8, fontSize: font.body },
+    empty: { ...mono, color: tokens.textMuted, textAlign: "center" as const, marginTop: 16, fontSize: font.body },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
+    smallLink: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, marginTop: 4 },
 
-  categoryBlock: { marginTop: 20 },
-  categoryTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 8 },
-  subBlock: { marginBottom: 12 },
-  subTitle: { fontSize: 12, fontWeight: "600", color: "#6b7280", marginBottom: 6 },
-  templateCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 8, backgroundColor: "#fff" },
-  templateCardTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  templateCardDesc: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  swmsBadge: { alignSelf: "flex-start", backgroundColor: "#ffedd5", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, marginTop: 8 },
-  swmsBadgeText: { fontSize: 11, fontWeight: "700", color: "#9a3412" },
+    categoryBlock: { marginTop: 20 },
+    categoryTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 8 },
+    subBlock: { marginBottom: 12 },
+    subTitle: { ...mono, fontSize: font.label, fontWeight: "600" as const, color: tokens.textMuted, marginBottom: 6 },
+    templateCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 14, marginBottom: 8 },
+    templateCardTitle: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary },
+    templateCardDesc: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    swmsBadge: { alignSelf: "flex-start" as const, borderWidth: 1, borderColor: tokens.warning, backgroundColor: tokens.surface, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3, marginTop: 8 },
+    swmsBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.warning },
 
-  historyRow: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 14, marginBottom: 10 },
-  historyRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
-  historyTitle: { fontSize: 15, fontWeight: "700", color: "#111827", flex: 1 },
-  historyMeta: { fontSize: 12, color: "#6b7280", marginTop: 4 },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeText: { fontSize: 11, fontWeight: "700" },
+    historyRow: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 14, marginBottom: 10 },
+    historyRowHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "flex-start" as const, gap: 8 },
+    historyTitle: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, flex: 1 },
+    historyMeta: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 4 },
+    statusBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+    statusBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const },
 
-  studioActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginBottom: 16 },
-  primaryButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  secondaryButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" },
-  secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 13 },
+    studioActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, gap: 8, marginBottom: 16 },
+    secondaryButton: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center" as const },
+    secondaryButtonText: { ...mono, color: tokens.accent, fontWeight: "700" as const, fontSize: font.button, letterSpacing: 1, textTransform: "uppercase" as const },
 
-  treeCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, marginBottom: 10, backgroundColor: "#fff" },
-  treeCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14 },
-  treeChevron: { color: "#9ca3af", fontSize: 12 },
-  treeCardTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: "#111827" },
-  treeCardMeta: { fontSize: 11, color: "#9ca3af" },
-  treeCardBody: { borderTopWidth: 1, borderTopColor: "#f3f4f6", padding: 14, gap: 10 },
-  subTreeItem: { marginLeft: 8, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: "#f3f4f6", gap: 4 },
-  subTreeTitle: { fontSize: 13, fontWeight: "700", color: "#374151" },
-  subTreeTemplateRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
+    treeCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, marginBottom: 10 },
+    treeCardHeader: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, padding: 14 },
+    treeChevron: { color: tokens.textMuted, fontSize: font.label },
+    treeCardTitle: { flex: 1, ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary },
+    treeCardMeta: { ...mono, fontSize: font.label, color: tokens.textMuted },
+    treeCardBody: { borderTopWidth: 1, borderTopColor: tokens.border, padding: 14, gap: 10 },
+    subTreeItem: { marginLeft: 8, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: tokens.border, gap: 4 },
+    subTreeTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textPrimary },
+    subTreeTemplateRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, paddingVertical: 4 },
 
-  modalTitle: { fontSize: 17, fontWeight: "700" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16, marginTop: 4 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
-});
+    modalTitle: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 16, marginTop: 4 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 2 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
+  };
+}

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { CalendarEvent, Client, JobCard, JobLifecycleStage, Profile } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { useIsOnline } from "../lib/connectivity";
@@ -8,7 +10,8 @@ import { useRefetchOnFocus, useSupabaseFetch } from "../lib/use-supabase-fetch";
 import { supabase } from "../lib/supabase";
 import { addDays, formatEventTimeRange, isSameDay } from "../lib/datetime";
 import { formatClientAddress } from "../lib/format";
-import { RequiresConnectionNotice } from "../components/RequiresConnectionNotice";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedRequiresConnectionNotice } from "../components/theme/ThemedRequiresConnectionNotice";
 
 type JobCardRow = JobCard & { clients: Client | null };
 type CalendarEventRow = CalendarEvent & { job_cards: JobCardRow | null };
@@ -20,18 +23,17 @@ type CalendarEventRow = CalendarEvent & { job_cards: JobCardRow | null };
 // calendar_events (not a new field on job_cards) is the source of truth
 // for "when is this job happening."
 //
-// Reached via a small admin-only link on the Calendar tab rather than its
-// own tab or a Home tile - it's fundamentally a different view over
-// calendar_events (who's got what, not just what's on what day), and
-// Home's tile grid deliberately only mirrors the actual tab bar (see
-// app/(tabs)/index.tsx's own comment). Admin-only, same as every other
-// assignment/creation action in this app - technicians see their own
-// schedule via the ordinary Calendar tab.
+// Reached via More rather than its own tab or a Home tile - it's
+// fundamentally a different view over calendar_events (who's got what, not
+// just what's on what day). Admin-only, same as every other assignment/
+// creation action in this app - technicians see their own schedule via the
+// ordinary Calendar tab.
 export default function ScheduleScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const isAdmin = profile?.role === "admin";
+  const styles = useThemedStyles(createStyles);
 
   const { data, loading, refetch } = useSupabaseFetch(async () => {
     const [
@@ -116,124 +118,155 @@ export default function ScheduleScreen() {
     });
   };
 
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.title}>Schedule / Dispatch</Text>
+    </View>
+  );
+
   if (!isAdmin) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Only admins can view the schedule.</Text>
-      </View>
-    );
-  }
-
-  if (!isOnline) {
-    return (
-      <View style={styles.container}>
-        <RequiresConnectionNotice label="Schedule" />
-      </View>
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <Text style={styles.empty}>Only admins can view the schedule.</Text>
+        </SafeAreaView>
+      </>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <View style={styles.navRow}>
-        <Pressable onPress={() => setSelectedDate((d) => addDays(d, -1))} style={styles.navButton}>
-          <Text style={styles.navButtonText}>‹</Text>
-        </Pressable>
-        <Pressable onPress={() => setSelectedDate(new Date())} style={styles.navHeading}>
-          <Text style={styles.navHeadingText}>
-            {selectedDate.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => setSelectedDate((d) => addDays(d, 1))} style={styles.navButton}>
-          <Text style={styles.navButtonText}>›</Text>
-        </Pressable>
-      </View>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+        {header}
+        {!isOnline ? (
+          <ThemedRequiresConnectionNotice label="Schedule" />
+        ) : (
+          <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+            <View style={styles.navRow}>
+              <Pressable onPress={() => setSelectedDate((d) => addDays(d, -1))} style={styles.navButton}>
+                <Text style={styles.navButtonText}>‹</Text>
+              </Pressable>
+              <Pressable onPress={() => setSelectedDate(new Date())} style={styles.navHeading}>
+                <Text style={styles.navHeadingText}>
+                  {selectedDate.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setSelectedDate((d) => addDays(d, 1))} style={styles.navButton}>
+                <Text style={styles.navButtonText}>›</Text>
+              </Pressable>
+            </View>
 
-      {loading || !data ? (
-        <Text style={styles.empty}>Loading...</Text>
-      ) : (
-        <>
-          <Text style={styles.sectionTitle}>Unassigned jobs</Text>
-          {unassignedJobs.length === 0 ? (
-            <Text style={styles.empty}>Nothing waiting to be scheduled.</Text>
-          ) : (
-            unassignedJobs.map((job) => {
-              const stage = stageById.get(job.lifecycle_stage_id ?? "");
-              return (
-                <Pressable key={job.id} style={styles.jobRow} onPress={() => goToUnassignedJob(job)}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.jobTitle}>{job.title}</Text>
-                    <Text style={styles.jobSubtitle}>{job.clients?.name ?? "Unknown client"}</Text>
-                    {job.clients && formatClientAddress(job.clients) ? (
-                      <Text style={styles.jobSubtitle}>{formatClientAddress(job.clients)}</Text>
-                    ) : null}
-                  </View>
-                  {stage ? <Text style={styles.jobStatusBadge}>{stage.name}</Text> : null}
-                </Pressable>
-              );
-            })
-          )}
-
-          <Text style={styles.sectionTitle}>Technicians</Text>
-          {data.technicians.length === 0 ? (
-            <Text style={styles.empty}>No technicians yet.</Text>
-          ) : (
-            data.technicians.map((tech) => {
-              const techEvents = eventsByTechnician.get(tech.id) ?? [];
-              return (
-                <View key={tech.id} style={styles.techSection}>
-                  <Text style={styles.techName}>{tech.full_name}</Text>
-                  {techEvents.length === 0 ? (
-                    <Text style={styles.techEmpty}>No jobs scheduled.</Text>
-                  ) : (
-                    techEvents.map((event) => (
-                      <Pressable key={event.id} style={styles.eventRow} onPress={() => router.push(`/calendar/${event.id}`)}>
-                        <Text style={styles.eventTime}>{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</Text>
-                        <Text style={styles.eventTitle}>{event.job_cards?.title ?? event.title}</Text>
-                        {event.job_cards?.clients?.name ? (
-                          <Text style={styles.eventSubtitle}>{event.job_cards.clients.name}</Text>
-                        ) : null}
+            {loading || !data ? (
+              <Text style={styles.empty}>Loading...</Text>
+            ) : (
+              <>
+                <Text style={styles.sectionTitle}>Unassigned Jobs</Text>
+                {unassignedJobs.length === 0 ? (
+                  <Text style={styles.empty}>Nothing waiting to be scheduled.</Text>
+                ) : (
+                  unassignedJobs.map((job) => {
+                    const stage = stageById.get(job.lifecycle_stage_id ?? "");
+                    return (
+                      <Pressable key={job.id} style={styles.jobRow} onPress={() => goToUnassignedJob(job)}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.jobTitle}>{job.title}</Text>
+                          <Text style={styles.jobSubtitle}>{job.clients?.name ?? "Unknown client"}</Text>
+                          {job.clients && formatClientAddress(job.clients) ? (
+                            <Text style={styles.jobSubtitle}>{formatClientAddress(job.clients)}</Text>
+                          ) : null}
+                        </View>
+                        {stage ? <Text style={styles.jobStatusBadge}>{stage.name}</Text> : null}
                       </Pressable>
-                    ))
-                  )}
-                </View>
-              );
-            })
-          )}
-        </>
-      )}
-    </ScrollView>
+                    );
+                  })
+                )}
+
+                <Text style={styles.sectionTitle}>Technicians</Text>
+                {data.technicians.length === 0 ? (
+                  <Text style={styles.empty}>No technicians yet.</Text>
+                ) : (
+                  data.technicians.map((tech) => {
+                    const techEvents = eventsByTechnician.get(tech.id) ?? [];
+                    return (
+                      <View key={tech.id} style={styles.techSection}>
+                        <Text style={styles.techName}>{tech.full_name}</Text>
+                        {techEvents.length === 0 ? (
+                          <Text style={styles.techEmpty}>No jobs scheduled.</Text>
+                        ) : (
+                          techEvents.map((event) => (
+                            <Pressable key={event.id} style={styles.eventRow} onPress={() => router.push(`/calendar/${event.id}`)}>
+                              <Text style={styles.eventTime}>{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</Text>
+                              <Text style={styles.eventTitle}>{event.job_cards?.title ?? event.title}</Text>
+                              {event.job_cards?.clients?.name ? (
+                                <Text style={styles.eventSubtitle}>{event.job_cards.clients.name}</Text>
+                              ) : null}
+                            </Pressable>
+                          ))
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </>
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  navRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingBottom: 16,
-  },
-  navButton: { padding: 8 },
-  navButtonText: { fontSize: 22, color: "#1d4ed8", fontWeight: "700" },
-  navHeading: { flex: 1, alignItems: "center" },
-  navHeadingText: { fontSize: 16, fontWeight: "700" },
-  sectionTitle: { fontWeight: "700", color: "#6b7280", marginTop: 20, marginBottom: 10 },
-  jobRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-  },
-  jobTitle: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  jobSubtitle: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  jobStatusBadge: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-  techSection: { marginBottom: 18 },
-  techName: { fontWeight: "700", color: "#111827", fontSize: 15, marginBottom: 6 },
-  techEmpty: { color: "#9ca3af", fontSize: 13 },
-  eventRow: { paddingVertical: 8, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: "#1d4ed8", marginBottom: 4 },
-  eventTime: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-  eventTitle: { fontSize: 15, fontWeight: "600", color: "#111827", marginTop: 2 },
-  eventSubtitle: { fontSize: 13, color: "#6b7280", marginTop: 1 },
-  empty: { textAlign: "center", color: "#6b7280", padding: 16 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
+    link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    navRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingBottom: 16,
+    },
+    navButton: { padding: 8 },
+    navButtonText: { fontSize: 22, color: tokens.accent, fontWeight: "700" as const, ...mono },
+    navHeading: { flex: 1, alignItems: "center" as const },
+    navHeadingText: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    sectionTitle: {
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginTop: 20,
+      marginBottom: 10,
+      ...mono,
+    },
+    jobRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+    },
+    jobTitle: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
+    jobSubtitle: { fontSize: font.label, color: tokens.textMuted, marginTop: 2, ...mono },
+    jobStatusBadge: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    techSection: { marginBottom: 18 },
+    techName: { fontWeight: "700" as const, color: tokens.textPrimary, fontSize: font.body - 1, marginBottom: 6, ...mono },
+    techEmpty: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    eventRow: { paddingVertical: 8, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: tokens.accent, marginBottom: 4 },
+    eventTime: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label - 1, ...mono },
+    eventTitle: { fontSize: font.body - 1, fontWeight: "600" as const, color: tokens.textPrimary, marginTop: 2, ...mono },
+    eventSubtitle: { fontSize: font.label, color: tokens.textMuted, marginTop: 1, ...mono },
+    empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 16, ...mono },
+  };
+}

@@ -50,24 +50,39 @@ export default function DashboardSettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-      <p className="mb-6 text-sm text-gray-500">Choose what shows on your Dashboard home screen.</p>
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Dashboard
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Choose what shows on your Dashboard home screen.
+      </p>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-        {WIDGET_KEYS.map((key) => (
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        {WIDGET_KEYS.map((key, i) => (
           <label
             key={key}
-            className="flex cursor-pointer items-center justify-between border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-gray-50"
+            className="jms-nav-link flex cursor-pointer items-center justify-between px-4 py-3 last:border-0"
+            style={i > 0 ? { borderTop: "1px solid var(--jms-border)" } : undefined}
           >
-            <span className="text-sm font-medium text-gray-900">{DASHBOARD_WIDGET_LABELS[key]}</span>
+            <span className="font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+              {DASHBOARD_WIDGET_LABELS[key]}
+            </span>
             <input type="checkbox" checked={widgets[key]} onChange={() => toggle(key)} className="h-4 w-4" />
           </label>
         ))}
       </div>
 
-      {saveError ? <p className="mt-3 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mt-3 text-sm text-green-700">Saved.</p> : null}
+      {saveError ? (
+        <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mt-3" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
     </div>
   );
 }

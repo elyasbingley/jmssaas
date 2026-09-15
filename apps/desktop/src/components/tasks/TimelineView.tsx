@@ -1,12 +1,21 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Task, TaskDependency } from "@jmssaas/shared";
+import type { Task, TaskDependency, TaskPriority } from "@jmssaas/shared";
 import { addDays } from "../../lib/datetime";
-import { PRIORITY_COLORS } from "./taskHelpers";
 
 const DAY_WIDTH = 32;
 const ROW_HEIGHT = 36;
 const WINDOW_DAYS = 21;
+
+// Priority colours read from the CRT theme tokens - see TaskCard.tsx's
+// PRIORITY_COLOR_VAR comment for why this is duplicated locally rather
+// than living in taskHelpers.ts.
+const PRIORITY_COLOR_VAR: Record<TaskPriority, string> = {
+  urgent: "var(--jms-danger)",
+  high: "var(--jms-warning)",
+  medium: "var(--jms-accent)",
+  low: "var(--jms-text-muted)",
+};
 
 function toLocalDate(dateStr: string): Date {
   const parts = dateStr.split("-").map(Number);
@@ -68,27 +77,31 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
   return (
     <div className="flex h-full flex-col">
       <div className="mb-3 flex items-center gap-3">
-        <button onClick={() => setWindowStart((d) => addDays(d, -7))} className="text-xl font-bold text-blue-700">
+        <button onClick={() => setWindowStart((d) => addDays(d, -7))} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
           &lsaquo;
         </button>
-        <button onClick={() => setWindowStart(addDays(new Date(), -3))} className="text-sm font-bold text-gray-900 hover:underline">
+        <button
+          onClick={() => setWindowStart(addDays(new Date(), -3))}
+          className="font-bold hover:underline"
+          style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+        >
           {windowStart.toLocaleDateString("en-AU", { day: "numeric", month: "short" })} - {windowEnd.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
         </button>
-        <button onClick={() => setWindowStart((d) => addDays(d, 7))} className="text-xl font-bold text-blue-700">
+        <button onClick={() => setWindowStart((d) => addDays(d, 7))} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
           &rsaquo;
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto rounded-lg border border-gray-300 bg-white">
+      <div className="flex-1 overflow-auto rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div className="flex">
-          <div className="w-48 flex-shrink-0 border-r border-gray-300">
-            <div className="border-b border-gray-300 bg-gray-50" style={{ height: 28 }} />
+          <div className="w-48 flex-shrink-0" style={{ borderRight: "1px solid var(--jms-border)" }}>
+            <div style={{ height: 28, borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }} />
             {scheduledTasks.map((task) => (
               <button
                 key={task.id}
                 onClick={() => navigate(`/tasks/${task.id}`)}
-                style={{ height: ROW_HEIGHT }}
-                className="flex w-full items-center truncate border-b border-gray-100 px-2 text-left text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text)" }}
+                className="flex w-full items-center truncate px-2 text-left font-semibold hover:opacity-80"
                 title={task.title}
               >
                 {task.is_milestone ? "🔶 " : ""}
@@ -98,9 +111,13 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
           </div>
 
           <div className="relative" style={{ width: WINDOW_DAYS * DAY_WIDTH }}>
-            <div className="flex border-b border-gray-300 bg-gray-50" style={{ height: 28 }}>
+            <div className="flex" style={{ height: 28, borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
               {days.map((d) => (
-                <div key={d.toISOString()} className="flex-shrink-0 border-r border-gray-200 text-center text-[10px] text-gray-400" style={{ width: DAY_WIDTH }}>
+                <div
+                  key={d.toISOString()}
+                  className="flex-shrink-0 text-center"
+                  style={{ width: DAY_WIDTH, borderRight: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "10px" }}
+                >
                   {d.getDate()}
                 </div>
               ))}
@@ -110,8 +127,8 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
               {days.map((d, i) => (
                 <div
                   key={d.toISOString()}
-                  className="absolute top-0 bottom-0 border-r border-gray-100"
-                  style={{ left: i * DAY_WIDTH, width: DAY_WIDTH }}
+                  className="absolute top-0 bottom-0"
+                  style={{ left: i * DAY_WIDTH, width: DAY_WIDTH, borderRight: "1px solid var(--jms-border)" }}
                 />
               ))}
 
@@ -124,8 +141,16 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
                   <button
                     key={task.id}
                     onClick={() => navigate(`/tasks/${task.id}`)}
-                    style={{ top: i * ROW_HEIGHT + 6, left, width, height: ROW_HEIGHT - 12 }}
-                    className={`absolute overflow-hidden truncate rounded px-2 text-left text-[11px] font-semibold shadow-sm hover:opacity-80 ${PRIORITY_COLORS[task.priority]}`}
+                    style={{
+                      top: i * ROW_HEIGHT + 6,
+                      left,
+                      width,
+                      height: ROW_HEIGHT - 12,
+                      backgroundColor: "var(--jms-bg)",
+                      borderColor: PRIORITY_COLOR_VAR[task.priority],
+                      color: PRIORITY_COLOR_VAR[task.priority],
+                    }}
+                    className="absolute overflow-hidden truncate rounded border px-2 text-left font-semibold hover:opacity-80"
                   >
                     {task.title}
                   </button>
@@ -135,7 +160,7 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
               <svg className="pointer-events-none absolute inset-0 overflow-visible" width="100%" height="100%">
                 <defs>
                   <marker id="timeline-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L6,3 L0,6 Z" fill="#9ca3af" />
+                    <path d="M0,0 L6,3 L0,6 Z" fill="var(--jms-text-muted)" />
                   </marker>
                 </defs>
                 {arrows.map((arrow) => (
@@ -145,7 +170,7 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
                     y1={arrow.y1}
                     x2={arrow.x2}
                     y2={arrow.y2}
-                    stroke="#9ca3af"
+                    stroke="var(--jms-text-muted)"
                     strokeWidth={1.5}
                     markerEnd="url(#timeline-arrow)"
                   />
@@ -155,7 +180,11 @@ export function TimelineView({ tasks, dependencies }: { tasks: Task[]; dependenc
           </div>
         </div>
 
-        {scheduledTasks.length === 0 ? <p className="p-6 text-sm text-gray-500">No tasks with a start or due date to plot.</p> : null}
+        {scheduledTasks.length === 0 ? (
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No tasks with a start or due date to plot.
+          </p>
+        ) : null}
       </div>
     </div>
   );

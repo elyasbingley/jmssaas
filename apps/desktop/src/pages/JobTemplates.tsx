@@ -10,8 +10,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 
 // Same list+modal CRUD shape as JobSetup.tsx's service categories/lifecycle
 // stages sections - a standalone settings page (rather than folded into
@@ -128,44 +129,62 @@ export default function JobTemplatesPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
-      <h1 className="text-xl font-bold text-gray-900">Job Templates</h1>
-      <p className="mb-3 mt-1 text-sm text-gray-500">
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Job Templates
+      </h1>
+      <p className="mb-3 mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         Reusable starting points for a new job - pick one from the "New job" screen instead of filling in the category,
         stage, and description by hand each time.
       </p>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {(templates ?? []).length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No job templates yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No job templates yet.
+          </p>
         ) : (
           (templates ?? []).map((template) => {
             const category = categoryById.get(template.service_category_id ?? "");
             const stage = stageById.get(template.lifecycle_stage_id ?? "");
             return (
-              <div key={template.id} className="flex items-center justify-between gap-3 p-3">
+              <div
+                key={template.id}
+                className="flex items-center justify-between gap-3 p-3 last:border-0"
+                style={{ borderBottom: "1px solid var(--jms-border)" }}
+              >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-900">{template.name}</p>
+                  <p className="truncate font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {template.name}
+                  </p>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {category ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color ?? "#d1d5db" }} />
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5"
+                        style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color ?? "var(--jms-text-muted)" }} />
                         {category.name}
                       </span>
                     ) : null}
                     {stage ? (
-                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-800">{stage.name}</span>
+                      <span
+                        className="rounded-full border px-2 py-0.5 font-semibold"
+                        style={{ borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+                      >
+                        {stage.name}
+                      </span>
                     ) : null}
                   </div>
                 </div>
-                <div className="flex flex-shrink-0 items-center gap-3 text-sm">
-                  <button onClick={() => openEdit(template)} className="font-semibold text-blue-700 hover:underline">
+                <div className="flex flex-shrink-0 items-center gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                  <button onClick={() => openEdit(template)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                     Edit
                   </button>
-                  <button onClick={() => handleDelete(template)} className="font-semibold text-red-600 hover:underline">
+                  <button onClick={() => handleDelete(template)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                     Delete
                   </button>
                 </div>
@@ -174,25 +193,24 @@ export default function JobTemplatesPage() {
           })
         )}
       </div>
-      <button
-        onClick={openNew}
-        className="mt-3 w-full rounded-md bg-blue-700 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-      >
+      <ThemedButton onClick={openNew} className="mt-3 w-full" style={{ paddingBlock: 12, paddingInline: 24 }}>
         + New job template
-      </button>
+      </ThemedButton>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingTemplate ? "Edit job template" : "New job template"}>
-        <FormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot Water System Replacement" />
-        <p className="-mt-2 mb-4 text-xs text-gray-500">Also becomes the new job's default title - still editable before saving.</p>
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title={editingTemplate ? "Edit job template" : "New job template"}>
+        <ThemedFormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot Water System Replacement" />
+        <p className="-mt-2 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Also becomes the new job's default title - still editable before saving.
+        </p>
         <div className="grid grid-cols-2 gap-3">
-          <SelectField
+          <ThemedSelectField
             label="Category"
             value={categoryId}
             onChange={setCategoryId}
             options={(categories ?? []).map((c) => ({ value: c.id, label: c.name }))}
             placeholder="None"
           />
-          <SelectField
+          <ThemedSelectField
             label="Stage"
             value={stageId}
             onChange={setStageId}
@@ -200,21 +218,21 @@ export default function JobTemplatesPage() {
             placeholder="None"
           />
         </div>
-        <TextAreaField label="Description" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        <ThemedTextAreaField label="Description" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveTemplate.mutate()}
-            disabled={saveTemplate.isPending || !name.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveTemplate.mutate()} disabled={saveTemplate.isPending || !name.trim()}>
             {saveTemplate.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

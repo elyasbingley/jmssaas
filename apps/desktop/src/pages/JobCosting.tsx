@@ -209,10 +209,12 @@ export default function JobCostingPage() {
   const isLoading = !jobCards || !quotes || !invoices || !quoteLineItems || !invoiceLineItems;
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Job Costing</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Job Costing
+        </h1>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           Labour + material + subcontractor cost vs. total charged, across every job with a linked quote or invoice.
         </p>
       </div>
@@ -223,10 +225,11 @@ export default function JobCostingPage() {
           placeholder="Search by job title or client..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-72 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-72 rounded-md px-3 py-2 focus:outline-none"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
-        <div className="ml-auto flex items-center gap-2 text-sm">
-          <span className="text-gray-500">Sort:</span>
+        <div className="ml-auto flex items-center gap-2" style={{ fontSize: "var(--jms-font-body)" }}>
+          <span style={{ color: "var(--jms-text-muted)" }}>Sort:</span>
           {(
             [
               { value: "margin_percent", label: "Margin %" },
@@ -238,9 +241,12 @@ export default function JobCostingPage() {
             <button
               key={opt.value}
               onClick={() => setSortKey(opt.value)}
-              className={`rounded-full px-3 py-1 font-semibold ${
-                sortKey === opt.value ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1 font-semibold"
+              style={
+                sortKey === opt.value
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {opt.label}
             </button>
@@ -248,14 +254,18 @@ export default function JobCostingPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : sortedRows.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No jobs with a linked quote or invoice yet.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No jobs with a linked quote or invoice yet.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               <tr>
                 <th className="px-4 py-2 font-semibold">Job</th>
                 <th className="px-4 py-2 font-semibold">Client</th>
@@ -269,38 +279,60 @@ export default function JobCostingPage() {
             </thead>
             <tbody>
               {sortedRows.map((row) => (
-                <tr key={row.job.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                <tr key={row.job.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                   <td className="px-4 py-3">
-                    <Link to={`/jobs/${row.job.id}`} className="font-medium text-blue-700 hover:underline">
+                    <Link to={`/jobs/${row.job.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                       {row.job.number ?? "Pending"} - {row.job.title}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{row.job.clients?.name ?? "Unknown"}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(row.labourCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(row.materialCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(row.subcontractorCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(row.chargedCents)}</td>
-                  <td className={`px-4 py-3 text-right font-semibold ${row.marginCents < 0 ? "text-red-600" : "text-gray-900"}`}>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {row.job.clients?.name ?? "Unknown"}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(row.labourCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(row.materialCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(row.subcontractorCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(row.chargedCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold" style={{ color: row.marginCents < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                     {formatCentsAsAud(row.marginCents)}
                   </td>
-                  <td className={`px-4 py-3 text-right font-semibold ${row.marginPercent < 0 ? "text-red-600" : "text-gray-900"}`}>
+                  <td className="px-4 py-3 text-right font-semibold" style={{ color: row.marginPercent < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                     {row.marginPercent.toFixed(1)}%
                   </td>
                 </tr>
               ))}
             </tbody>
             {sortedRows.length > 0 ? (
-              <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-bold">
+              <tfoot className="font-bold" style={{ borderTop: "2px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
                 <tr>
-                  <td className="px-4 py-3" colSpan={2}>
+                  <td className="px-4 py-3" colSpan={2} style={{ color: "var(--jms-text)" }}>
                     Total ({sortedRows.length} job{sortedRows.length === 1 ? "" : "s"})
                   </td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.labourCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.materialCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.subcontractorCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.chargedCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(totals.marginCents)}</td>
-                  <td className="px-4 py-3 text-right">{totalMarginPercent.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(totals.labourCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(totals.materialCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(totals.subcontractorCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(totals.chargedCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(totals.marginCents)}
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {totalMarginPercent.toFixed(1)}%
+                  </td>
                 </tr>
               </tfoot>
             ) : null}
@@ -308,7 +340,7 @@ export default function JobCostingPage() {
         )}
       </div>
 
-      <p className="mt-3 text-xs text-gray-400">
+      <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         Total charged is GST-inclusive while labour/material/subcontractor cost are GST-exclusive, so margin here slightly
         overstates the true figure. A quote that's since been converted to an invoice is counted under both, since both stay
         linked to the job - same basis as mobile's own Job Costing tab.

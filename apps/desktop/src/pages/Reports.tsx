@@ -16,8 +16,10 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 
 // The three sub-tabs from the spec live under a single sidebar destination
 // (/reports) - same "one sidebar destination, several in-page tabs"
@@ -66,10 +68,14 @@ async function fetchProfiles(): Promise<Profile[]> {
   return data as Profile[];
 }
 
-const STATUS_BADGE: Record<ReportInstanceStatus, string> = {
-  draft: "bg-amber-100 text-amber-800",
-  completed: "bg-green-100 text-green-800",
-  archived: "bg-gray-200 text-gray-600",
+// Report status (draft/completed/archived) is a workflow state, not a
+// safety-risk signal, so it derives from the active theme's tokens like
+// everything else - unlike the fixed WHS risk-matrix colors below, it's
+// fine for this to shift with the tenant's chosen accent.
+const STATUS_COLORS: Record<ReportInstanceStatus, string> = {
+  draft: "var(--jms-warning)",
+  completed: "var(--jms-accent)",
+  archived: "var(--jms-text-muted)",
 };
 
 export default function ReportsPage() {
@@ -84,11 +90,15 @@ export default function ReportsPage() {
   const { data: profiles } = useQuery({ queryKey: ["profiles"], queryFn: fetchProfiles });
 
   return (
-    <div className="p-8">
-      <h1 className="mb-1 text-xl font-bold text-gray-900">Reports</h1>
-      <p className="mb-6 text-sm text-gray-500">Build, execute, and sign off on SWMS, JSAs, inspections, and other safety documentation.</p>
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Forms & Certificates
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Build, execute, and sign off on SWMS, JSAs, inspections, and other safety documentation.
+      </p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex flex-wrap gap-2">
         {(
           [
             { key: "new", label: "New Report" },
@@ -99,9 +109,12 @@ export default function ReportsPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`border-b-2 px-4 py-2 text-sm font-semibold ${
-              tab === t.key ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className="rounded-full border px-4 py-1.5 font-semibold uppercase tracking-wide"
+            style={
+              tab === t.key
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+            }
           >
             {t.label}
           </button>
@@ -173,11 +186,15 @@ function NewReportTab({
 
   return (
     <div>
-      <FormField label="Search templates" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by title..." />
-      {startError ? <p className="mb-4 text-sm text-red-600">{startError}</p> : null}
+      <ThemedFormField label="Search templates" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by title..." />
+      {startError ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {startError}
+        </p>
+      ) : null}
 
       {categories.length === 0 ? (
-        <p className="text-sm text-gray-500">
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           No report templates yet - build one in the Template Studio tab.
         </p>
       ) : (
@@ -188,27 +205,38 @@ function NewReportTab({
             if (catTemplateCount === 0) return null;
             return (
               <div key={category.id}>
-                <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">{category.name}</h2>
+                <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  {category.name}
+                </h2>
                 <div className="space-y-4">
                   {catSubcategories.map((sub) => {
                     const subTemplates = templatesBySubcategory(sub.id);
                     if (subTemplates.length === 0) return null;
                     return (
                       <div key={sub.id}>
-                        <p className="mb-2 text-xs font-semibold text-gray-500">{sub.name}</p>
+                        <p className="mb-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                          {sub.name}
+                        </p>
                         <div className="grid grid-cols-3 gap-3">
                           {subTemplates.map((template) => (
                             <button
                               key={template.id}
                               onClick={() => startReport(template.id)}
                               disabled={starting === template.id}
-                              className="rounded-lg border border-gray-300 bg-white p-4 text-left hover:border-blue-400 hover:shadow-sm disabled:opacity-60"
+                              className="jms-nav-link rounded-lg p-4 text-left disabled:opacity-60"
+                              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
                             >
-                              <p className="font-semibold text-gray-900">{template.title}</p>
-                              {template.description ? <p className="mt-1 text-xs text-gray-500">{template.description}</p> : null}
+                              <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                                {template.title}
+                              </p>
+                              {template.description ? (
+                                <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                                  {template.description}
+                                </p>
+                              ) : null}
                               {template.is_swms ? (
-                                <span className="mt-2 inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-800">
-                                  SWMS sign-off required
+                                <span className="mt-2 inline-block">
+                                  <ThemedBadge label="SWMS sign-off required" color="var(--jms-warning)" />
                                 </span>
                               ) : null}
                             </button>
@@ -279,12 +307,17 @@ function ReportHistoryTab({
 
   return (
     <div>
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {instances.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No reports yet.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No reports yet.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Report</th>
                 <th className="px-4 py-2 font-semibold">Linked Job</th>
@@ -300,34 +333,32 @@ function ReportHistoryTab({
                 const job = instance.job_card_id ? jobById.get(instance.job_card_id) : null;
                 const author = instance.created_by ? profileById.get(instance.created_by) : null;
                 return (
-                  <tr key={instance.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                  <tr key={instance.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                     <td className="px-4 py-3">
-                      <Link to={`/reports/instances/${instance.id}`} className="font-medium text-blue-700 hover:underline">
+                      <Link to={`/reports/instances/${instance.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                         {template?.title ?? "Unknown template"}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
                       {job ? (
-                        <Link to={`/jobs/${job.id}`} className="text-blue-700 hover:underline">
+                        <Link to={`/jobs/${job.id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                           {job.number ?? job.title}
                         </Link>
                       ) : (
-                        <button onClick={() => openLinkModal(instance)} className="text-xs font-semibold text-blue-700 hover:underline">
+                        <button onClick={() => openLinkModal(instance)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                           Link to Job
                         </button>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{author?.full_name ?? "-"}</td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>{author?.full_name ?? "-"}</td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
                       {instance.completed_at ? new Date(instance.completed_at).toLocaleDateString("en-AU") : "-"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[instance.status]}`}>
-                        {instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
-                      </span>
+                      <ThemedBadge label={instance.status.charAt(0).toUpperCase() + instance.status.slice(1)} color={STATUS_COLORS[instance.status]} />
                     </td>
                     <td className="px-4 py-3">
-                      <Link to={`/reports/instances/${instance.id}`} className="text-xs font-semibold text-blue-700 hover:underline">
+                      <Link to={`/reports/instances/${instance.id}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                         Open
                       </Link>
                     </td>
@@ -339,8 +370,8 @@ function ReportHistoryTab({
         )}
       </div>
 
-      <Modal open={!!linkingInstance} onClose={() => setLinkingInstance(null)} title="Link report to a job">
-        <SelectField
+      <ThemedModal open={!!linkingInstance} onClose={() => setLinkingInstance(null)} title="Link report to a job">
+        <ThemedSelectField
           label="Job"
           value={linkJobId}
           onChange={setLinkJobId}
@@ -350,20 +381,20 @@ function ReportHistoryTab({
           }))}
           placeholder="Select a job"
         />
-        {linkError ? <p className="mb-4 text-sm text-red-600">{linkError}</p> : null}
+        {linkError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {linkError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setLinkingInstance(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setLinkingInstance(null)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => linkToJob.mutate()}
-            disabled={linkToJob.isPending || !linkJobId}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => linkToJob.mutate()} disabled={linkToJob.isPending || !linkJobId}>
             {linkToJob.isPending ? "Linking..." : "Link"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
@@ -476,63 +507,66 @@ function TemplateStudioTab({
   return (
     <div>
       <div className="mb-4 flex justify-end gap-2">
-        <button
-          onClick={() => openNewSubcategory()}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-        >
+        <ThemedButton variant="secondary" onClick={() => openNewSubcategory()}>
           + Add Subcategory
-        </button>
-        <button onClick={openNewCategory} className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
-          + Add Category
-        </button>
+        </ThemedButton>
+        <ThemedButton onClick={openNewCategory}>+ Add Category</ThemedButton>
       </div>
 
       {categories.length === 0 ? (
-        <p className="text-sm text-gray-500">No categories yet - add one to start building templates.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No categories yet - add one to start building templates.</p>
       ) : (
         <div className="space-y-3">
           {categories.map((category) => {
             const expanded = expandedCategoryIds.has(category.id);
             const subs = subcategoriesByCategory(category.id);
             return (
-              <div key={category.id} className="rounded-lg border border-gray-300 bg-white">
-                <button onClick={() => toggleCategory(category.id)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+              <div key={category.id} className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+                <button onClick={() => toggleCategory(category.id)} className="jms-nav-link flex w-full items-center justify-between px-4 py-3 text-left">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
-                    <span className="font-bold text-gray-900">{category.name}</span>
+                    <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{expanded ? "▾" : "▸"}</span>
+                    <span className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                      {category.name}
+                    </span>
                   </div>
-                  <span className="text-xs text-gray-400">
+                  <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     {subs.length} subcategor{subs.length === 1 ? "y" : "ies"}
                   </span>
                 </button>
                 {expanded ? (
-                  <div className="border-t border-gray-200 px-4 py-3">
+                  <div className="px-4 py-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
                     {subs.length === 0 ? (
-                      <p className="text-sm text-gray-500">No subcategories yet.</p>
+                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No subcategories yet.</p>
                     ) : (
                       <div className="space-y-3">
                         {subs.map((sub) => {
                           const subTemplates = templatesBySubcategory(sub.id);
                           return (
-                            <div key={sub.id} className="ml-6 border-l border-gray-200 pl-4">
-                              <p className="mb-1 text-sm font-semibold text-gray-800">{sub.name}</p>
+                            <div key={sub.id} className="ml-6 pl-4" style={{ borderLeft: "1px solid var(--jms-border)" }}>
+                              <p className="mb-1 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                                {sub.name}
+                              </p>
                               {subTemplates.length > 0 ? (
                                 <div className="mb-1 space-y-1">
                                   {subTemplates.map((template) => (
                                     <button
                                       key={template.id}
                                       onClick={() => navigate(`/reports/templates/${template.id}`)}
-                                      className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-sm hover:bg-gray-50"
+                                      className="jms-nav-link flex w-full items-center justify-between rounded px-2 py-1 text-left"
+                                      style={{ fontSize: "var(--jms-font-body)" }}
                                     >
-                                      <span className="text-blue-700">{template.title}</span>
-                                      <span className="text-xs text-gray-400">{template.is_active ? "Active" : "Inactive"}</span>
+                                      <span style={{ color: "var(--jms-accent)" }}>{template.title}</span>
+                                      <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                                        {template.is_active ? "Active" : "Inactive"}
+                                      </span>
                                     </button>
                                   ))}
                                 </div>
                               ) : null}
                               <button
                                 onClick={() => navigate(`/reports/templates/new?subcategoryId=${sub.id}`)}
-                                className="text-xs font-semibold text-blue-700 hover:underline"
+                                className="font-semibold hover:underline"
+                                style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                               >
                                 + New template in {sub.name}
                               </button>
@@ -541,7 +575,11 @@ function TemplateStudioTab({
                         })}
                       </div>
                     )}
-                    <button onClick={() => openNewSubcategory(category.id)} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">
+                    <button
+                      onClick={() => openNewSubcategory(category.id)}
+                      className="mt-2 font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
                       + Add subcategory to {category.name}
                     </button>
                   </div>
@@ -552,49 +590,48 @@ function TemplateStudioTab({
         </div>
       )}
 
-      <Modal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title="New category">
-        <FormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. WHS & Safety" />
-        <TextAreaField label="Description (optional)" rows={2} value={categoryDescription} onChange={(e) => setCategoryDescription(e.target.value)} />
-        <SelectField label="Icon (optional)" value={categoryIcon} onChange={setCategoryIcon} options={ICON_OPTIONS.map((i) => ({ value: i, label: i }))} placeholder="None" />
-        {categoryError ? <p className="mb-4 text-sm text-red-600">{categoryError}</p> : null}
+      <ThemedModal open={categoryModalOpen} onClose={() => setCategoryModalOpen(false)} title="New category">
+        <ThemedFormField label="Name" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="e.g. WHS & Safety" />
+        <ThemedTextAreaField label="Description (optional)" rows={2} value={categoryDescription} onChange={(e) => setCategoryDescription(e.target.value)} />
+        <ThemedSelectField label="Icon (optional)" value={categoryIcon} onChange={setCategoryIcon} options={ICON_OPTIONS.map((i) => ({ value: i, label: i }))} placeholder="None" />
+        {categoryError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {categoryError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setCategoryModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createCategory.mutate()}
-            disabled={createCategory.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createCategory.mutate()} disabled={createCategory.isPending}>
             {createCategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={subcategoryModalOpen} onClose={() => setSubcategoryModalOpen(false)} title="New subcategory">
-        <SelectField
+      <ThemedModal open={subcategoryModalOpen} onClose={() => setSubcategoryModalOpen(false)} title="New subcategory">
+        <ThemedSelectField
           label="Category"
           value={subCategoryId}
           onChange={setSubCategoryId}
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
           placeholder="Select category"
         />
-        <FormField label="Name" value={subName} onChange={(e) => setSubName(e.target.value)} placeholder="e.g. Safety Forms" />
-        {subError ? <p className="mb-4 text-sm text-red-600">{subError}</p> : null}
+        <ThemedFormField label="Name" value={subName} onChange={(e) => setSubName(e.target.value)} placeholder="e.g. Safety Forms" />
+        {subError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {subError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSubcategoryModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setSubcategoryModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createSubcategory.mutate()}
-            disabled={createSubcategory.isPending || !subCategoryId}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createSubcategory.mutate()} disabled={createSubcategory.isPending || !subCategoryId}>
             {createSubcategory.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
-

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import { v4 as uuidv4 } from "uuid";
+import type { ThemeTokens } from "@jmssaas/shared";
 import {
   RISK_CONSEQUENCE_LABELS,
   RISK_LIKELIHOOD_LABELS,
@@ -21,6 +24,7 @@ import {
   type ReportFormData,
   type ReportGeoLocation,
   type ReportInstance,
+  type ReportInstanceStatus,
   type ReportSignature,
   type ReportSignerRole,
   type ReportTemplate,
@@ -28,30 +32,47 @@ import {
   type RiskHazardRow,
   type RiskLikelihood,
   type RiskMatrixAnswer,
+  type RiskRating,
   type SignatureAnswer,
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../../../lib/supabase";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useAuth } from "../../../lib/auth-context";
+import { useTheme } from "../../../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildPdfDataUri } from "../../../lib/print";
 import { buildReportPdfHtml, uploadReportPhoto } from "../../../lib/report-pdf";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
-import { PickerModal } from "../../../components/PickerModal";
+import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { SignaturePad } from "../../../components/SignaturePad";
 
 const BUCKET = "report-files";
 const RISK_LEVELS: RiskLikelihood[] = [1, 2, 3, 4, 5];
-const RISK_RATING_COLORS: Record<string, { bg: string; text: string }> = {
-  low: { bg: "#dcfce7", text: "#166534" },
-  medium: { bg: "#fef9c3", text: "#854d0e" },
-  high: { bg: "#ffedd5", text: "#9a3412" },
-  extreme: { bg: "#fee2e2", text: "#991b1b" },
+
+// Fixed WHS-style risk/status colours, not derived from the CRT accent
+// token - like B2B & Referrals' tier badges, a red/amber/green safety
+// signal has to stay legible and mean the same thing no matter which
+// accent preset the tenant has chosen.
+const RISK_RATING_COLORS: Record<RiskRating, string> = {
+  low: "#4ade80",
+  medium: "#fbbf24",
+  high: "#fb923c",
+  extreme: "#f87171",
 };
+
+function getStatusColors(tokens: ThemeTokens): Record<ReportInstanceStatus, string> {
+  return {
+    draft: tokens.warning,
+    completed: tokens.accent,
+    archived: tokens.textMuted,
+  };
+}
 
 // Best-effort GPS capture, mirrors desktop's tryGetLocation - never blocks
 // completing a report (a tech inside a building with no fix, or location
@@ -73,8 +94,12 @@ function newHazardRow(): RiskHazardRow {
 
 export default function ReportInstanceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
+  const { tokens } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const statusColors = getStatusColors(tokens);
 
   const { data: instance, refetch: refetchInstance } = useSupabaseFetch<ReportInstance | null>(async () => {
     if (!isOnline) return null;
@@ -325,277 +350,291 @@ export default function ReportInstanceScreen() {
     refetchSignatures();
   };
 
-  if (!isOnline) {
-    return <RequiresConnectionNotice label="Reports" />;
-  }
-
-  if (!instance || !template) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <View style={styles.headerRow}>
-        <View style={styles.flex1}>
-          <Text style={styles.heading}>{template.title}</Text>
-          {template.description ? <Text style={styles.subheading}>{template.description}</Text> : null}
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[instance.status].bg }]}>
-          <Text style={[styles.statusBadgeText, { color: STATUS_COLORS[instance.status].text }]}>
-            {instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
-          </Text>
-        </View>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Text style={styles.link}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.title} numberOfLines={1}>{template?.title ?? "Report"}</Text>
       </View>
 
-      {!instance.job_card_id ? (
-        <View style={styles.unlinkedBanner}>
-          <Text style={styles.unlinkedTitle}>Unlinked standalone report</Text>
-          <Pressable
-            style={styles.pickerField}
-            onPress={() => setJobPickerVisible(true)}
-          >
-            <Text style={styles.pickerFieldLabel}>Link to Job (optional)</Text>
-            <Text style={styles.pickerFieldValue}>
-              {jobCardId ? `${jobById.get(jobCardId)?.number ?? "Pending"} - ${jobById.get(jobCardId)?.title ?? ""}` : "Select job"}
-            </Text>
-          </Pressable>
-          {!jobCardId ? (
-            <Pressable style={styles.pickerField} onPress={() => setClientPickerVisible(true)}>
-              <Text style={styles.pickerFieldLabel}>Client (optional)</Text>
-              <Text style={styles.pickerFieldValue}>{clientById.get(clientId)?.name ?? "Select client"}</Text>
-            </Pressable>
-          ) : null}
-          {isDraft && (jobCardId !== (instance.job_card_id ?? "") || clientId !== (instance.client_id ?? "")) ? (
-            <Pressable onPress={saveLink}>
-              <Text style={styles.link}>Save link</Text>
-            </Pressable>
-          ) : null}
+      {!isOnline ? (
+        <ThemedRequiresConnectionNotice label="Reports" />
+      ) : !instance || !template ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.accent} />
         </View>
       ) : (
-        <Text style={styles.linkedMeta}>
-          Linked to job {jobById.get(instance.job_card_id)?.number ?? jobById.get(instance.job_card_id)?.title ?? instance.job_card_id}
-        </Text>
-      )}
+        <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          <View style={styles.headerRow}>
+            <View style={styles.flex1}>
+              <Text style={styles.heading}>{template.title}</Text>
+              {template.description ? <Text style={styles.subheading}>{template.description}</Text> : null}
+            </View>
+            <View style={[styles.statusBadge, { borderColor: statusColors[instance.status] }]}>
+              <Text style={[styles.statusBadgeText, { color: statusColors[instance.status] }]}>
+                {instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
+              </Text>
+            </View>
+          </View>
 
-      {template.structure_schema.map((section) => (
-        <View key={section.id} style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-          {section.fields.map((field) => {
-            const answer = formData[field.id];
-            return (
-              <View key={field.id} style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>
-                  {field.label}
-                  {field.required ? <Text style={styles.required}> *</Text> : null}
+          {!instance.job_card_id ? (
+            <View style={styles.unlinkedBanner}>
+              <Text style={styles.unlinkedTitle}>Unlinked standalone report</Text>
+              <Pressable
+                style={styles.pickerField}
+                onPress={() => setJobPickerVisible(true)}
+              >
+                <Text style={styles.pickerFieldLabel}>Link to Job (optional)</Text>
+                <Text style={styles.pickerFieldValue}>
+                  {jobCardId ? `${jobById.get(jobCardId)?.number ?? "Pending"} - ${jobById.get(jobCardId)?.title ?? ""}` : "Select job"}
                 </Text>
-                {field.helpText ? <Text style={styles.helpText}>{field.helpText}</Text> : null}
+              </Pressable>
+              {!jobCardId ? (
+                <Pressable style={styles.pickerField} onPress={() => setClientPickerVisible(true)}>
+                  <Text style={styles.pickerFieldLabel}>Client (optional)</Text>
+                  <Text style={styles.pickerFieldValue}>{clientById.get(clientId)?.name ?? "Select client"}</Text>
+                </Pressable>
+              ) : null}
+              {isDraft && (jobCardId !== (instance.job_card_id ?? "") || clientId !== (instance.client_id ?? "")) ? (
+                <Pressable onPress={saveLink}>
+                  <Text style={styles.link}>Save link</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.linkedMeta}>
+              Linked to job {jobById.get(instance.job_card_id)?.number ?? jobById.get(instance.job_card_id)?.title ?? instance.job_card_id}
+            </Text>
+          )}
 
-                {field.type === "pass_fail" ? (
-                  <View>
-                    <View style={styles.passFailRow}>
-                      {(["pass", "fail", "na"] as const).map((v) => {
-                        const active = (answer as PassFailAnswer)?.value === v;
-                        const bg = active ? (v === "pass" ? "#16a34a" : v === "fail" ? "#dc2626" : "#6b7280") : "#f3f4f6";
-                        const color = active ? "#fff" : "#4b5563";
-                        return (
-                          <Pressable
-                            key={v}
-                            disabled={!isDraft}
-                            style={[styles.passFailButton, { backgroundColor: bg }]}
-                            onPress={() => updateAnswer(field.id, { type: "pass_fail", value: v } as PassFailAnswer)}
-                          >
-                            <Text style={{ color, fontWeight: "700" }}>{v.toUpperCase()}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    {field.requireActionOnFail && (answer as PassFailAnswer)?.value === "fail" ? (
-                      <View style={styles.actionRequired}>
-                        <Text style={styles.actionRequiredLabel}>Action required</Text>
+          {template.structure_schema.map((section) => (
+            <View key={section.id} style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+              {section.fields.map((field) => {
+                const answer = formData[field.id];
+                return (
+                  <View key={field.id} style={styles.fieldBlock}>
+                    <Text style={styles.fieldLabel}>
+                      {field.label}
+                      {field.required ? <Text style={styles.required}> *</Text> : null}
+                    </Text>
+                    {field.helpText ? <Text style={styles.helpText}>{field.helpText}</Text> : null}
+
+                    {field.type === "pass_fail" ? (
+                      <View>
+                        <View style={styles.passFailRow}>
+                          {(["pass", "fail", "na"] as const).map((v) => {
+                            const active = (answer as PassFailAnswer)?.value === v;
+                            const activeColor = v === "pass" ? "#16a34a" : v === "fail" ? tokens.danger : tokens.textMuted;
+                            return (
+                              <Pressable
+                                key={v}
+                                disabled={!isDraft}
+                                style={[styles.passFailButton, { borderColor: activeColor }, active && { backgroundColor: activeColor }]}
+                                onPress={() => updateAnswer(field.id, { type: "pass_fail", value: v } as PassFailAnswer)}
+                              >
+                                <Text style={[styles.passFailButtonText, { color: active ? tokens.background : activeColor }]}>{v.toUpperCase()}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        {field.requireActionOnFail && (answer as PassFailAnswer)?.value === "fail" ? (
+                          <View style={styles.actionRequired}>
+                            <Text style={styles.actionRequiredLabel}>Action required</Text>
+                            <TextInput
+                              editable={isDraft}
+                              value={(answer as PassFailAnswer)?.actionNote ?? ""}
+                              onChangeText={(v) => updateAnswer(field.id, { actionNote: v } as Partial<PassFailAnswer>)}
+                              placeholder="What needs to be done?"
+                              placeholderTextColor={styles.placeholder.color}
+                              multiline
+                              style={styles.actionNoteInput}
+                            />
+                            <ReportPhotoField
+                              disabled={!isDraft}
+                              paths={(answer as PassFailAnswer)?.actionPhotoPaths ?? []}
+                              onChange={(paths) => updateAnswer(field.id, { actionPhotoPaths: paths } as Partial<PassFailAnswer>)}
+                              instanceId={instance.id}
+                              tenantId={profile!.tenant_id}
+                            />
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : field.type === "risk_matrix" ? (
+                      <RiskMatrixField
+                        disabled={!isDraft}
+                        answer={answer as RiskMatrixAnswer}
+                        onChange={(rows) => updateAnswer(field.id, { type: "risk_matrix", rows } as RiskMatrixAnswer)}
+                      />
+                    ) : field.type === "photo" ? (
+                      <ReportPhotoField
+                        disabled={!isDraft}
+                        paths={(answer as PhotoAnswer)?.photoPaths ?? []}
+                        onChange={(paths) => updateAnswer(field.id, { type: "photo", photoPaths: paths } as PhotoAnswer)}
+                        instanceId={instance.id}
+                        tenantId={profile!.tenant_id}
+                      />
+                    ) : field.type === "text" ? (
+                      <TextInput
+                        editable={isDraft}
+                        value={(answer as { value: string })?.value ?? ""}
+                        onChangeText={(v) => updateAnswer(field.id, { type: "text", value: v } as ReportAnswer)}
+                        style={styles.textInput}
+                      />
+                    ) : field.type === "long_text" ? (
+                      <TextInput
+                        editable={isDraft}
+                        value={(answer as { value: string })?.value ?? ""}
+                        onChangeText={(v) => updateAnswer(field.id, { type: "long_text", value: v } as ReportAnswer)}
+                        multiline
+                        style={[styles.textInput, styles.multiline]}
+                      />
+                    ) : field.type === "meter_reading" ? (
+                      <TextInput
+                        editable={isDraft}
+                        value={(answer as { value: string })?.value ?? ""}
+                        onChangeText={(v) => updateAnswer(field.id, { type: "meter_reading", value: v } as ReportAnswer)}
+                        placeholder="e.g. 1234.5"
+                        placeholderTextColor={styles.placeholder.color}
+                        keyboardType="decimal-pad"
+                        style={[styles.textInput, styles.meterInput]}
+                      />
+                    ) : field.type === "signature" ? (
+                      <View>
                         <TextInput
                           editable={isDraft}
-                          value={(answer as PassFailAnswer)?.actionNote ?? ""}
-                          onChangeText={(v) => updateAnswer(field.id, { actionNote: v } as Partial<PassFailAnswer>)}
-                          placeholder="What needs to be done?"
-                          multiline
-                          style={styles.actionNoteInput}
+                          value={(answer as SignatureAnswer)?.signerName ?? ""}
+                          onChangeText={(v) => updateAnswer(field.id, { signerName: v } as Partial<SignatureAnswer>)}
+                          placeholder="Signer name"
+                          placeholderTextColor={styles.placeholder.color}
+                          style={[styles.textInput, { marginBottom: 8 }]}
                         />
-                        <ReportPhotoField
-                          disabled={!isDraft}
-                          paths={(answer as PassFailAnswer)?.actionPhotoPaths ?? []}
-                          onChange={(paths) => updateAnswer(field.id, { actionPhotoPaths: paths } as Partial<PassFailAnswer>)}
-                          instanceId={instance.id}
-                          tenantId={profile!.tenant_id}
-                        />
+                        {isDraft ? (
+                          <SignaturePad
+                            value={(answer as SignatureAnswer)?.svgData ?? ""}
+                            onChange={(dataUrl) => updateAnswer(field.id, { svgData: dataUrl } as Partial<SignatureAnswer>)}
+                          />
+                        ) : (answer as SignatureAnswer)?.svgData ? (
+                          <Image source={{ uri: (answer as SignatureAnswer).svgData }} style={styles.signaturePreview} resizeMode="contain" />
+                        ) : null}
                       </View>
                     ) : null}
                   </View>
-                ) : field.type === "risk_matrix" ? (
-                  <RiskMatrixField
-                    disabled={!isDraft}
-                    answer={answer as RiskMatrixAnswer}
-                    onChange={(rows) => updateAnswer(field.id, { type: "risk_matrix", rows } as RiskMatrixAnswer)}
-                  />
-                ) : field.type === "photo" ? (
-                  <ReportPhotoField
-                    disabled={!isDraft}
-                    paths={(answer as PhotoAnswer)?.photoPaths ?? []}
-                    onChange={(paths) => updateAnswer(field.id, { type: "photo", photoPaths: paths } as PhotoAnswer)}
-                    instanceId={instance.id}
-                    tenantId={profile!.tenant_id}
-                  />
-                ) : field.type === "text" ? (
-                  <TextInput
-                    editable={isDraft}
-                    value={(answer as { value: string })?.value ?? ""}
-                    onChangeText={(v) => updateAnswer(field.id, { type: "text", value: v } as ReportAnswer)}
-                    style={styles.textInput}
-                  />
-                ) : field.type === "long_text" ? (
-                  <TextInput
-                    editable={isDraft}
-                    value={(answer as { value: string })?.value ?? ""}
-                    onChangeText={(v) => updateAnswer(field.id, { type: "long_text", value: v } as ReportAnswer)}
-                    multiline
-                    style={[styles.textInput, styles.multiline]}
-                  />
-                ) : field.type === "meter_reading" ? (
-                  <TextInput
-                    editable={isDraft}
-                    value={(answer as { value: string })?.value ?? ""}
-                    onChangeText={(v) => updateAnswer(field.id, { type: "meter_reading", value: v } as ReportAnswer)}
-                    placeholder="e.g. 1234.5"
-                    keyboardType="decimal-pad"
-                    style={[styles.textInput, styles.meterInput]}
-                  />
-                ) : field.type === "signature" ? (
-                  <View>
-                    <TextInput
-                      editable={isDraft}
-                      value={(answer as SignatureAnswer)?.signerName ?? ""}
-                      onChangeText={(v) => updateAnswer(field.id, { signerName: v } as Partial<SignatureAnswer>)}
-                      placeholder="Signer name"
-                      style={[styles.textInput, { marginBottom: 8 }]}
-                    />
-                    {isDraft ? (
-                      <SignaturePad
-                        value={(answer as SignatureAnswer)?.svgData ?? ""}
-                        onChange={(dataUrl) => updateAnswer(field.id, { svgData: dataUrl } as Partial<SignatureAnswer>)}
-                      />
-                    ) : (answer as SignatureAnswer)?.svgData ? (
-                      <Image source={{ uri: (answer as SignatureAnswer).svgData }} style={styles.signaturePreview} resizeMode="contain" />
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-      ))}
-
-      {template.is_swms ? (
-        <View style={styles.swmsCard}>
-          <Text style={styles.swmsTitle}>Worker Sign-Off Roster</Text>
-          <Text style={styles.swmsSubtitle}>Every worker on site signs individually before this SWMS is complete.</Text>
-
-          {(signatures ?? []).map((sig) => (
-            <View key={sig.id} style={styles.signatureRow}>
-              <View style={styles.flex1}>
-                <Text style={styles.signatureName}>{sig.signer_name}</Text>
-                <Text style={styles.signatureMeta}>
-                  {sig.signer_role.replace("_", " ")} - signed {new Date(sig.signed_at).toLocaleString("en-AU")}
-                </Text>
-              </View>
-              <Image source={{ uri: sig.signature_svg_data }} style={styles.signatureThumb} resizeMode="contain" />
+                );
+              })}
             </View>
           ))}
 
-          {isDraft ? (
-            <View style={styles.signatureForm}>
-              <TextInput value={signerName} onChangeText={setSignerName} placeholder="Worker name" style={styles.textInput} />
-              <Pressable style={[styles.pickerField, { marginTop: 8 }]} onPress={() => setSignerRolePickerVisible(true)}>
-                <Text style={styles.pickerFieldValue}>{SIGNER_ROLE_LABELS[signerRole]}</Text>
-              </Pressable>
-              <View style={{ marginTop: 8 }}>
-                <SignaturePad value={signerSvg} onChange={setSignerSvg} />
-              </View>
-              {signatureError ? <Text style={styles.error}>{signatureError}</Text> : null}
-              <Pressable
-                style={styles.addSignatureButton}
-                onPress={addSignature}
-                disabled={addingSignature || !signerName || !signerSvg}
-              >
-                <Text style={styles.addSignatureButtonText}>{addingSignature ? "Adding..." : "+ Add worker sign-off"}</Text>
-              </Pressable>
+          {template.is_swms ? (
+            <View style={styles.swmsCard}>
+              <Text style={styles.swmsTitle}>Worker Sign-Off Roster</Text>
+              <Text style={styles.swmsSubtitle}>Every worker on site signs individually before this SWMS is complete.</Text>
+
+              {(signatures ?? []).map((sig) => (
+                <View key={sig.id} style={styles.signatureRow}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.signatureName}>{sig.signer_name}</Text>
+                    <Text style={styles.signatureMeta}>
+                      {sig.signer_role.replace("_", " ")} - signed {new Date(sig.signed_at).toLocaleString("en-AU")}
+                    </Text>
+                  </View>
+                  <Image source={{ uri: sig.signature_svg_data }} style={styles.signatureThumb} resizeMode="contain" />
+                </View>
+              ))}
+
+              {isDraft ? (
+                <View style={styles.signatureForm}>
+                  <TextInput
+                    value={signerName}
+                    onChangeText={setSignerName}
+                    placeholder="Worker name"
+                    placeholderTextColor={styles.placeholder.color}
+                    style={styles.textInput}
+                  />
+                  <Pressable style={[styles.pickerField, { marginTop: 8 }]} onPress={() => setSignerRolePickerVisible(true)}>
+                    <Text style={styles.pickerFieldValue}>{SIGNER_ROLE_LABELS[signerRole]}</Text>
+                  </Pressable>
+                  <View style={{ marginTop: 8 }}>
+                    <SignaturePad value={signerSvg} onChange={setSignerSvg} />
+                  </View>
+                  {signatureError ? <Text style={styles.error}>{signatureError}</Text> : null}
+                  <Pressable
+                    style={styles.addSignatureButton}
+                    onPress={addSignature}
+                    disabled={addingSignature || !signerName || !signerSvg}
+                  >
+                    <Text style={styles.addSignatureButtonText}>{addingSignature ? "Adding..." : "+ Add worker sign-off"}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           ) : null}
-        </View>
-      ) : null}
 
-      {isDraft ? (
-        <View style={styles.footerActions}>
-          {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-          {saved ? <Text style={styles.saved}>Draft saved.</Text> : null}
-          {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
-          <View style={styles.footerButtonRow}>
-            <Pressable style={styles.secondaryButton} onPress={saveDraft} disabled={saving}>
-              <Text style={styles.secondaryButtonText}>{saving ? "Saving..." : "Save draft"}</Text>
-            </Pressable>
-            <Pressable style={styles.primaryButton} onPress={complete} disabled={completing}>
-              <Text style={styles.primaryButtonText}>{completing ? "Completing..." : "Complete report"}</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.footerActions}>
-          {sendError ? <Text style={styles.error}>{sendError}</Text> : null}
-          {sendResult ? <Text style={styles.saved}>{sendResult}</Text> : null}
-          <View style={styles.footerButtonRow}>
-            <Pressable style={styles.primaryButton} onPress={downloadPdf} disabled={pdfBusy || !instance.pdf_storage_path}>
-              <Text style={styles.primaryButtonText}>{pdfBusy ? "Preparing..." : "Download PDF"}</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={sendEmail} disabled={sendingEmail}>
-              <Text style={styles.secondaryButtonText}>{sendingEmail ? "Sending..." : "Send via Email"}</Text>
-            </Pressable>
-          </View>
-        </View>
+          {isDraft ? (
+            <View style={styles.footerActions}>
+              {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
+              {saved ? <Text style={styles.saved}>Draft saved.</Text> : null}
+              {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
+              <View style={styles.footerButtonRow}>
+                <Pressable style={styles.secondaryButton} onPress={saveDraft} disabled={saving}>
+                  <Text style={styles.secondaryButtonText}>{saving ? "Saving..." : "Save draft"}</Text>
+                </Pressable>
+                <View style={styles.flex1}>
+                  <ThemedButton label={completing ? "Completing..." : "Complete report"} onPress={complete} disabled={completing} />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.footerActions}>
+              {sendError ? <Text style={styles.error}>{sendError}</Text> : null}
+              {sendResult ? <Text style={styles.saved}>{sendResult}</Text> : null}
+              <View style={styles.footerButtonRow}>
+                <View style={styles.flex1}>
+                  <ThemedButton label={pdfBusy ? "Preparing..." : "Download PDF"} onPress={downloadPdf} disabled={pdfBusy || !instance.pdf_storage_path} />
+                </View>
+                <Pressable style={styles.secondaryButton} onPress={sendEmail} disabled={sendingEmail}>
+                  <Text style={styles.secondaryButtonText}>{sendingEmail ? "Sending..." : "Send via Email"}</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          <ThemedPickerModal
+            visible={jobPickerVisible}
+            title="Select job"
+            items={jobs ?? []}
+            getKey={(j) => j.id}
+            getLabel={(j) => `${j.number ?? "Pending"} - ${j.title}`}
+            onSelect={(j) => {
+              setJobCardId(j.id);
+              setClientId(j.client_id);
+            }}
+            onClose={() => setJobPickerVisible(false)}
+          />
+          <ThemedPickerModal
+            visible={clientPickerVisible}
+            title="Select client"
+            items={clients ?? []}
+            getKey={(c) => c.id}
+            getLabel={(c) => c.name}
+            onSelect={(c) => setClientId(c.id)}
+            onClose={() => setClientPickerVisible(false)}
+          />
+          <ThemedPickerModal
+            visible={signerRolePickerVisible}
+            title="Select role"
+            items={SIGNER_ROLES}
+            getKey={(r) => r}
+            getLabel={(r) => SIGNER_ROLE_LABELS[r]}
+            onSelect={setSignerRole}
+            onClose={() => setSignerRolePickerVisible(false)}
+          />
+        </ScrollView>
       )}
-
-      <PickerModal
-        visible={jobPickerVisible}
-        title="Select job"
-        items={jobs ?? []}
-        getKey={(j) => j.id}
-        getLabel={(j) => `${j.number ?? "Pending"} - ${j.title}`}
-        onSelect={(j) => {
-          setJobCardId(j.id);
-          setClientId(j.client_id);
-        }}
-        onClose={() => setJobPickerVisible(false)}
-      />
-      <PickerModal
-        visible={clientPickerVisible}
-        title="Select client"
-        items={clients ?? []}
-        getKey={(c) => c.id}
-        getLabel={(c) => c.name}
-        onSelect={(c) => setClientId(c.id)}
-        onClose={() => setClientPickerVisible(false)}
-      />
-      <PickerModal
-        visible={signerRolePickerVisible}
-        title="Select role"
-        items={SIGNER_ROLES}
-        getKey={(r) => r}
-        getLabel={(r) => SIGNER_ROLE_LABELS[r]}
-        onSelect={setSignerRole}
-        onClose={() => setSignerRolePickerVisible(false)}
-      />
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -605,11 +644,6 @@ const SIGNER_ROLE_LABELS: Record<ReportSignerRole, string> = {
   sub_contractor: "Sub-contractor",
   site_supervisor: "Site supervisor",
   client: "Client",
-};
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  draft: { bg: "#fef9c3", text: "#854d0e" },
-  completed: { bg: "#dcfce7", text: "#15803d" },
-  archived: { bg: "#e5e7eb", text: "#4b5563" },
 };
 
 // ---------------------------------------------------------------------------
@@ -633,6 +667,7 @@ function ReportPhotoField({
   tenantId: string;
   disabled: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -749,6 +784,7 @@ function RiskMatrixField({
   onChange: (rows: RiskHazardRow[]) => void;
   disabled: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
   const rows = answer?.rows ?? [];
   const [likelihoodPickerFor, setLikelihoodPickerFor] = useState<string | null>(null);
   const [consequencePickerFor, setConsequencePickerFor] = useState<string | null>(null);
@@ -768,7 +804,7 @@ function RiskMatrixField({
     <View>
       {rows.length === 0 ? <Text style={styles.helpText}>No hazards recorded yet.</Text> : null}
       {rows.map((row, index) => {
-        const ratingColors = RISK_RATING_COLORS[row.rating];
+        const ratingColor = RISK_RATING_COLORS[row.rating];
         return (
           <View key={row.id} style={styles.hazardCard}>
             <View style={styles.hazardHeader}>
@@ -784,6 +820,7 @@ function RiskMatrixField({
               value={row.hazard}
               onChangeText={(v) => updateRow(row.id, { hazard: v })}
               placeholder="Hazard identified (e.g. fall from roof edge)"
+              placeholderTextColor={styles.placeholder.color}
               multiline
               style={[styles.textInput, styles.multiline, { marginBottom: 8 }]}
             />
@@ -797,18 +834,19 @@ function RiskMatrixField({
                 <Text style={styles.pickerFieldValue}>{RISK_CONSEQUENCE_LABELS[row.consequence]}</Text>
               </Pressable>
             </View>
-            <View style={[styles.ratingBadge, { backgroundColor: ratingColors.bg }]}>
-              <Text style={[styles.ratingBadgeText, { color: ratingColors.text }]}>{RISK_RATING_LABELS[row.rating]} risk</Text>
+            <View style={[styles.ratingBadge, { borderColor: ratingColor }]}>
+              <Text style={[styles.ratingBadgeText, { color: ratingColor }]}>{RISK_RATING_LABELS[row.rating]} risk</Text>
             </View>
             <TextInput
               editable={!disabled}
               value={row.controlMeasures}
               onChangeText={(v) => updateRow(row.id, { controlMeasures: v })}
               placeholder="Control measures - what will be done to control this risk?"
+              placeholderTextColor={styles.placeholder.color}
               multiline
               style={[styles.textInput, styles.multiline, { marginTop: 8 }]}
             />
-            <PickerModal
+            <ThemedPickerModal
               visible={likelihoodPickerFor === row.id}
               title="Likelihood"
               items={RISK_LEVELS}
@@ -817,7 +855,7 @@ function RiskMatrixField({
               onSelect={(l) => updateRow(row.id, { likelihood: l })}
               onClose={() => setLikelihoodPickerFor(null)}
             />
-            <PickerModal
+            <ThemedPickerModal
               visible={consequencePickerFor === row.id}
               title="Consequence"
               items={RISK_LEVELS as unknown as RiskConsequence[]}
@@ -838,81 +876,87 @@ function RiskMatrixField({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  flex1: { flex: 1 },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 12 },
-  heading: { fontSize: 19, fontWeight: "700", color: "#111827" },
-  subheading: { fontSize: 13, color: "#6b7280", marginTop: 2 },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
-  statusBadgeText: { fontSize: 12, fontWeight: "700" },
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    screen: { flex: 1, backgroundColor: tokens.background },
+    header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    title: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary, flexShrink: 1 },
+    container: { flex: 1, backgroundColor: tokens.background },
+    center: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
+    flex1: { flex: 1 },
+    headerRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 10, marginBottom: 12 },
+    heading: { ...mono, fontSize: font.title, fontWeight: "700" as const, color: tokens.textPrimary },
+    subheading: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    statusBadge: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+    statusBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const },
 
-  unlinkedBanner: { borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", borderRadius: 10, padding: 12, marginBottom: 16, gap: 8 },
-  unlinkedTitle: { fontSize: 13, fontWeight: "700", color: "#92400e" },
-  linkedMeta: { fontSize: 13, color: "#6b7280", marginBottom: 16 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
+    unlinkedBanner: { borderWidth: 1, borderColor: tokens.warning, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginBottom: 16, gap: 8 },
+    unlinkedTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.warning },
+    linkedMeta: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 16 },
+    link: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.body },
 
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldLabel: { fontSize: 12, color: "#6b7280", marginBottom: 2 },
-  pickerFieldValue: { fontSize: 15, color: "#111827" },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.surface },
+    pickerFieldLabel: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 2 },
+    pickerFieldValue: { ...mono, fontSize: font.body, color: tokens.textPrimary },
 
-  sectionCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 16, marginBottom: 14, backgroundColor: "#fff" },
-  sectionTitle: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: 12 },
-  fieldBlock: { marginBottom: 18 },
-  fieldLabel: { fontSize: 14, fontWeight: "700", color: "#1f2937", marginBottom: 4 },
-  required: { color: "#dc2626" },
-  helpText: { fontSize: 12, color: "#9ca3af", marginBottom: 4 },
+    sectionCard: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 16, marginBottom: 14 },
+    sectionTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 12 },
+    fieldBlock: { marginBottom: 18 },
+    fieldLabel: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, marginBottom: 4 },
+    required: { color: tokens.danger },
+    helpText: { ...mono, fontSize: font.label, color: tokens.textMuted, marginBottom: 4 },
 
-  passFailRow: { flexDirection: "row", gap: 8 },
-  passFailButton: { borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  actionRequired: { marginTop: 10, backgroundColor: "#fef2f2", borderRadius: 8, padding: 10 },
-  actionRequiredLabel: { fontSize: 12, fontWeight: "700", color: "#991b1b", marginBottom: 6 },
-  actionNoteInput: { borderWidth: 1, borderColor: "#fecaca", borderRadius: 8, padding: 10, fontSize: 14, minHeight: 50, textAlignVertical: "top", marginBottom: 8, backgroundColor: "#fff" },
+    passFailRow: { flexDirection: "row" as const, gap: 8 },
+    passFailButton: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 16, paddingVertical: 10 },
+    passFailButtonText: { ...mono, fontWeight: "700" as const },
+    actionRequired: { marginTop: 10, borderWidth: 1, borderColor: tokens.danger, backgroundColor: tokens.background, borderRadius: 4, padding: 10 },
+    actionRequiredLabel: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.danger, marginBottom: 6 },
+    actionNoteInput: { borderWidth: 1, borderColor: tokens.danger, borderRadius: 3, padding: 10, fontSize: font.body, minHeight: 50, textAlignVertical: "top" as const, marginBottom: 8, backgroundColor: tokens.surface, color: tokens.textPrimary, ...mono },
 
-  textInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, fontSize: 14, backgroundColor: "#fff" },
-  multiline: { minHeight: 60, textAlignVertical: "top" },
-  meterInput: { width: 160 },
-  signaturePreview: { height: 100, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, backgroundColor: "#fff" },
+    textInput: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 10, fontSize: font.body, backgroundColor: tokens.surface, color: tokens.textPrimary, ...mono },
+    multiline: { minHeight: 60, textAlignVertical: "top" as const },
+    meterInput: { width: 160 },
+    signaturePreview: { height: 100, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, backgroundColor: tokens.surface },
+    placeholder: { color: tokens.textMuted },
 
-  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-  photoThumb: { width: 80, height: 80, borderRadius: 8, backgroundColor: "#e5e7eb" },
-  photoPending: { alignItems: "center", justifyContent: "center" },
-  photoRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
-  photoRemoveText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  photoActionsRow: { flexDirection: "row", gap: 8 },
-  photoActionButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  photoActionButtonSecondary: { backgroundColor: "#f3f4f6" },
-  photoActionButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
-  photoActionButtonSecondaryText: { color: "#1d4ed8" },
+    photoRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, marginBottom: 8 },
+    photoThumb: { width: 80, height: 80, borderRadius: 4, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    photoPending: { alignItems: "center" as const, justifyContent: "center" as const },
+    photoRemove: { position: "absolute" as const, top: -6, right: -6, width: 20, height: 20, borderRadius: 10, backgroundColor: tokens.danger, alignItems: "center" as const, justifyContent: "center" as const },
+    photoRemoveText: { color: tokens.background, fontSize: font.label, fontWeight: "700" as const },
+    photoActionsRow: { flexDirection: "row" as const, gap: 8 },
+    photoActionButton: { borderWidth: 1, borderColor: tokens.accent, backgroundColor: tokens.accentGlow, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
+    photoActionButtonSecondary: { backgroundColor: "transparent", borderColor: tokens.border },
+    photoActionButtonText: { ...mono, color: tokens.accent, fontWeight: "600" as const, fontSize: font.label },
+    photoActionButtonSecondaryText: { color: tokens.textMuted },
 
-  hazardCard: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, backgroundColor: "#f9fafb", marginBottom: 10 },
-  hazardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
-  hazardIndex: { fontSize: 11, fontWeight: "700", color: "#9ca3af" },
-  removeLink: { color: "#dc2626", fontWeight: "700", fontSize: 12 },
-  hazardGrid: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  ratingBadge: { alignSelf: "flex-start", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  ratingBadgeText: { fontSize: 11, fontWeight: "700" },
-  addHazardButton: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, alignItems: "center" },
-  addHazardButtonText: { fontWeight: "700", color: "#374151", fontSize: 13 },
+    hazardCard: { borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, backgroundColor: tokens.background, marginBottom: 10 },
+    hazardHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, marginBottom: 8 },
+    hazardIndex: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.textMuted },
+    removeLink: { ...mono, color: tokens.danger, fontWeight: "700" as const, fontSize: font.label },
+    hazardGrid: { flexDirection: "row" as const, gap: 8, marginBottom: 8 },
+    ratingBadge: { alignSelf: "flex-start" as const, borderWidth: 1, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 4 },
+    ratingBadgeText: { ...mono, fontSize: font.label, fontWeight: "700" as const },
+    addHazardButton: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 10, alignItems: "center" as const },
+    addHazardButtonText: { ...mono, fontWeight: "700" as const, color: tokens.accent, fontSize: font.label },
 
-  swmsCard: { borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", borderRadius: 10, padding: 16, marginBottom: 16 },
-  swmsTitle: { fontSize: 12, fontWeight: "700", color: "#9a3412", textTransform: "uppercase" },
-  swmsSubtitle: { fontSize: 12, color: "#c2410c", marginTop: 2, marginBottom: 10 },
-  signatureRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderRadius: 8, padding: 10, marginBottom: 8 },
-  signatureName: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  signatureMeta: { fontSize: 11, color: "#6b7280", marginTop: 2 },
-  signatureThumb: { width: 80, height: 40 },
-  signatureForm: { backgroundColor: "#fff", borderRadius: 8, padding: 10, marginTop: 4 },
-  addSignatureButton: { backgroundColor: "#c2410c", borderRadius: 8, padding: 10, alignItems: "center", marginTop: 8 },
-  addSignatureButtonText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+    swmsCard: { borderWidth: 1, borderColor: tokens.warning, backgroundColor: tokens.surface, borderRadius: 4, padding: 16, marginBottom: 16 },
+    swmsTitle: { ...mono, fontSize: font.label, fontWeight: "700" as const, color: tokens.warning, textTransform: "uppercase" as const, letterSpacing: 1 },
+    swmsSubtitle: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2, marginBottom: 10 },
+    signatureRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 10, marginBottom: 8 },
+    signatureName: { ...mono, fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary },
+    signatureMeta: { ...mono, fontSize: font.label, color: tokens.textMuted, marginTop: 2 },
+    signatureThumb: { width: 80, height: 40 },
+    signatureForm: { backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 10, marginTop: 4 },
+    addSignatureButton: { backgroundColor: tokens.warning, borderRadius: 3, padding: 10, alignItems: "center" as const, marginTop: 8 },
+    addSignatureButtonText: { ...mono, color: tokens.background, fontWeight: "700" as const, fontSize: font.body },
 
-  footerActions: { marginTop: 8, gap: 8 },
-  footerButtonRow: { flexDirection: "row", gap: 10 },
-  primaryButton: { flex: 1, backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center" },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  secondaryButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 14, alignItems: "center" },
-  secondaryButtonText: { color: "#374151", fontWeight: "700", fontSize: 14 },
-  error: { color: "#dc2626", fontSize: 13 },
-  saved: { color: "#15803d", fontSize: 13 },
-});
+    footerActions: { marginTop: 8, gap: 8 },
+    footerButtonRow: { flexDirection: "row" as const, gap: 10, alignItems: "stretch" as const },
+    secondaryButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 14, alignItems: "center" as const, justifyContent: "center" as const },
+    secondaryButtonText: { ...mono, color: tokens.accent, fontWeight: "700" as const, fontSize: font.button, letterSpacing: 1, textTransform: "uppercase" as const },
+    error: { ...mono, color: tokens.danger, fontSize: font.body },
+    saved: { ...mono, color: tokens.accent, fontSize: font.body },
+  };
+}

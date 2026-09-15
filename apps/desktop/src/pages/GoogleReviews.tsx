@@ -126,10 +126,12 @@ export default function GoogleReviewsPage() {
   );
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Google Reviews</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Google Reviews
+        </h1>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           {clients?.length ?? 0} client{clients?.length === 1 ? "" : "s"} who haven&apos;t left a review yet
         </p>
       </div>
@@ -139,19 +141,22 @@ export default function GoogleReviewsPage() {
         placeholder="Search clients..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full max-w-sm rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+        className="mb-4 w-full max-w-sm rounded-md px-3 py-2 focus:outline-none"
+        style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
       />
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : filteredClients.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             {clients?.length === 0 ? "Every client has been marked as reviewed." : "No clients found."}
           </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Phone</th>
@@ -164,21 +169,26 @@ export default function GoogleReviewsPage() {
                 const isSending = sendingClientId === client.id;
                 const message = rowMessage?.clientId === client.id ? rowMessage : null;
                 return (
-                  <tr key={client.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                  <tr key={client.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                     <td className="px-4 py-3">
-                      <Link to={`/clients/${client.id}`} className="font-medium text-blue-700 hover:underline">
+                      <Link to={`/clients/${client.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                         {client.client_type === "company" && client.company_name ? client.company_name : client.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{client.phone ?? "-"}</td>
-                    <td className="px-4 py-3 text-gray-600">{client.email ?? "-"}</td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {client.phone ?? "-"}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {client.email ?? "-"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => sendReviewRequest.mutate({ client, wantChannel: "email" })}
                           disabled={isSending || !client.email}
                           title={client.email ? undefined : "No email on file"}
-                          className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
                         >
                           Email
                         </button>
@@ -186,7 +196,8 @@ export default function GoogleReviewsPage() {
                           onClick={() => sendReviewRequest.mutate({ client, wantChannel: "sms" })}
                           disabled={isSending || !client.phone}
                           title={client.phone ? undefined : "No phone on file"}
-                          className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
                         >
                           SMS
                         </button>
@@ -194,13 +205,16 @@ export default function GoogleReviewsPage() {
                           onClick={() => sendReviewRequest.mutate({ client, wantChannel: "both" })}
                           disabled={isSending || (!client.email && !client.phone)}
                           title={client.email || client.phone ? undefined : "No email or phone on file"}
-                          className="rounded-md bg-blue-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                          style={{ backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                         >
                           {isSending ? "Sending..." : "Both"}
                         </button>
                       </div>
                       {message ? (
-                        <p className={`mt-1 text-xs ${message.isError ? "text-red-600" : "text-green-700"}`}>{message.text}</p>
+                        <p className="mt-1" style={{ color: message.isError ? "var(--jms-danger)" : "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                          {message.text}
+                        </p>
                       ) : null}
                     </td>
                   </tr>
