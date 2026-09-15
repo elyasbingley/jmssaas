@@ -1421,7 +1421,7 @@ export default function JobDetailPage() {
 
       <div className="mt-6">
         <ThemedPanel
-          title="Reports & Safety"
+          title="Forms & Certificates"
           actions={
             <div className="flex gap-2">
               <button
