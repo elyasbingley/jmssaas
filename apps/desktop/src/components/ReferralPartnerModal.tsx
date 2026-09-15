@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReferralPartner } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "./Modal";
-import { SelectField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedSelectField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 
 async function fetchActiveReferralPartners(): Promise<ReferralPartner[]> {
   const { data, error } = await supabase
@@ -77,27 +78,27 @@ export function ReferralPartnerModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Referral source">
-      <SelectField
+    <ThemedModal open={open} onClose={onClose} title="Referral source">
+      <ThemedSelectField
         label="Referral partner"
         value={value}
         onChange={setValue}
         options={(partners ?? []).map((p) => ({ value: p.id, label: referralPartnerLabel(p) }))}
         placeholder="None"
       />
-      {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+      {error ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {error}
+        </p>
+      ) : null}
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600">
+        <button onClick={onClose} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Cancel
         </button>
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending}>
           {save.isPending ? "Saving..." : "Save"}
-        </button>
+        </ThemedButton>
       </div>
-    </Modal>
+    </ThemedModal>
   );
 }

@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatCentsAsAud, type JobLifecycleStage, type ReferralGroup, type ReferralPartner } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
-import { SelectField } from "./FormField";
+import { ThemedSelectField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 import { partnerDisplayName, type ReferralInvoiceRow, type ReferredJob } from "../pages/B2BReferrals";
 
 // Sub-tab 2: KPI ribbon + the BNI "Thank You For Closed Business" (TYFCB)
@@ -145,33 +146,51 @@ export function ReferralAnalyticsTab({
   return (
     <div>
       <div className="mb-6 grid grid-cols-4 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Total Referral Revenue (YTD)</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totalReferralRevenueYtdCents)}</p>
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Total Referral Revenue (YTD)
+          </p>
+          <p className="mt-1 font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {formatCentsAsAud(totalReferralRevenueYtdCents)}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Conversion Rate of Referred Leads</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{conversionRate.toFixed(0)}%</p>
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Conversion Rate of Referred Leads
+          </p>
+          <p className="mt-1 font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {conversionRate.toFixed(0)}%
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Average Value per Referred Job</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(avgValuePerReferredJobCents)}</p>
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Average Value per Referred Job
+          </p>
+          <p className="mt-1 font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {formatCentsAsAud(avgValuePerReferredJobCents)}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">BNI TYFCB Total (YTD)</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(bniTyfcbYtdCents)}</p>
+        <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            BNI TYFCB Total (YTD)
+          </p>
+          <p className="mt-1 font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {formatCentsAsAud(bniTyfcbYtdCents)}
+          </p>
         </div>
       </div>
 
-      <div className="rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-gray-500">BNI TYFCB Export Tool</h2>
-        <p className="mb-4 text-sm text-gray-500">
+      <div className="rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h2 className="mb-1 font-bold uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+          BNI TYFCB Export Tool
+        </h2>
+        <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           "Thank You For Closed Business" - ready-to-copy totals formatted for BNI Connect input, filtered by chapter and date range.
         </p>
 
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <div className="w-64">
-            <SelectField
+            <ThemedSelectField
               label="BNI Group"
               value={tyfcbGroupId}
               onChange={setTyfcbGroupId}
@@ -179,7 +198,7 @@ export function ReferralAnalyticsTab({
               placeholder="All BNI chapters"
             />
           </div>
-          <div className="flex gap-1">
+          <div className="mb-4 flex gap-1">
             {(
               [
                 { value: "this_week", label: "This Week" },
@@ -191,17 +210,22 @@ export function ReferralAnalyticsTab({
               <button
                 key={p.value}
                 onClick={() => setPreset(p.value)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  preset === p.value ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"
-                }`}
+                className="rounded-full border px-3 py-1.5 font-semibold"
+                style={
+                  preset === p.value
+                    ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                    : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+                }
               >
                 {p.label}
               </button>
             ))}
           </div>
-          <div className="flex items-end gap-2">
+          <div className="mb-4 flex items-end gap-2">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">From</label>
+              <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                From
+              </label>
               <input
                 type="date"
                 value={preset === "custom" ? customFrom : range.from}
@@ -209,11 +233,14 @@ export function ReferralAnalyticsTab({
                   setPreset("custom");
                   setCustomFrom(e.target.value);
                 }}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="rounded border px-3 py-2"
+                style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">To</label>
+              <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                To
+              </label>
               <input
                 type="date"
                 value={preset === "custom" ? customTo : range.to}
@@ -221,17 +248,20 @@ export function ReferralAnalyticsTab({
                   setPreset("custom");
                   setCustomTo(e.target.value);
                 }}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="rounded border px-3 py-2"
+                style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
               />
             </div>
           </div>
         </div>
 
         {tyfcbRows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-gray-500">No paid, referred jobs in this range.</p>
+          <p className="py-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No paid, referred jobs in this range.
+          </p>
         ) : (
-          <table className="mb-4 w-full text-left text-sm">
-            <thead className="border-b border-gray-300 text-xs uppercase text-gray-500">
+          <table className="mb-4 w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               <tr>
                 <th className="py-2 font-semibold">Partner Name</th>
                 <th className="py-2 text-right font-semibold">Jobs Won Count</th>
@@ -240,10 +270,16 @@ export function ReferralAnalyticsTab({
             </thead>
             <tbody>
               {tyfcbRows.map((r) => (
-                <tr key={r.partner!.id} className="border-b border-gray-200 last:border-0">
-                  <td className="py-2">{partnerDisplayName(r.partner!)}</td>
-                  <td className="py-2 text-right">{r.jobsWon}</td>
-                  <td className="py-2 text-right font-semibold">{formatCentsAsAud(r.revenueCents)}</td>
+                <tr key={r.partner!.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="py-2" style={{ color: "var(--jms-text)" }}>
+                    {partnerDisplayName(r.partner!)}
+                  </td>
+                  <td className="py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {r.jobsWon}
+                  </td>
+                  <td className="py-2 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(r.revenueCents)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -251,20 +287,12 @@ export function ReferralAnalyticsTab({
         )}
 
         <div className="flex gap-3">
-          <button
-            onClick={copyToClipboard}
-            disabled={tyfcbRows.length === 0}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={copyToClipboard} disabled={tyfcbRows.length === 0}>
             {copied ? "Copied!" : "Copy to Clipboard"}
-          </button>
-          <button
-            onClick={downloadCsv}
-            disabled={tyfcbRows.length === 0}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
+          </ThemedButton>
+          <ThemedButton variant="secondary" onClick={downloadCsv} disabled={tyfcbRows.length === 0}>
             Export TYFCB CSV
-          </button>
+          </ThemedButton>
         </div>
       </div>
     </div>
