@@ -4,8 +4,9 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { createTechnicianSchema, type Profile } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 async function fetchTeamMembers(): Promise<Profile[]> {
   const { data, error } = await supabase.from("profiles").select("*").order("full_name");
@@ -15,6 +16,7 @@ async function fetchTeamMembers(): Promise<Profile[]> {
 
 const emptyForm = { fullName: "", email: "", password: "" };
 const ROLE_LABELS: Record<Profile["role"], string> = { admin: "Admin", technician: "Technician" };
+const ROLE_COLOR_VAR: Record<Profile["role"], string> = { admin: "var(--jms-accent)", technician: "var(--jms-text-muted)" };
 
 export default function TeamPage() {
   const queryClient = useQueryClient();
@@ -89,28 +91,31 @@ export default function TeamPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Team</h1>
-          <p className="text-sm text-gray-500">Everyone with sign-in access, and their role in the company.</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Team
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Everyone with sign-in access, and their role in the company.
+          </p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New technician
-        </button>
+        <ThemedButton onClick={() => setModalOpen(true)}>+ New technician</ThemedButton>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : !teamMembers || teamMembers.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No team members yet.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No team members yet.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Job title</th>
@@ -121,21 +126,30 @@ export default function TeamPage() {
             </thead>
             <tbody>
               {teamMembers.map((member) => (
-                <tr key={member.id} className="border-b border-gray-200 last:border-0">
-                  <td className="px-4 py-3 font-medium text-gray-900">{member.full_name}</td>
-                  <td className="px-4 py-3 text-gray-600">{member.job_title ?? "—"}</td>
+                <tr key={member.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-3 font-medium" style={{ color: "var(--jms-text)" }}>
+                    {member.full_name}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {member.job_title ?? "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        member.role === "admin" ? "bg-blue-100 text-blue-800" : "bg-gray-200 text-gray-700"
-                      }`}
+                      className="rounded-full border px-2 py-0.5 font-semibold"
+                      style={{ borderColor: ROLE_COLOR_VAR[member.role], color: ROLE_COLOR_VAR[member.role], fontSize: "var(--jms-font-label)" }}
                     >
                       {ROLE_LABELS[member.role]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{member.email}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {member.email}
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => openEditModal(member)} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <button
+                      onClick={() => openEditModal(member)}
+                      className="font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Edit
                     </button>
                   </td>
@@ -146,7 +160,7 @@ export default function TeamPage() {
         )}
       </div>
 
-      <Modal
+      <ThemedModal
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);
@@ -154,58 +168,58 @@ export default function TeamPage() {
         }}
         title="New technician"
       >
-        <FormField label="Full name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="e.g. Sam Taylor" />
-        <FormField
+        <ThemedFormField label="Full name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="e.g. Sam Taylor" />
+        <ThemedFormField
           label="Email"
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
           placeholder="sam@example.com"
         />
-        <FormField
+        <ThemedFormField
           label="Password"
           type="password"
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
           placeholder="At least 8 characters"
         />
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createTechnician.mutate()}
-            disabled={createTechnician.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createTechnician.mutate()} disabled={createTechnician.isPending}>
             {createTechnician.isPending ? "Creating..." : "Create"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={!!editingMember} onClose={() => setEditingMember(null)} title="Edit team member">
-        <FormField label="Full name" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="e.g. Sam Taylor" />
-        <FormField
+      <ThemedModal open={!!editingMember} onClose={() => setEditingMember(null)} title="Edit team member">
+        <ThemedFormField label="Full name" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="e.g. Sam Taylor" />
+        <ThemedFormField
           label="Job title (optional)"
           value={editJobTitle}
           onChange={(e) => setEditJobTitle(e.target.value)}
           placeholder="e.g. Foreman, Office Manager, Apprentice"
         />
-        {editError ? <p className="mb-4 text-sm text-red-600">{editError}</p> : null}
+        {editError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {editError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setEditingMember(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setEditingMember(null)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveEdit.mutate()}
-            disabled={saveEdit.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveEdit.mutate()} disabled={saveEdit.isPending}>
             {saveEdit.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
