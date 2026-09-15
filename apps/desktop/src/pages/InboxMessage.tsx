@@ -5,7 +5,8 @@ import { createClientSchema, type Client, type InboxAttachment, type InboxMessag
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 const ATTACHMENT_BUCKET = "inbox-attachments";
 const JOB_FILES_BUCKET = "job-files";
@@ -193,24 +194,34 @@ export default function InboxMessagePage() {
   });
 
   if (!message) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
   const canAct = message.status === "unprocessed" || message.status === "needs_review";
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/inbox" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/inbox" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Inbox
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-        <h1 className="text-lg font-bold text-gray-900">{message.subject || "(no subject)"}</h1>
-        <p className="mb-4 text-sm text-gray-500">
+      <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h1 className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+          {message.subject || "(no subject)"}
+        </h1>
+        <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           {message.from_name ? `${message.from_name} · ` : ""}
           {message.from_email} &middot; {new Date(message.received_at).toLocaleString("en-AU")}
         </p>
-        {message.body_text ? <p className="whitespace-pre-wrap text-sm text-gray-700">{message.body_text}</p> : null}
+        {message.body_text ? (
+          <p className="whitespace-pre-wrap" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            {message.body_text}
+          </p>
+        ) : null}
 
         {attachments && attachments.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2">
@@ -220,7 +231,8 @@ export default function InboxMessagePage() {
                 href={attachmentUrls[a.id] || undefined}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-gray-100"
+                className="rounded px-3 py-1.5 font-semibold"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
               >
                 📎 {a.file_name}
               </a>
@@ -230,10 +242,14 @@ export default function InboxMessagePage() {
       </div>
 
       {!canAct ? (
-        <p className="text-sm text-gray-500">
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           {message.status === "attached" ? (
             <>
-              Attached to <Link to={`/jobs/${message.linked_job_id}`} className="text-blue-700 hover:underline">this job</Link>.
+              Attached to{" "}
+              <Link to={`/jobs/${message.linked_job_id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
+                this job
+              </Link>
+              .
             </>
           ) : (
             "Dismissed."
@@ -242,38 +258,43 @@ export default function InboxMessagePage() {
       ) : (
         <>
           {attachments && attachments.length > 0 ? (
-            <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Attach to an existing job</h2>
-              <SelectField
+            <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+              <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                Attach to an existing job
+              </h2>
+              <ThemedSelectField
                 label="Job"
                 value={attachJobId}
                 onChange={setAttachJobId}
                 options={(jobs ?? []).map((j) => ({ value: j.id, label: `${j.title} - ${j.clients?.name ?? "Unknown client"}` }))}
                 placeholder="Select a job"
               />
-              {attachError ? <p className="mb-3 text-sm text-red-600">{attachError}</p> : null}
-              <button
-                onClick={() => attachToExisting.mutate()}
-                disabled={!attachJobId || attachToExisting.isPending}
-                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              {attachError ? (
+                <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                  {attachError}
+                </p>
+              ) : null}
+              <ThemedButton onClick={() => attachToExisting.mutate()} disabled={!attachJobId || attachToExisting.isPending}>
                 {attachToExisting.isPending ? "Attaching..." : "Attach"}
-              </button>
+              </ThemedButton>
             </div>
           ) : null}
 
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
+          <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
+              <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
                 {suggestion ? "AI-drafted job (review before creating)" : "Create a new job from this message"}
               </h2>
               {suggestion ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                <span
+                  className="rounded-full border px-2 py-0.5 font-semibold"
+                  style={{ borderColor: "var(--jms-warning)", color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}
+                >
                   {suggestion.confidence} confidence
                 </span>
               ) : null}
               {!showCreateForm ? (
-                <button onClick={() => setShowCreateForm(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+                <button onClick={() => setShowCreateForm(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
                   + New job
                 </button>
               ) : null}
@@ -281,7 +302,7 @@ export default function InboxMessagePage() {
 
             {showCreateForm ? (
               <>
-                <SelectField
+                <ThemedSelectField
                   label="Use an existing client (optional)"
                   value={existingClientId}
                   onChange={setExistingClientId}
@@ -290,28 +311,28 @@ export default function InboxMessagePage() {
                 />
                 {!existingClientId ? (
                   <>
-                    <FormField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+                    <ThemedFormField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
                     <div className="grid grid-cols-2 gap-3">
-                      <FormField label="Email (optional)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
-                      <FormField label="Phone (optional)" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} />
+                      <ThemedFormField label="Email (optional)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} />
+                      <ThemedFormField label="Phone (optional)" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} />
                     </div>
                   </>
                 ) : null}
-                <FormField label="Job title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-                <TextAreaField label="Description" rows={4} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
-                {createError ? <p className="mb-3 text-sm text-red-600">{createError}</p> : null}
-                <button
-                  onClick={() => createJob.mutate()}
-                  disabled={createJob.isPending}
-                  className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-                >
+                <ThemedFormField label="Job title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+                <ThemedTextAreaField label="Description" rows={4} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
+                {createError ? (
+                  <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                    {createError}
+                  </p>
+                ) : null}
+                <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending}>
                   {createJob.isPending ? "Creating..." : "Create job"}
-                </button>
+                </ThemedButton>
               </>
             ) : null}
           </div>
 
-          <button onClick={() => dismiss.mutate()} className="text-sm font-semibold text-red-600 hover:underline">
+          <button onClick={() => dismiss.mutate()} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             Dismiss
           </button>
         </>
