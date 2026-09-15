@@ -14,8 +14,12 @@ interface SidePanelProps {
 export function SidePanel({ open, onClose, children }: SidePanelProps) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-      <div className="h-full w-full max-w-lg overflow-y-auto border-l border-gray-300 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
+      <div
+        className="h-full w-full max-w-lg overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+        style={{ borderLeft: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 24px var(--jms-accent-glow)" }}
+      >
         {children}
       </div>
     </div>

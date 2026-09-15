@@ -12,7 +12,8 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { sendChannelMessage, type ChannelMediaAttachment } from "../lib/channels";
 import { uploadChannelMedia } from "../lib/uploads";
-import { FormField, TextAreaField } from "../components/FormField";
+import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import { decodeEmailConversationId } from "./Channels";
 
 const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
@@ -105,9 +106,9 @@ function CreateJobTaskSection(props: {
 
   if (jobCreatedId) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
+      <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
         Job created.{" "}
-        <Link to={`/jobs/${jobCreatedId}`} className="font-semibold text-blue-700 hover:underline">
+        <Link to={`/jobs/${jobCreatedId}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
           View job
         </Link>
       </div>
@@ -115,43 +116,54 @@ function CreateJobTaskSection(props: {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
       {!open ? (
         <div className="flex gap-3">
-          <button onClick={() => setOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+          <button onClick={() => setOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
             + Create job
           </button>
           <button
             onClick={() => createTask.mutate()}
             disabled={createTask.isPending}
-            className="text-sm font-semibold text-blue-700 hover:underline disabled:opacity-60"
+            className="font-semibold hover:underline disabled:opacity-60"
+            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
           >
             {createTask.isPending ? "Creating..." : "+ Create task"}
           </button>
         </div>
       ) : (
         <>
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Create a job from this conversation</h2>
-          <FormField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
-          <FormField label="Job title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-          <TextAreaField label="Description" rows={4} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
-          {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+            Create a job from this conversation
+          </h2>
+          <ThemedFormField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+          <ThemedFormField label="Job title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+          <ThemedTextAreaField label="Description" rows={4} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
+          {error ? (
+            <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {error}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-3">
-            <button onClick={() => setOpen(false)} className="px-3 py-2 text-sm font-semibold text-gray-600">
+            <button onClick={() => setOpen(false)} className="px-3 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Cancel
             </button>
-            <button
-              onClick={() => createJob.mutate()}
-              disabled={createJob.isPending}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending}>
               {createJob.isPending ? "Creating..." : "Create job"}
-            </button>
+            </ThemedButton>
           </div>
         </>
       )}
-      {taskCreated ? <p className="mt-2 text-sm text-green-700">Task created.</p> : null}
-      {taskError ? <p className="mt-2 text-sm text-red-600">{taskError}</p> : null}
+      {taskCreated ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Task created.
+        </p>
+      ) : null}
+      {taskError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {taskError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -222,21 +234,26 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
     onError: (e) => setSendError(getErrorMessage(e, "Failed to send")),
   });
 
-  if (!conversation) return <div className="p-5 text-sm text-gray-500">Loading...</div>;
+  if (!conversation)
+    return (
+      <div className="p-5" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
 
   const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "messenger";
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="bg-blue-700 p-5 text-white">
-        <button onClick={() => navigate("/channels")} className="mb-2 text-sm text-blue-100 hover:underline">
+    <div className="flex h-full flex-col" style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="p-5" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+        <button onClick={() => navigate("/channels")} className="mb-2 hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           &larr; Back to Channels
         </button>
-        <h1 className="text-lg font-bold">
+        <h1 className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
           {CHANNEL_ICONS[conversation.channel_type]} {title}
         </h1>
-        <p className="text-sm text-blue-100">
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           {CHANNEL_LABELS[conversation.channel_type]} &middot; {conversation.external_contact}
         </p>
       </div>
@@ -245,19 +262,29 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         {(messages ?? []).map((m) => (
           <div key={m.id} className={`flex ${m.direction === "outbound" ? "justify-end" : "justify-start"}`}>
             <div
-              className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
-                m.direction === "outbound" ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-900"
-              }`}
+              className="max-w-[80%] rounded-lg px-3 py-2"
+              style={
+                m.direction === "outbound"
+                  ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }
+                  : { backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }
+              }
             >
               {m.body ? <p className="whitespace-pre-wrap">{m.body}</p> : null}
               {m.media.map((media) =>
                 mediaUrls[media.storage_path] ? (
-                  <a key={media.storage_path} href={mediaUrls[media.storage_path]} target="_blank" rel="noreferrer" className="mt-1 block underline">
+                  <a
+                    key={media.storage_path}
+                    href={mediaUrls[media.storage_path]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block underline"
+                    style={{ color: "var(--jms-accent)" }}
+                  >
                     📎 {media.file_name}
                   </a>
                 ) : null
               )}
-              <p className={`mt-1 text-xs ${m.direction === "outbound" ? "text-blue-100" : "text-gray-400"}`}>
+              <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                 {new Date(m.created_at).toLocaleString("en-AU")}
               </p>
             </div>
@@ -265,19 +292,25 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         ))}
       </div>
 
-      <div className="border-t border-gray-200 p-4">
+      <div className="p-4" style={{ borderTop: "1px solid var(--jms-border)" }}>
         {canSend ? (
           <>
             {attachment ? (
-              <div className="mb-2 flex items-center gap-2 rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+              <div
+                className="mb-2 flex items-center gap-2 rounded px-3 py-1.5"
+                style={{ backgroundColor: "var(--jms-surface)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+              >
                 <span className="flex-1 truncate">📎 {attachment.file_name}</span>
-                <button onClick={() => setAttachment(null)} className="font-semibold text-red-600 hover:underline">
+                <button onClick={() => setAttachment(null)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Remove
                 </button>
               </div>
             ) : null}
             <div className="flex gap-2">
-              <label className="flex cursor-pointer items-center rounded-md border border-gray-300 px-3 text-lg text-gray-600 hover:bg-gray-50">
+              <label
+                className="flex cursor-pointer items-center rounded px-3 text-lg"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)" }}
+              >
                 📎
                 <input
                   type="file"
@@ -295,26 +328,27 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                 onChange={(e) => setReply(e.target.value)}
                 rows={2}
                 placeholder="Type a reply..."
-                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                className="flex-1 rounded border px-3 py-2 focus:outline-none"
+                style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
               />
-              <button
-                onClick={() => send.mutate()}
-                disabled={send.isPending || uploadingAttachment || (!reply.trim() && !attachment)}
-                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={() => send.mutate()} disabled={send.isPending || uploadingAttachment || (!reply.trim() && !attachment)}>
                 {send.isPending ? "Sending..." : uploadingAttachment ? "Attaching..." : "Send"}
-              </button>
+              </ThemedButton>
             </div>
-            {sendError ? <p className="mt-1 text-sm text-red-600">{sendError}</p> : null}
+            {sendError ? (
+              <p className="mt-1" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                {sendError}
+              </p>
+            ) : null}
           </>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Sending isn't available on {CHANNEL_LABELS[conversation.channel_type]} yet - see Settings &gt; Channels.
           </p>
         )}
       </div>
 
-      <div className="border-t border-gray-200 p-4">
+      <div className="p-4" style={{ borderTop: "1px solid var(--jms-border)" }}>
         <CreateJobTaskSection
           prefillName={conversation.clients?.name || conversation.contact_name || ""}
           prefillEmail=""
@@ -336,32 +370,40 @@ function EmailConversationDetail({ email }: { email: string }) {
   const latest = messages?.[0];
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="bg-blue-700 p-5 text-white">
-        <button onClick={() => navigate("/channels")} className="mb-2 text-sm text-blue-100 hover:underline">
+    <div className="flex h-full flex-col" style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="p-5" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+        <button onClick={() => navigate("/channels")} className="mb-2 hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           &larr; Back to Channels
         </button>
-        <h1 className="text-lg font-bold">✉️ {latest?.from_name || email}</h1>
-        <p className="text-sm text-blue-100">Email &middot; {email}</p>
+        <h1 className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+          ✉️ {latest?.from_name || email}
+        </h1>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Email &middot; {email}</p>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-5">
         {(messages ?? []).map((m) => (
-          <div key={m.id} className="rounded-lg border border-gray-200 bg-white p-3">
+          <div key={m.id} className="rounded-lg p-3" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-1 flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-900">{m.subject || "(no subject)"}</p>
-              <p className="text-xs text-gray-400">{new Date(m.received_at).toLocaleString("en-AU")}</p>
+              <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                {m.subject || "(no subject)"}
+              </p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{new Date(m.received_at).toLocaleString("en-AU")}</p>
             </div>
-            {m.body_text ? <p className="whitespace-pre-wrap text-sm text-gray-700">{m.body_text}</p> : null}
-            <Link to={`/inbox/${m.id}`} className="mt-2 inline-block text-sm font-semibold text-blue-700 hover:underline">
+            {m.body_text ? (
+              <p className="whitespace-pre-wrap" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                {m.body_text}
+              </p>
+            ) : null}
+            <Link to={`/inbox/${m.id}`} className="mt-2 inline-block font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
               Open in Inbox &rarr;
             </Link>
           </div>
         ))}
       </div>
 
-      <div className="border-t border-gray-200 p-4">
-        <p className="mb-3 text-sm text-gray-500">
+      <div className="p-4" style={{ borderTop: "1px solid var(--jms-border)" }}>
+        <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Replying, attaching files, and AI-drafted job suggestions all still happen from the Inbox screen - open a
           message above to use them.
         </p>
