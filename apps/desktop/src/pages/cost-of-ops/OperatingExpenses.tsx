@@ -10,8 +10,9 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { getErrorMessage } from "../../lib/errors";
-import { Modal } from "../../components/Modal";
-import { FormField } from "../../components/FormField";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
 
 async function fetchSettings(): Promise<CostOfOpsSettings> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").single();
@@ -149,40 +150,62 @@ export default function OperatingExpensesPage() {
   const isLoading = !settings || !expenses || !result;
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between rounded-lg border border-gray-300 bg-white p-4">
-        <div className="flex gap-8 text-sm">
+    <div style={{ fontFamily: "var(--jms-font)" }}>
+      <div
+        className="mb-4 flex items-center justify-between rounded-lg p-4"
+        style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+      >
+        <div className="flex gap-8" style={{ fontSize: "var(--jms-font-body)" }}>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Vehicles Owned</p>
-            <p className="font-bold text-gray-900">{settings?.vehicles_owned ?? "-"}</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Vehicles Owned
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {settings?.vehicles_owned ?? "-"}
+            </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Vehicle Holding Cost (monthly, each)</p>
-            <p className="font-bold text-gray-900">{settings ? formatCentsAsAud(settings.vehicle_holding_cost_cents) : "-"}</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Vehicle Holding Cost (monthly, each)
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {settings ? formatCentsAsAud(settings.vehicle_holding_cost_cents) : "-"}
+            </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Buffer</p>
-            <p className="font-bold text-gray-900">{settings ? `${(settings.buffer_percent * 100).toFixed(1)}%` : "-"}</p>
+            <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Buffer
+            </p>
+            <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+              {settings ? `${(settings.buffer_percent * 100).toFixed(1)}%` : "-"}
+            </p>
           </div>
         </div>
-        <button onClick={openAssumptions} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <ThemedButton variant="secondary" onClick={openAssumptions} style={{ paddingBlock: 6, paddingInline: 12 }}>
           Edit
-        </button>
+        </ThemedButton>
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Expense Line Items</h2>
-        <button onClick={openAddLine} className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+        <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Expense Line Items
+        </h2>
+        <ThemedButton onClick={openAddLine} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add expense
-        </button>
+        </ThemedButton>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Account</th>
                 <th className="px-4 py-2 text-right font-semibold">Monthly</th>
@@ -194,24 +217,43 @@ export default function OperatingExpensesPage() {
             </thead>
             <tbody>
               {result!.lines.map(({ expense, differenceCents, percentOfTotal }) => (
-                <tr key={expense.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-900">
+                <tr key={expense.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-2 font-medium" style={{ color: "var(--jms-text)" }}>
                     {expense.account_name}
                     {!expense.is_default_category ? (
-                      <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Custom</span>
+                      <span
+                        className="ml-2 rounded-full px-2 py-0.5 font-semibold"
+                        style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                      >
+                        Custom
+                      </span>
                     ) : null}
                   </td>
-                  <td className="px-4 py-2 text-right">{formatCentsAsAud(expense.monthly_amount_cents)}</td>
-                  <td className="px-4 py-2 text-right">{expense.budget_amount_cents != null ? formatCentsAsAud(expense.budget_amount_cents) : "-"}</td>
-                  <td className={`px-4 py-2 text-right ${differenceCents < 0 ? "text-red-600" : "text-gray-700"}`}>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(expense.monthly_amount_cents)}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {expense.budget_amount_cents != null ? formatCentsAsAud(expense.budget_amount_cents) : "-"}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: differenceCents < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                     {expense.budget_amount_cents != null ? formatCentsAsAud(differenceCents) : "-"}
                   </td>
-                  <td className="px-4 py-2 text-right text-gray-500">{(percentOfTotal * 100).toFixed(1)}%</td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text-muted)" }}>
+                    {(percentOfTotal * 100).toFixed(1)}%
+                  </td>
                   <td className="px-4 py-2 text-right">
-                    <button onClick={() => openEditLine(expense)} className="mr-3 text-xs font-semibold text-blue-700 hover:underline">
+                    <button
+                      onClick={() => openEditLine(expense)}
+                      className="mr-3 font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Edit
                     </button>
-                    <button onClick={() => deleteLine.mutate(expense.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                    <button
+                      onClick={() => deleteLine.mutate(expense.id)}
+                      className="font-semibold hover:underline"
+                      style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Remove
                     </button>
                   </td>
@@ -219,20 +261,32 @@ export default function OperatingExpensesPage() {
               ))}
             </tbody>
             {result ? (
-              <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-bold">
+              <tfoot className="font-bold" style={{ borderTop: "2px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
                 <tr>
-                  <td className="px-4 py-3">Total Monthly</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(result.totalMonthlyCents)}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text)" }}>
+                    Total Monthly
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(result.totalMonthlyCents)}
+                  </td>
                   <td colSpan={4} />
                 </tr>
                 <tr>
-                  <td className="px-4 py-3">+ Vehicle Allowance</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(result.vehicleCostCents)}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text)" }}>
+                    + Vehicle Allowance
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(result.vehicleCostCents)}
+                  </td>
                   <td colSpan={4} />
                 </tr>
-                <tr className="border-t border-gray-300">
-                  <td className="px-4 py-3">Total Operating Expense (w/ buffer)</td>
-                  <td className="px-4 py-3 text-right text-blue-700">{formatCentsAsAud(result.totalOperatingExpenseCents)}</td>
+                <tr style={{ borderTop: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text)" }}>
+                    Total Operating Expense (w/ buffer)
+                  </td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-accent)" }}>
+                    {formatCentsAsAud(result.totalOperatingExpenseCents)}
+                  </td>
                   <td colSpan={4} />
                 </tr>
               </tfoot>
@@ -241,7 +295,7 @@ export default function OperatingExpensesPage() {
         )}
       </div>
 
-      <Modal
+      <ThemedModal
         open={!!editingExpense || addModalOpen}
         onClose={() => {
           setEditingExpense(null);
@@ -249,21 +303,21 @@ export default function OperatingExpensesPage() {
         }}
         title={editingExpense ? "Edit expense" : "Add expense"}
       >
-        <FormField
+        <ThemedFormField
           label="Account name"
           value={lineForm.account_name}
           onChange={(e) => setLineForm({ ...lineForm, account_name: e.target.value })}
           disabled={!!editingExpense?.is_default_category}
         />
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Monthly amount ($)"
             type="number"
             step="0.01"
             value={lineForm.monthly_amount}
             onChange={(e) => setLineForm({ ...lineForm, monthly_amount: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Budget amount ($, optional)"
             type="number"
             step="0.01"
@@ -271,31 +325,32 @@ export default function OperatingExpensesPage() {
             onChange={(e) => setLineForm({ ...lineForm, budget_amount: e.target.value })}
           />
         </div>
-        {lineError ? <p className="mb-4 text-sm text-red-600">{lineError}</p> : null}
+        {lineError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {lineError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setEditingExpense(null);
               setAddModalOpen(false);
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => saveLine.mutate()}
-            disabled={saveLine.isPending || !lineForm.account_name.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveLine.mutate()} disabled={saveLine.isPending || !lineForm.account_name.trim()}>
             {saveLine.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={assumptionsModalOpen} onClose={() => setAssumptionsModalOpen(false)} title="Edit vehicle & buffer assumptions">
+      <ThemedModal open={assumptionsModalOpen} onClose={() => setAssumptionsModalOpen(false)} title="Edit vehicle & buffer assumptions">
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Vehicles owned" type="number" value={vehiclesOwned} onChange={(e) => setVehiclesOwned(e.target.value)} />
-          <FormField
+          <ThemedFormField label="Vehicles owned" type="number" value={vehiclesOwned} onChange={(e) => setVehiclesOwned(e.target.value)} />
+          <ThemedFormField
             label="Vehicle holding cost ($/month, each)"
             type="number"
             step="0.01"
@@ -303,21 +358,25 @@ export default function OperatingExpensesPage() {
             onChange={(e) => setVehicleHoldingCost(e.target.value)}
           />
         </div>
-        <FormField label="Buffer (%)" type="number" step="0.1" value={bufferPercent} onChange={(e) => setBufferPercent(e.target.value)} />
-        {assumptionsError ? <p className="mb-4 text-sm text-red-600">{assumptionsError}</p> : null}
+        <ThemedFormField label="Buffer (%)" type="number" step="0.1" value={bufferPercent} onChange={(e) => setBufferPercent(e.target.value)} />
+        {assumptionsError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {assumptionsError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAssumptionsModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => setAssumptionsModalOpen(false)}
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => saveAssumptions.mutate()}
-            disabled={saveAssumptions.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveAssumptions.mutate()} disabled={saveAssumptions.isPending}>
             {saveAssumptions.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

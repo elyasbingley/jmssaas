@@ -12,8 +12,9 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { getErrorMessage } from "../../lib/errors";
-import { Modal } from "../../components/Modal";
-import { FormField, SelectField } from "../../components/FormField";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField } from "../../components/theme/ThemedFormField";
 
 async function fetchSettings(): Promise<CostOfOpsSettings> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").single();
@@ -173,41 +174,66 @@ export default function LabourPage() {
   const isLoading = !settings || !labour || !result;
 
   return (
-    <div>
+    <div style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 grid grid-cols-4 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Billable Resources</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{result ? result.billableResources.toFixed(2) : "-"}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Billable Resources
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {result ? result.billableResources.toFixed(2) : "-"}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Non-Billable Resources</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{result ? result.nonBillableResources.toFixed(2) : "-"}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Non-Billable Resources
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {result ? result.nonBillableResources.toFixed(2) : "-"}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Weekly Labour Cost</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{result ? formatCentsAsAud(result.weeklyLabourCostCents) : "-"}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Weekly Labour Cost
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {result ? formatCentsAsAud(result.weeklyLabourCostCents) : "-"}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Monthly Labour Cost</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{result ? formatCentsAsAud(result.monthlyLabourCostCents) : "-"}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Monthly Labour Cost
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {result ? formatCentsAsAud(result.monthlyLabourCostCents) : "-"}
+          </p>
         </div>
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Roster</h2>
-        <button onClick={openNew} className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+        <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Roster
+        </h2>
+        <ThemedButton onClick={openNew} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add person
-        </button>
+        </ThemedButton>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : result!.entries.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No one on the roster yet.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No one on the roster yet.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Role</th>
@@ -220,18 +246,38 @@ export default function LabourPage() {
             </thead>
             <tbody>
               {result!.entries.map(({ entry, costPerHourCents, costPerWeekCents }) => (
-                <tr key={entry.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-900">{entryDisplayName(entry, profileById)}</td>
-                  <td className="px-4 py-2 text-gray-600">{ROLE_OPTIONS.find((r) => r.value === entry.role_type)?.label}</td>
-                  <td className="px-4 py-2 text-right">{entry.billable_hours_per_week}</td>
-                  <td className="px-4 py-2 text-right">{entry.non_billable_hours_per_week}</td>
-                  <td className="px-4 py-2 text-right">{formatCentsAsAud(costPerHourCents)}</td>
-                  <td className="px-4 py-2 text-right font-semibold">{formatCentsAsAud(costPerWeekCents)}</td>
+                <tr key={entry.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-2 font-medium" style={{ color: "var(--jms-text)" }}>
+                    {entryDisplayName(entry, profileById)}
+                  </td>
+                  <td className="px-4 py-2" style={{ color: "var(--jms-text-muted)" }}>
+                    {ROLE_OPTIONS.find((r) => r.value === entry.role_type)?.label}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {entry.billable_hours_per_week}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {entry.non_billable_hours_per_week}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(costPerHourCents)}
+                  </td>
+                  <td className="px-4 py-2 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(costPerWeekCents)}
+                  </td>
                   <td className="px-4 py-2 text-right">
-                    <button onClick={() => openEdit(entry)} className="mr-3 text-xs font-semibold text-blue-700 hover:underline">
+                    <button
+                      onClick={() => openEdit(entry)}
+                      className="mr-3 font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Edit
                     </button>
-                    <button onClick={() => deleteEntry.mutate(entry.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                    <button
+                      onClick={() => deleteEntry.mutate(entry.id)}
+                      className="font-semibold hover:underline"
+                      style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Remove
                     </button>
                   </td>
@@ -242,7 +288,7 @@ export default function LabourPage() {
         )}
       </div>
 
-      <Modal
+      <ThemedModal
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);
@@ -250,14 +296,14 @@ export default function LabourPage() {
         }}
         title={editingEntry ? "Edit labour entry" : "Add labour entry"}
       >
-        <SelectField
+        <ThemedSelectField
           label="Role"
           value={form.role_type}
           onChange={(v) => setForm({ ...form, role_type: (v || "field_staff") as CostOfOpsRoleType })}
           options={ROLE_OPTIONS}
         />
         {form.role_type !== "subcontractor" ? (
-          <SelectField
+          <ThemedSelectField
             label="Linked team member (optional)"
             value={form.profile_id}
             onChange={(v) => setForm({ ...form, profile_id: v })}
@@ -266,18 +312,18 @@ export default function LabourPage() {
           />
         ) : null}
         {!form.profile_id ? (
-          <FormField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <ThemedFormField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         ) : null}
 
         {form.role_type === "owner" ? (
           <div className="grid grid-cols-2 gap-3">
-            <FormField
+            <ThemedFormField
               label="Annual salary ($)"
               type="number"
               value={form.annual_salary}
               onChange={(e) => setForm({ ...form, annual_salary: e.target.value })}
             />
-            <FormField
+            <ThemedFormField
               label="Superannuation ($/yr, flat)"
               type="number"
               value={form.superannuation_flat}
@@ -286,14 +332,14 @@ export default function LabourPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            <FormField
+            <ThemedFormField
               label={form.role_type === "subcontractor" ? "Cost rate ($/hr)" : "Hourly rate ($/hr)"}
               type="number"
               value={form.hourly_rate}
               onChange={(e) => setForm({ ...form, hourly_rate: e.target.value })}
             />
             {form.role_type !== "subcontractor" ? (
-              <FormField
+              <ThemedFormField
                 label="Superannuation (% of rate)"
                 type="number"
                 step="0.1"
@@ -301,7 +347,7 @@ export default function LabourPage() {
                 onChange={(e) => setForm({ ...form, superannuation_rate: e.target.value })}
               />
             ) : (
-              <FormField
+              <ThemedFormField
                 label="Travel allowance ($/week)"
                 type="number"
                 value={form.subcontractor_travel_allow}
@@ -312,7 +358,7 @@ export default function LabourPage() {
         )}
 
         {form.role_type !== "owner" && form.role_type !== "subcontractor" ? (
-          <FormField
+          <ThemedFormField
             label="Allowance ($/hr)"
             type="number"
             value={form.allowance}
@@ -321,7 +367,7 @@ export default function LabourPage() {
         ) : null}
 
         {form.role_type === "subcontractor" ? (
-          <FormField
+          <ThemedFormField
             label="Charge-out rate ($/hr, for Quote Checker)"
             type="number"
             value={form.subcontractor_charge_out_rate}
@@ -330,13 +376,13 @@ export default function LabourPage() {
         ) : null}
 
         <div className="grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Billable hours/week"
             type="number"
             value={form.billable_hours}
             onChange={(e) => setForm({ ...form, billable_hours: e.target.value })}
           />
-          <FormField
+          <ThemedFormField
             label="Non-billable hours/week"
             type="number"
             value={form.non_billable_hours}
@@ -345,7 +391,7 @@ export default function LabourPage() {
         </div>
 
         {form.role_type === "apprentice" ? (
-          <FormField
+          <ThemedFormField
             label="Utilisation (% of a full billable resource)"
             type="number"
             value={form.apprentice_utilisation}
@@ -353,26 +399,27 @@ export default function LabourPage() {
           />
         ) : null}
 
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <button
             onClick={() => {
               setModalOpen(false);
               setEditingEntry(null);
             }}
-            className="px-4 py-2 text-sm font-semibold text-gray-600"
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
           >
             Cancel
           </button>
-          <button
-            onClick={() => saveEntry.mutate()}
-            disabled={saveEntry.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveEntry.mutate()} disabled={saveEntry.isPending}>
             {saveEntry.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

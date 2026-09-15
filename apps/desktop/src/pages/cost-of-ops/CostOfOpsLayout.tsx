@@ -18,24 +18,29 @@ const TABS = [
 
 export default function CostOfOpsLayout() {
   return (
-    <div className="p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Cost of Ops</h1>
-        <p className="text-sm text-gray-500">What it actually costs to run the business, and what charge-out rate that implies.</p>
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Cost of Ops
+        </h1>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          What it actually costs to run the business, and what charge-out rate that implies.
+        </p>
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex gap-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
         {TABS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
-            className={({ isActive }) =>
-              `border-b-2 px-4 py-2 text-sm font-semibold ${
-                isActive ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-              }`
+            className="border-b-2 px-4 py-2 font-semibold uppercase tracking-wide"
+            style={({ isActive }) =>
+              isActive
+                ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { borderColor: "transparent", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
             }
           >
             {tab.label}

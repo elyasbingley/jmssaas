@@ -13,8 +13,9 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { getErrorMessage } from "../../lib/errors";
-import { Modal } from "../../components/Modal";
-import { FormField } from "../../components/FormField";
+import { ThemedModal } from "../../components/theme/ThemedModal";
+import { ThemedButton } from "../../components/theme/ThemedButton";
+import { ThemedFormField } from "../../components/theme/ThemedFormField";
 
 async function fetchSettings(): Promise<CostOfOpsSettings> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").single();
@@ -114,63 +115,110 @@ export default function CostOfOperationsPage() {
   });
 
   if (isLoading || !coo) {
-    return <p className="text-sm text-gray-500">Loading...</p>;
+    return (
+      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>Loading...</p>
+    );
   }
 
   return (
-    <div>
+    <div style={{ fontFamily: "var(--jms-font)" }}>
       <div className="mb-6 flex justify-end">
-        <button onClick={openAssumptions} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <ThemedButton variant="secondary" onClick={openAssumptions} style={{ paddingBlock: 6, paddingInline: 12 }}>
           Edit Assumptions
-        </button>
+        </ThemedButton>
       </div>
 
       <div className="mb-6 grid grid-cols-3 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Weekly Cost of Operations</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(coo.weeklyCooRawCents)}</p>
-          <p className="text-xs text-gray-500">{formatCentsAsAud(coo.weeklyCooAdjustedCents)} at estimated efficiency</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Weekly Cost of Operations
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(coo.weeklyCooRawCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {formatCentsAsAud(coo.weeklyCooAdjustedCents)} at estimated efficiency
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Daily Cost of Operations</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(coo.dailyCooRawCents)}</p>
-          <p className="text-xs text-gray-500">{formatCentsAsAud(coo.dailyCooAdjustedCents)} at estimated efficiency</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Daily Cost of Operations
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(coo.dailyCooRawCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {formatCentsAsAud(coo.dailyCooAdjustedCents)} at estimated efficiency
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Monthly Cost of Operations</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(coo.monthlyCooRawCents)}</p>
-          <p className="text-xs text-gray-500">{formatCentsAsAud(coo.monthlyCooAdjustedCents)} at estimated efficiency</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Monthly Cost of Operations
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(coo.monthlyCooRawCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {formatCentsAsAud(coo.monthlyCooAdjustedCents)} at estimated efficiency
+          </p>
         </div>
       </div>
 
       <div className="mb-6 grid grid-cols-4 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Available Days / Year</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{coo.availableDays}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Available Days / Year
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {coo.availableDays}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Ave Days / Month</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{coo.aveDaysPerMonth.toFixed(1)}</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Ave Days / Month
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {coo.aveDaysPerMonth.toFixed(1)}
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Daily COO / Billable Resource</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(coo.dailyCooPerBillableResourceRawCents)}</p>
-          <p className="text-xs text-gray-500">{formatCentsAsAud(coo.dailyCooPerBillableResourceAdjustedCents)} adjusted</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Daily COO / Billable Resource
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(coo.dailyCooPerBillableResourceRawCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {formatCentsAsAud(coo.dailyCooPerBillableResourceAdjustedCents)} adjusted
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">(Team) Hourly COO</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(coo.hourlyCooRawCents)}</p>
-          <p className="text-xs text-gray-500">{formatCentsAsAud(coo.hourlyCooAdjustedCents)} adjusted</p>
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            (Team) Hourly COO
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--jms-text)" }}>
+            {formatCentsAsAud(coo.hourlyCooRawCents)}
+          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {formatCentsAsAud(coo.hourlyCooAdjustedCents)} adjusted
+          </p>
         </div>
       </div>
 
-      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Team Split - Daily COO Share</h2>
-      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
+      <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Team Split - Daily COO Share
+      </h2>
+      <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {coo.teamSplit.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No billable staff on the roster yet.</p>
+          <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No billable staff on the roster yet.
+          </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 text-right font-semibold">Daily COO Share</th>
@@ -178,9 +226,13 @@ export default function CostOfOperationsPage() {
             </thead>
             <tbody>
               {coo.teamSplit.map(({ entry, dailyCooShareCents }) => (
-                <tr key={entry.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-900">{entryDisplayName(entry, profileById)}</td>
-                  <td className="px-4 py-2 text-right">{formatCentsAsAud(dailyCooShareCents)}</td>
+                <tr key={entry.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-2 font-medium" style={{ color: "var(--jms-text)" }}>
+                    {entryDisplayName(entry, profileById)}
+                  </td>
+                  <td className="px-4 py-2 text-right" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(dailyCooShareCents)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -188,38 +240,48 @@ export default function CostOfOperationsPage() {
         )}
       </div>
 
-      <p className="mt-3 text-xs text-gray-400">
+      <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         "Raw" is the pre-efficiency baseline; efficiency-adjusted figures divide by this tenant's estimated efficiency rate below.
         The Profitability tab uses the raw hourly figure as its own baseline and applies 75%/85%/95%/actual efficiency scenarios
         independently.
       </p>
 
-      <Modal open={assumptionsOpen} onClose={() => setAssumptionsOpen(false)} title="Edit assumptions">
-        <FormField label="Ordinary hours per week" type="number" value={ordinaryHours} onChange={(e) => setOrdinaryHours(e.target.value)} />
+      <ThemedModal open={assumptionsOpen} onClose={() => setAssumptionsOpen(false)} title="Edit assumptions">
+        <ThemedFormField label="Ordinary hours per week" type="number" value={ordinaryHours} onChange={(e) => setOrdinaryHours(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Weekend days / year" type="number" value={weekendDays} onChange={(e) => setWeekendDays(e.target.value)} />
-          <FormField label="Public holidays / year" type="number" value={publicHolidays} onChange={(e) => setPublicHolidays(e.target.value)} />
+          <ThemedFormField label="Weekend days / year" type="number" value={weekendDays} onChange={(e) => setWeekendDays(e.target.value)} />
+          <ThemedFormField label="Public holidays / year" type="number" value={publicHolidays} onChange={(e) => setPublicHolidays(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Annual leave days" type="number" value={annualLeave} onChange={(e) => setAnnualLeave(e.target.value)} />
-          <FormField label="Sick days" type="number" value={sickDays} onChange={(e) => setSickDays(e.target.value)} />
+          <ThemedFormField label="Annual leave days" type="number" value={annualLeave} onChange={(e) => setAnnualLeave(e.target.value)} />
+          <ThemedFormField label="Sick days" type="number" value={sickDays} onChange={(e) => setSickDays(e.target.value)} />
         </div>
-        <FormField label="Rain/shutdown days" type="number" value={rainDays} onChange={(e) => setRainDays(e.target.value)} />
-        <FormField label="Estimated efficiency rate (%)" type="number" step="0.1" value={efficiency} onChange={(e) => setEfficiency(e.target.value)} />
-        {assumptionsError ? <p className="mb-4 text-sm text-red-600">{assumptionsError}</p> : null}
+        <ThemedFormField label="Rain/shutdown days" type="number" value={rainDays} onChange={(e) => setRainDays(e.target.value)} />
+        <ThemedFormField
+          label="Estimated efficiency rate (%)"
+          type="number"
+          step="0.1"
+          value={efficiency}
+          onChange={(e) => setEfficiency(e.target.value)}
+        />
+        {assumptionsError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {assumptionsError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAssumptionsOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => setAssumptionsOpen(false)}
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => saveAssumptions.mutate()}
-            disabled={saveAssumptions.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveAssumptions.mutate()} disabled={saveAssumptions.isPending}>
             {saveAssumptions.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
