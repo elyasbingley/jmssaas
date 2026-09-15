@@ -26,7 +26,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { uploadTaskPhoto } from "../lib/uploads";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { PRIORITY_LABELS, PRIORITY_ORDER, dependencyGuardrailMessage, unresolvedBlockers } from "../components/tasks/taskHelpers";
 
 // Slide-over drawer (see Tasks.tsx's fixed right-side panel + nested
@@ -376,15 +376,19 @@ export default function TaskDetailPage() {
   }, [activityLogs, notes]);
 
   if (!task) {
-    return <div className="p-6 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="bg-blue-700 p-5">
+    <div className="flex h-full flex-col" style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="p-5" style={{ backgroundColor: "var(--jms-bg)", borderBottom: "1px solid var(--jms-border)" }}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
-          <div className="flex flex-wrap items-center gap-1 text-xs text-blue-100">
-            <Link to="/tasks" className="hover:underline">
+          <div className="flex flex-wrap items-center gap-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            <Link to="/tasks" className="hover:underline" style={{ color: "var(--jms-accent)" }}>
               Tasks
             </Link>
             {project ? <span> / {project.name}</span> : null}
@@ -393,7 +397,7 @@ export default function TaskDetailPage() {
               <span>
                 {" "}
                 /{" "}
-                <Link to={`/tasks/${parentTask.id}`} className="text-white hover:underline">
+                <Link to={`/tasks/${parentTask.id}`} className="hover:underline" style={{ color: "var(--jms-text)" }}>
                   {parentTask.title}
                 </Link>
               </span>
@@ -403,7 +407,8 @@ export default function TaskDetailPage() {
             onClick={() => navigate("/tasks")}
             title="Close"
             aria-label="Close"
-            className="rounded-md p-1 text-xl leading-none text-blue-100 hover:bg-blue-800 hover:text-white"
+            className="rounded p-1 text-xl leading-none hover:opacity-80"
+            style={{ color: "var(--jms-text-muted)" }}
           >
             &times;
           </button>
@@ -413,9 +418,12 @@ export default function TaskDetailPage() {
           <button
             onClick={handleComplete}
             title={task.status === "done" ? "Mark incomplete" : "Mark complete"}
-            className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold ${
-              task.status === "done" ? "border-green-400 bg-green-500 text-white" : "border-blue-200 text-transparent hover:border-green-300"
-            }`}
+            className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold"
+            style={
+              task.status === "done"
+                ? { borderColor: "var(--jms-accent)", backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)" }
+                : { borderColor: "var(--jms-border)", color: "transparent" }
+            }
           >
             &#10003;
           </button>
@@ -426,17 +434,23 @@ export default function TaskDetailPage() {
               onChange={(e) => setTitleDraft(e.target.value)}
               onBlur={commitTitle}
               onKeyDown={(e) => e.key === "Enter" && commitTitle()}
-              className="flex-1 rounded border border-blue-300 px-2 py-1 text-lg font-bold"
+              className="flex-1 rounded border px-2 py-1 font-bold"
+              style={{ borderColor: "var(--jms-accent)", backgroundColor: "var(--jms-surface)", color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}
             />
           ) : (
             <h1
               onClick={() => setEditingTitle(true)}
-              className={`flex-1 cursor-text text-lg font-bold ${task.status === "done" ? "text-blue-200 line-through" : "text-white"}`}
+              className="flex-1 cursor-text font-bold"
+              style={{
+                color: task.status === "done" ? "var(--jms-text-muted)" : "var(--jms-text)",
+                textDecoration: task.status === "done" ? "line-through" : undefined,
+                fontSize: "var(--jms-font-title)",
+              }}
             >
               {task.title}
             </h1>
           )}
-          <button onClick={handleDelete} title="Delete task" className="text-blue-100 hover:text-red-200">
+          <button onClick={handleDelete} title="Delete task" className="hover:opacity-80" style={{ color: "var(--jms-text-muted)" }}>
             &#128465;
           </button>
         </div>
@@ -445,7 +459,8 @@ export default function TaskDetailPage() {
           <select
             value={task.priority}
             onChange={(e) => updateTask.mutate({ priority: e.target.value as TaskPriority })}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold"
+            className="rounded border px-2 py-1 font-semibold"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
           >
             {PRIORITY_ORDER.map((p) => (
               <option key={p} value={p}>
@@ -453,7 +468,7 @@ export default function TaskDetailPage() {
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-xs font-semibold text-blue-50">
+          <label className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             <input type="checkbox" checked={task.is_milestone} onChange={(e) => updateTask.mutate({ is_milestone: e.target.checked })} />
             Milestone
           </label>
@@ -461,7 +476,7 @@ export default function TaskDetailPage() {
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-5">
-        <TextAreaField
+        <ThemedTextAreaField
           label="Description"
           rows={2}
           value={descriptionDraft}
@@ -470,32 +485,34 @@ export default function TaskDetailPage() {
         />
 
         <section>
-          <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Properties</h2>
+          <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Properties
+          </h2>
           <div className="grid grid-cols-2 gap-3">
-            <SelectField
+            <ThemedSelectField
               label="Assignee"
               value={task.assigned_to ?? ""}
               onChange={(v) => updateTask.mutate({ assigned_to: v || null })}
               placeholder="Unassigned"
               options={(profiles ?? []).map((p) => ({ value: p.id, label: p.full_name }))}
             />
-            <SelectField
+            <ThemedSelectField
               label="Status"
               value={task.status}
               onChange={(v) => v && updateTask.mutate({ status: v as TaskStatus })}
               placeholder="To do"
               options={(["todo", "in_progress", "done"] as TaskStatus[]).map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
             />
-            <FormField label="Start date" type="date" value={task.start_date ?? ""} onChange={(e) => updateTask.mutate({ start_date: e.target.value || null })} />
-            <FormField label="Due date" type="date" value={task.due_date ?? ""} onChange={(e) => updateTask.mutate({ due_date: e.target.value || null })} />
-            <FormField
+            <ThemedFormField label="Start date" type="date" value={task.start_date ?? ""} onChange={(e) => updateTask.mutate({ start_date: e.target.value || null })} />
+            <ThemedFormField label="Due date" type="date" value={task.due_date ?? ""} onChange={(e) => updateTask.mutate({ due_date: e.target.value || null })} />
+            <ThemedFormField
               label="Estimated hours"
               type="number"
               step="0.25"
               value={task.estimated_hours ?? ""}
               onChange={(e) => updateTask.mutate({ estimated_hours: e.target.value ? Number(e.target.value) : null })}
             />
-            <FormField
+            <ThemedFormField
               label="Actual hours"
               type="number"
               step="0.25"
@@ -506,9 +523,11 @@ export default function TaskDetailPage() {
         </section>
 
         <section>
-          <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">JMS entity links</h2>
+          <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            JMS entity links
+          </h2>
           <div className="grid grid-cols-1 gap-3">
-            <SelectField
+            <ThemedSelectField
               label="Job"
               value={task.job_card_id ?? ""}
               onChange={(v) => updateTask.mutate({ job_card_id: v || null })}
@@ -516,18 +535,18 @@ export default function TaskDetailPage() {
               options={(jobCards ?? []).map((j) => ({ value: j.id, label: `${j.number ?? "Pending"} - ${j.title}` }))}
             />
             {task.job_card_id ? (
-              <Link to={`/jobs/${task.job_card_id}`} className="-mt-2 text-xs font-semibold text-blue-700 hover:underline">
+              <Link to={`/jobs/${task.job_card_id}`} className="-mt-2 font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                 View linked job
               </Link>
             ) : null}
-            <SelectField
+            <ThemedSelectField
               label="Client"
               value={task.client_id ?? ""}
               onChange={(v) => updateTask.mutate({ client_id: v || null })}
               placeholder="No linked client"
               options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
             />
-            <SelectField
+            <ThemedSelectField
               label="Property"
               value={task.property_id ?? ""}
               onChange={(v) => updateTask.mutate({ property_id: v || null })}
@@ -539,13 +558,15 @@ export default function TaskDetailPage() {
 
         {task.project_id && (customFields ?? []).length > 0 ? (
           <section>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Custom fields</h2>
+            <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Custom fields
+            </h2>
             <div className="space-y-3">
               {customFields!.map((field) => {
                 const value = customFieldValuesByFieldId.get(field.id);
                 if (field.field_type === "dropdown") {
                   return (
-                    <SelectField
+                    <ThemedSelectField
                       key={field.id}
                       label={field.name}
                       value={value?.value_text ?? ""}
@@ -556,7 +577,7 @@ export default function TaskDetailPage() {
                 }
                 if (field.field_type === "number") {
                   return (
-                    <FormField
+                    <ThemedFormField
                       key={field.id}
                       label={field.name}
                       type="number"
@@ -569,7 +590,7 @@ export default function TaskDetailPage() {
                 }
                 if (field.field_type === "date") {
                   return (
-                    <FormField
+                    <ThemedFormField
                       key={field.id}
                       label={field.name}
                       type="date"
@@ -579,7 +600,7 @@ export default function TaskDetailPage() {
                   );
                 }
                 return (
-                  <FormField
+                  <ThemedFormField
                     key={field.id}
                     label={field.name}
                     defaultValue={value?.value_text ?? ""}
@@ -592,20 +613,28 @@ export default function TaskDetailPage() {
         ) : null}
 
         <section>
-          <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Dependencies</h2>
+          <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Dependencies
+          </h2>
           <div className="mb-3">
-            <p className="mb-1 text-xs font-semibold text-gray-600">Blocked by</p>
+            <p className="mb-1 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Blocked by
+            </p>
             {blockedBy.length === 0 ? (
-              <p className="text-xs text-gray-400">Nothing blocking this task.</p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Nothing blocking this task.</p>
             ) : (
               blockedBy.map((dep) => {
                 const other = tasksById.get(dep.blocking_task_id);
                 return (
-                  <div key={dep.id} className="flex items-center justify-between rounded border border-gray-200 px-2 py-1 text-sm">
-                    <Link to={`/tasks/${dep.blocking_task_id}`} className={`hover:underline ${other?.status === "done" ? "text-gray-400 line-through" : "text-gray-800"}`}>
+                  <div key={dep.id} className="flex items-center justify-between rounded px-2 py-1" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+                    <Link
+                      to={`/tasks/${dep.blocking_task_id}`}
+                      className="hover:underline"
+                      style={{ color: other?.status === "done" ? "var(--jms-text-muted)" : "var(--jms-text)", textDecoration: other?.status === "done" ? "line-through" : undefined }}
+                    >
                       {other?.title ?? "Unknown task"}
                     </Link>
-                    <button onClick={() => removeDependency.mutate(dep.id)} className="text-gray-400 hover:text-red-600">
+                    <button onClick={() => removeDependency.mutate(dep.id)} className="hover:opacity-80" style={{ color: "var(--jms-text-muted)" }}>
                       &times;
                     </button>
                   </div>
@@ -614,18 +643,24 @@ export default function TaskDetailPage() {
             )}
           </div>
           <div className="mb-3">
-            <p className="mb-1 text-xs font-semibold text-gray-600">Blocking</p>
+            <p className="mb-1 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Blocking
+            </p>
             {blocking.length === 0 ? (
-              <p className="text-xs text-gray-400">Not blocking any other task.</p>
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Not blocking any other task.</p>
             ) : (
               blocking.map((dep) => {
                 const other = tasksById.get(dep.dependent_task_id);
                 return (
-                  <div key={dep.id} className="flex items-center justify-between rounded border border-gray-200 px-2 py-1 text-sm">
-                    <Link to={`/tasks/${dep.dependent_task_id}`} className={`hover:underline ${other?.status === "done" ? "text-gray-400 line-through" : "text-gray-800"}`}>
+                  <div key={dep.id} className="flex items-center justify-between rounded px-2 py-1" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+                    <Link
+                      to={`/tasks/${dep.dependent_task_id}`}
+                      className="hover:underline"
+                      style={{ color: other?.status === "done" ? "var(--jms-text-muted)" : "var(--jms-text)", textDecoration: other?.status === "done" ? "line-through" : undefined }}
+                    >
                       {other?.title ?? "Unknown task"}
                     </Link>
-                    <button onClick={() => removeDependency.mutate(dep.id)} className="text-gray-400 hover:text-red-600">
+                    <button onClick={() => removeDependency.mutate(dep.id)} className="hover:opacity-80" style={{ color: "var(--jms-text-muted)" }}>
                       &times;
                     </button>
                   </div>
@@ -638,19 +673,26 @@ export default function TaskDetailPage() {
             placeholder="Search tasks to link..."
             value={dependencySearch}
             onChange={(e) => setDependencySearch(e.target.value)}
-            className="mb-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+            className="mb-1 w-full rounded border px-2 py-1.5"
+            style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
           />
-          {dependencyError ? <p className="mb-1 text-xs text-red-600">{dependencyError}</p> : null}
+          {dependencyError ? (
+            <p className="mb-1" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+              {dependencyError}
+            </p>
+          ) : null}
           {dependencySearchResults.length > 0 ? (
-            <div className="space-y-1 rounded border border-gray-200 p-1.5">
+            <div className="space-y-1 rounded p-1.5" style={{ border: "1px solid var(--jms-border)" }}>
               {dependencySearchResults.map((t) => (
-                <div key={t.id} className="flex items-center justify-between text-xs">
-                  <span className="truncate">{t.title}</span>
+                <div key={t.id} className="flex items-center justify-between" style={{ fontSize: "var(--jms-font-label)" }}>
+                  <span className="truncate" style={{ color: "var(--jms-text)" }}>
+                    {t.title}
+                  </span>
                   <span className="flex flex-shrink-0 gap-2">
-                    <button onClick={() => addDependency.mutate({ otherTaskId: t.id, direction: "blocked_by" })} className="font-semibold text-blue-700 hover:underline">
+                    <button onClick={() => addDependency.mutate({ otherTaskId: t.id, direction: "blocked_by" })} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                       Blocked by
                     </button>
-                    <button onClick={() => addDependency.mutate({ otherTaskId: t.id, direction: "blocking" })} className="font-semibold text-blue-700 hover:underline">
+                    <button onClick={() => addDependency.mutate({ otherTaskId: t.id, direction: "blocking" })} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
                       Blocking
                     </button>
                   </span>
@@ -662,24 +704,30 @@ export default function TaskDetailPage() {
 
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">Subtasks</h2>
+            <h2 className="uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Subtasks
+            </h2>
             {subtasks.length > 0 ? (
-              <span className="text-xs font-semibold text-gray-400">
+              <span className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                 {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
               </span>
             ) : null}
           </div>
           <div className="space-y-1">
             {subtasks.map((sub, i) => (
-              <div key={sub.id} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1.5">
+              <div key={sub.id} className="flex items-center gap-2 rounded px-2 py-1.5" style={{ border: "1px solid var(--jms-border)" }}>
                 <input type="checkbox" checked={sub.status === "done"} onChange={(e) => toggleSubtask.mutate({ subtaskId: sub.id, done: e.target.checked })} />
-                <Link to={`/tasks/${sub.id}`} className={`flex-1 truncate text-sm hover:underline ${sub.status === "done" ? "text-gray-400 line-through" : "text-gray-800"}`}>
+                <Link
+                  to={`/tasks/${sub.id}`}
+                  className="flex-1 truncate hover:underline"
+                  style={{ color: sub.status === "done" ? "var(--jms-text-muted)" : "var(--jms-text)", textDecoration: sub.status === "done" ? "line-through" : undefined, fontSize: "var(--jms-font-body)" }}
+                >
                   {sub.title}
                 </Link>
-                <button disabled={i === 0} onClick={() => reorderSubtask(i, -1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                <button disabled={i === 0} onClick={() => reorderSubtask(i, -1)} className="disabled:opacity-30 hover:opacity-80" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   &uarr;
                 </button>
-                <button disabled={i === subtasks.length - 1} onClick={() => reorderSubtask(i, 1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                <button disabled={i === subtasks.length - 1} onClick={() => reorderSubtask(i, 1)} className="disabled:opacity-30 hover:opacity-80" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   &darr;
                 </button>
               </div>
@@ -692,12 +740,14 @@ export default function TaskDetailPage() {
               value={subtaskTitle}
               onChange={(e) => setSubtaskTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && subtaskTitle.trim() && addSubtask.mutate()}
-              className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+              className="flex-1 rounded border px-2 py-1.5"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             />
             <button
               onClick={() => addSubtask.mutate()}
               disabled={!subtaskTitle.trim() || addSubtask.isPending}
-              className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              className="rounded px-3 py-1.5 font-semibold disabled:opacity-60"
+              style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-label)" }}
             >
               Add
             </button>
@@ -706,8 +756,13 @@ export default function TaskDetailPage() {
 
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">Photos</h2>
-            <label className="cursor-pointer rounded-md bg-blue-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-800">
+            <h2 className="uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Photos
+            </h2>
+            <label
+              className="cursor-pointer rounded px-2.5 py-1 font-semibold"
+              style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-label)" }}
+            >
               {uploadPhotos.isPending ? "Uploading..." : "+ Upload"}
               <input
                 type="file"
@@ -722,13 +777,24 @@ export default function TaskDetailPage() {
               />
             </label>
           </div>
-          {photoError ? <p className="mb-2 text-xs text-red-600">{photoError}</p> : null}
+          {photoError ? (
+            <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+              {photoError}
+            </p>
+          ) : null}
           {!files || files.length === 0 ? (
-            <p className="text-xs text-gray-500">No photos yet.</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>No photos yet.</p>
           ) : (
             <div className="grid grid-cols-4 gap-2">
               {files.map((f) => (
-                <a key={f.id} href={fileUrls?.[f.id] || undefined} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100">
+                <a
+                  key={f.id}
+                  href={fileUrls?.[f.id] || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block aspect-square overflow-hidden rounded"
+                  style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
+                >
                   {fileUrls?.[f.id] ? <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" /> : null}
                 </a>
               ))}
@@ -737,27 +803,35 @@ export default function TaskDetailPage() {
         </section>
 
         <section>
-          <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Activity & comments</h2>
+          <h2 className="mb-2 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Activity & comments
+          </h2>
           <div className="mb-3">
-            <TextAreaField label="Add a comment" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
+            <ThemedTextAreaField label="Add a comment" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
             {(profiles ?? []).length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-1">
                 {(profiles ?? []).map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setNoteBody((body) => `${body}${body.endsWith(" ") || body === "" ? "" : " "}@${p.full_name} `)}
-                    className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600 hover:bg-gray-200"
+                    className="rounded-full border px-2 py-0.5 font-semibold hover:opacity-80"
+                    style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
                   >
                     @{p.full_name}
                   </button>
                 ))}
               </div>
             ) : null}
-            {noteError ? <p className="mb-2 text-xs text-red-600">{noteError}</p> : null}
+            {noteError ? (
+              <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+                {noteError}
+              </p>
+            ) : null}
             <button
               onClick={() => addNote.mutate()}
               disabled={addNote.isPending || !noteBody.trim()}
-              className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              className="rounded px-3 py-1.5 font-semibold disabled:opacity-60"
+              style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-label)" }}
             >
               {addNote.isPending ? "Adding..." : "Add comment"}
             </button>
@@ -765,20 +839,22 @@ export default function TaskDetailPage() {
           <div className="space-y-2">
             {feed.map((item) =>
               item.kind === "note" ? (
-                <div key={item.id} className="border-t border-gray-200 pt-2 text-sm">
-                  <p className="text-gray-800">{item.note.body}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
+                <div key={item.id} className="pt-2" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+                  <p style={{ color: "var(--jms-text)" }}>{item.note.body}</p>
+                  <p className="mt-0.5" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     {(item.note.author_id && profilesById.get(item.note.author_id)?.full_name) || "Unknown"} &middot;{" "}
                     {new Date(item.note.created_at).toLocaleString()}
                   </p>
                 </div>
               ) : (
-                <div key={item.id} className="border-t border-gray-100 pt-2 text-xs text-gray-500">
+                <div key={item.id} className="pt-2" style={{ borderTop: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   {activityLine(item.log, profilesById)} &middot; {new Date(item.log.created_at).toLocaleString()}
                 </div>
               )
             )}
-            {feed.length === 0 ? <p className="text-sm text-gray-500">No activity yet.</p> : null}
+            {feed.length === 0 ? (
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No activity yet.</p>
+            ) : null}
           </div>
         </section>
       </div>

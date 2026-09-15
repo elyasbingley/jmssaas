@@ -1,6 +1,19 @@
 import { useNavigate } from "react-router-dom";
-import type { JobCard, Profile, Task } from "@jmssaas/shared";
-import { assigneeLabel, initials, isOverdue, jobBadgeLabel, PRIORITY_COLORS, PRIORITY_LABELS, subtaskProgress } from "./taskHelpers";
+import type { JobCard, Profile, Task, TaskPriority } from "@jmssaas/shared";
+import { assigneeLabel, initials, isOverdue, jobBadgeLabel, PRIORITY_LABELS, subtaskProgress } from "./taskHelpers";
+
+// Priority colours read from the CRT theme tokens (not a fixed hex
+// palette - like Quotes.tsx/Invoices.tsx's own STATUS_COLOR_VAR, task
+// priority has no meaning that must survive an accent swap, so it's fine
+// for these to shift with the tenant's chosen accent). Defined locally
+// (rather than in taskHelpers.ts, which stays plain framework-agnostic
+// logic) and duplicated in the other view components that need it.
+const PRIORITY_COLOR_VAR: Record<TaskPriority, string> = {
+  urgent: "var(--jms-danger)",
+  high: "var(--jms-warning)",
+  medium: "var(--jms-accent)",
+  low: "var(--jms-text-muted)",
+};
 
 // Card body shared by Board and List views - title, milestone badge,
 // priority tag, subtask progress, due date (red if overdue), assignee
@@ -26,25 +39,32 @@ export function TaskCard({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-gray-900">
+        <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           {task.is_milestone ? <span className="mr-1" title="Milestone">🔶</span> : null}
           {task.title}
         </p>
         {assignee ? (
           <span
             title={assignee}
-            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-gray-700 text-[10px] font-bold text-white"
+            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full font-bold"
+            style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "10px" }}
           >
             {initials(assignee)}
           </span>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${PRIORITY_COLORS[task.priority]}`}>
+        <span
+          className="rounded-full border px-2 py-0.5 font-semibold uppercase tracking-wide"
+          style={{ borderColor: PRIORITY_COLOR_VAR[task.priority], color: PRIORITY_COLOR_VAR[task.priority], fontSize: "var(--jms-font-label)" }}
+        >
           {PRIORITY_LABELS[task.priority]}
         </span>
         {progress ? (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+          <span
+            className="rounded-full border px-2 py-0.5 font-semibold"
+            style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             {progress.done}/{progress.total}
           </span>
         ) : null}
@@ -54,13 +74,17 @@ export function TaskCard({
               e.stopPropagation();
               navigate(`/jobs/${task.job_card_id}`);
             }}
-            className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-200"
+            className="rounded-full border px-2 py-0.5 font-semibold hover:opacity-80"
+            style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
           >
             Job {jobNumber}
           </button>
         ) : null}
         {task.due_date ? (
-          <span className={`text-[11px] font-semibold ${overdue ? "text-red-600" : "text-gray-500"}`}>
+          <span
+            className="font-semibold"
+            style={{ color: overdue ? "var(--jms-danger)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             {overdue ? "Overdue " : ""}
             {task.due_date}
           </span>
