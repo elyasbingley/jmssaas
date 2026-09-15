@@ -14,8 +14,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField } from "../components/theme/ThemedFormField";
 import { STATUS_BADGE, TIER_LABELS, TRADE_LABELS } from "./Subcontractors";
 
 const BUCKET = "subcontractor-files";
@@ -86,22 +87,34 @@ export default function SubcontractorDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["subcontractor", id] }),
   });
 
-  if (!sub) return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+  if (!sub) {
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
+  }
 
   return (
-    <div className="p-8">
-      <Link to="/subcontractors" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/subcontractors" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Subcontractors
       </Link>
 
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
+      <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">{sub.company_name}</h1>
-            {sub.abn ? <p className="text-sm text-gray-500">ABN {sub.abn}</p> : null}
+            <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+              {sub.company_name}
+            </h1>
+            {sub.abn ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>ABN {sub.abn}</p> : null}
             <div className="mt-2 flex flex-wrap gap-1">
               {(sub.trades as string[]).map((t) => (
-                <span key={t} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                <span
+                  key={t}
+                  className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                  style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)" }}
+                >
                   {TRADE_LABELS[t as keyof typeof TRADE_LABELS]}
                 </span>
               ))}
@@ -111,7 +124,8 @@ export default function SubcontractorDetailPage() {
             <select
               value={sub.preference_tier}
               onChange={(e) => updateTier.mutate(Number(e.target.value))}
-              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold"
+              className="rounded-md border px-3 py-1.5 font-semibold"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
             >
               {[1, 2, 3, 4, 5].map((t) => (
                 <option key={t} value={t}>
@@ -127,13 +141,16 @@ export default function SubcontractorDetailPage() {
           </div>
         </div>
         {sub.status === "compliance_hold" ? (
-          <p className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800">
+          <p
+            className="mt-3 rounded p-3"
+            style={{ border: "1px solid var(--jms-danger)", backgroundColor: "var(--jms-bg)", color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
+          >
             This subcontractor cannot receive new Purchase Orders or Work Orders until their expired compliance documents are renewed.
           </p>
         ) : null}
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex gap-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
         {(
           [
             { key: "contacts", label: "Contacts" },
@@ -145,9 +162,12 @@ export default function SubcontractorDetailPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`border-b-2 px-4 py-2 text-sm font-semibold ${
-              tab === t.key ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className="border-b-2 px-4 py-2 font-semibold uppercase tracking-wide"
+            style={
+              tab === t.key
+                ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { borderColor: "transparent", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+            }
           >
             {t.label}
           </button>
@@ -245,29 +265,34 @@ function ContactsTab({ subcontractorId, contacts }: { subcontractorId: string; c
   return (
     <div>
       <div className="mb-4 flex justify-end">
-        <button onClick={openNew} className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+        <ThemedButton onClick={openNew} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add Contact
-        </button>
+        </ThemedButton>
       </div>
       {contacts.length === 0 ? (
-        <p className="text-sm text-gray-500">No contacts yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No contacts yet.</p>
       ) : (
         <div className="space-y-2">
           {contacts.map((c) => (
-            <div key={c.id} className="rounded-lg border border-gray-300 bg-white p-4">
+            <div key={c.id} className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-gray-900">
-                    {c.first_name} {c.last_name ?? ""} {c.is_primary_contact ? <span className="ml-1 text-xs font-semibold text-blue-700">(Primary)</span> : null}
+                  <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                    {c.first_name} {c.last_name ?? ""}{" "}
+                    {c.is_primary_contact ? (
+                      <span className="ml-1 font-semibold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                        (Primary)
+                      </span>
+                    ) : null}
                   </p>
-                  {c.role_title ? <p className="text-xs text-gray-500">{c.role_title}</p> : null}
+                  {c.role_title ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{c.role_title}</p> : null}
                 </div>
-                <div className="flex gap-3 text-sm">
-                  <a href={`mailto:${c.email}`} className="text-blue-700 hover:underline">
+                <div className="flex gap-3" style={{ fontSize: "var(--jms-font-body)" }}>
+                  <a href={`mailto:${c.email}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                     {c.email}
                   </a>
                   {c.mobile ? (
-                    <a href={`tel:${c.mobile}`} className="text-blue-700 hover:underline">
+                    <a href={`tel:${c.mobile}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                       {c.mobile}
                     </a>
                   ) : null}
@@ -278,35 +303,35 @@ function ContactsTab({ subcontractorId, contacts }: { subcontractorId: string; c
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New contact">
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New contact">
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          <FormField label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+          <ThemedFormField label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+          <ThemedFormField label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </div>
-        <FormField label="Role / title" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} placeholder="e.g. Lead Estimator" />
-        <FormField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <ThemedFormField label="Role / title" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} placeholder="e.g. Lead Estimator" />
+        <ThemedFormField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Mobile" value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          <FormField label="Work phone" value={workPhone} onChange={(e) => setWorkPhone(e.target.value)} />
+          <ThemedFormField label="Mobile" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <ThemedFormField label="Work phone" value={workPhone} onChange={(e) => setWorkPhone(e.target.value)} />
         </div>
-        <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+        <label className="mb-4 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
           Primary contact
         </label>
-        {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+        {error ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createContact.mutate()}
-            disabled={createContact.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createContact.mutate()} disabled={createContact.isPending}>
             {createContact.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
@@ -333,26 +358,30 @@ function OrdersTab({
           onClick={() => onCreate(true)}
           disabled={complianceHold}
           title={complianceHold ? "Cannot send: subcontractor is on compliance hold" : undefined}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border px-3 py-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           Send Quote Request
         </button>
-        <button
+        <ThemedButton
           onClick={() => onCreate(false)}
           disabled={complianceHold}
           title={complianceHold ? "Cannot issue: subcontractor is on compliance hold" : undefined}
-          className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ paddingBlock: 6, paddingInline: 12 }}
         >
           Issue PO / Work Order
-        </button>
+        </ThemedButton>
       </div>
 
       {purchaseOrders.length === 0 ? (
-        <p className="text-sm text-gray-500">No purchase orders or quote requests yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No purchase orders or quote requests yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+        <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">PO Number</th>
                 <th className="px-4 py-2 font-semibold">Type</th>
@@ -363,20 +392,29 @@ function OrdersTab({
             </thead>
             <tbody>
               {purchaseOrders.map((po) => (
-                <tr key={po.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <Link to={`/subcontractors/purchase-orders/${po.id}`} className="font-medium text-blue-700 hover:underline">
+                <tr key={po.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-accent)" }}>
+                    <Link to={`/subcontractors/purchase-orders/${po.id}`} className="font-medium hover:underline">
                       {po.po_number ?? "Pending"}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{po.is_quote_request ? "Quote Request" : "Work Order"}</td>
-                  <td className="px-4 py-3 text-gray-600">{jobById.get(po.job_card_id)?.title ?? "-"}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {po.is_quote_request ? "Quote Request" : "Work Order"}
+                  </td>
+                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                    {jobById.get(po.job_card_id)?.title ?? "-"}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                      style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)" }}
+                    >
                       {po.status.charAt(0).toUpperCase() + po.status.slice(1)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold">{formatCentsAsAud(po.total_cost_cents)}</td>
+                  <td className="px-4 py-3 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
+                    {formatCentsAsAud(po.total_cost_cents)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -478,65 +516,81 @@ function ComplianceRecordsTab({ subcontractorId, docs }: { subcontractorId: stri
 
   return (
     <div>
-      <div className="mb-6 rounded-lg border border-gray-300 bg-white p-4">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Upload compliance document</h2>
+      <div className="mb-6 rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Upload compliance document
+        </h2>
         <div className="grid grid-cols-2 gap-3">
-          <SelectField label="Document type" value={docType} onChange={(v) => setDocType(v as SubcontractorDocType)} options={DOC_TYPE_OPTIONS} />
-          <FormField label="Doc / policy number (optional)" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
+          <ThemedSelectField label="Document type" value={docType} onChange={(v) => setDocType(v as SubcontractorDocType)} options={DOC_TYPE_OPTIONS} />
+          <ThemedFormField label="Doc / policy number (optional)" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Issue date (optional)" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
-          <FormField label="Expiry date" type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
+          <ThemedFormField label="Issue date (optional)" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+          <ThemedFormField label="Expiry date" type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
         </div>
         <input
           type="file"
           accept="image/*,application/pdf"
           onChange={(e) => setFileToUpload(e.target.files?.[0] ?? null)}
-          className="mb-3 text-sm"
+          className="mb-3"
+          style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
-        {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
-        <button
+        {error ? (
+          <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {error}
+          </p>
+        ) : null}
+        <ThemedButton
           onClick={() => {
             setUploading(true);
             uploadDoc.mutate();
           }}
           disabled={uploading || !fileToUpload}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
         >
           {uploading ? "Uploading..." : "Upload"}
-        </button>
+        </ThemedButton>
       </div>
 
       {docs.length === 0 ? (
-        <p className="text-sm text-gray-500">No compliance documents uploaded yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No compliance documents uploaded yet.</p>
       ) : (
         <div className="space-y-2">
           {docs.map((doc) => {
             const expired = doc.expiry_date ? new Date(`${doc.expiry_date}T00:00:00`) < new Date(new Date().toDateString()) : false;
             return (
-              <div key={doc.id} className="flex items-center justify-between rounded-lg border border-gray-300 bg-white p-4">
+              <div
+                key={doc.id}
+                className="flex items-center justify-between rounded p-4"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+              >
                 <div>
-                  <p className="font-semibold text-gray-900">{DOC_TYPE_OPTIONS.find((o) => o.value === doc.doc_type)?.label}</p>
-                  {doc.doc_number ? <p className="text-xs text-gray-500">#{doc.doc_number}</p> : null}
+                  <p className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                    {DOC_TYPE_OPTIONS.find((o) => o.value === doc.doc_type)?.label}
+                  </p>
+                  {doc.doc_number ? <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>#{doc.doc_number}</p> : null}
                   {doc.expiry_date ? (
-                    <p className={`text-xs ${expired ? "font-semibold text-red-600" : "text-gray-500"}`}>
+                    <p
+                      className={expired ? "font-semibold" : ""}
+                      style={{ color: expired ? "var(--jms-danger)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Expires {new Date(`${doc.expiry_date}T00:00:00`).toLocaleDateString("en-AU")}
                     </p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <label className="flex items-center gap-1.5" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     <input type="checkbox" checked={doc.is_verified} onChange={() => toggleVerified.mutate(doc)} />
                     Verified
                   </label>
-                  <button onClick={() => downloadDoc(doc)} className="text-xs font-semibold text-blue-700 hover:underline">
+                  <button onClick={() => downloadDoc(doc)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
                     View
                   </button>
                   <button
                     onClick={() => {
                       if (window.confirm("Delete this document?")) deleteDoc.mutate(doc);
                     }}
-                    className="text-xs font-semibold text-red-600 hover:underline"
+                    className="font-semibold hover:underline"
+                    style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
                   >
                     Delete
                   </button>
@@ -558,11 +612,14 @@ function FinancialsJobsTab({ purchaseOrders, jobs }: { purchaseOrders: PurchaseO
   return (
     <div>
       {realPos.length === 0 ? (
-        <p className="text-sm text-gray-500">No purchase orders linked to jobs yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No purchase orders linked to jobs yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+        <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Job</th>
                 <th className="px-4 py-2 font-semibold">PO Number</th>
@@ -577,20 +634,29 @@ function FinancialsJobsTab({ purchaseOrders, jobs }: { purchaseOrders: PurchaseO
                 const billed = po.billed_to_client_cents ?? 0;
                 const profit = billed - po.total_cost_cents;
                 return (
-                  <tr key={po.id} className="border-b border-gray-200 last:border-0">
+                  <tr key={po.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                     <td className="px-4 py-3">
                       {job ? (
-                        <Link to={`/jobs/${job.id}`} className="text-blue-700 hover:underline">
+                        <Link to={`/jobs/${job.id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                           {job.title}
                         </Link>
                       ) : (
-                        "-"
+                        <span style={{ color: "var(--jms-text-muted)" }}>-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{po.po_number ?? "-"}</td>
-                    <td className="px-4 py-3 text-right">{formatCentsAsAud(po.total_cost_cents)}</td>
-                    <td className="px-4 py-3 text-right">{po.billed_to_client_cents != null ? formatCentsAsAud(billed) : "-"}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${profit < 0 ? "text-red-600" : "text-green-700"}`}>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {po.po_number ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                      {formatCentsAsAud(po.total_cost_cents)}
+                    </td>
+                    <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                      {po.billed_to_client_cents != null ? formatCentsAsAud(billed) : "-"}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right font-semibold"
+                      style={{ color: po.billed_to_client_cents == null ? "var(--jms-text)" : profit < 0 ? "var(--jms-danger)" : "var(--jms-accent)" }}
+                    >
                       {po.billed_to_client_cents != null ? formatCentsAsAud(profit) : "-"}
                     </td>
                   </tr>

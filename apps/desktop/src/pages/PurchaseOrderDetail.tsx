@@ -17,6 +17,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { buildPurchaseOrderPdfBlob } from "../lib/po-pdf";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import { PoLineItemEditor } from "../components/subcontractors/PoLineItemEditor";
 
 const BUCKET = "subcontractor-files";
@@ -312,39 +313,66 @@ export default function PurchaseOrderDetailPage() {
     }
   };
 
-  if (!po) return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+  if (!po) {
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
+  }
 
   const marginCents = billedCents ? Math.round(parseFloat(billedCents) * 100) - po.total_cost_cents : null;
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to={`/subcontractors/${po.subcontractor_id}`} className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link
+        to={`/subcontractors/${po.subcontractor_id}`}
+        className="mb-4 inline-block hover:underline"
+        style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+      >
         &larr; Back to {subcontractor?.company_name ?? "subcontractor"}
       </Link>
 
       <div className="mb-1 flex items-center gap-2">
-        <h1 className="text-xl font-bold text-gray-900">{po.po_number ?? "Pending PO number"}</h1>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          {po.po_number ?? "Pending PO number"}
+        </h1>
+        <span
+          className="rounded-full px-2 py-0.5 text-xs font-semibold"
+          style={{ backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)" }}
+        >
           {po.is_quote_request ? "Quote Request" : "Work Order"}
         </span>
       </div>
       {job ? (
-        <Link to={`/jobs/${po.job_card_id}`} className="text-sm text-blue-700 hover:underline">
+        <Link to={`/jobs/${po.job_card_id}`} className="hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           Job: {job.title}
         </Link>
       ) : null}
 
       {complianceHold ? (
-        <p className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800">This subcontractor is on compliance hold - sending is disabled.</p>
+        <p
+          className="mt-3 rounded p-3"
+          style={{ border: "1px solid var(--jms-danger)", backgroundColor: "var(--jms-surface)", color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
+        >
+          This subcontractor is on compliance hold - sending is disabled.
+        </p>
       ) : null}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Status</h2>
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Status
+      </h2>
       <div className="flex flex-wrap gap-2">
         {STATUSES.map((status) => (
           <button
             key={status}
             onClick={() => changeStatus.mutate(status)}
-            className={`rounded-full px-3 py-1.5 text-sm font-semibold ${po.status === status ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"}`}
+            className="rounded-full border px-3 py-1.5 font-semibold"
+            style={
+              po.status === status
+                ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+            }
           >
             {STATUS_LABELS[status]}
           </button>
@@ -353,40 +381,44 @@ export default function PurchaseOrderDetailPage() {
 
       <div className="mt-4 flex flex-wrap gap-3">
         {po.is_quote_request ? (
-          <button
-            onClick={() => sendQuoteRequest.mutate()}
-            disabled={sendQuoteRequest.isPending || complianceHold}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => sendQuoteRequest.mutate()} disabled={sendQuoteRequest.isPending || complianceHold}>
             {sendQuoteRequest.isPending ? "Sending..." : "Send Quote Request"}
-          </button>
+          </ThemedButton>
         ) : (
-          <button
-            onClick={() => sendWorkOrder.mutate()}
-            disabled={sendWorkOrder.isPending || complianceHold}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => sendWorkOrder.mutate()} disabled={sendWorkOrder.isPending || complianceHold}>
             {sendWorkOrder.isPending ? "Sending..." : "Send Work Order"}
-          </button>
+          </ThemedButton>
         )}
         <button
           onClick={handleDownloadPdf}
           disabled={downloading}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          className="rounded-md border px-4 py-2 font-semibold disabled:opacity-60"
+          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           {downloading ? "Preparing..." : "Download PDF"}
         </button>
       </div>
-      {sendError ? <p className="mt-2 text-sm text-red-600">{sendError}</p> : null}
-      {sendResult ? <p className="mt-2 text-sm text-green-700">{sendResult}</p> : null}
+      {sendError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {sendError}
+        </p>
+      ) : null}
+      {sendResult ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {sendResult}
+        </p>
+      ) : null}
 
       <div className="mt-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Contact</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Contact
+        </label>
         <select
           value={contactId}
           disabled={isLocked}
           onChange={(e) => setContactId(e.target.value)}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
+          className="w-full rounded-md border px-3 py-2 disabled:opacity-60"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         >
           <option value="">Use primary contact</option>
           {(contacts ?? []).map((c) => (
@@ -397,13 +429,15 @@ export default function PurchaseOrderDetailPage() {
         </select>
       </div>
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         {po.is_quote_request ? "Scope of work" : "Line items"}
       </h2>
       <PoLineItemEditor items={lineItems} onChange={setLineItems} readOnly={isLocked} />
 
       <div className="mt-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Client billed price (optional)</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Client billed price (optional)
+        </label>
         <input
           type="text"
           inputMode="decimal"
@@ -411,26 +445,31 @@ export default function PurchaseOrderDetailPage() {
           value={billedCents}
           onChange={(e) => setBilledCents(e.target.value)}
           placeholder="What the client is charged for this work"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+          className="w-full rounded-md border px-3 py-2 disabled:opacity-60"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
         {marginCents != null ? (
-          <p className={`mt-2 text-sm font-semibold ${marginCents < 0 ? "text-red-600" : "text-green-700"}`}>
+          <p className="mt-2 font-semibold" style={{ color: marginCents < 0 ? "var(--jms-danger)" : "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
             Margin: {formatCentsAsAud(marginCents)}
           </p>
         ) : null}
       </div>
 
-      {saveError ? <p className="mt-2 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mt-2 text-sm text-green-700">Saved.</p> : null}
+      {saveError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
 
       {!isLocked ? (
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="mt-4 rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} className="mt-4" style={{ paddingBlock: 12, paddingInline: 24 }}>
           {save.isPending ? "Saving..." : "Save changes"}
-        </button>
+        </ThemedButton>
       ) : null}
     </div>
   );
