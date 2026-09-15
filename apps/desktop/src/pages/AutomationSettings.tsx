@@ -14,8 +14,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 import { InsertLinkButton } from "../components/InsertLinkButton";
 
 // Direct port of apps/mobile/app/automation-settings.tsx - same trigger
@@ -297,53 +298,63 @@ export default function AutomationSettingsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
-      <h1 className="text-xl font-bold text-gray-900">Automation & Messaging</h1>
-      <p className="mb-6 text-sm text-gray-500">Control when automated emails go out, and edit their wording.</p>
+      <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Automation & Messaging
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Control when automated emails go out, and edit their wording.
+      </p>
 
       {TRIGGER_GROUPS.map((group) => (
         <div key={group.title} className="mb-6">
-          <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">{group.title}</h2>
+          <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {group.title}
+          </h2>
           <div className="space-y-3">
             {group.keys.map((key) => {
               const rule = (rules ?? []).find((r) => r.trigger_key === key);
               const triggerTemplates = (templates ?? []).filter((t) => t.trigger_key === key);
               if (!rule) return null;
               return (
-                <div key={key} className="rounded-lg border border-gray-300 bg-white p-4">
+                <div key={key} className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
                   <div className="mb-1 flex items-center justify-between">
-                    <p className="font-bold text-gray-900">{TRIGGER_LABELS[key] ?? key}</p>
-                    <label className="flex items-center gap-2 text-sm text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={rule.is_enabled}
-                        onChange={() => toggleRule.mutate(rule)}
-                      />
+                    <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                      {TRIGGER_LABELS[key] ?? key}
+                    </p>
+                    <label
+                      className="flex items-center gap-2"
+                      style={{ color: rule.is_enabled ? "var(--jms-accent)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+                    >
+                      <input type="checkbox" checked={rule.is_enabled} onChange={() => toggleRule.mutate(rule)} />
                       Enabled
                     </label>
                   </div>
-                  <p className="text-sm text-gray-700">{summarizeTiming(rule)}</p>
-                  <p className="mb-2 text-xs text-gray-400">
+                  <p style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>{summarizeTiming(rule)}</p>
+                  <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                     Quiet hours {rule.quiet_hours_start.slice(0, 5)}-{rule.quiet_hours_end.slice(0, 5)}
                   </p>
-                  <button onClick={() => openEditRule(rule)} className="text-sm font-semibold text-blue-700 hover:underline">
+                  <button onClick={() => openEditRule(rule)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
                     Edit timing
                   </button>
 
                   {triggerTemplates.map((template) => (
-                    <div key={template.id} className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2">
+                    <div key={template.id} className="mt-2 flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--jms-border)" }}>
                       <div className="min-w-0 flex-1 pr-3">
-                        <p className="text-sm font-semibold text-gray-900">
+                        <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                           {template.name} ({template.type})
                         </p>
-                        <p className="truncate text-xs text-gray-500">{template.body}</p>
+                        <p className="truncate" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                          {template.body}
+                        </p>
                       </div>
                       <button
                         onClick={() => openEditTemplate(template)}
-                        className="flex-shrink-0 text-sm font-semibold text-blue-700 hover:underline"
+                        className="flex-shrink-0 font-semibold hover:underline"
+                        style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
                       >
                         Edit message
                       </button>
@@ -356,38 +367,46 @@ export default function AutomationSettingsPage() {
         </div>
       ))}
 
-      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Review link</h2>
-      <p className="mb-3 text-sm text-gray-500">Used by the {"{google_review_link}"} tag in the review request message.</p>
-      <FormField
+      <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Review link
+      </h2>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Used by the {"{google_review_link}"} tag in the review request message.
+      </p>
+      <ThemedFormField
         label="Google review link"
         value={reviewLink}
         onChange={(e) => setReviewLink(e.target.value)}
         placeholder="https://g.page/r/..."
       />
-      {reviewLinkError ? <p className="mb-2 text-sm text-red-600">{reviewLinkError}</p> : null}
-      {reviewLinkSaved ? <p className="mb-2 text-sm text-green-700">Saved.</p> : null}
-      <button
-        onClick={() => saveReviewLink.mutate()}
-        disabled={saveReviewLink.isPending}
-        className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
+      {reviewLinkError ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {reviewLinkError}
+        </p>
+      ) : null}
+      {reviewLinkSaved ? (
+        <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
+      <ThemedButton onClick={() => saveReviewLink.mutate()} disabled={saveReviewLink.isPending}>
         {saveReviewLink.isPending ? "Saving..." : "Save review link"}
-      </button>
+      </ThemedButton>
 
-      <Modal
+      <ThemedModal
         open={ruleModalOpen}
         onClose={() => setRuleModalOpen(false)}
         title={`Edit timing${editingRule ? ` - ${TRIGGER_LABELS[editingRule.trigger_key] ?? editingRule.trigger_key}` : ""}`}
       >
         {editingRule?.trigger_key === "maintenance_reminder" ? (
-          <p className="mb-4 text-sm text-gray-600">
+          <p className="mb-4" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             The interval for this reminder is set per service category, not here - edit it from Settings &gt; Job Setup
             on the category that should get a recurring reminder (e.g. 6 months for aircon servicing, 12 for an annual
             inspection).
           </p>
         ) : (
           <>
-            <FormField
+            <ThemedFormField
               label={editingRule?.trigger_key === "dormant_client_reengagement" ? "Days of inactivity" : "Delay value"}
               type="number"
               value={ruleDelayValue}
@@ -396,11 +415,14 @@ export default function AutomationSettingsPage() {
             {editingRule?.trigger_key !== "dormant_client_reengagement" ? (
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-gray-700">Delay unit</label>
+                  <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    Delay unit
+                  </label>
                   <select
                     value={ruleDelayUnit}
                     onChange={(e) => setRuleDelayUnit(e.target.value as CommunicationDelayUnit)}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                   >
                     {UNIT_OPTIONS.map((unit) => (
                       <option key={unit} value={unit}>
@@ -410,11 +432,14 @@ export default function AutomationSettingsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-semibold text-gray-700">Direction</label>
+                  <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    Direction
+                  </label>
                   <select
                     value={ruleDirection}
                     onChange={(e) => setRuleDirection(e.target.value as CommunicationDelayDirection)}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                   >
                     {DIRECTION_OPTIONS.map((direction) => (
                       <option key={direction} value={direction}>
@@ -429,13 +454,13 @@ export default function AutomationSettingsPage() {
         )}
 
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <FormField
+          <ThemedFormField
             label="Quiet hours start"
             type="time"
             value={ruleQuietStart}
             onChange={(e) => setRuleQuietStart(e.target.value)}
           />
-          <FormField
+          <ThemedFormField
             label="Quiet hours end"
             type="time"
             value={ruleQuietEnd}
@@ -443,33 +468,36 @@ export default function AutomationSettingsPage() {
           />
         </div>
 
-        {ruleError ? <p className="mb-4 text-sm text-red-600">{ruleError}</p> : null}
+        {ruleError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {ruleError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setRuleModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setRuleModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveRule.mutate()}
-            disabled={saveRule.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveRule.mutate()} disabled={saveRule.isPending}>
             {saveRule.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={editingTemplate?.name ?? "Edit message"}>
+      <ThemedModal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title={editingTemplate?.name ?? "Edit message"}>
         {editingTemplate?.type === "email" ? (
-          <FormField label="Subject" value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} />
+          <ThemedFormField label="Subject" value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} />
         ) : null}
 
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Insert tag</label>
+        <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Insert tag
+        </label>
         <div className="mb-3 flex flex-wrap gap-2">
           {ALL_PLACEHOLDER_TOKENS.map((token) => (
             <button
               key={token}
               onClick={() => insertToken(token)}
-              className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+              className="rounded px-2 py-1 font-semibold"
+              style={{ backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
             >
               {`{${token}}`}
             </button>
@@ -478,7 +506,7 @@ export default function AutomationSettingsPage() {
         </div>
 
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700" htmlFor="template-body">
+          <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }} htmlFor="template-body">
             Message
           </label>
           <textarea
@@ -487,29 +515,39 @@ export default function AutomationSettingsPage() {
             rows={6}
             value={templateBody}
             onChange={(e) => setTemplateBody(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded border px-3 py-2 focus:outline-none"
+            style={{
+              backgroundColor: "var(--jms-bg)",
+              borderColor: "var(--jms-border)",
+              color: "var(--jms-text)",
+              fontFamily: "var(--jms-font)",
+              fontSize: "var(--jms-font-body)",
+            }}
           />
         </div>
 
-        <label className="mb-4 flex items-center gap-2 text-sm font-medium text-gray-700">
+        <label
+          className="mb-4 flex items-center gap-2 font-medium"
+          style={{ color: templateActive ? "var(--jms-accent)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+        >
           <input type="checkbox" checked={templateActive} onChange={(e) => setTemplateActive(e.target.checked)} />
           Active
         </label>
 
-        {templateError ? <p className="mb-4 text-sm text-red-600">{templateError}</p> : null}
+        {templateError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {templateError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setTemplateModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setTemplateModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveTemplate.mutate()}
-            disabled={saveTemplate.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveTemplate.mutate()} disabled={saveTemplate.isPending}>
             {saveTemplate.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

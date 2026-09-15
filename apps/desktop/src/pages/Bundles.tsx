@@ -5,8 +5,9 @@ import { createLineItemBundleSchema, type LineItemBundle } from "@jmssaas/shared
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 // List of pre-built line-item bundles (e.g. "Hot Water System Replacement")
 // - each one's member items are managed on its own detail page (BundleDetail.tsx),
@@ -53,33 +54,43 @@ export default function BundlesPage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <Link to="/settings" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-2xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/settings" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Settings
       </Link>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Bundles</h1>
-          <p className="text-sm text-gray-500">Pre-built sets of line items - add them all to a quote/invoice in one click.</p>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            Bundles
+          </h1>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Pre-built sets of line items - add them all to a quote/invoice in one click.
+          </p>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New bundle
-        </button>
+        <ThemedButton onClick={() => setModalOpen(true)}>+ New bundle</ThemedButton>
       </div>
 
-      <div className="divide-y divide-gray-100 rounded-lg border border-gray-300 bg-white">
+      <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
-          <p className="p-4 text-sm text-gray-500">Loading...</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Loading...
+          </p>
         ) : !bundles || bundles.length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No bundles yet.</p>
+          <p className="p-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            No bundles yet.
+          </p>
         ) : (
           bundles.map((bundle) => (
-            <Link key={bundle.id} to={`/settings/bundles/${bundle.id}`} className="flex items-center justify-between gap-3 p-3 hover:bg-gray-50">
-              <span className="text-sm font-semibold text-gray-900">{bundle.name}</span>
-              <span className="flex-shrink-0 text-xs text-gray-500">
+            <Link
+              key={bundle.id}
+              to={`/settings/bundles/${bundle.id}`}
+              className="jms-nav-link flex items-center justify-between gap-3 p-3 last:border-0"
+              style={{ borderBottom: "1px solid var(--jms-border)" }}
+            >
+              <span className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                {bundle.name}
+              </span>
+              <span className="flex-shrink-0" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                 {bundle.item_count} item{bundle.item_count === 1 ? "" : "s"}
               </span>
             </Link>
@@ -87,22 +98,22 @@ export default function BundlesPage() {
         )}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New bundle">
-        <FormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot Water System Replacement" />
-        {formError ? <p className="mb-4 text-sm text-red-600">{formError}</p> : null}
+      <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New bundle">
+        <ThemedFormField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot Water System Replacement" />
+        {formError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {formError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createBundle.mutate()}
-            disabled={createBundle.isPending || !name.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createBundle.mutate()} disabled={createBundle.isPending || !name.trim()}>
             {createBundle.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
