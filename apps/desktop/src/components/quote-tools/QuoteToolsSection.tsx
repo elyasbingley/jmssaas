@@ -30,14 +30,21 @@ export function QuoteToolsSection({ jobCardId }: { jobCardId: string }) {
   const [transferredTallyItems, setTransferredTallyItems] = useState<MaterialTallyItem[] | null>(null);
 
   return (
-    <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
-      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Quote Tools</h2>
+    <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+      <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Quote Tools
+      </h2>
       <div className="mb-4 flex flex-wrap gap-1.5">
         {TOOLS.map((t) => (
           <button
             key={t.key}
             onClick={() => setActiveTool(t.key)}
-            className={`rounded-md px-3 py-1.5 text-sm font-semibold ${activeTool === t.key ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"}`}
+            className="rounded-md px-3 py-1.5 font-semibold"
+            style={
+              activeTool === t.key
+                ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                : { backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+            }
           >
             {t.label}
           </button>

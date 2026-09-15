@@ -9,8 +9,9 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "./Modal";
-import { FormField, SelectField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedButton } from "./theme/ThemedButton";
+import { ThemedFormField, ThemedSelectField } from "./theme/ThemedFormField";
 
 // Extracted from PropertyDetail.tsx's original inline "Asset Register" tab
 // (property_assets was always property-only until the client_assets
@@ -144,44 +145,63 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
   const content = (
     <div>
       <div className="mb-4 flex justify-end">
-        <button onClick={openNewAsset} className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800">
+        <ThemedButton onClick={openNewAsset} style={{ paddingBlock: 6, paddingInline: 12, fontSize: "var(--jms-font-label)" }}>
           + Add Asset
-        </button>
+        </ThemedButton>
       </div>
       {!assets || assets.length === 0 ? (
-        <p className="text-sm text-gray-500">{noAssetsLabel}</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{noAssetsLabel}</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
           {assets.map((asset) => (
             <button
               key={asset.id}
               onClick={() => openEditAsset(asset)}
-              className="rounded-lg border border-gray-300 bg-white p-4 text-left hover:border-blue-300"
+              className="jms-nav-link rounded-lg p-4 text-left"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
             >
               <div className="mb-2 flex items-center gap-2">
                 <span className="text-xl">{CATEGORY_ICON[asset.category]}</span>
-                <span className="font-bold text-gray-900">{asset.asset_name}</span>
+                <span className="font-bold" style={{ color: "var(--jms-text)" }}>
+                  {asset.asset_name}
+                </span>
               </div>
               <div className="flex flex-wrap gap-1">
                 {asset.attributes.warranty_expiry_date ? (
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      isWarrantyActive(asset.attributes.warranty_expiry_date) ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
-                    }`}
+                    className="rounded-full border px-2 py-0.5 font-semibold"
+                    style={
+                      isWarrantyActive(asset.attributes.warranty_expiry_date)
+                        ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                        : { borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                    }
                   >
                     {isWarrantyActive(asset.attributes.warranty_expiry_date) ? "Under warranty" : "Warranty expired"}
                   </span>
                 ) : null}
                 {asset.attributes.roof_type ? (
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-800">{asset.attributes.roof_type}</span>
+                  <span
+                    className="rounded-full border px-2 py-0.5 font-semibold"
+                    style={{ borderColor: "var(--jms-warning)", color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    {asset.attributes.roof_type}
+                  </span>
                 ) : null}
                 {asset.attributes.gutter_clean_interval_months ? (
-                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                  <span
+                    className="rounded-full border px-2 py-0.5 font-semibold"
+                    style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                  >
                     Gutter clean every {asset.attributes.gutter_clean_interval_months}mo
                   </span>
                 ) : null}
                 {asset.attributes.fuel_type ? (
-                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800">{asset.attributes.fuel_type}</span>
+                  <span
+                    className="rounded-full border px-2 py-0.5 font-semibold"
+                    style={{ borderColor: "var(--jms-text-muted)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    {asset.attributes.fuel_type}
+                  </span>
                 ) : null}
               </div>
             </button>
@@ -196,29 +216,31 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
       {bare ? (
         content
       ) : (
-        <div className="mb-6 rounded-lg border border-gray-300 bg-white p-6">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">{title}</h2>
+        <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            {title}
+          </h2>
           {content}
         </div>
       )}
 
-      <Modal open={assetModalOpen} onClose={() => setAssetModalOpen(false)} title={editingAsset ? "Edit asset" : "New asset"}>
-        <SelectField label="Category" value={assetCategory} onChange={setAssetCategory} options={ASSET_CATEGORY_OPTIONS} placeholder="Select category" />
-        <FormField label="Asset name" value={assetName} onChange={(e) => setAssetName(e.target.value)} placeholder="e.g. Main Hot Water Unit" />
+      <ThemedModal open={assetModalOpen} onClose={() => setAssetModalOpen(false)} title={editingAsset ? "Edit asset" : "New asset"}>
+        <ThemedSelectField label="Category" value={assetCategory} onChange={setAssetCategory} options={ASSET_CATEGORY_OPTIONS} placeholder="Select category" />
+        <ThemedFormField label="Asset name" value={assetName} onChange={(e) => setAssetName(e.target.value)} placeholder="e.g. Main Hot Water Unit" />
 
         {assetCategory === "plumbing" ? (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
-              <FormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
+              <ThemedFormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
+              <ThemedFormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
             </div>
-            <FormField
+            <ThemedFormField
               label="Serial number"
               value={attrs.serial_number ?? ""}
               onChange={(e) => setAttrs({ ...attrs, serial_number: e.target.value })}
             />
             <div className="grid grid-cols-2 gap-3">
-              <SelectField
+              <ThemedSelectField
                 label="Fuel type"
                 value={attrs.fuel_type ?? ""}
                 onChange={(v) => setAttrs({ ...attrs, fuel_type: v || undefined })}
@@ -228,7 +250,7 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
                   { value: "solar", label: "Solar" },
                 ]}
               />
-              <FormField
+              <ThemedFormField
                 label="Capacity (litres)"
                 type="number"
                 value={attrs.capacity_litres ?? ""}
@@ -236,13 +258,13 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Installation date"
                 type="date"
                 value={attrs.installation_date ?? ""}
                 onChange={(e) => setAttrs({ ...attrs, installation_date: e.target.value || undefined })}
               />
-              <FormField
+              <ThemedFormField
                 label="Warranty expiry"
                 type="date"
                 value={attrs.warranty_expiry_date ?? ""}
@@ -255,7 +277,7 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
         {assetCategory === "roofing" ? (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <SelectField
+              <ThemedSelectField
                 label="Roof type"
                 value={attrs.roof_type ?? ""}
                 onChange={(v) => setAttrs({ ...attrs, roof_type: v || undefined })}
@@ -265,7 +287,7 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
                   { value: "slate", label: "Slate" },
                 ]}
               />
-              <FormField
+              <ThemedFormField
                 label="Roof age (years)"
                 type="number"
                 value={attrs.roof_age_years ?? ""}
@@ -273,13 +295,13 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Last gutter clean"
                 type="date"
                 value={attrs.last_gutter_clean_date ?? ""}
                 onChange={(e) => setAttrs({ ...attrs, last_gutter_clean_date: e.target.value || undefined })}
               />
-              <FormField
+              <ThemedFormField
                 label="Clean interval (months)"
                 type="number"
                 value={attrs.gutter_clean_interval_months ?? ""}
@@ -287,12 +309,12 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Screw condition"
                 value={attrs.screw_condition ?? ""}
                 onChange={(e) => setAttrs({ ...attrs, screw_condition: e.target.value || undefined })}
               />
-              <FormField
+              <ThemedFormField
                 label="Ridge condition"
                 value={attrs.ridge_condition ?? ""}
                 onChange={(e) => setAttrs({ ...attrs, ridge_condition: e.target.value || undefined })}
@@ -304,17 +326,17 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
         {assetCategory === "hvac" || assetCategory === "general" ? (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
-              <FormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
+              <ThemedFormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
+              <ThemedFormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormField
+              <ThemedFormField
                 label="Installation date"
                 type="date"
                 value={attrs.installation_date ?? ""}
                 onChange={(e) => setAttrs({ ...attrs, installation_date: e.target.value || undefined })}
               />
-              <FormField
+              <ThemedFormField
                 label="Warranty expiry"
                 type="date"
                 value={attrs.warranty_expiry_date ?? ""}
@@ -324,7 +346,11 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
           </>
         ) : null}
 
-        {assetError ? <p className="mb-4 text-sm text-red-600">{assetError}</p> : null}
+        {assetError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {assetError}
+          </p>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           {editingAsset ? (
             <button
@@ -334,7 +360,8 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
                   setAssetModalOpen(false);
                 }
               }}
-              className="text-sm font-semibold text-red-600 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
             >
               Delete
             </button>
@@ -342,19 +369,19 @@ export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsS
             <span />
           )}
           <div className="flex gap-3">
-            <button onClick={() => setAssetModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+            <button
+              onClick={() => setAssetModalOpen(false)}
+              className="px-4 py-2 font-semibold"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+            >
               Cancel
             </button>
-            <button
-              onClick={() => saveAsset.mutate()}
-              disabled={saveAsset.isPending || !assetName.trim()}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={() => saveAsset.mutate()} disabled={saveAsset.isPending || !assetName.trim()}>
               {saveAsset.isPending ? "Saving..." : "Save"}
-            </button>
+            </ThemedButton>
           </div>
         </div>
-      </Modal>
+      </ThemedModal>
     </>
   );
 }

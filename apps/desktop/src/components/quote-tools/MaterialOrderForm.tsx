@@ -16,7 +16,8 @@ import { getErrorMessage } from "../../lib/errors";
 import { exportPdf } from "../../lib/print";
 import { buildMaterialOrderPdfHtml } from "../../lib/material-order-pdf";
 import { queueAndSendEmail } from "../../lib/send-email";
-import { FormField, SelectField } from "../FormField";
+import { ThemedFormField, ThemedSelectField } from "../theme/ThemedFormField";
+import { ThemedButton } from "../theme/ThemedButton";
 import { EmailComposeModal } from "../EmailComposeModal";
 
 const STATUS_OPTIONS: MaterialOrderStatus[] = ["DRAFT", "ORDERED", "DELIVERED", "CANCELLED"];
@@ -141,11 +142,11 @@ export function MaterialOrderForm({
   return (
     <div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Supplier (optional)" placeholder='e.g. "Bunnings"' value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
-        <FormField label="Delivery date (optional)" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+        <ThemedFormField label="Supplier (optional)" placeholder='e.g. "Bunnings"' value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
+        <ThemedFormField label="Delivery date (optional)" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
       </div>
       <div className="mt-3">
-        <SelectField
+        <ThemedSelectField
           label="Status"
           value={status}
           onChange={(v) => v && setStatus(v as MaterialOrderStatus)}
@@ -159,38 +160,53 @@ export function MaterialOrderForm({
           placeholder="Item name"
           value={newItemName}
           onChange={(e) => setNewItemName(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="rounded-md border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
         <input
           type="number"
           placeholder="Qty"
           value={newItemQty}
           onChange={(e) => setNewItemQty(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="rounded-md border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
         <input
           type="text"
           placeholder="Unit"
           value={newItemUnit}
           onChange={(e) => setNewItemUnit(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="rounded-md border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
-        <button onClick={handleAddItem} disabled={!newItemName.trim()} className="rounded-md bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60">
+        <ThemedButton onClick={handleAddItem} disabled={!newItemName.trim()}>
           + Add
-        </button>
+        </ThemedButton>
       </div>
 
       {lineItems.length === 0 ? (
-        <p className="text-sm text-gray-500">No items yet - add one above, or transfer a tally from the Material Tally tool.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          No items yet - add one above, or transfer a tally from the Material Tally tool.
+        </p>
       ) : (
         <div className="space-y-1">
           {lineItems.map((item, index) => (
-            <div key={index} className="flex items-center justify-between rounded border border-gray-200 px-3 py-1.5 text-sm">
-              <span className="truncate font-medium text-gray-900">{item.item_name}</span>
-              <span className="flex-shrink-0 text-gray-600">
+            <div
+              key={index}
+              className="flex items-center justify-between rounded px-3 py-1.5"
+              style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+            >
+              <span className="truncate font-medium" style={{ color: "var(--jms-text)" }}>
+                {item.item_name}
+              </span>
+              <span className="flex-shrink-0" style={{ color: "var(--jms-text-muted)" }}>
                 {item.quantity} {item.unit_type}
               </span>
-              <button onClick={() => handleRemoveItem(index)} className="ml-3 flex-shrink-0 text-xs font-semibold text-red-600 hover:underline">
+              <button
+                onClick={() => handleRemoveItem(index)}
+                className="ml-3 flex-shrink-0 font-semibold hover:underline"
+                style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+              >
                 Remove
               </button>
             </div>
@@ -198,33 +214,39 @@ export function MaterialOrderForm({
         </div>
       )}
 
-      {saveError ? <p className="mt-3 text-sm text-red-600">{saveError}</p> : null}
-      <button
-        onClick={() => save.mutate()}
-        disabled={save.isPending || lineItems.length === 0}
-        className="mt-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
+      {saveError ? (
+        <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      <ThemedButton onClick={() => save.mutate()} disabled={save.isPending || lineItems.length === 0} className="mt-4">
         {save.isPending ? "Saving..." : "Save Material Order"}
-      </button>
+      </ThemedButton>
 
       {orders && orders.length > 0 ? (
         <div className="mt-6">
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Past orders</h3>
+          <h3 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Past orders
+          </h3>
           <div className="space-y-2">
             {orders.map((order) => (
-              <div key={order.id} className="rounded-lg border border-gray-200 p-3">
+              <div key={order.id} className="rounded-lg p-3" style={{ border: "1px solid var(--jms-border)" }}>
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-900">{order.order_number}</span>
-                  <span className="text-xs font-semibold text-gray-500">{order.status}</span>
+                  <span className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {order.order_number}
+                  </span>
+                  <span className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    {order.status}
+                  </span>
                 </div>
-                <p className="mb-2 text-xs text-gray-500">
+                <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                   {order.supplier_name ?? "No supplier"} &middot; {order.line_items.length} item{order.line_items.length === 1 ? "" : "s"}
                 </p>
-                <div className="flex gap-3 text-xs font-semibold">
-                  <button onClick={() => handleExportPdf(order)} className="text-blue-700 hover:underline">
+                <div className="flex gap-3 font-semibold" style={{ fontSize: "var(--jms-font-label)" }}>
+                  <button onClick={() => handleExportPdf(order)} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                     Export Material Order PDF
                   </button>
-                  <button onClick={() => setEmailOrder(order)} className="text-blue-700 hover:underline">
+                  <button onClick={() => setEmailOrder(order)} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
                     Email Order to Supplier
                   </button>
                 </div>

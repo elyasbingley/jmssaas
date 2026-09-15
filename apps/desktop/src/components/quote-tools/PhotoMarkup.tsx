@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
 import { uploadJobPhoto } from "../../lib/uploads";
+import { ThemedButton } from "../theme/ThemedButton";
 
 // Photo Markup & Annotation Tool - a plain HTML5 canvas editor, no
 // external drawing library (none installed, and the shape set here -
@@ -276,7 +277,12 @@ export function PhotoMarkup({ jobCardId }: { jobCardId: string }) {
             <button
               key={t.key}
               onClick={() => setTool(t.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${tool === t.key ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-700"}`}
+              className="rounded-md px-3 py-1.5 font-semibold"
+              style={
+                tool === t.key
+                  ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                  : { backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+              }
             >
               {t.label}
             </button>
@@ -286,22 +292,36 @@ export function PhotoMarkup({ jobCardId }: { jobCardId: string }) {
               <button
                 key={c}
                 onClick={() => setColor(c)}
-                style={{ backgroundColor: c }}
-                className={`h-6 w-6 rounded-full border-2 ${color === c ? "border-blue-700" : "border-gray-300"}`}
+                style={{ backgroundColor: c, borderColor: color === c ? "var(--jms-accent)" : "var(--jms-border)" }}
+                className="h-6 w-6 rounded-full border-2"
               />
             ))}
           </div>
-          <label className="flex items-center gap-1 text-xs text-gray-600">
+          <label className="flex items-center gap-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             Thickness
             <input type="range" min={1} max={12} value={strokeWidth} onChange={(e) => setStrokeWidth(Number(e.target.value))} />
           </label>
-          <button onClick={handleUndo} disabled={shapes.length === 0} className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40">
+          <button
+            onClick={handleUndo}
+            disabled={shapes.length === 0}
+            className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-40"
+            style={{ backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             Undo
           </button>
-          <button onClick={handleRedo} disabled={redoStack.length === 0} className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40">
+          <button
+            onClick={handleRedo}
+            disabled={redoStack.length === 0}
+            className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-40"
+            style={{ backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             Redo
           </button>
-          <button onClick={handleClear} className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700">
+          <button
+            onClick={handleClear}
+            className="rounded-md px-3 py-1.5 font-semibold"
+            style={{ backgroundColor: "transparent", border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+          >
             Clear
           </button>
         </div>
@@ -311,21 +331,26 @@ export function PhotoMarkup({ jobCardId }: { jobCardId: string }) {
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          className="cursor-crosshair rounded-lg border border-gray-300"
+          className="cursor-crosshair rounded-lg"
+          style={{ border: "1px solid var(--jms-border)" }}
         />
 
-        {saveError ? <p className="mt-2 text-sm text-red-600">{saveError}</p> : null}
+        {saveError ? (
+          <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {saveError}
+          </p>
+        ) : null}
         <div className="mt-3 flex gap-2">
-          <button onClick={() => setEditingFile(null)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+          <button
+            onClick={() => setEditingFile(null)}
+            className="rounded-md px-4 py-2 font-semibold"
+            style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => saveAnnotated.mutate()}
-            disabled={saveAnnotated.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveAnnotated.mutate()} disabled={saveAnnotated.isPending}>
             {saveAnnotated.isPending ? "Saving..." : "Save Annotated Photo"}
-          </button>
+          </ThemedButton>
         </div>
       </div>
     );
@@ -333,16 +358,21 @@ export function PhotoMarkup({ jobCardId }: { jobCardId: string }) {
 
   return (
     <div>
-      <p className="mb-3 text-sm text-gray-500">Pick a photo to annotate. The annotated copy is saved as a new attachment.</p>
+      <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+        Pick a photo to annotate. The annotated copy is saved as a new attachment.
+      </p>
       {!files || files.length === 0 ? (
-        <p className="text-sm text-gray-500">No photos on this job yet - add some from the Photos section above.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          No photos on this job yet - add some from the Photos section above.
+        </p>
       ) : (
         <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
           {files.map((f) => (
             <button
               key={f.id}
               onClick={() => setEditingFile(f)}
-              className="aspect-square overflow-hidden rounded-md border border-gray-300 bg-gray-100 hover:border-blue-400"
+              className="aspect-square overflow-hidden rounded-md"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
             >
               {fileUrls?.[f.id] ? <img src={fileUrls[f.id]} alt={f.file_name} className="h-full w-full object-cover" /> : null}
             </button>
