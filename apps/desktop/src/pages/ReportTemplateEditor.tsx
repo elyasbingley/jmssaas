@@ -14,7 +14,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 // Template Studio's form builder - the piece of the SafetyCulture-style
 // spec that's genuinely complex enough to deserve its own page rather
@@ -178,88 +179,109 @@ export default function ReportTemplateEditorPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/reports" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
-        &larr; Back to Reports
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/reports" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+        &larr; Back to Forms & Certificates
       </Link>
-      <h1 className="mb-6 text-xl font-bold text-gray-900">{isNew ? "New report template" : "Edit report template"}</h1>
+      <h1 className="mb-6 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        {isNew ? "New report template" : "Edit report template"}
+      </h1>
 
-      <SelectField
+      <ThemedSelectField
         label="Subcategory"
         value={subcategoryId}
         onChange={setSubcategoryId}
         options={(subcategories ?? []).map((s) => ({ value: s.id, label: s.name }))}
         placeholder="Select subcategory"
       />
-      <FormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Roof Inspection Report" />
-      <TextAreaField label="Description (optional)" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+      <ThemedFormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Roof Inspection Report" />
+      <ThemedTextAreaField label="Description (optional)" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
 
       <div className="mb-4 flex gap-6">
-        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <label className="flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={isSwms} onChange={(e) => setIsSwms(e.target.checked)} />
           Requires SWMS worker sign-off roster
         </label>
-        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <label className="flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
           Active (visible in New Report)
         </label>
       </div>
 
-      <h2 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-gray-500">Sections</h2>
+      <h2 className="mb-2 mt-6 uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Sections
+      </h2>
       <div className="space-y-4">
         {sections.map((section, sectionIndex) => (
-          <div key={section.id} className="rounded-lg border border-gray-300 bg-white p-4">
+          <div key={section.id} className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-3 flex items-center gap-2">
               <input
                 value={section.title}
                 onChange={(e) => updateSection(section.id, { title: e.target.value })}
                 placeholder="Section title"
-                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold focus:border-blue-500 focus:outline-none"
+                className="flex-1 rounded border px-3 py-2 font-semibold focus:outline-none"
+                style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
               />
-              <button onClick={() => moveSection(sectionIndex, -1)} disabled={sectionIndex === 0} className="px-2 text-gray-400 hover:text-gray-700 disabled:opacity-30">
+              <button
+                onClick={() => moveSection(sectionIndex, -1)}
+                disabled={sectionIndex === 0}
+                className="px-2 disabled:opacity-30"
+                style={{ color: "var(--jms-text-muted)" }}
+              >
                 ↑
               </button>
               <button
                 onClick={() => moveSection(sectionIndex, 1)}
                 disabled={sectionIndex === sections.length - 1}
-                className="px-2 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                className="px-2 disabled:opacity-30"
+                style={{ color: "var(--jms-text-muted)" }}
               >
                 ↓
               </button>
-              <button onClick={() => removeSection(section.id)} className="text-sm font-semibold text-red-600 hover:underline">
+              <button onClick={() => removeSection(section.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
                 Remove
               </button>
             </div>
 
             <div className="space-y-2">
               {section.fields.map((field, fieldIndex) => (
-                <div key={field.id} className="rounded-md bg-gray-50 p-3">
+                <div key={field.id} className="rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
                   <div className="mb-2 flex items-center gap-2">
                     <input
                       value={field.label}
                       onChange={(e) => updateField(section.id, field.id, { label: e.target.value })}
                       placeholder="Field label / question"
-                      className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                      className="flex-1 rounded border px-3 py-1.5 focus:outline-none"
+                      style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}
                     />
-                    <span className="whitespace-nowrap rounded-full bg-gray-200 px-2 py-1 text-xs font-semibold text-gray-700">
+                    <span
+                      className="whitespace-nowrap rounded-full border px-2 py-1 font-semibold"
+                      style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                    >
                       {FIELD_TYPE_LABELS[field.type]}
                     </span>
-                    <button onClick={() => moveField(section.id, fieldIndex, -1)} disabled={fieldIndex === 0} className="px-1 text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                    <button
+                      onClick={() => moveField(section.id, fieldIndex, -1)}
+                      disabled={fieldIndex === 0}
+                      className="px-1 disabled:opacity-30"
+                      style={{ color: "var(--jms-text-muted)" }}
+                    >
                       ↑
                     </button>
                     <button
                       onClick={() => moveField(section.id, fieldIndex, 1)}
                       disabled={fieldIndex === section.fields.length - 1}
-                      className="px-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      className="px-1 disabled:opacity-30"
+                      style={{ color: "var(--jms-text-muted)" }}
                     >
                       ↓
                     </button>
-                    <button onClick={() => removeField(section.id, field.id)} className="text-xs font-semibold text-red-600 hover:underline">
+                    <button onClick={() => removeField(section.id, field.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                       Remove
                     </button>
                   </div>
                   <div className="flex flex-wrap items-center gap-4">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <label className="flex items-center gap-1.5" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                       <input
                         type="checkbox"
                         checked={field.required}
@@ -268,7 +290,7 @@ export default function ReportTemplateEditorPage() {
                       Required
                     </label>
                     {field.type === "pass_fail" ? (
-                      <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                      <label className="flex items-center gap-1.5" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                         <input
                           type="checkbox"
                           checked={field.requireActionOnFail ?? false}
@@ -287,7 +309,8 @@ export default function ReportTemplateEditorPage() {
                 <button
                   key={type}
                   onClick={() => addField(section.id, type)}
-                  className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                  className="rounded-full px-3 py-1 font-semibold"
+                  style={{ backgroundColor: "var(--jms-accent-glow)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                 >
                   + {FIELD_TYPE_LABELS[type]}
                 </button>
@@ -297,27 +320,34 @@ export default function ReportTemplateEditorPage() {
         ))}
       </div>
 
-      <button onClick={addSection} className="mt-4 rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-        + Add section
-      </button>
+      <div className="mt-4">
+        <ThemedButton variant="secondary" onClick={addSection}>
+          + Add section
+        </ThemedButton>
+      </div>
 
-      {saveError ? <p className="mb-2 mt-4 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mb-2 mt-4 text-sm text-green-700">Saved.</p> : null}
+      {saveError ? (
+        <p className="mb-2 mt-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mb-2 mt-4" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
 
       <div className="mt-6 flex items-center gap-3">
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
           {save.isPending ? "Saving..." : isNew ? "Create template" : "Save changes"}
-        </button>
+        </ThemedButton>
         {!isNew ? (
           <button
             onClick={() => {
               if (window.confirm(`Delete "${title}"? This does not delete reports already completed from it.`)) deleteTemplate.mutate();
             }}
-            className="text-sm font-semibold text-red-600 hover:underline"
+            className="font-semibold hover:underline"
+            style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
           >
             Delete template
           </button>
