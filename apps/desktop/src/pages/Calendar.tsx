@@ -17,6 +17,7 @@ import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../lib/google-
 import { CalendarEventPopover } from "../components/CalendarEventPopover";
 import { CalendarEventEditor, type CalendarEventSavePayload } from "../components/CalendarEventEditor";
 import { RecurrenceScopeDialog, type RecurrenceEditScope } from "../components/RecurrenceScopeDialog";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 type ViewMode = "day" | "week" | "month" | "year";
 const VIEW_MODES: ViewMode[] = ["day", "week", "month", "year"];
@@ -458,10 +459,16 @@ export default function CalendarPage() {
     const dayEvents = eventsOn(anchor);
     return (
       <div className="p-4">
-        <h2 className="mb-3 text-base font-bold text-gray-900">
+        <h2 className="mb-3 text-base font-bold" style={{ color: "var(--jms-text)" }}>
           {anchor.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
         </h2>
-        {dayEvents.length === 0 ? <p className="text-sm text-gray-500">No events.</p> : dayEvents.map(renderEventRow)}
+        {dayEvents.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--jms-text-muted)" }}>
+            No events.
+          </p>
+        ) : (
+          dayEvents.map(renderEventRow)
+        )}
       </div>
     );
   };
@@ -474,14 +481,19 @@ export default function CalendarPage() {
         {days.map((day) => {
           const dayEvents = eventsOn(day);
           return (
-            <div key={day.toDateString()} className="rounded-lg border border-gray-300 p-2 text-left">
+            <div key={day.toDateString()} className="rounded-lg p-2 text-left" style={{ border: "1px solid var(--jms-border)" }}>
               <button onClick={() => openDay(day)} className="mb-1 block w-full text-left">
-                <p className={`text-xs font-bold ${isSameDay(day, new Date()) ? "text-blue-700" : "text-gray-700"}`}>
+                <p
+                  className="text-xs font-bold"
+                  style={{ color: isSameDay(day, new Date()) ? "var(--jms-accent)" : "var(--jms-text-muted)" }}
+                >
                   {day.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
                 </p>
               </button>
               {dayEvents.length === 0 ? (
-                <p className="text-xs text-gray-400">No events</p>
+                <p className="text-xs" style={{ color: "var(--jms-text-muted)" }}>
+                  No events
+                </p>
               ) : (
                 <div className="flex flex-col gap-0.5">{dayEvents.map((e) => renderEventChip(e, true))}</div>
               )}
@@ -497,12 +509,12 @@ export default function CalendarPage() {
     const today = new Date();
     return (
       <div className="flex h-full flex-col p-4">
-        <h2 className="mb-3 flex-shrink-0 text-center text-base font-bold text-gray-900">
+        <h2 className="mb-3 flex-shrink-0 text-center text-base font-bold" style={{ color: "var(--jms-text)" }}>
           {MONTH_LABELS[anchor.getMonth()]} {anchor.getFullYear()}
         </h2>
-        <div className="grid flex-shrink-0 grid-cols-7 border-b border-gray-300 pb-2">
+        <div className="grid flex-shrink-0 grid-cols-7 pb-2" style={{ borderBottom: "1px solid var(--jms-border)" }}>
           {WEEKDAY_LABELS.map((label) => (
-            <p key={label} className="text-center text-xs font-semibold text-gray-400">
+            <p key={label} className="text-center text-xs font-semibold" style={{ color: "var(--jms-text-muted)" }}>
               {label}
             </p>
           ))}
@@ -511,18 +523,37 @@ export default function CalendarPage() {
           {gridDays.map((day) => {
             const inMonth = day.getMonth() === anchor.getMonth();
             const dayEvents = eventsOn(day);
+            const isToday = isSameDay(day, today);
             return (
-              <div key={day.toDateString()} className="flex min-h-0 flex-col overflow-hidden border border-gray-200">
-                <button onClick={() => openDay(day)} className="flex-shrink-0 px-1 pt-1 text-left hover:bg-gray-50">
+              <div
+                key={day.toDateString()}
+                className="flex min-h-0 flex-col overflow-hidden"
+                style={{ border: "1px solid var(--jms-border)", backgroundColor: isToday ? "var(--jms-accent-glow)" : undefined }}
+              >
+                <button
+                  onClick={() => openDay(day)}
+                  className="flex-shrink-0 px-1 pt-1 text-left"
+                  onMouseEnter={(e) => {
+                    if (!isToday) e.currentTarget.style.backgroundColor = "var(--jms-bg)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
                   <span
-                    className={`text-sm ${!inMonth ? "text-gray-300" : isSameDay(day, today) ? "font-extrabold text-blue-700" : "text-gray-900"}`}
+                    className={`text-sm ${isToday ? "font-extrabold" : ""}`}
+                    style={{ color: !inMonth ? "var(--jms-border)" : isToday ? "var(--jms-accent)" : "var(--jms-text)" }}
                   >
                     {day.getDate()}
                   </span>
                 </button>
                 <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden px-1 pb-1">
                   {dayEvents.slice(0, 3).map((e) => renderEventChip(e, true))}
-                  {dayEvents.length > 3 ? <span className="pl-1.5 text-[10px] text-gray-400">+{dayEvents.length - 3} more</span> : null}
+                  {dayEvents.length > 3 ? (
+                    <span className="pl-1.5 text-[10px]" style={{ color: "var(--jms-text-muted)" }}>
+                      +{dayEvents.length - 3} more
+                    </span>
+                  ) : null}
                 </div>
               </div>
             );
@@ -545,10 +576,19 @@ export default function CalendarPage() {
             <button
               key={label}
               onClick={() => openMonth(monthDate)}
-              className="rounded-lg bg-gray-100 p-4 text-left hover:bg-gray-200"
+              className="rounded-lg p-4 text-left"
+              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--jms-accent-glow)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--jms-surface)";
+              }}
             >
-              <p className="font-bold text-gray-900">{label}</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-bold" style={{ color: "var(--jms-text)" }}>
+                {label}
+              </p>
+              <p className="text-xs" style={{ color: "var(--jms-text-muted)" }}>
                 {count} event{count === 1 ? "" : "s"}
               </p>
             </button>
@@ -568,53 +608,64 @@ export default function CalendarPage() {
           : String(anchor.getFullYear());
 
   return (
-    <div className={`flex h-full flex-col p-8 ${viewMode === "month" ? "" : "overflow-y-auto"}`}>
+    <div
+      className={`flex h-full flex-col p-8 ${viewMode === "month" ? "" : "overflow-y-auto"}`}
+      style={{ fontFamily: "var(--jms-font)" }}
+    >
       <div className="mb-4 flex flex-shrink-0 items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Calendar</h1>
-        <button
-          onClick={() => openNewEvent()}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-        >
-          + New event
-        </button>
+        <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+          Calendar
+        </h1>
+        <ThemedButton onClick={() => openNewEvent()}>+ New event</ThemedButton>
       </div>
 
-      <div className="mb-4 flex flex-shrink-0 items-center justify-between rounded-lg border border-gray-300 bg-white p-3">
+      <div
+        className="mb-4 flex flex-shrink-0 items-center justify-between rounded-lg p-3"
+        style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+      >
         <div className="flex gap-2">
           {VIEW_MODES.map((mode) => (
             <button
               key={mode}
               onClick={() => setViewMode(mode)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                viewMode === mode ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"
-              }`}
+              className="rounded-full border px-3 py-1.5 text-sm font-semibold"
+              style={
+                viewMode === mode
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
+              }
             >
               {VIEW_MODE_LABELS[mode]}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => shiftAnchor(-1)} className="text-xl font-bold text-blue-700">
+          <button onClick={() => shiftAnchor(-1)} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
             &lsaquo;
           </button>
-          <button onClick={goToday} className="text-sm font-bold text-gray-900 hover:underline">
+          <button onClick={goToday} className="text-sm font-bold hover:underline" style={{ color: "var(--jms-text)" }}>
             {heading}
           </button>
-          <button onClick={() => shiftAnchor(1)} className="text-xl font-bold text-blue-700">
+          <button onClick={() => shiftAnchor(1)} className="text-xl font-bold" style={{ color: "var(--jms-accent)" }}>
             &rsaquo;
           </button>
         </div>
       </div>
 
-      {actionError ? <p className="mb-2 flex-shrink-0 text-sm text-red-600">{actionError}</p> : null}
+      {actionError ? (
+        <p className="mb-2 flex-shrink-0 text-sm" style={{ color: "var(--jms-danger)" }}>
+          {actionError}
+        </p>
+      ) : null}
 
       <div
-        className={`rounded-lg border border-gray-300 bg-white ${
-          viewMode === "month" ? "min-h-0 flex-1 overflow-hidden" : "flex-shrink-0"
-        }`}
+        className={`rounded-lg ${viewMode === "month" ? "min-h-0 flex-1 overflow-hidden" : "flex-shrink-0"}`}
+        style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
       >
         {isLoading ? (
-          <p className="p-6 text-sm text-gray-500">Loading...</p>
+          <p className="p-6 text-sm" style={{ color: "var(--jms-text-muted)" }}>
+            Loading...
+          </p>
         ) : (
           <>
             {viewMode === "day" ? renderDayView() : null}
