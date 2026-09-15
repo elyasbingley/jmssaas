@@ -5,7 +5,8 @@ import { membershipPlanFormSchema, type ClientMembership, type MembershipPlan, t
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField } from "../components/FormField";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 
 // Membership Module (Munus) - same structural pattern as RealEstate.tsx:
 // a settings-style form for the tenant's single plan (see membership_
@@ -53,11 +54,11 @@ const STATUS_LABELS: Record<MembershipStatus, string> = {
   expired: "Expired",
 };
 
-const STATUS_CLASSES: Record<MembershipStatus, string> = {
-  active: "bg-green-100 text-green-700",
-  past_due: "bg-amber-100 text-amber-700",
-  cancelled: "bg-gray-100 text-gray-600",
-  expired: "bg-gray-100 text-gray-600",
+const STATUS_COLOR_VAR: Record<MembershipStatus, string> = {
+  active: "var(--jms-accent)",
+  past_due: "var(--jms-warning)",
+  cancelled: "var(--jms-text-muted)",
+  expired: "var(--jms-text-muted)",
 };
 
 export default function MembershipPage() {
@@ -131,57 +132,85 @@ export default function MembershipPage() {
   });
 
   return (
-    <div className="p-8">
-      <h1 className="mb-1 text-xl font-bold text-gray-900">Membership</h1>
-      <p className="mb-6 text-sm text-gray-500">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Membership
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         Manage your membership offer (no call-out fee, a discount on repairs, priority scheduling, and included annual checks), and see
         who's currently enrolled.
       </p>
 
-      <div className="mb-8 rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-gray-500">The offer</h2>
+      <div className="mb-8 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h2 className="mb-4 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          The offer
+        </h2>
         <div className="grid grid-cols-2 gap-4">
-          <FormField label="Plan name" value={name} onChange={(e) => setName(e.target.value)} />
-          <FormField label="Annual price ($)" type="number" step="0.01" value={annualPrice} onChange={(e) => setAnnualPrice(e.target.value)} />
-          <FormField label="Discount on repairs/installations (%)" type="number" step="1" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
-          <FormField label="Included annual roof inspections" type="number" step="1" value={roofInspections} onChange={(e) => setRoofInspections(e.target.value)} />
-          <FormField label="Included annual plumbing checks" type="number" step="1" value={plumbingChecks} onChange={(e) => setPlumbingChecks(e.target.value)} />
+          <ThemedFormField label="Plan name" value={name} onChange={(e) => setName(e.target.value)} />
+          <ThemedFormField label="Annual price ($)" type="number" step="0.01" value={annualPrice} onChange={(e) => setAnnualPrice(e.target.value)} />
+          <ThemedFormField
+            label="Discount on repairs/installations (%)"
+            type="number"
+            step="1"
+            value={discountPercent}
+            onChange={(e) => setDiscountPercent(e.target.value)}
+          />
+          <ThemedFormField
+            label="Included annual roof inspections"
+            type="number"
+            step="1"
+            value={roofInspections}
+            onChange={(e) => setRoofInspections(e.target.value)}
+          />
+          <ThemedFormField
+            label="Included annual plumbing checks"
+            type="number"
+            step="1"
+            value={plumbingChecks}
+            onChange={(e) => setPlumbingChecks(e.target.value)}
+          />
         </div>
 
         <div className="mt-4 space-y-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             <input type="checkbox" checked={waiveCalloutFee} onChange={(e) => setWaiveCalloutFee(e.target.checked)} />
             Waive the call-out fee for members
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             <input type="checkbox" checked={priorityScheduling} onChange={(e) => setPriorityScheduling(e.target.checked)} />
             Priority scheduling for members
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             <input type="checkbox" checked={sameDayResponse} onChange={(e) => setSameDayResponse(e.target.checked)} />
             Same-day response guarantee
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
             Plan is active (visible to enrol new clients into)
           </label>
         </div>
 
-        {saveError ? <p className="mt-4 text-sm text-red-600">{saveError}</p> : null}
-        {saved ? <p className="mt-4 text-sm text-green-700">Saved.</p> : null}
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="mt-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        {saveError ? (
+          <p className="mt-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {saveError}
+          </p>
+        ) : null}
+        {saved ? (
+          <p className="mt-4" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+            Saved.
+          </p>
+        ) : null}
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ marginTop: 16 }}>
           {save.isPending ? "Saving..." : "Save"}
-        </button>
+        </ThemedButton>
       </div>
 
-      <div className="rounded-lg border border-gray-300 bg-white p-6">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-gray-500">Members</h2>
+      <div className="rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+        <h2 className="mb-4 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Members
+        </h2>
         {!members || members.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             No members yet. Enrol a client from their client detail page's Membership tab.
           </p>
         ) : (
@@ -190,16 +219,22 @@ export default function MembershipPage() {
               <Link
                 key={m.id}
                 to={`/clients/${m.client_id}`}
-                className="flex items-center justify-between rounded-lg border border-gray-200 p-3 text-sm hover:bg-gray-50"
+                className="jms-nav-link flex items-center justify-between rounded-lg p-3"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
               >
-                <span className="font-semibold text-gray-900">{m.clients?.name ?? "Unknown client"}</span>
+                <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                  {m.clients?.name ?? "Unknown client"}
+                </span>
                 <div className="flex items-center gap-3">
                   {m.current_period_end ? (
-                    <span className="text-gray-500">
+                    <span style={{ color: "var(--jms-text-muted)" }}>
                       {m.status === "active" ? "Renews" : "Ended"} {new Date(m.current_period_end).toLocaleDateString("en-AU")}
                     </span>
                   ) : null}
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_CLASSES[m.status]}`}>
+                  <span
+                    className="rounded-full border px-2 py-0.5 font-bold"
+                    style={{ borderColor: STATUS_COLOR_VAR[m.status], color: STATUS_COLOR_VAR[m.status], fontSize: "var(--jms-font-label)" }}
+                  >
                     {STATUS_LABELS[m.status]}
                   </span>
                 </div>
