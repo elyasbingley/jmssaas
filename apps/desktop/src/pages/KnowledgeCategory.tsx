@@ -5,8 +5,9 @@ import type { KnowledgeArticle, KnowledgeCategory } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 
 // "uncategorised" is a virtual category (category_id IS NULL), not a real
 // knowledge_categories row - see KnowledgeBase.tsx's own tile for it. This
@@ -87,69 +88,77 @@ export default function KnowledgeCategoryPage() {
   });
 
   return (
-    <div className="p-8">
-      <Link to="/knowledge" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/knowledge" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Knowledge
       </Link>
 
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900">{isUncategorised ? "Uncategorised" : (category?.name ?? "")}</h1>
+          <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {isUncategorised ? "Uncategorised" : (category?.name ?? "")}
+          </h1>
           {isUncategorised ? null : (
-            <button onClick={() => setRenameOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+            <button onClick={() => setRenameOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
               Rename
             </button>
           )}
         </div>
         <div className="flex flex-col items-end gap-2">
-          <button
-            onClick={() => createArticle.mutate()}
-            disabled={createArticle.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createArticle.mutate()} disabled={createArticle.isPending}>
             {createArticle.isPending ? "Creating..." : "+ New article"}
-          </button>
-          {articleError ? <p className="text-sm text-red-600">{articleError}</p> : null}
+          </ThemedButton>
+          {articleError ? (
+            <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{articleError}</p>
+          ) : null}
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
       ) : !articles || articles.length === 0 ? (
-        <p className="text-sm text-gray-500">No articles yet in this category.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No articles yet in this category.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
           {articles.map((article) => (
             <Link
               key={article.id}
               to={`/knowledge/articles/${article.id}`}
-              className="flex items-center justify-between border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-gray-50"
+              className="jms-nav-link flex items-center justify-between px-4 py-3 last:border-0"
+              style={{ borderBottom: "1px solid var(--jms-border)" }}
             >
-              <span className="font-medium text-gray-900">{article.title}</span>
+              <span className="font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                {article.title}
+              </span>
               {article.is_published ? null : (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Draft</span>
+                <span
+                  className="rounded-full border px-2 py-0.5 font-semibold"
+                  style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                >
+                  Draft
+                </span>
               )}
             </Link>
           ))}
         </div>
       )}
 
-      <Modal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename category">
-        <FormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
-        {renameError ? <p className="mb-4 text-sm text-red-600">{renameError}</p> : null}
+      <ThemedModal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename category">
+        <ThemedFormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+        {renameError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {renameError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setRenameOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => rename.mutate()}
-            disabled={rename.isPending}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => rename.mutate()} disabled={rename.isPending}>
             {rename.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }

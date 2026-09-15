@@ -16,7 +16,8 @@ import { uploadKnowledgeImage } from "../lib/uploads";
 import { buildKnowledgeArticlePdfBlob } from "../lib/knowledge-pdf";
 import { blobToDataUrl } from "../lib/quote-invoice-pdf-bytes";
 import { queueAndSendEmail } from "../lib/send-email";
-import { FormField, SelectField, TextAreaField } from "../components/FormField";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 
 const BUCKET = "knowledge-files";
@@ -43,7 +44,7 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
 
 function TextBlockEditor({ block, onChange }: { block: Extract<KnowledgeBlock, { type: "text" }>; onChange: (block: KnowledgeBlock) => void }) {
   return (
-    <TextAreaField
+    <ThemedTextAreaField
       label="Text"
       labelHidden
       rows={5}
@@ -102,13 +103,16 @@ function ImageBlockEditor({
   return (
     <div>
       {signedUrl ? (
-        <img src={signedUrl} alt={block.caption ?? ""} className="mb-2 max-h-64 rounded-md border border-gray-200 object-contain" />
+        <img src={signedUrl} alt={block.caption ?? ""} className="mb-2 max-h-64 rounded object-contain" style={{ border: "1px solid var(--jms-border)" }} />
       ) : (
-        <div className="mb-2 flex h-32 items-center justify-center rounded-md border border-dashed border-gray-300 text-sm text-gray-400">
+        <div
+          className="mb-2 flex h-32 items-center justify-center rounded border border-dashed"
+          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+        >
           No image yet
         </div>
       )}
-      <label className="mb-3 inline-block cursor-pointer text-sm font-semibold text-blue-700 hover:underline">
+      <label className="mb-3 inline-block cursor-pointer font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         {uploading ? "Uploading..." : block.storagePath ? "Replace image" : "Upload image"}
         <input
           type="file"
@@ -122,8 +126,12 @@ function ImageBlockEditor({
           }}
         />
       </label>
-      {error ? <p className="mb-2 text-sm text-red-600">{error}</p> : null}
-      <FormField
+      {error ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {error}
+        </p>
+      ) : null}
+      <ThemedFormField
         label="Caption (optional)"
         value={block.caption ?? ""}
         onChange={(e) => onChange({ ...block, caption: e.target.value })}
@@ -136,18 +144,20 @@ function VideoBlockEditor({ block, onChange }: { block: Extract<KnowledgeBlock, 
   const embedUrl = toEmbedUrl(block.url);
   return (
     <div>
-      <FormField
+      <ThemedFormField
         label="Video URL (YouTube, Vimeo or Loom)"
         value={block.url}
         onChange={(e) => onChange({ ...block, url: e.target.value })}
         placeholder="https://youtube.com/watch?v=..."
       />
       {embedUrl ? (
-        <iframe src={embedUrl} className="mb-3 aspect-video w-full rounded-md border border-gray-200" allowFullScreen title="Video preview" />
+        <iframe src={embedUrl} className="mb-3 aspect-video w-full rounded" style={{ border: "1px solid var(--jms-border)" }} allowFullScreen title="Video preview" />
       ) : block.url ? (
-        <p className="mb-3 text-sm text-amber-600">Couldn't recognise this as a YouTube, Vimeo or Loom link - it'll still be saved as a plain link.</p>
+        <p className="mb-3" style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-body)" }}>
+          Couldn't recognise this as a YouTube, Vimeo or Loom link - it'll still be saved as a plain link.
+        </p>
       ) : null}
-      <FormField
+      <ThemedFormField
         label="Caption (optional)"
         value={block.caption ?? ""}
         onChange={(e) => onChange({ ...block, caption: e.target.value })}
@@ -291,41 +301,47 @@ export default function KnowledgeArticlePage() {
   };
 
   if (isLoading || !article) {
-    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <Link to="/knowledge" className="mb-4 inline-block text-sm text-blue-700 hover:underline">
+    <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <Link to="/knowledge" className="mb-4 inline-block hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
         &larr; Back to Knowledge
       </Link>
 
-      <FormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <SelectField
+      <ThemedFormField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <ThemedSelectField
         label="Category"
         value={categoryId}
         onChange={setCategoryId}
         options={(categories ?? []).map((c) => ({ value: c.id, label: c.name }))}
         placeholder="Uncategorised"
       />
-      <label className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700">
+      <label className="mb-4 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
         <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
         Published (visible to all staff, not just admins)
       </label>
 
       <div className="mb-6 space-y-4">
         {blocks.map((block, index) => (
-          <div key={block.id} className="rounded-lg border border-gray-200 bg-white p-4">
+          <div key={block.id} className="rounded-lg p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wide text-gray-400">{BLOCK_LABELS[block.type]}</span>
-              <div className="flex items-center gap-3 text-sm font-semibold text-gray-500">
-                <button onClick={() => moveBlock(index, -1)} disabled={index === 0} className="hover:text-gray-800 disabled:opacity-30">
+              <span className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+                {BLOCK_LABELS[block.type]}
+              </span>
+              <div className="flex items-center gap-3 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                <button onClick={() => moveBlock(index, -1)} disabled={index === 0} className="disabled:opacity-30" style={{ color: "var(--jms-text)" }}>
                   ↑
                 </button>
-                <button onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="hover:text-gray-800 disabled:opacity-30">
+                <button onClick={() => moveBlock(index, 1)} disabled={index === blocks.length - 1} className="disabled:opacity-30" style={{ color: "var(--jms-text)" }}>
                   ↓
                 </button>
-                <button onClick={() => removeBlock(index)} className="text-red-600 hover:underline">
+                <button onClick={() => removeBlock(index)} className="hover:underline" style={{ color: "var(--jms-danger)" }}>
                   Remove
                 </button>
               </div>
@@ -342,45 +358,71 @@ export default function KnowledgeArticlePage() {
       </div>
 
       <div className="mb-6 flex gap-3">
-        <button onClick={() => addBlock("text")} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <button
+          onClick={() => addBlock("text")}
+          className="rounded px-3 py-1.5 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           + Text
         </button>
-        <button onClick={() => addBlock("image")} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <button
+          onClick={() => addBlock("image")}
+          className="rounded px-3 py-1.5 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           + Image
         </button>
-        <button onClick={() => addBlock("video_embed")} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+        <button
+          onClick={() => addBlock("video_embed")}
+          className="rounded px-3 py-1.5 font-semibold"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           + Video
         </button>
       </div>
 
-      {saveError ? <p className="mb-2 text-sm text-red-600">{saveError}</p> : null}
-      {saved ? <p className="mb-2 text-sm text-green-700">Saved.</p> : null}
-      {pdfError ? <p className="mb-2 text-sm text-red-600">{pdfError}</p> : null}
-      {emailResult ? <p className="mb-2 text-sm text-green-700">{emailResult}</p> : null}
+      {saveError ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      {saved ? (
+        <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          Saved.
+        </p>
+      ) : null}
+      {pdfError ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {pdfError}
+        </p>
+      ) : null}
+      {emailResult ? (
+        <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {emailResult}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
           {save.isPending ? "Saving..." : "Save"}
-        </button>
+        </ThemedButton>
         <button
           onClick={downloadPdf}
           disabled={pdfBusy}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          className="rounded px-4 py-2 font-semibold disabled:opacity-60"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
         >
           {pdfBusy ? "Preparing..." : "Download PDF"}
         </button>
         <button
           onClick={openEmailModal}
           disabled={pdfBusy}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          className="rounded px-4 py-2 font-semibold disabled:opacity-60"
+          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
         >
           {pdfBusy ? "Preparing..." : "Email PDF"}
         </button>
-        <button onClick={() => remove.mutate()} className="ml-auto text-sm font-semibold text-red-600 hover:underline">
+        <button onClick={() => remove.mutate()} className="ml-auto font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
           Delete article
         </button>
       </div>
