@@ -16,8 +16,10 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "../components/Modal";
-import { FormField, SelectField } from "../components/FormField";
+import { ThemedModal } from "../components/theme/ThemedModal";
+import { ThemedFormField, ThemedSelectField } from "../components/theme/ThemedFormField";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { KeyManagementDashboard } from "../components/KeyManagementDashboard";
 import { RecurringMaintenanceEngine } from "../components/RecurringMaintenanceEngine";
 
@@ -73,11 +75,15 @@ export default function RealEstatePage() {
   const [tab, setTab] = useState<SubTab>("directory");
 
   return (
-    <div className="p-8">
-      <h1 className="mb-1 text-xl font-bold text-gray-900">Real Estate & Strata</h1>
-      <p className="mb-6 text-sm text-gray-500">Agencies, property managers, managed properties, and key tracking.</p>
+    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <h1 className="mb-1 uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+        Real Estate & Strata
+      </h1>
+      <p className="mb-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+        Agencies, property managers, managed properties, and key tracking.
+      </p>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-300">
+      <div className="mb-6 flex gap-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
         {(
           [
             { key: "directory", label: "Directory" },
@@ -88,9 +94,12 @@ export default function RealEstatePage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`border-b-2 px-4 py-2 text-sm font-semibold ${
-              tab === t.key ? "border-blue-700 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className="border-b-2 px-4 py-2 font-semibold uppercase tracking-wide"
+            style={
+              tab === t.key
+                ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                : { borderColor: "transparent", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+            }
           >
             {t.label}
           </button>
@@ -380,109 +389,109 @@ function DirectoryTab() {
   return (
     <div>
       <div className="mb-4 flex justify-end gap-2">
-        <button
-          onClick={() => openNewProperty()}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-        >
+        <ThemedButton variant="secondary" onClick={() => openNewProperty()} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add Managed Property
-        </button>
-        <button
-          onClick={() => openNewPm()}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-        >
+        </ThemedButton>
+        <ThemedButton variant="secondary" onClick={() => openNewPm()} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add Property Manager
-        </button>
-        <button
-          onClick={openNewAgency}
-          className="rounded-md bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800"
-        >
+        </ThemedButton>
+        <ThemedButton onClick={openNewAgency} style={{ paddingBlock: 6, paddingInline: 12 }}>
           + Add Agency
-        </button>
+        </ThemedButton>
       </div>
 
       {!agencies || agencies.length === 0 ? (
-        <p className="text-sm text-gray-500">No agencies yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No agencies yet.</p>
       ) : (
         <div className="space-y-3">
           {agencies.map((agency) => {
             const expanded = expandedAgencyIds.has(agency.id);
             const pms = pmsByAgency(agency.id);
             return (
-              <div key={agency.id} className="rounded-lg border border-gray-300 bg-white">
+              <div key={agency.id} className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
                 <div className="flex w-full items-center justify-between px-4 py-3">
                   <button onClick={() => toggleAgency(agency.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                    <span className="text-sm text-gray-400">{expanded ? "▾" : "▸"}</span>
-                    <span className="font-bold text-gray-900">{agency.name}</span>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
-                      {agency.type === "strata" ? "Strata" : "Real Estate"}
+                    <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{expanded ? "▾" : "▸"}</span>
+                    <span className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                      {agency.name}
                     </span>
+                    <ThemedBadge label={agency.type === "strata" ? "Strata" : "Real Estate"} color="var(--jms-text-muted)" />
                     {agency.client_id && clientById.get(agency.client_id) ? (
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                        Bills to: {clientById.get(agency.client_id)!.company_name || clientById.get(agency.client_id)!.name}
-                      </span>
+                      <ThemedBadge label={`Bills to: ${clientById.get(agency.client_id)!.company_name || clientById.get(agency.client_id)!.name}`} />
                     ) : (
-                      <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
-                        No billing client linked
-                      </span>
+                      <ThemedBadge label="No billing client linked" color="var(--jms-warning)" />
                     )}
                   </button>
                   <div className="flex flex-shrink-0 items-center gap-3">
-                    <span className="text-xs text-gray-400">
+                    <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                       {pms.length} PM{pms.length === 1 ? "" : "s"}
                     </span>
-                    <button onClick={() => openEditAgency(agency)} className="text-xs font-semibold text-blue-700 hover:underline">
+                    <button
+                      onClick={() => openEditAgency(agency)}
+                      className="font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
                       Edit
                     </button>
                   </div>
                 </div>
                 {expanded ? (
-                  <div className="border-t border-gray-200 px-4 py-3">
+                  <div className="px-4 py-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
                     {pms.length === 0 ? (
-                      <p className="text-sm text-gray-500">No property managers yet for this agency.</p>
+                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No property managers yet for this agency.</p>
                     ) : (
                       <div className="space-y-1">
                         {pms.map((pm) => (
                           <div key={pm.id}>
                             <div
-                              className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm ${
-                                selectedPmId === pm.id ? "bg-blue-50" : "hover:bg-gray-50"
+                              className={`jms-nav-link flex w-full items-center justify-between rounded px-3 py-2 text-left ${
+                                selectedPmId === pm.id ? "jms-nav-link-active" : ""
                               }`}
                             >
                               <button
                                 onClick={() => setSelectedPmId(selectedPmId === pm.id ? null : pm.id)}
                                 className="flex min-w-0 flex-1 items-center justify-between text-left"
                               >
-                                <span className="font-medium text-gray-900">
+                                <span className="font-medium" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
                                   {pm.first_name} {pm.last_name}
                                 </span>
-                                <span className="text-xs text-gray-500">{pm.email ?? pm.mobile ?? ""}</span>
+                                <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{pm.email ?? pm.mobile ?? ""}</span>
                               </button>
                               <button
                                 onClick={() => openEditPm(pm)}
-                                className="ml-3 flex-shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                className="ml-3 flex-shrink-0 font-semibold hover:underline"
+                                style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                               >
                                 Edit
                               </button>
                             </div>
                             {selectedPmId === pm.id ? (
-                              <div className="ml-6 mb-2 mt-1 space-y-1 border-l border-gray-200 pl-4">
+                              <div className="ml-6 mb-2 mt-1 space-y-1 pl-4" style={{ borderLeft: "1px solid var(--jms-border)" }}>
                                 {propertiesByPm(pm.id).length === 0 ? (
-                                  <p className="py-1 text-xs text-gray-500">No managed properties for this PM yet.</p>
+                                  <p className="py-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                                    No managed properties for this PM yet.
+                                  </p>
                                 ) : (
                                   propertiesByPm(pm.id).map((property) => (
                                     <Link
                                       key={property.id}
                                       to={`/real-estate/properties/${property.id}`}
-                                      className="flex justify-between rounded-md px-2 py-1 text-sm hover:bg-gray-50"
+                                      className="flex justify-between rounded px-2 py-1 hover:underline"
+                                      style={{ fontSize: "var(--jms-font-body)" }}
                                     >
-                                      <span className="min-w-0 flex-1 truncate text-blue-700">{property.address_line1}</span>
-                                      <span className="ml-2 flex-shrink-0 text-gray-500">{property.suburb}</span>
+                                      <span className="min-w-0 flex-1 truncate" style={{ color: "var(--jms-accent)" }}>
+                                        {property.address_line1}
+                                      </span>
+                                      <span className="ml-2 flex-shrink-0" style={{ color: "var(--jms-text-muted)" }}>
+                                        {property.suburb}
+                                      </span>
                                     </Link>
                                   ))
                                 )}
                                 <button
                                   onClick={() => openNewProperty(agency.id, pm.id)}
-                                  className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+                                  className="mt-1 font-semibold hover:underline"
+                                  style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                                 >
                                   + Add property for this PM
                                 </button>
@@ -494,7 +503,8 @@ function DirectoryTab() {
                     )}
                     <button
                       onClick={() => openNewPm(agency.id)}
-                      className="mt-2 text-xs font-semibold text-blue-700 hover:underline"
+                      className="mt-2 font-semibold hover:underline"
+                      style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                     >
                       + Add property manager to {agency.name}
                     </button>
@@ -506,16 +516,16 @@ function DirectoryTab() {
         </div>
       )}
 
-      <Modal open={agencyModalOpen} onClose={() => setAgencyModalOpen(false)} title={agencyEditId ? "Edit agency" : "New agency"}>
-        <FormField label="Name" value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="e.g. McGrath Estate Agents" />
-        <SelectField label="Type" value={agencyType} onChange={setAgencyType} options={AGENCY_TYPE_OPTIONS} placeholder="Select type" />
-        <FormField
+      <ThemedModal open={agencyModalOpen} onClose={() => setAgencyModalOpen(false)} title={agencyEditId ? "Edit agency" : "New agency"}>
+        <ThemedFormField label="Name" value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="e.g. McGrath Estate Agents" />
+        <ThemedSelectField label="Type" value={agencyType} onChange={setAgencyType} options={AGENCY_TYPE_OPTIONS} placeholder="Select type" />
+        <ThemedFormField
           label="Billing email (optional)"
           type="email"
           value={agencyBillingEmail}
           onChange={(e) => setAgencyBillingEmail(e.target.value)}
         />
-        <label className="mb-4 flex items-center gap-2 text-sm text-gray-700">
+        <label className="mb-4 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input
             type="checkbox"
             checked={agencyRequireWorkOrder}
@@ -523,7 +533,7 @@ function DirectoryTab() {
           />
           Require a work order number on every invoice
         </label>
-        <SelectField
+        <ThemedSelectField
           label="Billing client"
           value={agencyClientId}
           onChange={setAgencyClientId}
@@ -532,54 +542,54 @@ function DirectoryTab() {
             ...(clients ?? []).map((c) => ({ value: c.id, label: c.company_name || c.name })),
           ]}
         />
-        <p className="-mt-2 mb-4 text-xs text-gray-500">
+        <p className="-mt-2 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
           Jobs created for this agency will bill against this client automatically - no need to create a matching client card
           separately.
         </p>
-        {agencyError ? <p className="mb-4 text-sm text-red-600">{agencyError}</p> : null}
+        {agencyError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {agencyError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setAgencyModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setAgencyModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => saveAgency.mutate()}
-            disabled={saveAgency.isPending || !agencyName.trim()}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => saveAgency.mutate()} disabled={saveAgency.isPending || !agencyName.trim()}>
             {saveAgency.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={pmModalOpen} onClose={() => setPmModalOpen(false)} title={pmEditId ? "Edit property manager" : "New property manager"}>
-        <SelectField
+      <ThemedModal open={pmModalOpen} onClose={() => setPmModalOpen(false)} title={pmEditId ? "Edit property manager" : "New property manager"}>
+        <ThemedSelectField
           label="Agency"
           value={pmAgencyId}
           onChange={setPmAgencyId}
           options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
           placeholder="Select agency"
         />
-        <FormField label="First name" value={pmFirstName} onChange={(e) => setPmFirstName(e.target.value)} />
-        <FormField label="Last name" value={pmLastName} onChange={(e) => setPmLastName(e.target.value)} />
-        <FormField label="Email" type="email" value={pmEmail} onChange={(e) => setPmEmail(e.target.value)} />
-        <FormField label="Mobile" value={pmMobile} onChange={(e) => setPmMobile(e.target.value)} />
-        {pmError ? <p className="mb-4 text-sm text-red-600">{pmError}</p> : null}
+        <ThemedFormField label="First name" value={pmFirstName} onChange={(e) => setPmFirstName(e.target.value)} />
+        <ThemedFormField label="Last name" value={pmLastName} onChange={(e) => setPmLastName(e.target.value)} />
+        <ThemedFormField label="Email" type="email" value={pmEmail} onChange={(e) => setPmEmail(e.target.value)} />
+        <ThemedFormField label="Mobile" value={pmMobile} onChange={(e) => setPmMobile(e.target.value)} />
+        {pmError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {pmError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setPmModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setPmModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => savePm.mutate()}
-            disabled={savePm.isPending || !pmAgencyId}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => savePm.mutate()} disabled={savePm.isPending || !pmAgencyId}>
             {savePm.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={propertyModalOpen} onClose={() => setPropertyModalOpen(false)} title="New managed property">
-        <SelectField
+      <ThemedModal open={propertyModalOpen} onClose={() => setPropertyModalOpen(false)} title="New managed property">
+        <ThemedSelectField
           label="Agency"
           value={propAgencyId}
           onChange={(v) => {
@@ -589,48 +599,48 @@ function DirectoryTab() {
           options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
           placeholder="Select agency"
         />
-        <SelectField
+        <ThemedSelectField
           label="Property manager"
           value={propPmId}
           onChange={setPropPmId}
           options={pmsByAgency(propAgencyId).map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
           placeholder="Unassigned"
         />
-        <FormField label="Address line 1" value={propAddress} onChange={(e) => setPropAddress(e.target.value)} />
+        <ThemedFormField label="Address line 1" value={propAddress} onChange={(e) => setPropAddress(e.target.value)} />
         <div className="grid grid-cols-3 gap-3">
-          <FormField label="Suburb" value={propSuburb} onChange={(e) => setPropSuburb(e.target.value)} />
-          <FormField label="State" value={propState} onChange={(e) => setPropState(e.target.value)} />
-          <FormField label="Postcode" value={propPostcode} onChange={(e) => setPropPostcode(e.target.value)} />
+          <ThemedFormField label="Suburb" value={propSuburb} onChange={(e) => setPropSuburb(e.target.value)} />
+          <ThemedFormField label="State" value={propState} onChange={(e) => setPropState(e.target.value)} />
+          <ThemedFormField label="Postcode" value={propPostcode} onChange={(e) => setPropPostcode(e.target.value)} />
         </div>
-        <SelectField label="Property type" value={propType} onChange={setPropType} options={PROPERTY_TYPE_OPTIONS} placeholder="Select type" />
+        <ThemedSelectField label="Property type" value={propType} onChange={setPropType} options={PROPERTY_TYPE_OPTIONS} placeholder="Select type" />
 
-        <FormField label="Owner / landlord name" value={propOwnerName} onChange={(e) => setPropOwnerName(e.target.value)} />
+        <ThemedFormField label="Owner / landlord name" value={propOwnerName} onChange={(e) => setPropOwnerName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Landlord mobile" value={propOwnerPhone} onChange={(e) => setPropOwnerPhone(e.target.value)} />
-          <FormField label="Landlord email" type="email" value={propOwnerEmail} onChange={(e) => setPropOwnerEmail(e.target.value)} />
+          <ThemedFormField label="Landlord mobile" value={propOwnerPhone} onChange={(e) => setPropOwnerPhone(e.target.value)} />
+          <ThemedFormField label="Landlord email" type="email" value={propOwnerEmail} onChange={(e) => setPropOwnerEmail(e.target.value)} />
         </div>
 
-        <FormField label="Tenant name" value={propTenantName} onChange={(e) => setPropTenantName(e.target.value)} />
+        <ThemedFormField label="Tenant name" value={propTenantName} onChange={(e) => setPropTenantName(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Tenant mobile" value={propTenantPhone} onChange={(e) => setPropTenantPhone(e.target.value)} />
-          <FormField label="Tenant email" type="email" value={propTenantEmail} onChange={(e) => setPropTenantEmail(e.target.value)} />
+          <ThemedFormField label="Tenant mobile" value={propTenantPhone} onChange={(e) => setPropTenantPhone(e.target.value)} />
+          <ThemedFormField label="Tenant email" type="email" value={propTenantEmail} onChange={(e) => setPropTenantEmail(e.target.value)} />
         </div>
 
-        <FormField label="Key tag number" value={propKeyTag} onChange={(e) => setPropKeyTag(e.target.value)} placeholder="e.g. Key #42" />
-        {propError ? <p className="mb-4 text-sm text-red-600">{propError}</p> : null}
+        <ThemedFormField label="Key tag number" value={propKeyTag} onChange={(e) => setPropKeyTag(e.target.value)} placeholder="e.g. Key #42" />
+        {propError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {propError}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setPropertyModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setPropertyModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button
-            onClick={() => createProperty.mutate()}
-            disabled={createProperty.isPending || !propAgencyId}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-          >
+          <ThemedButton onClick={() => createProperty.mutate()} disabled={createProperty.isPending || !propAgencyId}>
             {createProperty.isPending ? "Saving..." : "Save"}
-          </button>
+          </ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
