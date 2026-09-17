@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   createClientSchema,
+  splitTextWithLinks,
   type ChannelConversation,
   type ChannelMessage,
   type InboxMessage,
@@ -18,6 +19,25 @@ import { decodeEmailConversationId } from "./Channels";
 
 const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
 const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
+
+// Renders a message body with any http(s) URLs (splitTextWithLinks, shared
+// with mobile) as clickable links - a bare URL in plain text isn't
+// clickable in a browser either without this.
+function LinkifiedText({ body }: { body: string }) {
+  return (
+    <p className="whitespace-pre-wrap">
+      {splitTextWithLinks(body).map((seg, i) =>
+        seg.isUrl ? (
+          <a key={i} href={seg.text} target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--jms-accent)" }}>
+            {seg.text}
+          </a>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+    </p>
+  );
+}
 
 async function fetchConversation(id: string): Promise<ChannelConversation & { clients: { id: string; name: string } | null }> {
   const { data, error } = await supabase.from("channel_conversations").select("*, clients(id, name)").eq("id", id).single();
@@ -269,7 +289,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                   : { backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }
               }
             >
-              {m.body ? <p className="whitespace-pre-wrap">{m.body}</p> : null}
+              {m.body ? <LinkifiedText body={m.body} /> : null}
               {m.media.map((media) =>
                 mediaUrls[media.storage_path] ? (
                   <a

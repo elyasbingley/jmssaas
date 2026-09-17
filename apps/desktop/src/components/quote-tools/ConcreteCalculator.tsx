@@ -4,7 +4,8 @@ import { createJobConcreteCalculationSchema, type JobConcreteCalculation } from 
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
-import { FormField } from "../FormField";
+import { ThemedFormField } from "../theme/ThemedFormField";
+import { ThemedButton } from "../theme/ThemedButton";
 
 // Concrete Volume Calculator - Volume = L x W x D x (1 + waste%), bags =
 // volume x 108 (the standard yield of a 20kg premix bag, ~0.00926 m³/bag).
@@ -103,42 +104,58 @@ export function ConcreteCalculator({ jobCardId }: { jobCardId: string }) {
 
   return (
     <div>
-      <FormField label="Calculation name" placeholder='e.g. "Driveway Pour"' value={name} onChange={(e) => setName(e.target.value)} />
+      <ThemedFormField label="Calculation name" placeholder='e.g. "Driveway Pour"' value={name} onChange={(e) => setName(e.target.value)} />
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <FormField label="Length (m)" type="number" step="0.01" value={length} onChange={(e) => setLength(e.target.value)} />
-        <FormField label="Width (m)" type="number" step="0.01" value={width} onChange={(e) => setWidth(e.target.value)} />
-        <FormField label="Depth (m)" type="number" step="0.01" placeholder="e.g. 0.1 for 100mm" value={depth} onChange={(e) => setDepth(e.target.value)} />
-        <FormField label="Waste %" type="number" step="1" value={waste} onChange={(e) => setWaste(e.target.value)} />
+        <ThemedFormField label="Length (m)" type="number" step="0.01" value={length} onChange={(e) => setLength(e.target.value)} />
+        <ThemedFormField label="Width (m)" type="number" step="0.01" value={width} onChange={(e) => setWidth(e.target.value)} />
+        <ThemedFormField label="Depth (m)" type="number" step="0.01" placeholder="e.g. 0.1 for 100mm" value={depth} onChange={(e) => setDepth(e.target.value)} />
+        <ThemedFormField label="Waste %" type="number" step="1" value={waste} onChange={(e) => setWaste(e.target.value)} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center">
-          <p className="text-xs uppercase tracking-wide text-gray-500">Total Cubic Metres</p>
-          <p className="text-2xl font-bold text-gray-900">{totalCubicMetres.toFixed(2)} m³</p>
+        <div className="rounded-lg p-4 text-center" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Total Cubic Metres
+          </p>
+          <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+            {totalCubicMetres.toFixed(2)} m³
+          </p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center">
-          <p className="text-xs uppercase tracking-wide text-gray-500">20kg Bag Estimate</p>
-          <p className="text-2xl font-bold text-blue-700">{bags}</p>
+        <div className="rounded-lg p-4 text-center" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+          <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            20kg Bag Estimate
+          </p>
+          <p className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+            {bags}
+          </p>
         </div>
       </div>
 
-      {saveError ? <p className="mt-3 text-sm text-red-600">{saveError}</p> : null}
-      <button
-        onClick={() => save.mutate()}
-        disabled={save.isPending || !name.trim() || totalCubicMetres <= 0}
-        className="mt-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-      >
+      {saveError ? (
+        <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {saveError}
+        </p>
+      ) : null}
+      <ThemedButton onClick={() => save.mutate()} disabled={save.isPending || !name.trim() || totalCubicMetres <= 0} className="mt-4">
         {save.isPending ? "Saving..." : "Save Concrete Calculation to Job Notes"}
-      </button>
+      </ThemedButton>
 
       {calculations && calculations.length > 0 ? (
         <div className="mt-6">
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Past calculations</h3>
+          <h3 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Past calculations
+          </h3>
           <div className="space-y-2">
             {calculations.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-2 text-sm">
-                <span className="font-semibold text-gray-900">{c.calculation_name}</span>
-                <span className="text-gray-600">
+              <div
+                key={c.id}
+                className="flex items-center justify-between rounded-lg p-2"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+              >
+                <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                  {c.calculation_name}
+                </span>
+                <span style={{ color: "var(--jms-text-muted)" }}>
                   {c.total_cubic_meters.toFixed(2)} m³ &middot; {c.estimated_bags_20kg} bags
                 </span>
               </div>

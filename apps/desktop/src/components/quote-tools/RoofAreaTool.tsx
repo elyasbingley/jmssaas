@@ -17,8 +17,9 @@ import { getErrorMessage } from "../../lib/errors";
 import { formatClientAddress } from "../../lib/format";
 import { loadGoogleMaps } from "../../lib/google-maps";
 import { uploadJobPhoto } from "../../lib/uploads";
-import { Modal } from "../Modal";
-import { FormField } from "../FormField";
+import { ThemedModal } from "../theme/ThemedModal";
+import { ThemedFormField } from "../theme/ThemedFormField";
+import { ThemedButton } from "../theme/ThemedButton";
 
 // Roof Area Tool - folded into the Quote Tools hub (previously its own
 // full-page route, /jobs/:id/measure/JobMeasure.tsx) so it sits alongside
@@ -366,22 +367,34 @@ export function RoofAreaTool({ jobCardId }: { jobCardId: string }) {
   if (!drawing) {
     return (
       <div>
-        <button onClick={() => setDrawing(true)} className="mb-4 rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+        <ThemedButton onClick={() => setDrawing(true)} className="mb-4">
           📐 Measure Roof
-        </button>
+        </ThemedButton>
         {!measurements || measurements.length === 0 ? (
-          <p className="text-sm text-gray-500">Draw roof sections on a satellite map and save the total area to this job.</p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            Draw roof sections on a satellite map and save the total area to this job.
+          </p>
         ) : (
           <div className="space-y-2">
             {measurements.map((m) => (
-              <div key={m.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3 text-sm">
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded-lg p-3"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+              >
                 <div>
-                  <p className="font-medium text-gray-900">{m.title}</p>
-                  <p className="text-xs text-gray-500">{new Date(m.created_at).toLocaleDateString("en-AU")}</p>
+                  <p className="font-medium" style={{ color: "var(--jms-text)" }}>
+                    {m.title}
+                  </p>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    {new Date(m.created_at).toLocaleDateString("en-AU")}
+                  </p>
                 </div>
-                <p className="text-right text-gray-700">
+                <p className="text-right" style={{ color: "var(--jms-text-muted)" }}>
                   {m.total_true_area_sqm.toFixed(1)} m² true
-                  <span className="block text-xs text-gray-400">{m.total_flat_area_sqm.toFixed(1)} m² flat</span>
+                  <span className="block" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    {m.total_flat_area_sqm.toFixed(1)} m² flat
+                  </span>
                 </p>
               </div>
             ))}
@@ -394,36 +407,54 @@ export function RoofAreaTool({ jobCardId }: { jobCardId: string }) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm text-gray-500">Draw one or more roof facets, set each one's pitch.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Draw one or more roof facets, set each one's pitch.</p>
         <div className="flex gap-6 text-right">
           <div>
-            <p className="text-xs text-gray-500">Total flat area</p>
-            <p className="text-lg font-bold text-gray-900">{totalFlat.toFixed(1)} m²</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total flat area</p>
+            <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-title)" }}>
+              {totalFlat.toFixed(1)} m²
+            </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Total true surface area</p>
-            <p className="text-lg font-bold text-blue-700">{totalTrue.toFixed(1)} m²</p>
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total true surface area</p>
+            <p className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
+              {totalTrue.toFixed(1)} m²
+            </p>
           </div>
         </div>
       </div>
 
       <div className="flex gap-4">
-        <div className="h-[420px] flex-1 overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
+        <div
+          className="h-[420px] flex-1 overflow-hidden rounded-lg"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}
+        >
           {mapError ? (
-            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-600">{mapError}</div>
+            <div className="flex h-full items-center justify-center p-6 text-center" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {mapError}
+            </div>
           ) : locating || !region ? (
-            <div className="flex h-full items-center justify-center text-sm text-gray-500">Locating job address...</div>
+            <div className="flex h-full items-center justify-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              Locating job address...
+            </div>
           ) : (
             <div ref={mapDivRef} className="h-full w-full" />
           )}
         </div>
 
-        <div className="flex h-[420px] w-80 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white">
+        <div
+          className="flex h-[420px] w-80 flex-shrink-0 flex-col overflow-hidden rounded-lg"
+          style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+        >
           <div className="flex-1 overflow-y-auto p-3">
             {!activeFacetId && facets.length === 0 ? (
-              <p className="mb-3 text-xs text-gray-500">Click "+ New Facet" below, then click the map to trace a roof section.</p>
+              <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Click "+ New Facet" below, then click the map to trace a roof section.
+              </p>
             ) : activeFacetId ? (
-              <p className="mb-3 text-xs text-gray-500">Click the map to add points. Add at least 3, then click "Finish facet".</p>
+              <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Click the map to add points. Add at least 3, then click "Finish facet".
+              </p>
             ) : null}
 
             <div className="space-y-2">
@@ -431,42 +462,82 @@ export function RoofAreaTool({ jobCardId }: { jobCardId: string }) {
                 const areas = facetAreas.get(facet.id) ?? { flat: 0, true: 0 };
                 const isActive = facet.id === activeFacetId;
                 return (
-                  <div key={facet.id} className={`rounded-lg p-2 ${isActive ? "bg-blue-50" : "bg-gray-50"}`}>
+                  <div
+                    key={facet.id}
+                    className="rounded-lg p-2"
+                    style={
+                      isActive
+                        ? { backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)" }
+                        : { backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }
+                    }
+                  >
                     <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="h-3 w-3 rounded-full" style={{ backgroundColor: FACET_COLORS[index % FACET_COLORS.length] }} />
-                        <button onClick={() => openRenameFacet(facet)} className="text-sm font-semibold text-gray-900 hover:underline">
+                        <button
+                          onClick={() => openRenameFacet(facet)}
+                          className="font-semibold hover:underline"
+                          style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+                        >
                           {facet.name}
                         </button>
-                        {isActive ? <span className="text-xs font-bold text-blue-700">Drawing...</span> : null}
+                        {isActive ? (
+                          <span className="font-bold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                            Drawing...
+                          </span>
+                        ) : null}
                       </div>
-                      <button onClick={() => handleDeleteFacet(facet.id)} className="text-xs font-semibold text-red-600">
+                      <button
+                        onClick={() => handleDeleteFacet(facet.id)}
+                        className="font-semibold"
+                        style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                      >
                         Delete
                       </button>
                     </div>
 
                     <div className="mb-1 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Pitch</span>
-                        <button onClick={() => handlePitchChange(facet.id, -5)} className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white">
+                        <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Pitch</span>
+                        <button
+                          onClick={() => handlePitchChange(facet.id, -5)}
+                          className="h-6 w-6 rounded-full font-bold"
+                          style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-body)" }}
+                        >
                           -
                         </button>
-                        <span className="w-10 text-center text-sm font-bold">{facet.pitch_degrees}°</span>
-                        <button onClick={() => handlePitchChange(facet.id, 5)} className="h-6 w-6 rounded-full bg-blue-700 text-sm font-bold text-white">
+                        <span className="w-10 text-center font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                          {facet.pitch_degrees}°
+                        </span>
+                        <button
+                          onClick={() => handlePitchChange(facet.id, 5)}
+                          className="h-6 w-6 rounded-full font-bold"
+                          style={{ backgroundColor: "var(--jms-accent)", color: "var(--jms-bg)", fontSize: "var(--jms-font-body)" }}
+                        >
                           +
                         </button>
                       </div>
-                      <span className="text-xs text-gray-700">
+                      <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                         {areas.flat.toFixed(1)} m² &rarr; {areas.true.toFixed(1)} m²
                       </span>
                     </div>
 
                     {isActive ? (
-                      <div className="flex justify-between text-xs">
-                        <button onClick={handleUndoPoint} disabled={facet.coordinates.length === 0} className="font-semibold text-blue-700 disabled:text-gray-400">
+                      <div className="flex justify-between" style={{ fontSize: "var(--jms-font-label)" }}>
+                        <button
+                          onClick={handleUndoPoint}
+                          disabled={facet.coordinates.length === 0}
+                          className="font-semibold"
+                          style={{ color: facet.coordinates.length === 0 ? "var(--jms-text-muted)" : "var(--jms-accent)" }}
+                        >
                           Undo last point
                         </button>
-                        <button onClick={handleFinishFacet} disabled={facet.coordinates.length < 3} className="font-semibold text-blue-700 disabled:text-gray-400">
+                        <button
+                          onClick={handleFinishFacet}
+                          disabled={facet.coordinates.length < 3}
+                          className="font-semibold"
+                          style={{ color: facet.coordinates.length < 3 ? "var(--jms-text-muted)" : "var(--jms-accent)" }}
+                        >
                           Finish facet
                         </button>
                       </div>
@@ -477,41 +548,47 @@ export function RoofAreaTool({ jobCardId }: { jobCardId: string }) {
             </div>
 
             {!activeFacetId ? (
-              <button onClick={handleNewFacet} className="mt-3 w-full rounded-md bg-blue-700 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+              <ThemedButton onClick={handleNewFacet} className="mt-3 w-full">
                 + New Facet
-              </button>
+              </ThemedButton>
             ) : null}
           </div>
 
-          <div className="border-t border-gray-300 p-3">
-            {saveError ? <p className="mb-2 text-xs text-red-600">{saveError}</p> : null}
+          <div className="p-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
+            {saveError ? (
+              <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+                {saveError}
+              </p>
+            ) : null}
             <div className="flex gap-2">
-              <button onClick={resetDraft} className="flex-1 rounded-md border border-gray-300 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <button
+                onClick={resetDraft}
+                className="flex-1 rounded-md py-2 font-semibold"
+                style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+              >
                 Cancel
               </button>
-              <button
-                onClick={() => save.mutate()}
-                disabled={save.isPending || savableFacets.length === 0}
-                className="flex-1 rounded-md bg-blue-700 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
+              <ThemedButton onClick={() => save.mutate()} disabled={save.isPending || savableFacets.length === 0} className="flex-1">
                 {save.isPending ? "Saving..." : "Save"}
-              </button>
+              </ThemedButton>
             </div>
           </div>
         </div>
       </div>
 
-      <Modal open={renamingFacetId !== null} onClose={() => setRenamingFacetId(null)} title="Rename facet">
-        <FormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+      <ThemedModal open={renamingFacetId !== null} onClose={() => setRenamingFacetId(null)} title="Rename facet">
+        <ThemedFormField label="Name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
         <div className="flex justify-end gap-3">
-          <button onClick={() => setRenamingFacetId(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button
+            onClick={() => setRenamingFacetId(null)}
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
-          <button onClick={handleSaveRename} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-            Save
-          </button>
+          <ThemedButton onClick={handleSaveRename}>Save</ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
