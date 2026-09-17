@@ -1070,8 +1070,8 @@ export default function JobDetailScreen() {
           </Pressable>
         ) : null}
         {client?.phone ? (
-          <Pressable onPress={() => callPhone(client.phone as string)}>
-            <Text style={styles.clientCardMeta}>📞 {client.phone}</Text>
+          <Pressable style={styles.clientCard} onPress={() => callPhone(client.phone as string)}>
+            <Text style={styles.clientCardName}>📞 {client.phone}</Text>
           </Pressable>
         ) : null}
 
