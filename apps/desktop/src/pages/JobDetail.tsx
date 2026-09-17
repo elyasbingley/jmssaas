@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   collectRecipientEmails,
+  createClientContactSchema,
   createClientSiteSchema,
   createJobCardSchema,
   createJobNoteSchema,
+  createTaskSchema,
   formatCentsAsAud,
   type Agency,
+  type CalendarEvent,
   type Client,
   type ClientContact,
   type ClientSite,
@@ -31,6 +34,8 @@ import {
   type ServiceCategory,
   type SubcontractorCompany,
   type SubcontractorTrade,
+  type Task,
+  type TaskStatus,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -55,6 +60,18 @@ import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { LeadSourceModal } from "../components/LeadSourceModal";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
+
+// Same labels/cycle order as mobile's jobs/[id].tsx and desktop's own
+// ListView.tsx (Tasks board) - a job-embedded task list stays intentionally
+// minimal (title + one-tap status cycle only, no due date/priority inline),
+// so this doesn't reuse Tasks.tsx's fuller create/edit mutations.
+const TASK_STATUS_LABELS: Record<TaskStatus, string> = { todo: "To do", in_progress: "In progress", done: "Done" };
+const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = { todo: "in_progress", in_progress: "done", done: "todo" };
+const TASK_STATUS_COLOR_VAR: Record<TaskStatus, string> = {
+  todo: "var(--jms-text-muted)",
+  in_progress: "var(--jms-warning)",
+  done: "var(--jms-accent)",
+};
 
 // Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
 // jobs/[id].tsx) - copied verbatim rather than shared, matching how
@@ -249,6 +266,31 @@ async function fetchAllReportTemplates(): Promise<ReportTemplate[]> {
   return data as ReportTemplate[];
 }
 
+async function fetchJobTasks(jobId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("job_card_id", jobId)
+    .order("due_date", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data as Task[];
+}
+
+// Only events still in the future (end_at hasn't passed) - a job that's
+// been scheduled and completed already doesn't need its past bookings
+// cluttering this list, same filter as mobile's own upcomingBookings query.
+async function fetchUpcomingBookings(jobId: string): Promise<CalendarEvent[]> {
+  const { data, error } = await supabase
+    .from("calendar_events")
+    .select("*")
+    .eq("job_card_id", jobId)
+    .gte("end_at", new Date().toISOString())
+    .order("start_at", { ascending: true });
+  if (error) throw error;
+  return data as CalendarEvent[];
+}
+
 async function fetchLinkedPurchaseOrders(jobId: string): Promise<PurchaseOrder[]> {
   const { data, error } = await supabase.from("purchase_orders").select("*").eq("job_card_id", jobId).order("created_at", { ascending: false });
   if (error) throw error;
@@ -281,6 +323,58 @@ export default function JobDetailPage() {
     queryKey: ["client-contacts", job?.client_id],
     queryFn: () => fetchClientContacts(job!.client_id),
     enabled: !!job,
+  });
+
+  // A second contact on this job's client (a second homeowner, tenant,
+  // foreman...) - same client_contacts table the Client Detail page's own
+  // Contacts section uses. Add-only from here (no inline edit), same as
+  // mobile - open the client for the full edit/primary flow.
+  const [contactName, setContactName] = useState("");
+  const [contactRole, setContactRole] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  const addContact = useMutation({
+    mutationFn: async () => {
+      const result = createClientContactSchema.safeParse({
+        client_id: job?.client_id,
+        name: contactName,
+        role: contactRole,
+        email: contactEmail,
+        phone: contactPhone,
+        is_primary: false,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid contact");
+      if (!profile) throw new Error("Not signed in");
+      const { error } = await supabase.from("client_contacts").insert({
+        tenant_id: profile.tenant_id,
+        client_id: result.data.client_id,
+        name: result.data.name,
+        role: result.data.role || null,
+        email: result.data.email || null,
+        phone: result.data.phone || null,
+        is_primary: false,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-contacts", job?.client_id] });
+      setContactName("");
+      setContactRole("");
+      setContactPhone("");
+      setContactEmail("");
+      setContactError(null);
+    },
+    onError: (e) => setContactError(getErrorMessage(e, "Failed to add contact")),
+  });
+
+  const removeContact = useMutation({
+    mutationFn: async (contactId: string) => {
+      const { error } = await supabase.from("client_contacts").delete().eq("id", contactId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-contacts", job?.client_id] }),
   });
   const { data: emailTemplates } = useQuery({
     queryKey: ["email-templates", profile?.tenant_id],
@@ -343,6 +437,46 @@ export default function JobDetailPage() {
     queryKey: ["job-file-urls", id, files?.map((f) => f.id).join(",")],
     queryFn: () => fetchFileUrls(files!),
     enabled: !!files && files.length > 0,
+  });
+
+  const { data: jobTasks } = useQuery({ queryKey: ["job-tasks", id], queryFn: () => fetchJobTasks(id!), enabled: !!id });
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskError, setTaskError] = useState<string | null>(null);
+
+  const addTask = useMutation({
+    mutationFn: async () => {
+      const result = createTaskSchema.safeParse({ title: taskTitle, job_card_id: id });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid task");
+      if (!profile) throw new Error("Not signed in");
+      const { error } = await supabase.from("tasks").insert({
+        tenant_id: profile.tenant_id,
+        job_card_id: id,
+        title: result.data.title,
+        status: "todo",
+        created_by: profile.id,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-tasks", id] });
+      setTaskTitle("");
+      setTaskError(null);
+    },
+    onError: (e) => setTaskError(getErrorMessage(e, "Failed to add task")),
+  });
+
+  const cycleTaskStatus = useMutation({
+    mutationFn: async (task: Task) => {
+      const { error } = await supabase.from("tasks").update({ status: NEXT_TASK_STATUS[task.status] }).eq("id", task.id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job-tasks", id] }),
+  });
+
+  const { data: upcomingBookings } = useQuery({
+    queryKey: ["job-upcoming-bookings", id],
+    queryFn: () => fetchUpcomingBookings(id!),
+    enabled: !!id,
   });
 
   const updateJob = useMutation({
@@ -418,6 +552,7 @@ export default function JobDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job", id] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      queryClient.invalidateQueries({ queryKey: ["job-upcoming-bookings", id] });
       setScheduleModalOpen(false);
     },
     onError: (e) => setScheduleError(getErrorMessage(e, "Failed to add to calendar")),
@@ -902,6 +1037,8 @@ export default function JobDetailPage() {
           </div>
         ) : null}
 
+        <JobMembershipBenefitSection jobCardId={id!} clientId={job.client_id} />
+
         {!job.is_real_estate_job ? (
           <button
             onClick={() => setRealEstateModalOpen(true)}
@@ -1084,13 +1221,6 @@ export default function JobDetailPage() {
             </select>
           </div>
         </div>
-        <button
-          onClick={openScheduleModal}
-          className="mt-3 rounded px-3 py-1.5 font-semibold"
-          style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
-        >
-          + Add to calendar
-        </button>
         {reviewRequestError ? (
           <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             {reviewRequestError}
@@ -1142,6 +1272,9 @@ export default function JobDetailPage() {
         </div>
       </ThemedModal>
 
+      <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Billing
+      </h2>
       <div className="mb-6 grid grid-cols-2 gap-4">
         <ThemedPanel
           title="Quotes"
@@ -1205,56 +1338,10 @@ export default function JobDetailPage() {
         </ThemedPanel>
       </div>
 
-      <div className="mb-6">
-        <ThemedPanel title="Job Costing">
-          {!hasCostingDocs ? (
-            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No quotes or invoices linked to this job yet.</p>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div>
-                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Labour cost</p>
-                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
-                    {formatCentsAsAud(totalLabourCents)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Material cost</p>
-                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
-                    {formatCentsAsAud(totalMaterialCents)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total charged</p>
-                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
-                    {formatCentsAsAud(totalChargedCents)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Margin</p>
-                  <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
-                    {formatCentsAsAud(marginCents)}{" "}
-                    <span className="font-normal" style={{ color: "var(--jms-text-muted)" }}>
-                      ({marginPercent.toFixed(1)}%)
-                    </span>
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-                Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
-                overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
-                summed twice here, same as the cross-job{" "}
-                <Link to="/job-costing" className="underline">
-                  Job Costing
-                </Link>{" "}
-                report.
-              </p>
-            </>
-          )}
-        </ThemedPanel>
-      </div>
-
-      <div className="mb-6">
+      <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Diary
+      </h2>
+      <div className="mb-6 grid grid-cols-2 gap-4">
         <ThemedPanel
           title="Files"
           actions={
@@ -1340,20 +1427,7 @@ export default function JobDetailPage() {
             </div>
           )}
         </ThemedPanel>
-      </div>
-
-      <AssetsSection
-        owner={job.property_id ? { type: "property", id: job.property_id } : { type: "client", id: job.client_id }}
-        title={job.property_id ? "Property assets" : "Client assets"}
-      />
-
-      <QuoteToolsSection jobCardId={id!} />
-
-      <div className="mb-6">
-        <JobMembershipBenefitSection jobCardId={id!} clientId={job.client_id} />
-      </div>
-
-      <ThemedPanel title="Notes">
+        <ThemedPanel title="Notes">
         <div className="mb-4">
           <ThemedTextAreaField label="Add a note" rows={2} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
           {noteError ? (
@@ -1418,6 +1492,206 @@ export default function JobDetailPage() {
           ) : null}
         </div>
       </ThemedPanel>
+      </div>
+
+      <div className="mb-6">
+        <ThemedPanel title="Tasks">
+          <div className="mb-4">
+            <ThemedFormField label="Add a task" placeholder="Task title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
+            {taskError ? (
+              <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+                {taskError}
+              </p>
+            ) : null}
+            <ThemedButton onClick={() => addTask.mutate()} disabled={addTask.isPending || !taskTitle.trim()}>
+              {addTask.isPending ? "Adding..." : "Add task"}
+            </ThemedButton>
+          </div>
+          <div className="space-y-1">
+            {(jobTasks ?? []).map((t) => (
+              <Link
+                key={t.id}
+                to={`/tasks/${t.id}`}
+                className="jms-nav-link flex items-center justify-between rounded px-3 py-2"
+                style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+              >
+                <span style={{ color: "var(--jms-text)" }}>{t.title}</span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    cycleTaskStatus.mutate(t);
+                  }}
+                  className="rounded-full border px-2 py-0.5 font-semibold"
+                  style={{ borderColor: TASK_STATUS_COLOR_VAR[t.status], color: TASK_STATUS_COLOR_VAR[t.status], fontSize: "var(--jms-font-label)" }}
+                >
+                  {TASK_STATUS_LABELS[t.status]}
+                </button>
+              </Link>
+            ))}
+            {!jobTasks || jobTasks.length === 0 ? (
+              <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No tasks linked to this job.</p>
+            ) : null}
+          </div>
+        </ThemedPanel>
+      </div>
+
+      <div className="mb-6">
+        <ThemedPanel title="Contacts">
+          <div
+            className="mb-3 flex items-center justify-between rounded px-3 py-2"
+            style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+          >
+            <span style={{ color: "var(--jms-text-muted)" }}>Primary</span>
+            {client ? (
+              <Link to={`/clients/${client.id}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
+                {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+              </Link>
+            ) : (
+              <span style={{ color: "var(--jms-text-muted)" }}>—</span>
+            )}
+          </div>
+          <div className="space-y-2">
+            {(clientContacts ?? [])
+              .filter((c) => !c.is_primary)
+              .map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between rounded px-3 py-2"
+                  style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+                >
+                  <div>
+                    <p style={{ color: "var(--jms-text)" }}>
+                      {c.name}
+                      {c.role ? ` · ${c.role}` : ""}
+                    </p>
+                    {c.phone ? (
+                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{c.phone}</p>
+                    ) : null}
+                  </div>
+                  <button
+                    onClick={() => removeContact.mutate(c.id)}
+                    className="font-semibold hover:underline"
+                    style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+          </div>
+          <div className="mb-4 mt-4 grid grid-cols-2 gap-3">
+            <ThemedFormField label="Name" placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            <ThemedFormField
+              label="Role (optional)"
+              placeholder="e.g. Tenant, Second Homeowner"
+              value={contactRole}
+              onChange={(e) => setContactRole(e.target.value)}
+            />
+            <ThemedFormField label="Phone (optional)" placeholder="Phone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+            <ThemedFormField
+              label="Email (optional)"
+              placeholder="Email"
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+            />
+          </div>
+          {contactError ? (
+            <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {contactError}
+            </p>
+          ) : null}
+          <ThemedButton onClick={() => addContact.mutate()} disabled={addContact.isPending || !contactName.trim()}>
+            {addContact.isPending ? "Adding..." : "Add contact"}
+          </ThemedButton>
+        </ThemedPanel>
+      </div>
+
+      <div className="mb-6">
+        <ThemedPanel
+          title="Upcoming Bookings"
+          actions={
+            <ThemedButton onClick={openScheduleModal} style={{ paddingBlock: 6, paddingInline: 12, fontSize: "var(--jms-font-label)" }}>
+              + Schedule booking
+            </ThemedButton>
+          }
+        >
+          {!upcomingBookings || upcomingBookings.length === 0 ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No upcoming bookings linked to this job.</p>
+          ) : (
+            <div className="space-y-1">
+              {upcomingBookings.map((event) => (
+                <Link
+                  key={event.id}
+                  to="/calendar"
+                  className="jms-nav-link flex items-center justify-between rounded px-3 py-2"
+                  style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+                >
+                  <span style={{ color: "var(--jms-text)" }}>{event.title}</span>
+                  <span style={{ color: "var(--jms-text-muted)" }}>
+                    {new Date(event.start_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </ThemedPanel>
+      </div>
+
+      <div className="mb-6">
+        <ThemedPanel title="Job Costing">
+          {!hasCostingDocs ? (
+            <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No quotes or invoices linked to this job yet.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Labour cost</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalLabourCents)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Material cost</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalMaterialCents)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Total charged</p>
+                  <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(totalChargedCents)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Margin</p>
+                  <p className="font-bold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                    {formatCentsAsAud(marginCents)}{" "}
+                    <span className="font-normal" style={{ color: "var(--jms-text-muted)" }}>
+                      ({marginPercent.toFixed(1)}%)
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
+                overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
+                summed twice here, same as the cross-job{" "}
+                <Link to="/job-costing" className="underline">
+                  Job Costing
+                </Link>{" "}
+                report.
+              </p>
+            </>
+          )}
+        </ThemedPanel>
+      </div>
+
+      <AssetsSection
+        owner={job.property_id ? { type: "property", id: job.property_id } : { type: "client", id: job.client_id }}
+        title={job.property_id ? "Property assets" : "Client assets"}
+      />
+
+      <QuoteToolsSection jobCardId={id!} />
 
       <div className="mt-6">
         <ThemedPanel
