@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Text, TextInput, View, type TextStyle } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
-import { createClientSchema, type ChannelConversation, type ChannelMessage, type InboxMessage } from "@jmssaas/shared";
+import {
+  createClientSchema,
+  splitTextWithLinks,
+  type ChannelConversation,
+  type ChannelMessage,
+  type InboxMessage,
+} from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -24,6 +30,31 @@ import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedReq
 
 const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
 const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
+
+// Renders a message body with any http(s) URLs (splitTextWithLinks, shared
+// with desktop) as tappable, underlined spans - RN's <Text> doesn't
+// auto-linkify plain text the way a browser can, so this is the mobile
+// equivalent of desktop's <a> rendering for the same message body.
+function LinkifiedText({ body, style, linkStyle }: { body: string; style: TextStyle; linkStyle: TextStyle }) {
+  const segments = splitTextWithLinks(body);
+  return (
+    <Text style={style}>
+      {segments.map((seg, i) =>
+        seg.isUrl ? (
+          <Text
+            key={i}
+            style={linkStyle}
+            onPress={() => Linking.openURL(seg.text).catch(() => Alert.alert("Couldn't open link", seg.text))}
+          >
+            {seg.text}
+          </Text>
+        ) : (
+          <Text key={i}>{seg.text}</Text>
+        )
+      )}
+    </Text>
+  );
+}
 
 async function fetchConversation(id: string): Promise<ChannelConversation & { clients: { id: string; name: string } | null }> {
   const { data, error } = await supabase.from("channel_conversations").select("*, clients(id, name)").eq("id", id).single();
@@ -230,10 +261,20 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         {(messages ?? []).map((m) => (
           <View key={m.id} style={[styles.bubbleRow, m.direction === "outbound" ? styles.bubbleRowOutbound : styles.bubbleRowInbound]}>
             <View style={[styles.bubble, m.direction === "outbound" ? styles.bubbleOutbound : styles.bubbleInbound]}>
-              {m.body ? <Text style={m.direction === "outbound" ? styles.bubbleTextOutbound : styles.bubbleTextInbound}>{m.body}</Text> : null}
+              {m.body ? (
+                <LinkifiedText
+                  body={m.body}
+                  style={m.direction === "outbound" ? styles.bubbleTextOutbound : styles.bubbleTextInbound}
+                  linkStyle={styles.bubbleLink}
+                />
+              ) : null}
               {m.media.map((media) =>
                 mediaUrls[media.storage_path] ? (
-                  <Text key={media.storage_path} style={styles.mediaLink} onPress={() => {}}>
+                  <Text
+                    key={media.storage_path}
+                    style={styles.mediaLink}
+                    onPress={() => Linking.openURL(mediaUrls[media.storage_path]!).catch(() => Alert.alert("Couldn't open attachment"))}
+                  >
                     📎 {media.file_name}
                   </Text>
                 ) : null
@@ -379,6 +420,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     bubbleInbound: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
     bubbleTextOutbound: { color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
     bubbleTextInbound: { color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
+    bubbleLink: { color: tokens.accent, textDecorationLine: "underline" as const, fontSize: font.body - 1, ...mono },
     bubbleTimeOutbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
     bubbleTimeInbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
     mediaLink: { color: tokens.accent, textDecorationLine: "underline" as const, marginTop: 4, ...mono },

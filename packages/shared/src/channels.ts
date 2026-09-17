@@ -52,3 +52,36 @@ export function toE164(rawPhone: string, defaultCountry: "AU" = "AU"): string | 
 export function isValidE164(value: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(value);
 }
+
+// SMS/WhatsApp/Messenger/Instagram message bodies are plain text - neither
+// RN's <Text> nor a browser auto-linkifies a bare URL inside one, so both
+// mobile (app/channels/[id].tsx) and desktop (ChannelConversationDetail.tsx)
+// split a message body through this before rendering, and turn only the
+// "url" segments into a tappable/clickable link. Deliberately no `www.`-only
+// matching (no scheme) - too easy to false-positive on an ordinary sentence
+// fragment like "see you Wed. thanks" - a real link a customer pastes from
+// their phone's share sheet always carries a scheme.
+const URL_PATTERN = /https?:\/\/[^\s<>]+/g;
+
+export function splitTextWithLinks(text: string): { text: string; isUrl: boolean }[] {
+  const segments: { text: string; isUrl: boolean }[] = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const start = match.index ?? 0;
+    if (start > lastIndex) segments.push({ text: text.slice(lastIndex, start), isUrl: false });
+    // Trim trailing punctuation a sentence would put right after the URL
+    // (".", ",", ")", "!", "?") so "check https://example.com." doesn't
+    // treat the full stop as part of the link.
+    let url = match[0];
+    let trailing = "";
+    while (url.length > 0 && /[.,!?)]/.test(url[url.length - 1]!)) {
+      trailing = url[url.length - 1]! + trailing;
+      url = url.slice(0, -1);
+    }
+    segments.push({ text: url, isUrl: true });
+    if (trailing) segments.push({ text: trailing, isUrl: false });
+    lastIndex = start + match[0].length;
+  }
+  if (lastIndex < text.length) segments.push({ text: text.slice(lastIndex), isUrl: false });
+  return segments;
+}
