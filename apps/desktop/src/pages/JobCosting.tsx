@@ -21,8 +21,16 @@ import { supabase } from "../lib/supabase";
 // known caveats - see the comment above marginCents below).
 
 type JobCardRow = JobCard & { clients: Client | null };
-type QuoteRow = Pick<Quote, "id" | "job_card_id" | "quote_number" | "status" | "total_cents">;
-type InvoiceRow = { id: string; job_card_id: string | null; invoice_number: string; status: string; total_cents: number };
+type QuoteRow = Pick<Quote, "id" | "job_card_id" | "quote_number" | "status" | "subtotal_cents" | "total_cents">;
+type InvoiceRow = {
+  id: string;
+  job_card_id: string | null;
+  quote_id: string | null;
+  invoice_number: string;
+  status: string;
+  subtotal_cents: number;
+  total_cents: number;
+};
 
 async function fetchJobCards(): Promise<JobCardRow[]> {
   const { data, error } = await supabase.from("job_cards").select("*, clients(*)");
@@ -32,7 +40,7 @@ async function fetchJobCards(): Promise<JobCardRow[]> {
 async function fetchQuotes(): Promise<QuoteRow[]> {
   const { data, error } = await supabase
     .from("quotes")
-    .select("id, job_card_id, quote_number, status, total_cents")
+    .select("id, job_card_id, quote_number, status, subtotal_cents, total_cents")
     .not("job_card_id", "is", null);
   if (error) throw error;
   return data as QuoteRow[];
@@ -40,7 +48,7 @@ async function fetchQuotes(): Promise<QuoteRow[]> {
 async function fetchInvoices(): Promise<InvoiceRow[]> {
   const { data, error } = await supabase
     .from("invoices")
-    .select("id, job_card_id, invoice_number, status, total_cents")
+    .select("id, job_card_id, quote_id, invoice_number, status, subtotal_cents, total_cents")
     .not("job_card_id", "is", null);
   if (error) throw error;
   return data as InvoiceRow[];
@@ -140,6 +148,15 @@ export default function JobCostingPage() {
       const jobInvoices = invoicesByJob.get(job.id) ?? [];
       if (jobQuotes.length === 0 && jobInvoices.length === 0) continue;
 
+      // docs is the full document history for this job (every quote and
+      // invoice, regardless of status) - used for the row's document list
+      // only. The financial totals below are computed from a deduped
+      // subset instead: a quote that's since been converted to an invoice
+      // (invoices.quote_id points back at it) stays linked to the job as
+      // BOTH rows, so counting every quote and every invoice double
+      // counted its labour/material/charged - the invoice wins once
+      // converted. A void invoice never actually billed anything, so it's
+      // dropped too, same convention Analytics.tsx's own revenue calc uses.
       const docs = [
         ...jobQuotes.map((q) => ({ id: q.id, type: "quote" as const, number: q.quote_number, status: q.status, total_cents: q.total_cents })),
         ...jobInvoices.map((inv) => ({
@@ -151,23 +168,28 @@ export default function JobCostingPage() {
         })),
       ];
 
+      const convertedQuoteIds = new Set(jobInvoices.map((inv) => inv.quote_id).filter((qid): qid is string => qid != null));
+      const costingQuotes = jobQuotes.filter((q) => !convertedQuoteIds.has(q.id));
+      const costingInvoices = jobInvoices.filter((inv) => inv.status !== "void");
+
       const allLineItems = [
-        ...jobQuotes.flatMap((q) => quoteLineItemsByQuote.get(q.id) ?? []),
-        ...jobInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []),
+        ...costingQuotes.flatMap((q) => quoteLineItemsByQuote.get(q.id) ?? []),
+        ...costingInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []),
       ];
 
       const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
       const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
-      const chargedCents = docs.reduce((sum, doc) => sum + doc.total_cents, 0);
-      // Margin is "charged minus cost" - same shape and same caveats as
-      // mobile's own version: total charged is GST-inclusive while
-      // labour/material/subcontractor cost are GST-exclusive (a small
-      // overstatement of margin), and a quote converted to an invoice stays
-      // linked to the job as both, so it's summed twice here exactly as it
-      // is there. Not fixed here - ported as-is, not redesigned.
-      const marginCents = chargedCents - (labourCents + materialCents + subcontractorCents);
-      const marginPercent = chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0;
+      // GST-inclusive - what was actually billed, shown in the Charged
+      // column. Margin is computed separately below from the GST-exclusive
+      // equivalent (subtotal_cents), so it isn't comparing a tax-inclusive
+      // figure against GST-exclusive labour/material/subcontractor cost.
+      const chargedCents =
+        costingQuotes.reduce((sum, q) => sum + q.total_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.total_cents, 0);
+      const chargedExGstCents =
+        costingQuotes.reduce((sum, q) => sum + q.subtotal_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.subtotal_cents, 0);
+      const marginCents = chargedExGstCents - (labourCents + materialCents + subcontractorCents);
+      const marginPercent = chargedExGstCents > 0 ? (marginCents / chargedExGstCents) * 100 : 0;
 
       result.push({ job, docs, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
@@ -341,9 +363,10 @@ export default function JobCostingPage() {
       </div>
 
       <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-        Total charged is GST-inclusive while labour/material/subcontractor cost are GST-exclusive, so margin here slightly
-        overstates the true figure. A quote that's since been converted to an invoice is counted under both, since both stay
-        linked to the job - same basis as mobile's own Job Costing tab.
+        Charged is GST-inclusive (what was actually billed); Margin and Margin % are computed from the GST-exclusive
+        equivalent instead, so they compare like with like against labour/material/subcontractor cost. A quote that's
+        since been converted to an invoice, or a voided invoice, is only counted once - same basis as mobile's own Job
+        Costing tab.
       </p>
     </div>
   );
