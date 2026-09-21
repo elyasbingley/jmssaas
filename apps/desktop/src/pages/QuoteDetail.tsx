@@ -225,13 +225,23 @@ export default function QuoteDetailPage() {
     mutationFn: async () => {
       // Persist any pending edits first (see save's own comment) - the
       // convert_quote_to_invoice RPC reads quote_line_items as persisted.
+      // Skipped once the quote is locked (accepted/declined): the line
+      // items table is already read-only in that state (the Save button
+      // above is hidden too, per the same isLocked check) so there's
+      // nothing pending to write - re-submitting the exact same rows
+      // through replace_quote_line_items would trip
+      // quote_line_items_enforce_accepted_lock for no reason. That trigger
+      // exists to stop a genuine edit after the client has accepted, not
+      // to block converting the quote they accepted into an invoice.
       const { error: updateError } = await supabase
         .from("quotes")
         .update({ notes: notes || null, expiry_date: expiryDate || null })
         .eq("id", id);
       if (updateError) throw updateError;
-      const { error: rpcError } = await supabase.rpc("replace_quote_line_items", { p_quote_id: id, p_items: lineItems });
-      if (rpcError) throw rpcError;
+      if (!isLocked) {
+        const { error: rpcError } = await supabase.rpc("replace_quote_line_items", { p_quote_id: id, p_items: lineItems });
+        if (rpcError) throw rpcError;
+      }
 
       const { data: invoiceId, error } = await supabase.rpc("convert_quote_to_invoice", {
         p_quote_id: id,
