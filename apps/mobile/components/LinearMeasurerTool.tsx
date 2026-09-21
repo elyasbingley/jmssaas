@@ -11,7 +11,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField } from "./FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedFormField } from "./theme/ThemedFormField";
 
 // Linear Distance Measurer (mobile) - same drawing/save logic as
 // desktop's LinearMeasurer.tsx (named straight-line runs - gutters,
@@ -28,6 +29,10 @@ interface DraftSegment {
   coordinates: Coordinate[];
 }
 
+// These are the colours drawn ON the satellite map to distinguish each
+// measured run - overlay "ink", not app chrome - so they're deliberately
+// left as fixed, saturated colours rather than theme tokens (see
+// PhotoMarkupEditor's COLORS for the same reasoning).
 const SEGMENT_COLORS = ["#1d4ed8", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 const DEFAULT_REGION: Region = { latitude: -33.8688, longitude: 151.2093, latitudeDelta: 0.003, longitudeDelta: 0.003 };
 
@@ -46,6 +51,7 @@ async function fetchMeasurements(jobCardId: string): Promise<JobLinearMeasuremen
 }
 
 export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
+  const styles = useThemedStyles(createStyles);
   const { profile } = useAuth();
   const [measurements, setMeasurements] = useState<JobLinearMeasurement[]>([]);
 
@@ -208,7 +214,7 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
     <View>
       <View style={styles.titleRow}>
         <View style={{ flex: 1 }}>
-          <FormField label="Measurement set name" placeholder='e.g. "Gutter Lengths"' value={title} onChangeText={setTitle} />
+          <ThemedFormField label="Measurement set name" placeholder='e.g. "Gutter Lengths"' value={title} onChangeText={setTitle} />
         </View>
         <View style={styles.totalBox}>
           <Text style={styles.totalsLabel}>Total length</Text>
@@ -249,6 +255,7 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
                     value={segment.label}
                     onChangeText={(v) => handleRenameSegment(segment.id, v)}
                     style={styles.labelInput}
+                    placeholderTextColor={styles.placeholder.color}
                   />
                   {isActive ? <Text style={styles.drawingBadge}>Drawing...</Text> : null}
                 </View>
@@ -294,42 +301,46 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  subtitle: { color: "#6b7280", fontSize: 13, marginTop: 4 },
-  newSetButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 12, alignItems: "center", marginBottom: 10 },
-  newSetButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  measurementCard: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, gap: 4 },
-  measurementCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  measurementTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  measurementTotal: { fontSize: 14, fontWeight: "700", color: "#1d4ed8" },
-  measurementSegments: { fontSize: 12, color: "#6b7280" },
-  titleRow: { flexDirection: "row", alignItems: "flex-end", gap: 12, marginBottom: 8 },
-  totalBox: { alignItems: "flex-end", paddingBottom: 8 },
-  totalsLabel: { fontSize: 11, color: "#6b7280" },
-  totalsValue: { fontSize: 18, fontWeight: "700", color: "#1d4ed8" },
-  map: { height: 300, borderRadius: 8 },
-  hint: { textAlign: "center", color: "#6b7280", fontSize: 12, paddingVertical: 6, paddingHorizontal: 12 },
-  drawer: { maxHeight: 220 },
-  drawerContent: { paddingVertical: 8, gap: 8 },
-  segmentRow: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, gap: 6 },
-  segmentRowActive: { backgroundColor: "#eef2ff" },
-  segmentRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  segmentNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
-  swatch: { width: 12, height: 12, borderRadius: 6 },
-  labelInput: { flex: 1, fontSize: 14, fontWeight: "600", color: "#111827", paddingVertical: 2 },
-  drawingBadge: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  deleteLink: { color: "#dc2626", fontWeight: "600" },
-  segmentLength: { fontSize: 12, color: "#374151" },
-  activeSegmentActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  newRunButton: { backgroundColor: "#39ff6a", borderRadius: 8, padding: 12, alignItems: "center" },
-  newRunButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  actionsRow: { flexDirection: "row", gap: 10, marginTop: 10 },
-  cancelButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  cancelButtonText: { color: "#374151", fontWeight: "700" },
-  saveButton: { flex: 1, backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  saveButtonDisabled: { backgroundColor: "#9fe8b8" },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  error: { color: "#dc2626", textAlign: "center", marginTop: 6 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  linkDisabled: { color: "#9ca3af" },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    subtitle: { color: tokens.textMuted, fontSize: 13, marginTop: 4, ...mono },
+    newSetButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 12, alignItems: "center", marginBottom: 10, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    newSetButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    measurementCard: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 10, gap: 4 },
+    measurementCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    measurementTitle: { fontSize: 14, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    measurementTotal: { fontSize: 14, fontWeight: "700", color: tokens.accent, ...mono },
+    measurementSegments: { fontSize: 12, color: tokens.textMuted, ...mono },
+    titleRow: { flexDirection: "row", alignItems: "flex-end", gap: 12, marginBottom: 8 },
+    totalBox: { alignItems: "flex-end", paddingBottom: 8 },
+    totalsLabel: { fontSize: 11, color: tokens.textMuted, ...mono },
+    totalsValue: { fontSize: 18, fontWeight: "700", color: tokens.accent, ...mono },
+    map: { height: 300, borderRadius: 8 },
+    hint: { textAlign: "center", color: tokens.textMuted, fontSize: 12, paddingVertical: 6, paddingHorizontal: 12, ...mono },
+    drawer: { maxHeight: 220 },
+    drawerContent: { paddingVertical: 8, gap: 8 },
+    segmentRow: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 10, gap: 6 },
+    segmentRowActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    segmentRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    segmentNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+    swatch: { width: 12, height: 12, borderRadius: 6 },
+    labelInput: { flex: 1, fontSize: 14, fontWeight: "600", color: tokens.textPrimary, paddingVertical: 2, ...mono },
+    placeholder: { color: tokens.textMuted },
+    drawingBadge: { fontSize: 11, fontWeight: "700", color: tokens.accent, ...mono },
+    deleteLink: { color: tokens.danger, fontWeight: "600", ...mono },
+    segmentLength: { fontSize: 12, color: tokens.textPrimary, ...mono },
+    activeSegmentActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+    newRunButton: { backgroundColor: tokens.accent, borderRadius: 8, padding: 12, alignItems: "center" },
+    newRunButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    actionsRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+    cancelButton: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+    cancelButtonText: { color: tokens.textPrimary, fontWeight: "700", ...mono },
+    saveButton: { flex: 1, backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+    saveButtonDisabled: { backgroundColor: tokens.accentGlow },
+    saveButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    error: { color: tokens.danger, textAlign: "center", marginTop: 6, ...mono },
+    link: { color: tokens.accent, fontWeight: "600", ...mono },
+    linkDisabled: { color: tokens.textMuted },
+  });
+}
