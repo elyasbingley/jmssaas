@@ -16,7 +16,7 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { emptyLineItem, normalizeLineItem } from "../lib/line-items";
-import { Modal } from "./Modal";
+import { ThemedModal } from "./theme/ThemedModal";
 
 interface AddLineItemBarProps {
   itemCount: number;
@@ -226,20 +226,32 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
     <div className="mb-4">
       <input
         type="text"
-        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+        className="w-full rounded-md border px-3 py-2 focus:outline-none"
+        style={{
+          backgroundColor: "var(--jms-bg)",
+          borderColor: "var(--jms-border)",
+          color: "var(--jms-text)",
+          fontFamily: "var(--jms-font)",
+          fontSize: "var(--jms-font-body)",
+        }}
         placeholder="Search Price Book (3+ characters) or leave blank for custom item"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {searching ? <p className="mt-1 text-xs text-gray-400">Searching...</p> : null}
+      {searching ? (
+        <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Searching...
+        </p>
+      ) : null}
 
       {results.length > 0 ? (
-        <div className="mt-2 overflow-hidden rounded-md border border-gray-300">
+        <div className="mt-2 overflow-hidden rounded-md border" style={{ borderColor: "var(--jms-border)" }}>
           {results.map((item) => (
             <button
               key={item.id}
               onClick={() => handleSelectResult(item)}
-              className="block w-full truncate border-b border-gray-200 px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+              className="jms-nav-link block w-full truncate border-b px-3 py-2 text-left last:border-0"
+              style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-body)" }}
             >
               {item.description}
             </button>
@@ -248,35 +260,51 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
       ) : null}
 
       <div className="mt-2 flex items-center gap-4">
-        <button onClick={addCustomItem} className="text-sm font-semibold text-blue-700 hover:underline">
+        <button
+          onClick={addCustomItem}
+          className="font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
           {query.trim().length > 0 ? "+ Add as custom item instead" : "+ Add custom item"}
         </button>
         {bundles && bundles.length > 0 ? (
-          <button onClick={() => setBundlePickerOpen(true)} className="text-sm font-semibold text-blue-700 hover:underline">
+          <button
+            onClick={() => setBundlePickerOpen(true)}
+            className="font-semibold hover:underline"
+            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+          >
             + Add from bundle
           </button>
         ) : null}
       </div>
 
-      <Modal open={bundlePickerOpen} onClose={() => setBundlePickerOpen(false)} title="Add from bundle">
-        {bundleError ? <p className="mb-3 text-sm text-red-600">{bundleError}</p> : null}
+      <ThemedModal open={bundlePickerOpen} onClose={() => setBundlePickerOpen(false)} title="Add from bundle">
+        {bundleError ? (
+          <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {bundleError}
+          </p>
+        ) : null}
         {(bundles ?? []).map((bundle) => (
           <button
             key={bundle.id}
             onClick={() => applyBundle(bundle)}
             disabled={applyingBundleId === bundle.id}
-            className="block w-full border-b border-gray-200 py-3 text-left text-sm last:border-0 hover:bg-gray-50 disabled:opacity-50"
+            className="jms-nav-link block w-full border-b py-3 text-left last:border-0 disabled:opacity-50"
+            style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-body)" }}
           >
             {applyingBundleId === bundle.id ? "Adding..." : bundle.name}
           </button>
         ))}
-      </Modal>
+      </ThemedModal>
 
-      <Modal open={!!variationTarget} onClose={() => setVariationTarget(null)} title="Select a variation">
-        <p className="mb-3 text-sm text-gray-500">{variationTarget?.description}</p>
+      <ThemedModal open={!!variationTarget} onClose={() => setVariationTarget(null)} title="Select a variation">
+        <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          {variationTarget?.description}
+        </p>
         <button
           onClick={() => variationTarget && addFromPriceBookItem(variationTarget)}
-          className="block w-full border-b border-gray-200 py-3 text-left text-sm hover:bg-gray-50"
+          className="jms-nav-link block w-full border-b py-3 text-left"
+          style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-body)" }}
         >
           Base pricing (no variation)
         </button>
@@ -284,12 +312,13 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
           <button
             key={variation.id}
             onClick={() => variationTarget && addFromPriceBookItem(variationTarget, variation)}
-            className="block w-full border-b border-gray-200 py-3 text-left text-sm last:border-0 hover:bg-gray-50"
+            className="jms-nav-link block w-full border-b py-3 text-left last:border-0"
+            style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-body)" }}
           >
             {variation.name}
           </button>
         ))}
-      </Modal>
+      </ThemedModal>
     </div>
   );
 }
