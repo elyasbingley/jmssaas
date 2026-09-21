@@ -1,5 +1,6 @@
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView } from "react-native";
 import type { ReactNode } from "react";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 interface CenteredModalProps {
   visible: boolean;
@@ -13,6 +14,7 @@ interface CenteredModalProps {
 // the card instead and wraps it in KeyboardAvoidingView so the visible
 // keyboard always pushes the card up rather than covering it.
 export function CenteredModal({ visible, onClose, children }: CenteredModalProps) {
+  const styles = useThemedStyles(createStyles);
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -31,9 +33,19 @@ export function CenteredModal({ visible, onClose, children }: CenteredModalProps
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
-  cardWrapper: { width: "100%", maxWidth: 480, maxHeight: "85%" },
-  card: { backgroundColor: "#fff", borderRadius: 16, padding: 20, gap: 12 },
-});
+function createStyles({ tokens }: StyleTheme) {
+  return {
+    flex: { flex: 1 },
+    overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center" as const, justifyContent: "center" as const, padding: 20 },
+    cardWrapper: { width: "100%" as const, maxWidth: 480, maxHeight: "85%" as const },
+    card: {
+      backgroundColor: tokens.surface,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 6,
+      padding: 20,
+      gap: 12,
+      boxShadow: `0 0 16px ${tokens.accentGlow}`,
+    },
+  };
+}
