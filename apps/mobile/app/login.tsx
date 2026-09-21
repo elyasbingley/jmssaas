@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { FormField } from "../components/FormField";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { ThemedFormField } from "../components/theme/ThemedFormField";
 import { useAuth } from "../lib/auth-context";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -9,6 +10,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const styles = useThemedStyles(createStyles);
 
   const handleSubmit = async () => {
     setError(null);
@@ -26,7 +28,7 @@ export default function LoginScreen() {
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <View style={styles.container}>
         <Text style={styles.title}>Bingley Job Management</Text>
-        <FormField
+        <ThemedFormField
           label="Email"
           placeholder="you@example.com"
           autoCapitalize="none"
@@ -35,21 +37,45 @@ export default function LoginScreen() {
           value={email}
           onChangeText={setEmail}
         />
-        <FormField label="Password" placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+        <ThemedFormField label="Password" placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable style={styles.button} onPress={handleSubmit} disabled={submitting}>
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
+          {submitting ? <ActivityIndicator color={styles.buttonText.color as string} /> : <Text style={styles.buttonText}>Sign in</Text>}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 16, textAlign: "center" },
-  button: { backgroundColor: "#1d4ed8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  error: { color: "#dc2626" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  return {
+    flex: { flex: 1, backgroundColor: tokens.background },
+    container: { flex: 1, justifyContent: "center" as const, backgroundColor: tokens.background, padding: 24, gap: 12 },
+    title: {
+      fontSize: font.title,
+      color: tokens.accent,
+      fontFamily: fontFamily.mobileFontFamily,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      marginBottom: 16,
+      textAlign: "center" as const,
+    },
+    button: {
+      backgroundColor: tokens.accent,
+      borderRadius: 3,
+      padding: 14,
+      alignItems: "center" as const,
+      marginTop: 8,
+      boxShadow: `0 0 12px ${tokens.accentGlow}`,
+    },
+    buttonText: {
+      color: tokens.background,
+      fontWeight: "700" as const,
+      fontSize: font.button,
+      fontFamily: fontFamily.mobileFontFamily,
+      letterSpacing: 0.5,
+      textTransform: "uppercase" as const,
+    },
+    error: { color: tokens.danger, fontFamily: fontFamily.mobileFontFamily },
+  };
+}
