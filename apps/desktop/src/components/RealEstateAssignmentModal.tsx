@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { updateJobRealEstateAssignmentSchema, type Agency, type Property, type PropertyManager } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
-import { Modal } from "./Modal";
-import { FormField, SelectField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedFormField, ThemedSelectField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 
 async function fetchAgencies(): Promise<Agency[]> {
   const { data, error } = await supabase.from("agencies").select("*").order("name");
@@ -125,15 +126,18 @@ export function RealEstateAssignmentModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Real estate / strata assignment">
-      <label className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+    <ThemedModal open={open} onClose={onClose} title="Real estate / strata assignment">
+      <label
+        className="mb-3 flex items-center gap-2 font-semibold"
+        style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+      >
         <input type="checkbox" checked={isRealEstateJob} onChange={(e) => setIsRealEstateJob(e.target.checked)} />
         This is a real estate / strata agency job
       </label>
 
       {isRealEstateJob ? (
-        <div className="mb-2 rounded-md bg-gray-50 p-3">
-          <SelectField
+        <div className="mb-2 rounded p-3" style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)" }}>
+          <ThemedSelectField
             label="Agency"
             value={agencyId}
             onChange={(v) => {
@@ -144,7 +148,7 @@ export function RealEstateAssignmentModal({
             options={(agencies ?? []).map((a) => ({ value: a.id, label: a.name }))}
             placeholder="Select agency"
           />
-          <SelectField
+          <ThemedSelectField
             label="Property manager"
             value={propertyManagerId}
             onChange={(v) => {
@@ -154,7 +158,7 @@ export function RealEstateAssignmentModal({
             options={pmsForAgency.map((pm) => ({ value: pm.id, label: `${pm.first_name} ${pm.last_name}` }))}
             placeholder="Select property manager"
           />
-          <SelectField
+          <ThemedSelectField
             label="Property"
             value={propertyId}
             onChange={setPropertyId}
@@ -162,8 +166,8 @@ export function RealEstateAssignmentModal({
             placeholder="Select property"
           />
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Work order number" value={workOrderNumber} onChange={(e) => setWorkOrderNumber(e.target.value)} />
-            <FormField
+            <ThemedFormField label="Work order number" value={workOrderNumber} onChange={(e) => setWorkOrderNumber(e.target.value)} />
+            <ThemedFormField
               label="NTE limit ($)"
               type="number"
               step="0.01"
@@ -175,19 +179,19 @@ export function RealEstateAssignmentModal({
         </div>
       ) : null}
 
-      {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+      {error ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {error}
+        </p>
+      ) : null}
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600">
+        <button onClick={onClose} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Cancel
         </button>
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={() => save.mutate()} disabled={save.isPending}>
           {save.isPending ? "Saving..." : "Save"}
-        </button>
+        </ThemedButton>
       </div>
-    </Modal>
+    </ThemedModal>
   );
 }
