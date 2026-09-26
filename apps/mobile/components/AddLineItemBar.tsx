@@ -17,6 +17,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { emptyLineItem, normalizeLineItem } from "../lib/line-items";
 import { CenteredModal } from "./CenteredModal";
+import { useTheme } from "../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 interface AddLineItemBarProps {
   itemCount: number;
@@ -53,6 +55,8 @@ async function fetchBundleItems(bundleId: string): Promise<BundleItemRow[]> {
 // custom item" falls through to a fully blank line item, exactly like
 // before this control existed.
 export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarProps) {
+  const styles = useThemedStyles(createStyles);
+  const { tokens } = useTheme();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PriceBookItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -227,10 +231,11 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
       <TextInput
         style={styles.input}
         placeholder="Search Price Book (3+ characters) or leave blank for custom item"
+        placeholderTextColor={styles.placeholder.color}
         value={query}
         onChangeText={setQuery}
       />
-      {searching ? <ActivityIndicator style={styles.spinner} /> : null}
+      {searching ? <ActivityIndicator style={styles.spinner} color={tokens.accent} /> : null}
 
       {results.length > 0 ? (
         <View style={styles.results}>
@@ -301,21 +306,41 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
   );
 }
 
-const styles = StyleSheet.create({
-  container: { marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 15 },
-  spinner: { marginTop: 8 },
-  results: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, marginTop: 8, overflow: "hidden" },
-  resultRow: { padding: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  resultText: { fontSize: 14, color: "#111827" },
-  addButtonRow: { flexDirection: "row", gap: 20 },
-  addButton: { alignSelf: "flex-start", paddingVertical: 8 },
-  addButtonText: { color: "#1d4ed8", fontWeight: "600" },
-  bundleError: { color: "#dc2626", marginBottom: 8 },
-  modalTitle: { fontSize: 18, fontWeight: "700" },
-  modalSubtitle: { color: "#6b7280", marginBottom: 4 },
-  variationRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  variationRowText: { fontSize: 15, color: "#111827" },
-  modalCancel: { marginTop: 8, alignSelf: "flex-end" },
-  modalCancelText: { color: "#1d4ed8", fontWeight: "600" },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    container: { marginBottom: 12 },
+    input: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 8,
+      padding: 12,
+      fontSize: 15,
+      color: tokens.textPrimary,
+      backgroundColor: tokens.background,
+      ...mono,
+    },
+    placeholder: { color: tokens.textMuted },
+    spinner: { marginTop: 8 },
+    results: { borderWidth: 1, borderColor: tokens.border, borderRadius: 8, marginTop: 8, overflow: "hidden" as const, backgroundColor: tokens.surface },
+    resultRow: { padding: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    resultText: { fontSize: 14, color: tokens.textPrimary, ...mono },
+    addButtonRow: { flexDirection: "row" as const, gap: 20 },
+    addButton: { alignSelf: "flex-start" as const, paddingVertical: 8 },
+    addButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    bundleError: { color: tokens.danger, marginBottom: 8, ...mono },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: "700" as const,
+      color: tokens.accent,
+      letterSpacing: 1.5,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    modalSubtitle: { color: tokens.textMuted, marginBottom: 4, ...mono },
+    variationRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    variationRowText: { fontSize: 15, color: tokens.textPrimary, ...mono },
+    modalCancel: { marginTop: 8, alignSelf: "flex-end" as const },
+    modalCancelText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+  };
+}

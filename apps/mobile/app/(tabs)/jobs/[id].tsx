@@ -545,10 +545,33 @@ export default function JobDetailScreen() {
     })),
   ];
 
-  const allCostingLineItems = [...(quoteLineItems ?? []), ...(invoiceLineItems ?? [])];
+  // Financial totals (labour/material/charged/margin/NTE) must count each
+  // quote only once: a quote that's since been converted to an invoice
+  // (invoices.quote_id points back at it) stays linked to the job as BOTH
+  // rows, so summing every linked quote and every linked invoice double
+  // counted it. costingDocs above deliberately stays unfiltered (it's the
+  // "every document for this job" list), but every total below is derived
+  // from this deduped set instead: the invoice wins once a quote has been
+  // converted, and a void invoice (which never actually billed anything)
+  // is dropped too, same convention Analytics.tsx's own revenue calc uses.
+  const convertedQuoteIds = new Set((linkedInvoices ?? []).map((inv) => inv.quote_id).filter((qid): qid is string => qid != null));
+  const costingQuotes = (linkedQuotes ?? []).filter((q) => !convertedQuoteIds.has(q.id));
+  const costingInvoices = (linkedInvoices ?? []).filter((inv) => inv.status !== "void");
+  const costingQuoteIds = new Set(costingQuotes.map((q) => q.id));
+  const costingInvoiceIds = new Set(costingInvoices.map((inv) => inv.id));
+
+  const allCostingLineItems = [
+    ...(quoteLineItems ?? []).filter((item) => costingQuoteIds.has(item.quote_id)),
+    ...(invoiceLineItems ?? []).filter((item) => costingInvoiceIds.has(item.invoice_id)),
+  ];
   const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
-  const totalChargedCents = costingDocs.reduce((sum, doc) => sum + doc.total_cents, 0);
+  // GST-inclusive - what the client/agency is actually billed. Used for
+  // display and for the NTE guardrail below (an NTE limit is authorised as
+  // a real, tax-inclusive dollar figure), not for margin - see
+  // totalChargedExGstCents for that.
+  const totalChargedCents =
+    costingQuotes.reduce((sum, q) => sum + q.total_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.total_cents, 0);
   // NTE (Not-To-Exceed) guardrail - see Workflow 2 of the Real Estate &
   // Strata spec. totalChargedCents above already sums every quote/invoice
   // linked to this job regardless of which tab is open (only the line-item
@@ -557,16 +580,14 @@ export default function JobDetailScreen() {
   const isNteExceeded = job?.is_real_estate_job && job.nte_limit_cents != null && totalChargedCents > job.nte_limit_cents;
   // Margin here is "charged minus cost", i.e. it treats the line item
   // markup% as the margin - matching how computeLineItemUnitPriceCents
-  // already builds markup into the rate. Total charged is GST-inclusive
-  // (it's each document's total_cents) while labour/material cost are
-  // GST-exclusive, so this margin/margin% also includes the GST slice of
-  // revenue - a small overstatement worth knowing about. It can also
-  // double-count a quote that was converted to an invoice, since both stay
-  // linked to the job and both get summed - if that's not the intent,
-  // filtering converted quotes (status "accepted" with a matching invoice)
-  // out of the aggregate would be the fix.
-  const marginCents = totalChargedCents - (totalLabourCents + totalMaterialCents);
-  const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
+  // already builds markup into the rate. Compared against the GST-exclusive
+  // charged total (subtotal_cents, not total_cents) so margin isn't
+  // comparing a tax-inclusive figure against labour/material cost, which is
+  // always GST-exclusive.
+  const totalChargedExGstCents =
+    costingQuotes.reduce((sum, q) => sum + q.subtotal_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.subtotal_cents, 0);
+  const marginCents = totalChargedExGstCents - (totalLabourCents + totalMaterialCents);
+  const marginPercent = totalChargedExGstCents > 0 ? (marginCents / totalChargedExGstCents) * 100 : 0;
   const costingLoading = quoteLineItemsLoading || invoiceLineItemsLoading;
 
   const [noteText, setNoteText] = useState("");

@@ -144,6 +144,11 @@ export default function TasksScreen() {
     <>
       <StatusBar style="light" />
       <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.backRow}>
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Text style={styles.link}>‹ Back</Text>
+          </Pressable>
+        </View>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Tasks</Text>
           {isAdmin ? (
@@ -303,12 +308,13 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
   const mono = { fontFamily: fontFamily.mobileFontFamily };
   return {
     container: { flex: 1, backgroundColor: tokens.background },
+    backRow: { paddingHorizontal: 16, paddingTop: 12 },
     header: {
       flexDirection: "row" as const,
       justifyContent: "space-between" as const,
       alignItems: "center" as const,
       paddingHorizontal: 16,
-      paddingTop: 12,
+      paddingTop: 4,
     },
     headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
     addButton: {

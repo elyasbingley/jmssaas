@@ -6,8 +6,9 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { useAuth } from "../lib/auth-context";
 import { addJobPhoto } from "../lib/powersync";
 import { getErrorMessage } from "../lib/errors";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 import { CenteredModal } from "./CenteredModal";
-import { FormField } from "./FormField";
+import { ThemedFormField } from "./theme/ThemedFormField";
 
 // Photo Markup & Annotation Tool (mobile) - same shape set as desktop's
 // canvas-based PhotoMarkup.tsx (pen/line/arrow/rect/circle/text), but
@@ -50,6 +51,11 @@ interface TextShape {
 }
 type Shape = PenShape | LineShape | RectShape | TextShape;
 
+// These are the ink colours drawn ONTO the photo itself (pen/line/shape
+// annotations meant to stay visible against a photo, not app chrome), so
+// they're deliberately left as fixed, saturated colours rather than theme
+// tokens - retheming them would make the CRT accent color bleed into
+// saved annotated photos.
 const COLORS = ["#dc2626", "#eab308", "#16a34a", "#2563eb", "#ffffff"];
 const STROKE_WIDTHS = [3, 6, 10];
 const TOOLS: { key: Tool; label: string }[] = [
@@ -115,6 +121,7 @@ export function PhotoMarkupEditor({
   onSaved: () => void;
   onCancel: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const { profile } = useAuth();
   const shotRef = useRef<ViewShot>(null);
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -223,7 +230,7 @@ export function PhotoMarkupEditor({
         <View style={styles.widthRow}>
           {STROKE_WIDTHS.map((w) => (
             <Pressable key={w} onPress={() => setStrokeWidth(w)} style={[styles.widthDot, strokeWidth === w && styles.widthDotActive]}>
-              <View style={{ width: w, height: w, borderRadius: w / 2, backgroundColor: "#374151" }} />
+              <View style={[styles.widthDotInner, { width: w, height: w, borderRadius: w / 2 }]} />
             </Pressable>
           ))}
         </View>
@@ -259,7 +266,7 @@ export function PhotoMarkupEditor({
 
       <CenteredModal visible={textModalVisible} onClose={() => setTextModalVisible(false)}>
         <Text style={styles.modalTitle}>Add text</Text>
-        <FormField label="Text" placeholder="e.g. Damaged tile" value={textInput} onChangeText={setTextInput} autoFocus />
+        <ThemedFormField label="Text" placeholder="e.g. Damaged tile" value={textInput} onChangeText={setTextInput} autoFocus />
         <View style={styles.modalActions}>
           <Pressable onPress={() => setTextModalVisible(false)}>
             <Text style={styles.actionLink}>Cancel</Text>
@@ -273,30 +280,34 @@ export function PhotoMarkupEditor({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  toolRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
-  toolChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: "#f3f4f6" },
-  toolChipActive: { backgroundColor: "#39ff6a" },
-  toolChipText: { fontSize: 12, fontWeight: "600", color: "#374151" },
-  toolChipTextActive: { color: "#0a0f0a" },
-  controlRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  colorRow: { flexDirection: "row", gap: 8 },
-  swatch: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "transparent" },
-  swatchActive: { borderColor: "#1d4ed8" },
-  widthRow: { flexDirection: "row", gap: 10 },
-  widthDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#f3f4f6" },
-  widthDotActive: { backgroundColor: "#dbeafe" },
-  canvasWrap: { width: "100%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: "#000" },
-  canvas: { flex: 1 },
-  actionRow: { flexDirection: "row", gap: 20, marginTop: 10 },
-  actionLink: { color: "#1d4ed8", fontWeight: "700" },
-  actionLinkDisabled: { color: "#d1d5db" },
-  error: { color: "#dc2626", marginTop: 8 },
-  saveButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 12 },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700", fontSize: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
-  confirmButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    container: { flex: 1 },
+    toolRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+    toolChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border },
+    toolChipActive: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    toolChipText: { fontSize: 12, fontWeight: "600", color: tokens.textMuted, ...mono },
+    toolChipTextActive: { color: tokens.background },
+    controlRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+    colorRow: { flexDirection: "row", gap: 8 },
+    swatch: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "transparent" },
+    swatchActive: { borderColor: tokens.accent },
+    widthRow: { flexDirection: "row", gap: 10 },
+    widthDot: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border },
+    widthDotActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    widthDotInner: { backgroundColor: tokens.textPrimary },
+    canvasWrap: { width: "100%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: tokens.background },
+    canvas: { flex: 1 },
+    actionRow: { flexDirection: "row", gap: 20, marginTop: 10 },
+    actionLink: { color: tokens.accent, fontWeight: "700", ...mono },
+    actionLinkDisabled: { color: tokens.textMuted },
+    error: { color: tokens.danger, marginTop: 8, ...mono },
+    saveButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 12, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    saveButtonDisabled: { opacity: 0.6 },
+    saveButtonText: { color: tokens.background, fontWeight: "700", fontSize: 16, ...mono },
+    modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4, color: tokens.accent, ...mono },
+    modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 8 },
+    confirmButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
+  });
+}

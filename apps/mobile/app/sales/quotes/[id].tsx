@@ -184,12 +184,24 @@ export default function QuoteDetailScreen() {
   // deletes+reinserts the set and recomputes subtotal/gst/total from it in
   // one transaction, instead of the old two-call delete-then-insert that
   // could leave a quote with no line items if the second call failed.
+  //
+  // Skipped once the quote is locked (accepted/declined): the line item
+  // editor is already read-only in that state (see isLocked below) so
+  // there's nothing pending to write, and re-submitting the exact same
+  // rows would trip quote_line_items_enforce_accepted_lock for no reason
+  // - that trigger exists to stop a genuine edit after the client has
+  // accepted, not to block Convert from turning the quote they accepted
+  // into an invoice. Save's own callers already only run when unlocked, so
+  // this only changes behaviour for Convert, which is reachable in any
+  // state.
   const persistQuoteAndLineItems = async () => {
     const { error: updateError } = await supabase
       .from("quotes")
       .update({ notes: notes || null, expiry_date: toDateInput(expiryDate) || null })
       .eq("id", id);
     if (updateError) throw updateError;
+
+    if (isLocked) return;
 
     const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
       p_quote_id: id,

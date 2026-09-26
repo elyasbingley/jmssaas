@@ -20,8 +20,10 @@ import { useAuth } from "../lib/auth-context";
 import { formatClientAddress } from "../lib/format";
 import { addJobPhoto } from "../lib/powersync";
 import { getErrorMessage } from "../lib/errors";
+import { useTheme } from "../lib/theme-context";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 import { CenteredModal } from "./CenteredModal";
-import { FormField } from "./FormField";
+import { ThemedFormField } from "./theme/ThemedFormField";
 
 // Embeddable Roof Area Tool for the Quote Tools tab - same drawing/save
 // logic as the old standalone /sales/jobs/measure route, restructured so
@@ -36,6 +38,10 @@ interface DraftFacet {
   finished: boolean;
 }
 
+// These are the colours drawn ON the satellite map to distinguish each
+// roof facet - overlay "ink", not app chrome - so they're deliberately
+// left as fixed, saturated colours rather than theme tokens (see
+// PhotoMarkupEditor's COLORS for the same reasoning).
 const FACET_COLORS = ["#1d4ed8", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 
 const DEFAULT_REGION: Region = { latitude: -33.8688, longitude: 151.2093, latitudeDelta: 0.01, longitudeDelta: 0.01 };
@@ -46,6 +52,8 @@ function toLatLng(coordinate: Coordinate) {
 }
 
 export function MeasureRoofTool({ jobCardId }: { jobCardId: string }) {
+  const styles = useThemedStyles(createStyles);
+  const { tokens } = useTheme();
   const powersync = usePowerSync();
   const { profile } = useAuth();
   const mapRef = useRef<MapView>(null);
@@ -346,7 +354,7 @@ export function MeasureRoofTool({ jobCardId }: { jobCardId: string }) {
 
       {locating || !region ? (
         <View style={styles.center}>
-          <ActivityIndicator />
+          <ActivityIndicator color={tokens.accent} />
           <Text style={styles.empty}>Locating job address...</Text>
         </View>
       ) : (
@@ -443,7 +451,7 @@ export function MeasureRoofTool({ jobCardId }: { jobCardId: string }) {
 
       <CenteredModal visible={renamingFacetId !== null} onClose={() => setRenamingFacetId(null)}>
         <Text style={styles.modalTitle}>Rename facet</Text>
-        <FormField label="Name" placeholder="e.g. Main House Roof" value={renameValue} onChangeText={setRenameValue} />
+        <ThemedFormField label="Name" placeholder="e.g. Main House Roof" value={renameValue} onChangeText={setRenameValue} />
         <View style={styles.modalActions}>
           <Pressable onPress={() => setRenamingFacetId(null)}>
             <Text style={styles.link}>Cancel</Text>
@@ -457,79 +465,83 @@ export function MeasureRoofTool({ jobCardId }: { jobCardId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 24 },
-  empty: { color: "#6b7280" },
-  subtitle: { color: "#6b7280", fontSize: 13, marginTop: 4 },
-  measureButton: {
-    backgroundColor: "#39ff6a",
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  measureButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  measurementRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e5e7eb",
-    paddingTop: 8,
-  },
-  measurementTitle: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  measurementDate: { fontSize: 12, color: "#6b7280" },
-  measurementArea: { fontSize: 14, color: "#374151", textAlign: "right" },
-  measurementAreaSub: { fontSize: 11, color: "#9ca3af", textAlign: "right" },
-  totalsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-    marginBottom: 8,
-  },
-  totalsLabel: { fontSize: 12, color: "#6b7280", textAlign: "center" },
-  totalsValue: { fontSize: 18, fontWeight: "700", color: "#111827", textAlign: "center" },
-  totalsValueBold: { color: "#1d4ed8" },
-  map: { height: 300, borderRadius: 8 },
-  hint: { textAlign: "center", color: "#6b7280", fontSize: 12, paddingVertical: 6, paddingHorizontal: 12 },
-  drawer: { maxHeight: 220 },
-  drawerContent: { paddingVertical: 8, gap: 8 },
-  facetRow: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, gap: 6 },
-  facetRowActive: { backgroundColor: "#eef2ff" },
-  facetRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  facetNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
-  swatch: { width: 12, height: 12, borderRadius: 6 },
-  facetName: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  drawingBadge: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  deleteLink: { color: "#dc2626", fontWeight: "600" },
-  facetRowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  pitchControl: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pitchLabel: { fontSize: 12, color: "#6b7280" },
-  stepperButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#39ff6a",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperButtonText: { color: "#0a0f0a", fontWeight: "800", fontSize: 15, lineHeight: 17 },
-  pitchValue: { fontSize: 14, fontWeight: "700", color: "#111827", minWidth: 32, textAlign: "center" },
-  facetAreas: { fontSize: 12, color: "#374151" },
-  activeFacetActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  newFacetButton: { backgroundColor: "#39ff6a", borderRadius: 8, padding: 12, alignItems: "center" },
-  newFacetButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  saveButton: { backgroundColor: "#39ff6a", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 10 },
-  saveButtonDisabled: { backgroundColor: "#9fe8b8" },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700", fontSize: 16 },
-  error: { color: "#dc2626", textAlign: "center", marginTop: 6 },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  linkDisabled: { color: "#9ca3af" },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
-  button: { backgroundColor: "#39ff6a", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  buttonText: { color: "#0a0f0a", fontWeight: "600" },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    center: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 24 },
+    empty: { color: tokens.textMuted, ...mono },
+    subtitle: { color: tokens.textMuted, fontSize: 13, marginTop: 4, ...mono },
+    measureButton: {
+      backgroundColor: tokens.accent,
+      borderRadius: 8,
+      paddingVertical: 12,
+      alignItems: "center",
+      marginBottom: 10,
+      boxShadow: `0 0 12px ${tokens.accentGlow}`,
+    },
+    measureButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    measurementRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: tokens.border,
+      paddingTop: 8,
+    },
+    measurementTitle: { fontSize: 14, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    measurementDate: { fontSize: 12, color: tokens.textMuted, ...mono },
+    measurementArea: { fontSize: 14, color: tokens.textPrimary, textAlign: "right", ...mono },
+    measurementAreaSub: { fontSize: 11, color: tokens.textMuted, textAlign: "right", ...mono },
+    totalsHeader: {
+      flexDirection: "row",
+      justifyContent: "space-around",
+      alignItems: "center",
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: tokens.border,
+      marginBottom: 8,
+    },
+    totalsLabel: { fontSize: 12, color: tokens.textMuted, textAlign: "center", ...mono },
+    totalsValue: { fontSize: 18, fontWeight: "700", color: tokens.textPrimary, textAlign: "center", ...mono },
+    totalsValueBold: { color: tokens.accent },
+    map: { height: 300, borderRadius: 8 },
+    hint: { textAlign: "center", color: tokens.textMuted, fontSize: 12, paddingVertical: 6, paddingHorizontal: 12, ...mono },
+    drawer: { maxHeight: 220 },
+    drawerContent: { paddingVertical: 8, gap: 8 },
+    facetRow: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 10, gap: 6 },
+    facetRowActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    facetRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    facetNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+    swatch: { width: 12, height: 12, borderRadius: 6 },
+    facetName: { fontSize: 15, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    drawingBadge: { fontSize: 11, fontWeight: "700", color: tokens.accent, ...mono },
+    deleteLink: { color: tokens.danger, fontWeight: "600", ...mono },
+    facetRowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    pitchControl: { flexDirection: "row", alignItems: "center", gap: 8 },
+    pitchLabel: { fontSize: 12, color: tokens.textMuted, ...mono },
+    stepperButton: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: tokens.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    stepperButtonText: { color: tokens.background, fontWeight: "800", fontSize: 15, lineHeight: 17 },
+    pitchValue: { fontSize: 14, fontWeight: "700", color: tokens.textPrimary, minWidth: 32, textAlign: "center", ...mono },
+    facetAreas: { fontSize: 12, color: tokens.textPrimary, ...mono },
+    activeFacetActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+    newFacetButton: { backgroundColor: tokens.accent, borderRadius: 8, padding: 12, alignItems: "center" },
+    newFacetButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    saveButton: { backgroundColor: tokens.accent, borderRadius: 8, padding: 14, alignItems: "center", marginTop: 10, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    saveButtonDisabled: { backgroundColor: tokens.accentGlow },
+    saveButtonText: { color: tokens.background, fontWeight: "700", fontSize: 16, ...mono },
+    error: { color: tokens.danger, textAlign: "center", marginTop: 6, ...mono },
+    link: { color: tokens.accent, fontWeight: "600", ...mono },
+    linkDisabled: { color: tokens.textMuted },
+    modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4, color: tokens.accent, ...mono },
+    modalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 16 },
+    button: { backgroundColor: tokens.accent, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
+    buttonText: { color: tokens.background, fontWeight: "600", ...mono },
+  });
+}

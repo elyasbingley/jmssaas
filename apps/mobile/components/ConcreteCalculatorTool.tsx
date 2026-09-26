@@ -4,7 +4,8 @@ import { createJobConcreteCalculationSchema, type JobConcreteCalculation } from 
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField } from "./FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedFormField } from "./theme/ThemedFormField";
 
 // Concrete Volume Calculator (mobile) - same Volume = L x W x D x
 // (1 + waste%), bags = volume x 108 formula as desktop's
@@ -25,6 +26,7 @@ async function fetchCalculations(jobCardId: string): Promise<JobConcreteCalculat
 }
 
 export function ConcreteCalculatorTool({ jobCardId }: { jobCardId: string }) {
+  const styles = useThemedStyles(createStyles);
   const { profile } = useAuth();
   const [calculations, setCalculations] = useState<JobConcreteCalculation[]>([]);
 
@@ -115,21 +117,21 @@ export function ConcreteCalculatorTool({ jobCardId }: { jobCardId: string }) {
 
   return (
     <View>
-      <FormField label="Calculation name" placeholder='e.g. "Driveway Pour"' value={name} onChangeText={setName} />
+      <ThemedFormField label="Calculation name" placeholder='e.g. "Driveway Pour"' value={name} onChangeText={setName} />
       <View style={styles.dimensionsRow}>
         <View style={styles.dimensionField}>
-          <FormField label="Length (m)" keyboardType="decimal-pad" value={length} onChangeText={setLength} />
+          <ThemedFormField label="Length (m)" keyboardType="decimal-pad" value={length} onChangeText={setLength} />
         </View>
         <View style={styles.dimensionField}>
-          <FormField label="Width (m)" keyboardType="decimal-pad" value={width} onChangeText={setWidth} />
+          <ThemedFormField label="Width (m)" keyboardType="decimal-pad" value={width} onChangeText={setWidth} />
         </View>
       </View>
       <View style={styles.dimensionsRow}>
         <View style={styles.dimensionField}>
-          <FormField label="Depth (m)" placeholder="e.g. 0.1 for 100mm" keyboardType="decimal-pad" value={depth} onChangeText={setDepth} />
+          <ThemedFormField label="Depth (m)" placeholder="e.g. 0.1 for 100mm" keyboardType="decimal-pad" value={depth} onChangeText={setDepth} />
         </View>
         <View style={styles.dimensionField}>
-          <FormField label="Waste %" keyboardType="decimal-pad" value={waste} onChangeText={setWaste} />
+          <ThemedFormField label="Waste %" keyboardType="decimal-pad" value={waste} onChangeText={setWaste} />
         </View>
       </View>
 
@@ -170,21 +172,24 @@ export function ConcreteCalculatorTool({ jobCardId }: { jobCardId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  dimensionsRow: { flexDirection: "row", gap: 12, marginTop: 8 },
-  dimensionField: { flex: 1 },
-  resultsRow: { flexDirection: "row", gap: 12, marginTop: 16 },
-  resultBox: { flex: 1, backgroundColor: "#f9fafb", borderRadius: 10, padding: 14, alignItems: "center" },
-  resultLabel: { fontSize: 11, textTransform: "uppercase", color: "#6b7280" },
-  resultValue: { fontSize: 22, fontWeight: "700", color: "#111827", marginTop: 4 },
-  resultValueAccent: { color: "#1d4ed8" },
-  saveButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16 },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700", fontSize: 15 },
-  error: { color: "#dc2626", marginTop: 10 },
-  pastList: { marginTop: 20, gap: 6 },
-  pastHeading: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", color: "#6b7280", marginBottom: 4 },
-  pastRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 10, padding: 10 },
-  pastName: { fontSize: 14, fontWeight: "600", color: "#111827" },
-  pastValue: { fontSize: 13, color: "#374151" },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    dimensionsRow: { flexDirection: "row", gap: 12, marginTop: 8 },
+    dimensionField: { flex: 1 },
+    resultsRow: { flexDirection: "row", gap: 12, marginTop: 16 },
+    resultBox: { flex: 1, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 14, alignItems: "center" },
+    resultLabel: { fontSize: 11, textTransform: "uppercase", color: tokens.textMuted, ...mono },
+    resultValue: { fontSize: 22, fontWeight: "700", color: tokens.textPrimary, marginTop: 4, ...mono },
+    resultValueAccent: { color: tokens.accent },
+    saveButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    saveButtonDisabled: { opacity: 0.6 },
+    saveButtonText: { color: tokens.background, fontWeight: "700", fontSize: 15, ...mono },
+    error: { color: tokens.danger, marginTop: 10, ...mono },
+    pastList: { marginTop: 20, gap: 6 },
+    pastHeading: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", color: tokens.textMuted, marginBottom: 4, ...mono },
+    pastRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 10, backgroundColor: tokens.surface },
+    pastName: { fontSize: 14, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    pastValue: { fontSize: 13, color: tokens.textPrimary, ...mono },
+  });
+}

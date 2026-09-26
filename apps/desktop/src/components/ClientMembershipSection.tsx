@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ClientMembership, MembershipBenefitType, MembershipBenefitUsage, MembershipStatus } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
+import { ThemedPanel } from "./theme/ThemedPanel";
+import { ThemedButton } from "./theme/ThemedButton";
 
 // Client detail page's Membership section - enrol (via Stripe Checkout),
 // view the current membership's status/benefit usage, and see enrollment
@@ -17,11 +19,11 @@ const STATUS_LABELS: Record<MembershipStatus, string> = {
   expired: "Expired",
 };
 
-const STATUS_CLASSES: Record<MembershipStatus, string> = {
-  active: "bg-green-100 text-green-700",
-  past_due: "bg-amber-100 text-amber-700",
-  cancelled: "bg-gray-100 text-gray-600",
-  expired: "bg-gray-100 text-gray-600",
+const STATUS_COLOR_VAR: Record<MembershipStatus, string> = {
+  active: "var(--jms-accent)",
+  past_due: "var(--jms-warning)",
+  cancelled: "var(--jms-text-muted)",
+  expired: "var(--jms-text-muted)",
 };
 
 const BENEFIT_LABELS: Record<MembershipBenefitType, string> = {
@@ -117,79 +119,109 @@ export function ClientMembershipSection({ clientId }: { clientId: string }) {
   });
 
   return (
-    <div className="mt-6 rounded-lg border border-gray-300 bg-white p-6">
-      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Membership</h2>
-
+    <ThemedPanel title="Membership" className="mt-6">
       {active ? (
         <div>
           <div className="mb-3 flex items-center justify-between">
-            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_CLASSES[active.status]}`}>
+            <span
+              className="inline-block whitespace-nowrap rounded border px-2 py-0.5 uppercase tracking-wide"
+              style={{ borderColor: STATUS_COLOR_VAR[active.status], color: STATUS_COLOR_VAR[active.status], fontSize: "var(--jms-font-label)" }}
+            >
               {STATUS_LABELS[active.status]}
             </span>
             {active.current_period_end ? (
-              <span className="text-sm text-gray-500">
+              <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
                 Renews {new Date(active.current_period_end).toLocaleDateString("en-AU")}
               </span>
             ) : null}
           </div>
 
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Benefit usage this period</h3>
+          <h3 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Benefit usage this period
+          </h3>
           {!benefitUsage || benefitUsage.length === 0 ? (
-            <p className="mb-3 text-sm text-gray-500">No included benefits used yet this period.</p>
+            <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              No included benefits used yet this period.
+            </p>
           ) : (
             <div className="mb-3 space-y-1">
               {benefitUsage.map((u) => (
-                <div key={u.id} className="flex items-center justify-between rounded border border-gray-200 px-3 py-1.5 text-sm">
-                  <span className="text-gray-900">{BENEFIT_LABELS[u.benefit_type]}</span>
-                  <span className="text-gray-500">{new Date(u.used_at).toLocaleDateString("en-AU")}</span>
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between rounded border px-3 py-1.5"
+                  style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+                >
+                  <span style={{ color: "var(--jms-text)" }}>{BENEFIT_LABELS[u.benefit_type]}</span>
+                  <span style={{ color: "var(--jms-text-muted)" }}>{new Date(u.used_at).toLocaleDateString("en-AU")}</span>
                 </div>
               ))}
             </div>
           )}
 
-          {cancelError ? <p className="mb-2 text-sm text-red-600">{cancelError}</p> : null}
-          <button
-            onClick={() => cancelMembership.mutate()}
-            disabled={cancelMembership.isPending}
-            className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
-          >
+          {cancelError ? (
+            <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {cancelError}
+            </p>
+          ) : null}
+          <ThemedButton variant="danger" onClick={() => cancelMembership.mutate()} disabled={cancelMembership.isPending}>
             {cancelMembership.isPending ? "Cancelling..." : "Cancel membership"}
-          </button>
+          </ThemedButton>
         </div>
       ) : (
         <div>
-          <p className="mb-3 text-sm text-gray-500">This client isn't a member yet.</p>
+          <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            This client isn't a member yet.
+          </p>
           {checkoutUrl ? (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
-              <p className="mb-2 text-sm text-gray-700">Send this link to the client to complete enrollment:</p>
+            <div className="rounded-md border p-3" style={{ borderColor: "var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+              <p className="mb-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+                Send this link to the client to complete enrollment:
+              </p>
               <div className="flex items-center gap-2">
-                <input readOnly value={checkoutUrl} className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700" />
-                <button onClick={copyCheckoutUrl} className="flex-shrink-0 rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800">
+                <input
+                  readOnly
+                  value={checkoutUrl}
+                  className="min-w-0 flex-1 rounded border px-2 py-1"
+                  style={{
+                    borderColor: "var(--jms-border)",
+                    backgroundColor: "var(--jms-surface)",
+                    color: "var(--jms-text)",
+                    fontSize: "var(--jms-font-label)",
+                  }}
+                />
+                <ThemedButton variant="secondary" onClick={copyCheckoutUrl} className="flex-shrink-0" style={{ paddingBlock: 6, paddingInline: 12 }}>
                   {copied ? "Copied" : "Copy"}
-                </button>
+                </ThemedButton>
               </div>
             </div>
           ) : (
-            <button
-              onClick={handleEnrol}
-              disabled={enrolling}
-              className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-            >
+            <ThemedButton onClick={handleEnrol} disabled={enrolling}>
               {enrolling ? "Creating link..." : "Enrol in Membership"}
-            </button>
+            </ThemedButton>
           )}
-          {enrolError ? <p className="mt-2 text-sm text-red-600">{enrolError}</p> : null}
+          {enrolError ? (
+            <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+              {enrolError}
+            </p>
+          ) : null}
         </div>
       )}
 
       {past.length > 0 ? (
-        <div className="mt-4 border-t border-gray-200 pt-3">
-          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Past memberships</h3>
+        <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
+          <h3 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Past memberships
+          </h3>
           <div className="space-y-1">
             {past.map((m) => (
-              <div key={m.id} className="flex items-center justify-between text-sm">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_CLASSES[m.status]}`}>{STATUS_LABELS[m.status]}</span>
-                <span className="text-gray-500">
+              <div key={m.id} className="flex items-center justify-between" style={{ fontSize: "var(--jms-font-body)" }}>
+                <span
+                  className="inline-block whitespace-nowrap rounded border px-2 py-0.5 uppercase tracking-wide"
+                  style={{ borderColor: STATUS_COLOR_VAR[m.status], color: STATUS_COLOR_VAR[m.status], fontSize: "var(--jms-font-label)" }}
+                >
+                  {STATUS_LABELS[m.status]}
+                </span>
+                <span style={{ color: "var(--jms-text-muted)" }}>
                   {new Date(m.started_at).toLocaleDateString("en-AU")}
                   {m.cancelled_at ? ` - ${new Date(m.cancelled_at).toLocaleDateString("en-AU")}` : ""}
                 </span>
@@ -198,6 +230,6 @@ export function ClientMembershipSection({ clientId }: { clientId: string }) {
           </div>
         </div>
       ) : null}
-    </div>
+    </ThemedPanel>
   );
 }

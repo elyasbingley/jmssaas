@@ -5,7 +5,8 @@ import { createJobMaterialTallySchema, type MaterialTallyItem } from "@jmssaas/s
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { FormField } from "./FormField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedFormField } from "./theme/ThemedFormField";
 
 // On-Site Material Tally Engine (mobile) - same walkthrough-counter idea
 // as desktop's MaterialTally.tsx, native touch version: large 44px +/-
@@ -20,6 +21,7 @@ export function MaterialTallyCounter({
   jobCardId: string;
   onTransferToOrder?: (items: MaterialTallyItem[]) => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const { profile } = useAuth();
   const [tallyName, setTallyName] = useState("");
   const [items, setItems] = useState<MaterialTallyItem[]>([]);
@@ -80,12 +82,13 @@ export function MaterialTallyCounter({
 
   return (
     <View>
-      <FormField label="Tally name (optional)" placeholder='e.g. "Ground Floor Walkthrough"' value={tallyName} onChangeText={setTallyName} />
+      <ThemedFormField label="Tally name (optional)" placeholder='e.g. "Ground Floor Walkthrough"' value={tallyName} onChangeText={setTallyName} />
 
       <View style={styles.addRow}>
         <TextInput
           style={styles.addInput}
           placeholder="+ Material name..."
+          placeholderTextColor={styles.placeholder.color}
           value={newItemName}
           onChangeText={setNewItemName}
           onSubmitEditing={handleAddItem}
@@ -138,26 +141,30 @@ export function MaterialTallyCounter({
   );
 }
 
-const styles = StyleSheet.create({
-  addRow: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 12 },
-  addInput: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  addButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingHorizontal: 18, justifyContent: "center" },
-  addButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  empty: { color: "#6b7280", fontSize: 14 },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
-  itemName: { flex: 1, fontSize: 15, fontWeight: "600", color: "#111827" },
-  stepper: { flexDirection: "row", alignItems: "center", gap: 8 },
-  stepperButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#f3f4f6", alignItems: "center", justifyContent: "center" },
-  stepperButtonPlus: { backgroundColor: "#39ff6a" },
-  stepperButtonText: { fontSize: 20, fontWeight: "800", color: "#374151" },
-  stepperButtonTextPlus: { fontSize: 20, fontWeight: "800", color: "#0a0f0a" },
-  stepperCount: { width: 28, textAlign: "center", fontSize: 16, fontWeight: "700", color: "#111827" },
-  deleteLink: { color: "#dc2626", fontWeight: "600", fontSize: 13 },
-  error: { color: "#dc2626", marginTop: 10 },
-  success: { color: "#15803d", marginTop: 10 },
-  saveButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16 },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700", fontSize: 16 },
-  transferButton: { borderWidth: 1, borderColor: "#16a34a", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 10 },
-  transferButtonText: { color: "#16a34a", fontWeight: "700", fontSize: 15 },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    addRow: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 12 },
+    addInput: { flex: 1, borderWidth: 1, borderColor: tokens.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: tokens.textPrimary, backgroundColor: tokens.background, ...mono },
+    placeholder: { color: tokens.textMuted },
+    addButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingHorizontal: 18, justifyContent: "center" },
+    addButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    empty: { color: tokens.textMuted, fontSize: 14, ...mono },
+    itemRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    itemName: { flex: 1, fontSize: 15, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    stepper: { flexDirection: "row", alignItems: "center", gap: 8 },
+    stepperButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: tokens.border, alignItems: "center", justifyContent: "center" },
+    stepperButtonPlus: { backgroundColor: tokens.accent },
+    stepperButtonText: { fontSize: 20, fontWeight: "800", color: tokens.textPrimary, ...mono },
+    stepperButtonTextPlus: { fontSize: 20, fontWeight: "800", color: tokens.background, ...mono },
+    stepperCount: { width: 28, textAlign: "center", fontSize: 16, fontWeight: "700", color: tokens.textPrimary, ...mono },
+    deleteLink: { color: tokens.danger, fontWeight: "600", fontSize: 13, ...mono },
+    error: { color: tokens.danger, marginTop: 10, ...mono },
+    success: { color: tokens.accent, marginTop: 10, ...mono },
+    saveButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    saveButtonDisabled: { opacity: 0.6 },
+    saveButtonText: { color: tokens.background, fontWeight: "700", fontSize: 16, ...mono },
+    transferButton: { borderWidth: 1, borderColor: tokens.accent, borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 10 },
+    transferButtonText: { color: tokens.accent, fontWeight: "700", fontSize: 15, ...mono },
+  });
+}

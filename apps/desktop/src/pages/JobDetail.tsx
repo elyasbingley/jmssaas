@@ -935,18 +935,35 @@ export default function JobDetailPage() {
     freeText: [job.description, ...(notes ?? []).map((n) => n.body)],
   });
 
-  // Per-job costing breakdown - same math/caveats as JobCosting.tsx's
-  // cross-job report (GST-inclusive charged vs. GST-exclusive cost, and a
-  // converted quote+invoice pair double-counting since both stay linked to
-  // the job), just scoped to this one job instead of every job at once.
-  const allCostingLineItems = [...(quoteLineItems ?? []), ...(invoiceLineItems ?? [])];
+  // Per-job costing breakdown - same math as JobCosting.tsx's cross-job
+  // report, just scoped to this one job instead of every job at once. A
+  // quote that's since been converted to an invoice (invoices.quote_id
+  // points back at it) stays linked to the job as BOTH rows, so summing
+  // every linked quote and every linked invoice would double count its
+  // labour/material/charged - the invoice wins once converted. A void
+  // invoice never actually billed anything, so it's dropped too, same
+  // convention Analytics.tsx's own revenue calc uses.
+  const convertedQuoteIds = new Set((linkedInvoices ?? []).map((inv) => inv.quote_id).filter((qid): qid is string => qid != null));
+  const costingQuotes = (linkedQuotes ?? []).filter((q) => !convertedQuoteIds.has(q.id));
+  const costingInvoices = (linkedInvoices ?? []).filter((inv) => inv.status !== "void");
+  const costingQuoteIds = new Set(costingQuotes.map((q) => q.id));
+  const costingInvoiceIds = new Set(costingInvoices.map((inv) => inv.id));
+
+  const allCostingLineItems = [
+    ...(quoteLineItems ?? []).filter((item) => costingQuoteIds.has(item.quote_id)),
+    ...(invoiceLineItems ?? []).filter((item) => costingInvoiceIds.has(item.invoice_id)),
+  ];
   const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
+  // GST-inclusive - what was actually billed. Used for display and for the
+  // NTE guardrail below (an NTE limit is authorised as a real, tax-inclusive
+  // dollar figure), not for margin - see totalChargedExGstCents for that.
   const totalChargedCents =
-    (linkedQuotes ?? []).reduce((sum, q) => sum + q.total_cents, 0) +
-    (linkedInvoices ?? []).reduce((sum, inv) => sum + inv.total_cents, 0);
-  const marginCents = totalChargedCents - (totalLabourCents + totalMaterialCents);
-  const marginPercent = totalChargedCents > 0 ? (marginCents / totalChargedCents) * 100 : 0;
+    costingQuotes.reduce((sum, q) => sum + q.total_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.total_cents, 0);
+  const totalChargedExGstCents =
+    costingQuotes.reduce((sum, q) => sum + q.subtotal_cents, 0) + costingInvoices.reduce((sum, inv) => sum + inv.subtotal_cents, 0);
+  const marginCents = totalChargedExGstCents - (totalLabourCents + totalMaterialCents);
+  const marginPercent = totalChargedExGstCents > 0 ? (marginCents / totalChargedExGstCents) * 100 : 0;
   const hasCostingDocs = (linkedQuotes ?? []).length > 0 || (linkedInvoices ?? []).length > 0;
 
   // Same "is this job over its NTE budget" check the mobile app's
@@ -1673,9 +1690,9 @@ export default function JobDetailPage() {
                 </div>
               </div>
               <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-                Margin treats total charged (GST-inclusive) minus labour/material cost (GST-exclusive) - a small
-                overstatement of true margin. A quote converted to an invoice stays linked to the job as both and is
-                summed twice here, same as the cross-job{" "}
+                Charged above is GST-inclusive (what was actually billed); Margin is computed from the GST-exclusive
+                equivalent instead, so it compares like with like against labour/material cost. A quote converted to
+                an invoice, or a voided invoice, is only counted once, same as the cross-job{" "}
                 <Link to="/job-costing" className="underline">
                   Job Costing
                 </Link>{" "}

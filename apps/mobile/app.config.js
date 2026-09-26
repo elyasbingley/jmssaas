@@ -57,9 +57,23 @@ module.exports = {
       bundler: "metro",
       output: "single",
     },
+    // Ties this app to its EAS Update branch/channel setup below -
+    // "appVersion" means any two builds sharing the `version` field above
+    // are considered update-compatible, so a JS-only OTA update (like an
+    // EXPO_PUBLIC_/.env-only change) can reach every installed build on
+    // that version without a new native build. A future change that adds
+    // or upgrades a native module still needs a full `eas build` (bumping
+    // `version` if you want to force a clean split from older installs).
+    runtimeVersion: {
+      policy: "appVersion",
+    },
+    updates: {
+      url: "https://u.expo.dev/71ee6d2f-cd5f-48b9-b557-5c96fd1d50b0",
+    },
     plugins: [
       "expo-router",
       "expo-dev-client",
+      "expo-updates",
       "./plugins/withOnUserLeaveHintFix.js",
       [
         "expo-image-picker",

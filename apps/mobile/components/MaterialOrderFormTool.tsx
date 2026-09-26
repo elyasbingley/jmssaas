@@ -19,8 +19,9 @@ import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { exportPdf } from "../lib/print";
 import { buildMaterialOrderPdfHtml } from "../lib/material-order-pdf";
-import { FormField } from "./FormField";
-import { DateField } from "./DateField";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
+import { ThemedFormField } from "./theme/ThemedFormField";
+import { ThemedDateField } from "./theme/ThemedDateField";
 import { EmailComposeModal } from "./EmailComposeModal";
 
 const STATUS_OPTIONS: MaterialOrderStatus[] = ["DRAFT", "ORDERED", "DELIVERED", "CANCELLED"];
@@ -73,6 +74,7 @@ export function MaterialOrderFormTool({
   prefillItems: MaterialTallyItem[] | null;
   onConsumedPrefill: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const { profile } = useAuth();
   const [orders, setOrders] = useState<JobMaterialOrder[]>([]);
   const [job, setJob] = useState<JobCard | null>(null);
@@ -221,9 +223,9 @@ export function MaterialOrderFormTool({
 
   return (
     <View>
-      <FormField label="Supplier (optional)" placeholder='e.g. "Bunnings"' value={supplierName} onChangeText={setSupplierName} />
+      <ThemedFormField label="Supplier (optional)" placeholder='e.g. "Bunnings"' value={supplierName} onChangeText={setSupplierName} />
       <View style={{ marginTop: 8 }}>
-        <DateField label="Delivery date (optional)" value={deliveryDate} onChange={setDeliveryDate} />
+        <ThemedDateField label="Delivery date (optional)" value={deliveryDate} onChange={setDeliveryDate} />
       </View>
 
       <Text style={styles.sectionLabel}>Status</Text>
@@ -237,9 +239,9 @@ export function MaterialOrderFormTool({
 
       <Text style={styles.sectionLabel}>Add item</Text>
       <View style={styles.addRow}>
-        <TextInput style={[styles.addInput, { flex: 2 }]} placeholder="Item name" value={newItemName} onChangeText={setNewItemName} />
-        <TextInput style={[styles.addInput, { flex: 1 }]} placeholder="Qty" keyboardType="numeric" value={newItemQty} onChangeText={setNewItemQty} />
-        <TextInput style={[styles.addInput, { flex: 1 }]} placeholder="Unit" value={newItemUnit} onChangeText={setNewItemUnit} />
+        <TextInput style={[styles.addInput, { flex: 2 }]} placeholder="Item name" placeholderTextColor={styles.placeholder.color} value={newItemName} onChangeText={setNewItemName} />
+        <TextInput style={[styles.addInput, { flex: 1 }]} placeholder="Qty" placeholderTextColor={styles.placeholder.color} keyboardType="numeric" value={newItemQty} onChangeText={setNewItemQty} />
+        <TextInput style={[styles.addInput, { flex: 1 }]} placeholder="Unit" placeholderTextColor={styles.placeholder.color} value={newItemUnit} onChangeText={setNewItemUnit} />
       </View>
       <Pressable style={[styles.addButton, !newItemName.trim() && styles.addButtonDisabled]} onPress={handleAddItem} disabled={!newItemName.trim()}>
         <Text style={styles.addButtonText}>+ Add</Text>
@@ -314,34 +316,38 @@ export function MaterialOrderFormTool({
   );
 }
 
-const styles = StyleSheet.create({
-  sectionLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginTop: 14, marginBottom: 6 },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#f3f4f6" },
-  statusChipActive: { backgroundColor: "#39ff6a" },
-  statusChipText: { color: "#374151", fontWeight: "600", fontSize: 13 },
-  statusChipTextActive: { color: "#0a0f0a" },
-  addRow: { flexDirection: "row", gap: 8 },
-  addInput: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, fontSize: 14 },
-  addButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 10, alignItems: "center", marginTop: 8 },
-  addButtonDisabled: { opacity: 0.6 },
-  addButtonText: { color: "#0a0f0a", fontWeight: "700" },
-  subtitle: { color: "#6b7280", fontSize: 13, marginTop: 10 },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
-  itemName: { flex: 2, fontSize: 14, fontWeight: "600", color: "#111827" },
-  itemQty: { flex: 1, fontSize: 13, color: "#374151" },
-  deleteLink: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
-  error: { color: "#dc2626", marginTop: 10 },
-  saveButton: { backgroundColor: "#39ff6a", borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16 },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#0a0f0a", fontWeight: "700", fontSize: 15 },
-  pastList: { marginTop: 20, gap: 8 },
-  pastHeading: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", color: "#6b7280", marginBottom: 4 },
-  orderCard: { backgroundColor: "#f9fafb", borderRadius: 10, padding: 10, gap: 4 },
-  orderCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  orderNumber: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  orderStatus: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  orderMeta: { fontSize: 12, color: "#6b7280" },
-  orderActions: { flexDirection: "row", gap: 16, marginTop: 4 },
-  link: { color: "#1d4ed8", fontWeight: "600", fontSize: 12 },
-});
+function createStyles({ tokens, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    sectionLabel: { fontSize: 13, fontWeight: "600", color: tokens.textMuted, marginTop: 14, marginBottom: 6, ...mono },
+    statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    statusChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border },
+    statusChipActive: { backgroundColor: tokens.accent, borderColor: tokens.accent },
+    statusChipText: { color: tokens.textMuted, fontWeight: "600", fontSize: 13, ...mono },
+    statusChipTextActive: { color: tokens.background },
+    addRow: { flexDirection: "row", gap: 8 },
+    addInput: { borderWidth: 1, borderColor: tokens.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, fontSize: 14, color: tokens.textPrimary, backgroundColor: tokens.background, ...mono },
+    placeholder: { color: tokens.textMuted },
+    addButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 10, alignItems: "center", marginTop: 8 },
+    addButtonDisabled: { opacity: 0.6 },
+    addButtonText: { color: tokens.background, fontWeight: "700", ...mono },
+    subtitle: { color: tokens.textMuted, fontSize: 13, marginTop: 10, ...mono },
+    itemRow: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: tokens.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+    itemName: { flex: 2, fontSize: 14, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    itemQty: { flex: 1, fontSize: 13, color: tokens.textPrimary, ...mono },
+    deleteLink: { color: tokens.danger, fontWeight: "600", fontSize: 12, ...mono },
+    error: { color: tokens.danger, marginTop: 10, ...mono },
+    saveButton: { backgroundColor: tokens.accent, borderRadius: 8, paddingVertical: 14, alignItems: "center", marginTop: 16, boxShadow: `0 0 12px ${tokens.accentGlow}` },
+    saveButtonDisabled: { opacity: 0.6 },
+    saveButtonText: { color: tokens.background, fontWeight: "700", fontSize: 15, ...mono },
+    pastList: { marginTop: 20, gap: 8 },
+    pastHeading: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", color: tokens.textMuted, marginBottom: 4, ...mono },
+    orderCard: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 10, gap: 4 },
+    orderCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    orderNumber: { fontSize: 14, fontWeight: "700", color: tokens.textPrimary, ...mono },
+    orderStatus: { fontSize: 12, fontWeight: "600", color: tokens.textMuted, ...mono },
+    orderMeta: { fontSize: 12, color: tokens.textMuted, ...mono },
+    orderActions: { flexDirection: "row", gap: 16, marginTop: 4 },
+    link: { color: tokens.accent, fontWeight: "600", fontSize: 12, ...mono },
+  });
+}

@@ -4,8 +4,9 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import type { EmailAttachment } from "@jmssaas/shared";
-import { FormField } from "./FormField";
-import { PickerModal } from "./PickerModal";
+import { ThemedFormField } from "./theme/ThemedFormField";
+import { ThemedPickerModal } from "./theme/ThemedPickerModal";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 export interface EmailTemplateOption {
   id: string;
@@ -73,6 +74,7 @@ export function EmailComposeModal({
   const [linkModalVisible, setLinkModalVisible] = useState(false);
   const [linkText, setLinkText] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
+  const styles = useThemedStyles(createStyles);
 
   useEffect(() => {
     if (visible) {
@@ -227,7 +229,7 @@ export function EmailComposeModal({
             </View>
           ) : null}
 
-          <FormField label="To" placeholder="name@example.com" value={to} onChangeText={setTo} autoCapitalize="none" keyboardType="email-address" />
+          <ThemedFormField label="To" placeholder="name@example.com" value={to} onChangeText={setTo} autoCapitalize="none" keyboardType="email-address" />
           {recipientOptions.length > 0 ? (
             <View style={styles.chipsRow}>
               {recipientOptions.map((email) => (
@@ -245,7 +247,7 @@ export function EmailComposeModal({
           ) : (
             <>
               <View style={styles.fieldSpacing}>
-                <FormField label="Cc" placeholder="name@example.com, another@example.com" value={cc} onChangeText={setCc} autoCapitalize="none" />
+                <ThemedFormField label="Cc" placeholder="name@example.com, another@example.com" value={cc} onChangeText={setCc} autoCapitalize="none" />
               </View>
               {recipientOptions.length > 0 ? (
                 <View style={styles.chipsRow}>
@@ -257,7 +259,7 @@ export function EmailComposeModal({
                 </View>
               ) : null}
               <View style={styles.fieldSpacing}>
-                <FormField label="Bcc" placeholder="name@example.com" value={bcc} onChangeText={setBcc} autoCapitalize="none" />
+                <ThemedFormField label="Bcc" placeholder="name@example.com" value={bcc} onChangeText={setBcc} autoCapitalize="none" />
               </View>
               {recipientOptions.length > 0 ? (
                 <View style={styles.chipsRow}>
@@ -272,7 +274,7 @@ export function EmailComposeModal({
           )}
 
           <View style={styles.fieldSpacing}>
-            <FormField label="Subject" value={subject} onChangeText={setSubject} />
+            <ThemedFormField label="Subject" value={subject} onChangeText={setSubject} />
           </View>
 
           <View style={[styles.fieldSpacing, styles.bodyHeaderRow]}>
@@ -283,6 +285,7 @@ export function EmailComposeModal({
           </View>
           <TextInput
             style={[styles.input, styles.multiline]}
+            placeholderTextColor={styles.placeholder.color}
             value={body}
             onChangeText={setBody}
             onSelectionChange={(e) => setBodySelection(e.nativeEvent.selection)}
@@ -324,7 +327,7 @@ export function EmailComposeModal({
       </View>
 
       {templates ? (
-        <PickerModal
+        <ThemedPickerModal
           visible={templatePickerVisible}
           title="Select template"
           items={templates}
@@ -343,8 +346,8 @@ export function EmailComposeModal({
         <View style={styles.linkModalOverlay}>
           <View style={styles.linkModalCard}>
             <Text style={styles.linkModalTitle}>Insert link</Text>
-            <FormField label="Link text" placeholder="e.g. View your invoice" value={linkText} onChangeText={setLinkText} />
-            <FormField label="URL" placeholder="https://example.com" value={linkUrl} onChangeText={setLinkUrl} autoCapitalize="none" />
+            <ThemedFormField label="Link text" placeholder="e.g. View your invoice" value={linkText} onChangeText={setLinkText} />
+            <ThemedFormField label="URL" placeholder="https://example.com" value={linkUrl} onChangeText={setLinkUrl} autoCapitalize="none" />
             <View style={styles.linkModalActions}>
               <Pressable onPress={() => setLinkModalVisible(false)}>
                 <Text style={styles.link}>Cancel</Text>
@@ -360,40 +363,72 @@ export function EmailComposeModal({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#d1d5db",
-  },
-  title: { fontSize: 17, fontWeight: "700" },
-  closeText: { color: "#1d4ed8", fontWeight: "600" },
-  body: { flex: 1 },
-  fieldSpacing: { marginTop: 16 },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
-  bodyHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 0 },
-  pickerField: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
-  pickerFieldText: { fontSize: 15, color: "#111827" },
-  pickerFieldPlaceholder: { fontSize: 15, color: "#9ca3af" },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16, color: "#111827" },
-  multiline: { minHeight: 160, textAlignVertical: "top", marginTop: 6 },
-  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
-  chip: { backgroundColor: "#f3f4f6", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  chipText: { fontSize: 12, fontWeight: "600", color: "#374151" },
-  link: { color: "#1d4ed8", fontWeight: "600" },
-  attachmentActions: { flexDirection: "row", gap: 20, marginTop: 8 },
-  attachmentRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f3f4f6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
-  attachmentName: { flex: 1, fontSize: 13, color: "#374151", marginRight: 8 },
-  removeLink: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
-  error: { color: "#dc2626", marginTop: 12 },
-  sendButton: { backgroundColor: "#1d4ed8", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 12, alignItems: "center", marginTop: 16 },
-  sendButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  linkModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
-  linkModalCard: { backgroundColor: "#fff", borderRadius: 16, padding: 20, width: "100%", maxWidth: 480, gap: 4 },
-  linkModalTitle: { fontSize: 17, fontWeight: "700", marginBottom: 4 },
-  linkModalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 4 },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: tokens.background },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: tokens.border,
+    },
+    title: { fontSize: font.title, color: tokens.accent, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", ...mono },
+    closeText: { color: tokens.accent, fontWeight: "600", ...mono },
+    body: { flex: 1, backgroundColor: tokens.background },
+    fieldSpacing: { marginTop: 16 },
+    fieldLabel: { fontSize: font.label, fontWeight: "600", color: tokens.textMuted, marginBottom: 6, letterSpacing: 1, textTransform: "uppercase", ...mono },
+    bodyHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 0 },
+    pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
+    pickerFieldText: { fontSize: font.body, color: tokens.textPrimary, ...mono },
+    pickerFieldPlaceholder: { fontSize: font.body, color: tokens.textMuted, ...mono },
+    input: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, fontSize: font.body, color: tokens.textPrimary, backgroundColor: tokens.background, ...mono },
+    placeholder: { color: tokens.textMuted },
+    multiline: { minHeight: 160, textAlignVertical: "top", marginTop: 6 },
+    chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+    chip: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+    chipText: { fontSize: font.label, fontWeight: "600", color: tokens.textPrimary, ...mono },
+    link: { color: tokens.accent, fontWeight: "600", ...mono },
+    attachmentActions: { flexDirection: "row", gap: 20, marginTop: 8 },
+    attachmentRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      backgroundColor: tokens.surface,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 3,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    attachmentName: { flex: 1, fontSize: font.label, color: tokens.textPrimary, marginRight: 8, ...mono },
+    removeLink: { color: tokens.danger, fontWeight: "600", fontSize: font.label, ...mono },
+    error: { color: tokens.danger, marginTop: 12, ...mono },
+    sendButton: {
+      backgroundColor: tokens.accent,
+      borderRadius: 3,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      alignItems: "center",
+      marginTop: 16,
+      boxShadow: `0 0 12px ${tokens.accentGlow}`,
+    },
+    sendButtonText: { color: tokens.background, fontWeight: "700", fontSize: font.button, letterSpacing: 0.5, textTransform: "uppercase", ...mono },
+    linkModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", alignItems: "center", justifyContent: "center", padding: 20 },
+    linkModalCard: {
+      backgroundColor: tokens.surface,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 6,
+      padding: 20,
+      width: "100%",
+      maxWidth: 480,
+      gap: 4,
+      boxShadow: `0 0 16px ${tokens.accentGlow}`,
+    },
+    linkModalTitle: { fontSize: font.title, color: tokens.accent, fontWeight: "700", marginBottom: 4, ...mono },
+    linkModalActions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 20, marginTop: 4 },
+  });
+}

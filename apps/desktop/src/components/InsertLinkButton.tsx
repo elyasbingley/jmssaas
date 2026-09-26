@@ -1,6 +1,7 @@
 import { useState, type RefObject } from "react";
-import { Modal } from "./Modal";
-import { FormField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedFormField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 
 // Inserts an <a href="..."> tag into a plain-text body field at the
 // current cursor position (or wraps the current selection as the link
@@ -63,23 +64,26 @@ export function InsertLinkButton({
       <button
         type="button"
         onClick={openModal}
-        className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+        className="rounded border px-2 py-1 font-semibold"
+        style={{ borderColor: "var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
       >
         🔗 Insert link
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Insert link">
-        <FormField label="Link text" value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="e.g. View your invoice" />
-        <FormField label="URL" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" />
-        {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+      <ThemedModal open={open} onClose={() => setOpen(false)} title="Insert link">
+        <ThemedFormField label="Link text" value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="e.g. View your invoice" />
+        <ThemedFormField label="URL" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" />
+        {error ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setOpen(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">
+          <button onClick={() => setOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Cancel
           </button>
-          <button onClick={insertLink} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-            Insert
-          </button>
+          <ThemedButton onClick={insertLink}>Insert</ThemedButton>
         </div>
-      </Modal>
+      </ThemedModal>
     </>
   );
 }

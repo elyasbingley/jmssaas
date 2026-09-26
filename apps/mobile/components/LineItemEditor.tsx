@@ -5,6 +5,7 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
 import { supabase } from "../lib/supabase";
+import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 const LINE_ITEM_IMAGE_BUCKET = "line-item-images";
 
@@ -37,12 +38,14 @@ function DecimalInput({
   onChangeValue: (n: number) => void;
   placeholder?: string;
 }) {
+  const styles = useThemedStyles(createStyles);
   const [text, setText] = useState(() => (value === 0 ? "" : String(value)));
 
   return (
     <TextInput
       style={styles.input}
       placeholder={placeholder}
+      placeholderTextColor={styles.placeholder.color}
       keyboardType="decimal-pad"
       value={text}
       onChangeText={(next) => {
@@ -62,6 +65,7 @@ function DecimalInput({
 // margin-revealing figures the client (and, per the person's brief, anyone
 // non-admin) should never see - see LineItemSummary below for that view.
 export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, tenantId }: LineItemEditorProps) {
+  const styles = useThemedStyles(createStyles);
   const totals = calculateDocumentTotals(items);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
 
@@ -169,6 +173,7 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
           <TextInput
             style={[styles.input, styles.descriptionInput]}
             placeholder={"Description (e.g. supply and install valley channel)\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
+            placeholderTextColor={styles.placeholder.color}
             value={item.description}
             onChangeText={(text) => updateItem(index, { description: text })}
             multiline
@@ -267,6 +272,7 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
               <TextInput
                 style={styles.input}
                 placeholder="e.g. Gutter guard package"
+                placeholderTextColor={styles.placeholder.color}
                 value={item.bundle_name ?? ""}
                 onChangeText={(text) => updateItem(index, { bundle_name: text })}
               />
@@ -354,6 +360,7 @@ export function LineItemSummary({
   items: LineItemFormInput[];
   membershipDiscountCents?: number;
 }) {
+  const styles = useThemedStyles(createStyles);
   const totals = calculateDocumentTotals(items);
 
   return (
@@ -419,83 +426,96 @@ export function LineItemSummary({
   );
 }
 
-const styles = StyleSheet.create({
-  row: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
-  rowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  rowBadges: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, flexWrap: "wrap" },
-  rowNumber: { color: "#9ca3af", fontWeight: "700", fontSize: 12 },
-  calloutBadge: { backgroundColor: "#f3f4f6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  calloutBadgeText: { fontSize: 11, fontWeight: "700", color: "#4b5563" },
-  waivedBadge: { backgroundColor: "#dbeafe", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  waivedBadgeText: { fontSize: 11, fontWeight: "700", color: "#1d4ed8" },
-  subcontractedBadge: { backgroundColor: "#ffedd5", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  subcontractedBadgeText: { fontSize: 11, fontWeight: "700", color: "#c2410c" },
-  optionalBadge: { backgroundColor: "#f3e8ff", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  optionalBadgeText: { fontSize: 11, fontWeight: "700", color: "#7e22ce" },
-  bundleBadge: { backgroundColor: "#ccfbf1", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  bundleBadgeText: { fontSize: 11, fontWeight: "700", color: "#0f766e" },
-  optionalToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
-  optionalToggleActive: { backgroundColor: "#7e22ce" },
-  optionalToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
-  optionalToggleTextActive: { color: "#fff" },
-  imageSection: { gap: 6 },
-  imageButtonsRow: { flexDirection: "row", alignItems: "center", gap: 16 },
-  itemImagePreview: { width: 140, height: 90, borderRadius: 8, backgroundColor: "#f3f4f6" },
-  link: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
-  rowMoveButtons: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 12 },
-  moveButton: { paddingHorizontal: 2 },
-  moveButtonText: { fontSize: 14, fontWeight: "700", color: "#6b7280" },
-  moveButtonTextDisabled: { opacity: 0.3 },
-  removeButton: {},
-  removeButtonText: { color: "#dc2626", fontWeight: "600", fontSize: 12 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, fontSize: 15 },
-  descriptionInput: { minHeight: 90, textAlignVertical: "top" },
-  fieldGrid: { flexDirection: "row", gap: 8 },
-  fieldCell: { flex: 1, gap: 4 },
-  fieldLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  gstToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", marginTop: 18, alignItems: "center" },
-  gstToggleActive: { backgroundColor: "#111827" },
-  gstToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
-  gstToggleTextActive: { color: "#fff" },
-  subcontractedToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: "#f3f4f6", alignItems: "center" },
-  subcontractedToggleActive: { backgroundColor: "#c2410c" },
-  subcontractedToggleText: { color: "#374151", fontWeight: "700", fontSize: 12 },
-  subcontractedToggleTextActive: { color: "#fff" },
-  lineTotalRow: { flexDirection: "row", paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db" },
-  lineTotalLabel: { color: "#6b7280", fontSize: 13, flex: 1 },
-  lineTotalValue: { fontWeight: "700", fontSize: 13, flexShrink: 0 },
-  lineTotalWaivedRow: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
-  lineTotalStrikethrough: { fontSize: 12, color: "#9ca3af", textDecorationLine: "line-through" },
-  membershipDiscountLabel: { color: "#1d4ed8", flex: 1 },
-  membershipDiscountValue: { color: "#1d4ed8", flexShrink: 0, textAlign: "right" },
-  totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#d1d5db", gap: 4 },
-  // Deliberately not justifyContent: "space-between" with two auto-width
-  // Text children - that layout gives Yoga a tight target width to hit,
-  // and on Android it can resolve rounding by shaving a hair off the
-  // label's measured width, silently clipping its last character with no
-  // ellipsis ("Subtotal" -> "Subtota", "GST" -> "GS"). flexShrink: 0 alone
-  // didn't fully rule this out on every device/font-scale combination, so
-  // instead the label gets flex: 1 (it absorbs 100% of the row's leftover
-  // width after the value's own natural size, so it's never measured
-  // against a boundary it doesn't comfortably fit in) and the value keeps
-  // its natural width, right-aligned by textAlign - same visual result,
-  // structurally not the same class of bug.
-  totalsRow: { flexDirection: "row" },
-  totalsLabel: { color: "#6b7280", flex: 1 },
-  totalsValue: { color: "#111827", flexShrink: 0, textAlign: "right" },
-  totalsLabelBold: { fontWeight: "700", flex: 1 },
-  totalsValueBold: { fontWeight: "700", flexShrink: 0, textAlign: "right" },
-  summaryHeaderRow: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  summaryHeaderCell: { fontSize: 12, fontWeight: "700", color: "#6b7280" },
-  summaryBundleHeading: { marginTop: 10, paddingBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  summaryBundleHeadingText: { fontSize: 12, fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 },
-  summaryRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#d1d5db" },
-  summaryRowExcluded: { opacity: 0.5 },
-  summaryItemImage: { width: 120, height: 80, borderRadius: 8, marginBottom: 6, backgroundColor: "#f3f4f6" },
-  summaryRowMain: { flexDirection: "row" },
-  summaryCell: { fontSize: 14, color: "#111827" },
-  summaryDescCell: { flex: 3 },
-  summaryNumCell: { flex: 1, textAlign: "right" },
-  summaryOptionalLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: "#7e22ce" },
-  summaryWaivedLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: "#1d4ed8", textAlign: "right" },
-});
+function createStyles({ tokens, font, fontFamily }: StyleTheme) {
+  const mono = { fontFamily: fontFamily.mobileFontFamily };
+  return {
+    row: { borderWidth: 1, borderColor: tokens.border, borderRadius: 10, padding: 12, marginBottom: 10, gap: 8, backgroundColor: tokens.surface },
+    rowHeader: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
+    rowBadges: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, flexShrink: 1, flexWrap: "wrap" as const },
+    rowNumber: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
+    calloutBadge: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    calloutBadgeText: { fontSize: 11, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    waivedBadge: { backgroundColor: tokens.accentGlow, borderWidth: 1, borderColor: tokens.accent, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    waivedBadgeText: { fontSize: 11, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    subcontractedBadge: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.warning, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    subcontractedBadgeText: { fontSize: 11, fontWeight: "700" as const, color: tokens.warning, ...mono },
+    optionalBadge: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.accent, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    optionalBadgeText: { fontSize: 11, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    bundleBadge: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    bundleBadgeText: { fontSize: 11, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    optionalToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, alignItems: "center" as const },
+    optionalToggleActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    optionalToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
+    optionalToggleTextActive: { color: tokens.accent },
+    imageSection: { gap: 6 },
+    imageButtonsRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 16 },
+    itemImagePreview: { width: 140, height: 90, borderRadius: 8, backgroundColor: tokens.border },
+    link: { color: tokens.accent, fontWeight: "600" as const, fontSize: 13, ...mono },
+    rowMoveButtons: { marginLeft: "auto" as const, flexDirection: "row" as const, alignItems: "center" as const, gap: 12 },
+    moveButton: { paddingHorizontal: 2 },
+    moveButtonText: { fontSize: 14, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    moveButtonTextDisabled: { opacity: 0.3 },
+    removeButton: {},
+    removeButtonText: { color: tokens.danger, fontWeight: "600" as const, fontSize: 12, ...mono },
+    input: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 15,
+      color: tokens.textPrimary,
+      backgroundColor: tokens.background,
+      ...mono,
+    },
+    placeholder: { color: tokens.textMuted },
+    descriptionInput: { minHeight: 90, textAlignVertical: "top" as const },
+    fieldGrid: { flexDirection: "row" as const, gap: 8 },
+    fieldCell: { flex: 1, gap: 4 },
+    fieldLabel: { fontSize: 12, fontWeight: "600" as const, color: tokens.textMuted, ...mono },
+    gstToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, marginTop: 18, alignItems: "center" as const },
+    gstToggleActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    gstToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
+    gstToggleTextActive: { color: tokens.accent },
+    subcontractedToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, alignItems: "center" as const },
+    subcontractedToggleActive: { backgroundColor: tokens.warning, borderColor: tokens.warning },
+    subcontractedToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
+    subcontractedToggleTextActive: { color: tokens.background },
+    lineTotalRow: { flexDirection: "row" as const, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.border },
+    lineTotalLabel: { color: tokens.textMuted, fontSize: 13, flex: 1, ...mono },
+    lineTotalValue: { fontWeight: "700" as const, fontSize: 13, flexShrink: 0, color: tokens.textPrimary, ...mono },
+    lineTotalWaivedRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, flexShrink: 0 },
+    lineTotalStrikethrough: { fontSize: 12, color: tokens.textMuted, textDecorationLine: "line-through" as const, ...mono },
+    membershipDiscountLabel: { color: tokens.accent, flex: 1, ...mono },
+    membershipDiscountValue: { color: tokens.accent, flexShrink: 0, textAlign: "right" as const, ...mono },
+    totalsBox: { marginTop: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.border, gap: 4 },
+    // Deliberately not justifyContent: "space-between" with two auto-width
+    // Text children - that layout gives Yoga a tight target width to hit,
+    // and on Android it can resolve rounding by shaving a hair off the
+    // label's measured width, silently clipping its last character with no
+    // ellipsis ("Subtotal" -> "Subtota", "GST" -> "GS"). flexShrink: 0 alone
+    // didn't fully rule this out on every device/font-scale combination, so
+    // instead the label gets flex: 1 (it absorbs 100% of the row's leftover
+    // width after the value's own natural size, so it's never measured
+    // against a boundary it doesn't comfortably fit in) and the value keeps
+    // its natural width, right-aligned by textAlign - same visual result,
+    // structurally not the same class of bug.
+    totalsRow: { flexDirection: "row" as const },
+    totalsLabel: { color: tokens.textMuted, flex: 1, ...mono },
+    totalsValue: { color: tokens.textPrimary, flexShrink: 0, textAlign: "right" as const, ...mono },
+    totalsLabelBold: { fontWeight: "700" as const, flex: 1, color: tokens.textPrimary, ...mono },
+    totalsValueBold: { fontWeight: "700" as const, flexShrink: 0, textAlign: "right" as const, color: tokens.textPrimary, ...mono },
+    summaryHeaderRow: { flexDirection: "row" as const, paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    summaryHeaderCell: { fontSize: 12, fontWeight: "700" as const, color: tokens.textMuted, ...mono },
+    summaryBundleHeading: { marginTop: 10, paddingBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    summaryBundleHeadingText: { fontSize: 12, fontWeight: "700" as const, color: tokens.textMuted, textTransform: "uppercase" as const, letterSpacing: 0.5, ...mono },
+    summaryRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    summaryRowExcluded: { opacity: 0.5 },
+    summaryItemImage: { width: 120, height: 80, borderRadius: 8, marginBottom: 6, backgroundColor: tokens.border },
+    summaryRowMain: { flexDirection: "row" as const },
+    summaryCell: { fontSize: 14, color: tokens.textPrimary, ...mono },
+    summaryDescCell: { flex: 3 },
+    summaryNumCell: { flex: 1, textAlign: "right" as const },
+    summaryOptionalLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    summaryWaivedLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" as const, color: tokens.accent, textAlign: "right" as const, ...mono },
+  };
+}

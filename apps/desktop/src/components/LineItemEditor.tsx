@@ -39,7 +39,14 @@ function DecimalField({
       type="text"
       inputMode="decimal"
       placeholder={placeholder}
-      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+      className="w-full rounded-md border px-3 py-2 focus:outline-none"
+      style={{
+        backgroundColor: "var(--jms-bg)",
+        borderColor: "var(--jms-border)",
+        color: "var(--jms-text)",
+        fontFamily: "var(--jms-font)",
+        fontSize: "var(--jms-font-body)",
+      }}
       value={text}
       onChange={(e) => {
         const next = e.target.value;
@@ -48,6 +55,21 @@ function DecimalField({
         onChange(parseNumber(next));
       }}
     />
+  );
+}
+
+// Outlined, borderless-fill badge matching the ThemedBadge/AssetsSection
+// idiom (border + text share a colour, no background fill, so it reads
+// clearly against the dark CRT background instead of the old fixed light
+// Tailwind fills that were unreadable on it).
+function Tag({ label, color }: { label: string; color: string }) {
+  return (
+    <span
+      className="rounded-full border px-2 py-0.5 font-bold"
+      style={{ borderColor: color, color, fontSize: "var(--jms-font-label)" }}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -110,25 +132,17 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
   return (
     <div>
       {items.map((item, index) => (
-        <div key={index} className="mb-3 rounded-lg border border-gray-300 p-4">
+        <div key={index} className="mb-3 rounded-lg p-4" style={{ border: "1px solid var(--jms-border)" }}>
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-gray-400">#{index + 1}</span>
-              {item.is_callout_fee ? (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600">Call-out fee</span>
-              ) : null}
-              {item.waived_amount_cents > 0 ? (
-                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">Waived - Membership</span>
-              ) : null}
-              {item.is_subcontracted ? (
-                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-700">Subcontracted</span>
-              ) : null}
-              {item.is_optional ? (
-                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">Optional</span>
-              ) : null}
-              {item.bundle_name ? (
-                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700">Bundle: {item.bundle_name}</span>
-              ) : null}
+              <span className="text-xs font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                #{index + 1}
+              </span>
+              {item.is_callout_fee ? <Tag label="Call-out fee" color="var(--jms-text-muted)" /> : null}
+              {item.waived_amount_cents > 0 ? <Tag label="Waived - Membership" color="var(--jms-accent)" /> : null}
+              {item.is_subcontracted ? <Tag label="Subcontracted" color="var(--jms-warning)" /> : null}
+              {item.is_optional ? <Tag label="Optional" color="var(--jms-accent)" /> : null}
+              {item.bundle_name ? <Tag label={`Bundle: ${item.bundle_name}`} color="var(--jms-text-muted)" /> : null}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -136,7 +150,8 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
                 disabled={index === 0}
                 title="Move up"
                 aria-label="Move up"
-                className="text-xs font-bold text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                className="jms-nav-link rounded px-1 font-bold disabled:opacity-30"
+                style={{ fontSize: "var(--jms-font-label)" }}
               >
                 &uarr;
               </button>
@@ -145,18 +160,30 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
                 disabled={index === items.length - 1}
                 title="Move down"
                 aria-label="Move down"
-                className="text-xs font-bold text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                className="jms-nav-link rounded px-1 font-bold disabled:opacity-30"
+                style={{ fontSize: "var(--jms-font-label)" }}
               >
                 &darr;
               </button>
-              <button onClick={() => removeItem(index)} className="text-xs font-semibold text-red-600">
+              <button
+                onClick={() => removeItem(index)}
+                className="font-semibold"
+                style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+              >
                 Remove
               </button>
             </div>
           </div>
 
           <textarea
-            className="mb-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-3 w-full rounded-md border px-3 py-2 focus:outline-none"
+            style={{
+              backgroundColor: "var(--jms-bg)",
+              borderColor: "var(--jms-border)",
+              color: "var(--jms-text)",
+              fontFamily: "var(--jms-font)",
+              fontSize: "var(--jms-font-body)",
+            }}
             placeholder={"Description (e.g. supply and install valley channel)"}
             rows={3}
             value={item.description}
@@ -165,50 +192,81 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Labour rate ($/hr)</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Labour rate ($/hr)
+              </label>
               <DecimalField
                 value={item.labour_rate_cents / 100}
                 onChange={(n) => updateItem(index, { labour_rate_cents: Math.round(n * 100) })}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Labour hours</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Labour hours
+              </label>
               <DecimalField value={item.labour_hours} onChange={(n) => updateItem(index, { labour_hours: n })} />
             </div>
           </div>
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Material cost ($)</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Material cost ($)
+              </label>
               <DecimalField
                 value={item.material_cost_cents / 100}
                 onChange={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Markup (%)</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Markup (%)
+              </label>
               <DecimalField value={item.markup_percent} onChange={(n) => updateItem(index, { markup_percent: n })} />
             </div>
           </div>
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Quantity</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Quantity
+              </label>
               <DecimalField value={item.quantity} onChange={(n) => updateItem(index, { quantity: n })} />
             </div>
             <div className="flex items-end">
               <button
                 onClick={() => updateItem(index, { gst_applicable: !item.gst_applicable })}
-                className={`w-full rounded-md px-3 py-2 text-xs font-bold ${
-                  item.gst_applicable ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700"
-                }`}
+                className="w-full rounded-md border px-3 py-2 font-bold"
+                style={
+                  item.gst_applicable
+                    ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                    : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                }
               >
                 GST {item.gst_applicable ? "applicable" : "not applicable"}
               </button>
             </div>
           </div>
 
-          <label className="mb-3 flex items-center gap-2 text-xs font-semibold text-gray-700">
+          <label
+            className="mb-3 flex items-center gap-2 font-semibold"
+            style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+          >
             <input
               type="checkbox"
               checked={item.is_subcontracted ?? false}
@@ -220,7 +278,12 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
           </label>
           {item.is_subcontracted ? (
             <div className="mb-3">
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Subcontractor cost ($, per unit)</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Subcontractor cost ($, per unit)
+              </label>
               <DecimalField
                 value={(item.subcontractor_cost_cents ?? 0) / 100}
                 onChange={(n) => updateItem(index, { subcontractor_cost_cents: Math.round(n * 100) })}
@@ -230,16 +293,31 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
 
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-500">Bundle name (optional grouping)</label>
+              <label
+                className="mb-1 block uppercase tracking-wide"
+                style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
+                Bundle name (optional grouping)
+              </label>
               <input
                 type="text"
                 placeholder="e.g. Gutter guard package"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded-md border px-3 py-2 focus:outline-none"
+                style={{
+                  backgroundColor: "var(--jms-bg)",
+                  borderColor: "var(--jms-border)",
+                  color: "var(--jms-text)",
+                  fontFamily: "var(--jms-font)",
+                  fontSize: "var(--jms-font-body)",
+                }}
                 value={item.bundle_name ?? ""}
                 onChange={(e) => updateItem(index, { bundle_name: e.target.value })}
               />
             </div>
-            <label className="flex items-end pb-2 gap-2 text-xs font-semibold text-gray-700">
+            <label
+              className="flex items-end pb-2 gap-2 font-semibold"
+              style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+            >
               <input
                 type="checkbox"
                 checked={item.is_optional ?? false}
@@ -250,11 +328,24 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
           </div>
 
           <div className="mb-3">
-            <label className="mb-1 block text-xs font-semibold text-gray-500">Image (shown on the quote/invoice PDF)</label>
+            <label
+              className="mb-1 block uppercase tracking-wide"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              Image (shown on the quote/invoice PDF)
+            </label>
             {item.image_url ? (
-              <img src={item.image_url} alt="" className="mb-2 h-24 w-full max-w-xs rounded-md bg-gray-50 object-cover" />
+              <img
+                src={item.image_url}
+                alt=""
+                className="mb-2 h-24 w-full max-w-xs rounded-md object-cover"
+                style={{ backgroundColor: "var(--jms-bg)" }}
+              />
             ) : null}
-            <label className="inline-block cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+            <label
+              className="jms-nav-link inline-block cursor-pointer rounded-md border px-3 py-1.5 font-semibold"
+              style={{ borderColor: "var(--jms-border)", fontSize: "var(--jms-font-label)" }}
+            >
               {uploadingIndex === index ? "Uploading..." : item.image_url ? "Change image" : "Add image"}
               <input
                 type="file"
@@ -271,19 +362,22 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
             {item.image_url ? (
               <button
                 onClick={() => updateItem(index, { image_url: "" })}
-                className="ml-2 text-xs font-semibold text-red-600"
+                className="ml-2 font-semibold"
+                style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
               >
                 Remove image
               </button>
             ) : null}
           </div>
 
-          <div className="flex justify-between border-t border-gray-200 pt-2 text-sm">
-            <span className="text-gray-500">Line total</span>
-            <span className="font-bold">
+          <div className="flex justify-between pt-2" style={{ borderTop: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+            <span style={{ color: "var(--jms-text-muted)" }}>Line total</span>
+            <span className="font-bold" style={{ color: "var(--jms-text)" }}>
               {item.waived_amount_cents > 0 ? (
                 <>
-                  <span className="mr-2 text-gray-400 line-through">{formatCentsAsAud(item.quantity * item.unit_price_cents)}</span>
+                  <span className="mr-2 line-through" style={{ color: "var(--jms-text-muted)" }}>
+                    {formatCentsAsAud(item.quantity * item.unit_price_cents)}
+                  </span>
                   {formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
                 </>
               ) : (
@@ -294,7 +388,11 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
         </div>
       ))}
 
-      {imageError ? <p className="mb-3 text-sm text-red-600">{imageError}</p> : null}
+      {imageError ? (
+        <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {imageError}
+        </p>
+      ) : null}
 
       <AddLineItemBar
         itemCount={items.length}
@@ -314,7 +412,10 @@ export function LineItemSummary({ items, membershipDiscountCents = 0 }: { items:
 
   return (
     <div>
-      <div className="flex border-b border-gray-300 pb-2 text-xs font-bold text-gray-500">
+      <div
+        className="flex pb-2 font-bold uppercase tracking-wide"
+        style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+      >
         <span className="flex-[3]">Item &amp; Description</span>
         <span className="flex-1 text-right">Qty</span>
         <span className="flex-1 text-right">Rate</span>
@@ -326,29 +427,41 @@ export function LineItemSummary({ items, membershipDiscountCents = 0 }: { items:
         return (
           <div key={index}>
             {showBundleHeading ? (
-              <div className="mt-3 border-b border-gray-300 pb-1 text-xs font-bold uppercase tracking-wide text-gray-500">
+              <div
+                className="mt-3 pb-1 font-bold uppercase tracking-wide"
+                style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+              >
                 {item.bundle_name}
               </div>
             ) : null}
-            <div className={`border-b border-gray-200 py-2 text-sm ${excluded ? "opacity-50" : ""}`}>
+            <div
+              className={`py-2 ${excluded ? "opacity-50" : ""}`}
+              style={{ borderBottom: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
+            >
               {item.image_url ? <img src={item.image_url} alt="" className="mb-2 h-20 w-32 rounded-md object-cover" /> : null}
               <div className="flex">
-                <span className="flex-[3]">
+                <span className="flex-[3]" style={{ color: "var(--jms-text)" }}>
                   {item.description}
                   {item.is_optional ? (
-                    <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700">
-                      {excluded ? "Not selected" : "Optional - included"}
+                    <span className="ml-2">
+                      <Tag label={excluded ? "Not selected" : "Optional - included"} color="var(--jms-accent)" />
                     </span>
                   ) : null}
                 </span>
-                <span className="flex-1 text-right">{item.quantity}</span>
-                <span className="flex-1 text-right">{formatCentsAsAud(item.unit_price_cents)}</span>
-                <span className="flex-1 text-right">
+                <span className="flex-1 text-right" style={{ color: "var(--jms-text)" }}>
+                  {item.quantity}
+                </span>
+                <span className="flex-1 text-right" style={{ color: "var(--jms-text)" }}>
+                  {formatCentsAsAud(item.unit_price_cents)}
+                </span>
+                <span className="flex-1 text-right" style={{ color: "var(--jms-text)" }}>
                   {excluded ? "—" : formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
                 </span>
               </div>
               {item.waived_amount_cents > 0 ? (
-                <div className="mt-1 text-right text-xs font-semibold text-blue-700">Waived - Membership</div>
+                <div className="mt-1 text-right font-semibold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                  Waived - Membership
+                </div>
               ) : null}
             </div>
           </div>
@@ -367,24 +480,24 @@ function TotalsBox({
   membershipDiscountCents?: number;
 }) {
   return (
-    <div className="mt-3 space-y-1 border-t border-gray-300 pt-3">
-      <div className="flex justify-between text-sm text-gray-600">
-        <span>Subtotal</span>
-        <span>{formatCentsAsAud(totals.subtotal_cents)}</span>
+    <div className="mt-3 space-y-1 pt-3" style={{ borderTop: "1px solid var(--jms-border)" }}>
+      <div className="flex justify-between" style={{ fontSize: "var(--jms-font-body)" }}>
+        <span style={{ color: "var(--jms-text-muted)" }}>Subtotal</span>
+        <span style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(totals.subtotal_cents)}</span>
       </div>
-      <div className="flex justify-between text-sm text-gray-600">
-        <span>GST</span>
-        <span>{formatCentsAsAud(totals.gst_cents)}</span>
+      <div className="flex justify-between" style={{ fontSize: "var(--jms-font-body)" }}>
+        <span style={{ color: "var(--jms-text-muted)" }}>GST</span>
+        <span style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(totals.gst_cents)}</span>
       </div>
       {membershipDiscountCents > 0 ? (
-        <div className="flex justify-between text-sm text-blue-700">
-          <span>Membership discount</span>
-          <span>-{formatCentsAsAud(membershipDiscountCents)}</span>
+        <div className="flex justify-between" style={{ fontSize: "var(--jms-font-body)" }}>
+          <span style={{ color: "var(--jms-accent)" }}>Membership discount</span>
+          <span style={{ color: "var(--jms-accent)" }}>-{formatCentsAsAud(membershipDiscountCents)}</span>
         </div>
       ) : null}
-      <div className="flex justify-between text-sm font-bold text-gray-900">
-        <span>Total</span>
-        <span>{formatCentsAsAud(totals.total_cents - membershipDiscountCents)}</span>
+      <div className="flex justify-between font-bold" style={{ fontSize: "var(--jms-font-body)" }}>
+        <span style={{ color: "var(--jms-text-muted)" }}>Total</span>
+        <span style={{ color: "var(--jms-accent)" }}>{formatCentsAsAud(totals.total_cents - membershipDiscountCents)}</span>
       </div>
     </div>
   );

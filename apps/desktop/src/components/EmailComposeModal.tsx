@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { EmailAttachment } from "@jmssaas/shared";
-import { Modal } from "./Modal";
-import { FormField, TextAreaField } from "./FormField";
+import { ThemedModal } from "./theme/ThemedModal";
+import { ThemedFormField, ThemedTextAreaField, ThemedSelectField } from "./theme/ThemedFormField";
+import { ThemedButton } from "./theme/ThemedButton";
 import { InsertLinkButton } from "./InsertLinkButton";
 import { getErrorMessage } from "../lib/errors";
 
@@ -155,68 +156,73 @@ export function EmailComposeModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
+    <ThemedModal open={open} onClose={onClose} title={title}>
       {templates && templates.length > 0 ? (
-        <div className="mb-4">
-          <label className="mb-1 block text-sm font-semibold text-gray-700">Template</label>
-          <select
-            value={templateId}
-            onChange={(e) => {
-              setTemplateId(e.target.value);
-              const template = templates.find((t) => t.id === e.target.value);
-              if (template) {
-                setSubject(template.subject);
-                setBody(template.body);
-              }
-            }}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">Write from scratch</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <ThemedSelectField
+          label="Template"
+          value={templateId}
+          onChange={(v) => {
+            setTemplateId(v);
+            const template = templates.find((t) => t.id === v);
+            if (template) {
+              setSubject(template.subject);
+              setBody(template.body);
+            }
+          }}
+          options={templates.map((t) => ({ value: t.id, label: t.name }))}
+          placeholder="Write from scratch"
+        />
       ) : null}
 
-      <FormField label="To" value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" />
+      <ThemedFormField label="To" value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" />
       {recipientOptions.length > 0 ? (
         <RecipientChips options={recipientOptions} onPick={(email) => addToField("to", email)} />
       ) : null}
 
       {!showCcBcc ? (
-        <button onClick={() => setShowCcBcc(true)} className="mb-4 text-xs font-semibold text-blue-700 hover:underline">
+        <button
+          onClick={() => setShowCcBcc(true)}
+          className="mb-4 font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+        >
           + Cc / Bcc
         </button>
       ) : (
         <>
-          <FormField label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="name@example.com, another@example.com" />
+          <ThemedFormField label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="name@example.com, another@example.com" />
           {recipientOptions.length > 0 ? <RecipientChips options={recipientOptions} onPick={(email) => addToField("cc", email)} /> : null}
-          <FormField label="Bcc" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="name@example.com" />
+          <ThemedFormField label="Bcc" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="name@example.com" />
           {recipientOptions.length > 0 ? <RecipientChips options={recipientOptions} onPick={(email) => addToField("bcc", email)} /> : null}
         </>
       )}
 
-      <FormField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+      <ThemedFormField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
       <div className="mb-1 flex items-center justify-between">
-        <label className="block text-sm font-semibold text-gray-700">Body</label>
+        <label className="block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Body
+        </label>
         <InsertLinkButton textareaRef={bodyRef} value={body} onChange={setBody} />
       </div>
-      <TextAreaField label="Body" labelHidden rows={10} value={body} onChange={(e) => setBody(e.target.value)} ref={bodyRef} />
+      <ThemedTextAreaField label="Body" labelHidden rows={10} value={body} onChange={(e) => setBody(e.target.value)} ref={bodyRef} />
 
       <div className="mb-4">
-        <label className="mb-1 block text-sm font-semibold text-gray-700">Attachments</label>
+        <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          Attachments
+        </label>
         {attachments.length > 0 ? (
           <ul className="mb-2 space-y-1">
             {attachments.map((a, i) => (
-              <li key={`${a.filename}-${i}`} className="flex items-center justify-between rounded-md bg-gray-100 px-2.5 py-1.5 text-xs text-gray-700">
+              <li
+                key={`${a.filename}-${i}`}
+                className="flex items-center justify-between rounded px-2.5 py-1.5"
+                style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+              >
                 <span className="truncate">📎 {a.filename}</span>
                 <button
                   type="button"
                   onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="ml-2 shrink-0 font-semibold text-red-600 hover:underline"
+                  className="ml-2 shrink-0 font-semibold hover:underline"
+                  style={{ color: "var(--jms-danger)" }}
                 >
                   Remove
                 </button>
@@ -224,7 +230,10 @@ export function EmailComposeModal({
             ))}
           </ul>
         ) : null}
-        <label className="inline-block cursor-pointer text-xs font-semibold text-blue-700 hover:underline">
+        <label
+          className="inline-block cursor-pointer font-semibold hover:underline"
+          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+        >
           + Add attachment
           <input
             type="file"
@@ -236,23 +245,27 @@ export function EmailComposeModal({
             }}
           />
         </label>
-        {attachmentError ? <p className="mt-1 text-xs text-red-600">{attachmentError}</p> : null}
+        {attachmentError ? (
+          <p className="mt-1" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+            {attachmentError}
+          </p>
+        ) : null}
       </div>
 
-      {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+      {error ? (
+        <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {error}
+        </p>
+      ) : null}
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600">
+        <button onClick={onClose} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
           Cancel
         </button>
-        <button
-          onClick={handleSend}
-          disabled={sending}
-          className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-        >
+        <ThemedButton onClick={handleSend} disabled={sending}>
           {sending ? "Sending..." : (sendLabel ?? "Send")}
-        </button>
+        </ThemedButton>
       </div>
-    </Modal>
+    </ThemedModal>
   );
 }
 
@@ -264,7 +277,8 @@ function RecipientChips({ options, onPick }: { options: string[]; onPick: (email
           key={email}
           type="button"
           onClick={() => onPick(email)}
-          className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+          className="rounded-full px-2.5 py-1 font-medium"
+          style={{ backgroundColor: "var(--jms-bg)", border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
         >
           + {email}
         </button>
