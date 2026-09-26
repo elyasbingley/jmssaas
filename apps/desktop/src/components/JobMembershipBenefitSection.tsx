@@ -9,6 +9,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
+import { ThemedPanel } from "./theme/ThemedPanel";
+import { ThemedButton } from "./theme/ThemedButton";
 
 // Job detail page's "record a membership benefit was used on this job"
 // action - the counterpart to ClientMembershipSection's read-only usage
@@ -132,35 +134,48 @@ export function JobMembershipBenefitSection({ jobCardId, clientId }: { jobCardId
   if (includedBenefits.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-gray-300 bg-white p-6">
-      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Membership Benefits</h2>
+    <ThemedPanel title="Membership Benefits" className="mt-6">
       <div className="space-y-2">
         {includedBenefits.map((benefitType) => {
           const used = usedTypes.has(benefitType);
           return (
-            <div key={benefitType} className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-2">
+            <div
+              key={benefitType}
+              className="flex items-center justify-between rounded px-4 py-2"
+              style={{ border: "1px solid var(--jms-border)" }}
+            >
               <div>
-                <p className="text-sm font-medium text-gray-900">{BENEFIT_LABELS[benefitType]}</p>
-                {used ? <p className="text-xs text-green-700">Used this period</p> : null}
-                {alreadyUsedType === benefitType ? (
-                  <p className="text-xs text-amber-700">Already used this period - bill this visit as billable instead.</p>
+                <p style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>{BENEFIT_LABELS[benefitType]}</p>
+                {used ? (
+                  <p style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>Used this period</p>
                 ) : null}
-                {recordedType === benefitType ? <p className="text-xs text-green-700">Recorded.</p> : null}
+                {alreadyUsedType === benefitType ? (
+                  <p style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}>
+                    Already used this period - bill this visit as billable instead.
+                  </p>
+                ) : null}
+                {recordedType === benefitType ? (
+                  <p style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>Recorded.</p>
+                ) : null}
               </div>
               {!used ? (
-                <button
+                <ThemedButton
                   onClick={() => recordUsage.mutate(benefitType)}
                   disabled={recordUsage.isPending}
-                  className="rounded-md bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                  style={{ paddingBlock: 6, paddingInline: 12 }}
                 >
                   {recordUsage.isPending ? "Recording..." : "Mark as used"}
-                </button>
+                </ThemedButton>
               ) : null}
             </div>
           );
         })}
       </div>
-      {recordError ? <p className="mt-2 text-sm text-red-600">{recordError}</p> : null}
-    </div>
+      {recordError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {recordError}
+        </p>
+      ) : null}
+    </ThemedPanel>
   );
 }

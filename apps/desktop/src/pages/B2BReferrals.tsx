@@ -23,12 +23,13 @@ import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../comp
 import { ReferralAnalyticsTab } from "../components/ReferralAnalyticsTab";
 import { ReciprocityLedgerTab } from "../components/ReciprocityLedgerTab";
 import { ReferralWorkflowsTab } from "../components/ReferralWorkflowsTab";
+import { ReferralCommunicationsTab } from "../components/ReferralCommunicationsTab";
 
-// The four sub-tabs from the spec live under a single sidebar destination
+// The five sub-tabs from the spec live under a single sidebar destination
 // (/b2b-referrals), same "in-page tabs" relationship RealEstate.tsx already
-// established for its own four-sub-tab spec.
+// established for its own multi-sub-tab spec.
 
-type SubTab = "directory" | "analytics" | "reciprocity" | "workflows";
+type SubTab = "directory" | "analytics" | "reciprocity" | "workflows" | "communications";
 
 async function fetchReferralGroups(): Promise<ReferralGroup[]> {
   const { data, error } = await supabase.from("referral_groups").select("*").order("name");
@@ -154,6 +155,7 @@ export default function B2BReferralsPage() {
             { key: "analytics", label: "Revenue Analytics & BNI TYFCB" },
             { key: "reciprocity", label: "Reciprocity Ledger" },
             { key: "workflows", label: "Automated Partner Workflows" },
+            { key: "communications", label: "Communications" },
           ] as { key: SubTab; label: string }[]
         ).map((t) => (
           <button
@@ -188,8 +190,10 @@ export default function B2BReferralsPage() {
         />
       ) : tab === "reciprocity" ? (
         <ReciprocityLedgerTab partners={partners ?? []} referredJobs={referredJobs ?? []} referralInvoices={referralInvoices ?? []} reciprocityLogs={reciprocityLogs ?? []} />
-      ) : (
+      ) : tab === "workflows" ? (
         <ReferralWorkflowsTab />
+      ) : (
+        <ReferralCommunicationsTab partners={partners ?? []} referredJobs={referredJobs ?? []} />
       )}
     </div>
   );

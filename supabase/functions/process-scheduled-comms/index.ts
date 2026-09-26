@@ -715,6 +715,41 @@ function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]+>/g, "").trim();
 }
 
+// A short, friendly label for an approval-page link, derived from its own
+// query params - used instead of ever showing the raw token-bearing URL.
+function approvalLinkLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const type = parsed.searchParams.get("type");
+    const action = parsed.searchParams.get("action");
+    if (type === "quote" && action === "accept") return "View &amp; Accept Quote";
+    if (type === "quote" && action === "decline") return "View &amp; Decline Quote";
+    if (type === "quote") return "View Quote";
+    if (type === "invoice") return "View &amp; Pay Invoice";
+    if (type === "po_quote") return "View Quote Request";
+  } catch {
+    // Not a URL we recognise the shape of - fall through to the generic label.
+  }
+  return "View Link";
+}
+
+// Auto-linkifies any *bare* approval-page URL in a template body into a
+// clean, short button instead of ever showing the raw token-bearing link -
+// a client's spam filter flagged exactly this once (a long
+// ?type=...&token=...&action=... URL pasted as plain text). The seeded
+// default templates already wrap these in a proper
+// <a href="{quote_accept_link}">Accept Quote</a> button themselves, so this
+// only fires on an admin-edited/manually-composed body where the link
+// placeholder ended up as literal visible text (e.g. via the plain
+// multiline body box in Settings or the quote/invoice email composer) -
+// existing href="..." attributes (and everything else) are left untouched.
+function linkifyBareApprovalLinks(html: string): string {
+  if (!APPROVAL_PAGE_URL) return html;
+  const escaped = APPROVAL_PAGE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`href="[^"]*"|${escaped}[^\\s<>"]*`, "g");
+  return html.replace(pattern, (match) => (match.startsWith("href=") ? match : `<a href="${match}">${approvalLinkLabel(match)}</a>`));
+}
+
 // Resend wants raw base64 in `content`, no `data:...;base64,` prefix - the
 // composer stores attachments as data URIs (readFileAsDataUrl's native
 // output, same convention as accepted_signature_svg) so this is the one
@@ -747,7 +782,7 @@ async function sendEmail(
       ...(cc.length > 0 ? { cc } : {}),
       ...(bcc.length > 0 ? { bcc } : {}),
       subject: subject || "(no subject)",
-      html: body.replace(/\n/g, "<br>"),
+      html: linkifyBareApprovalLinks(body).replace(/\n/g, "<br>"),
       text: stripHtmlTags(body),
       ...(attachments.length > 0
         ? { attachments: attachments.map((a) => ({ filename: a.filename, content: stripDataUrlPrefix(a.content) })) }

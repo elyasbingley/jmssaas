@@ -120,9 +120,15 @@ Deno.serve(async (req: Request) => {
         .select("total_cents, paid_at")
         .in("job_card_id", jobIds)
         .eq("status", "paid")
+        .gt("total_cents", 0)
         .gte("paid_at", periodStart.toISOString())
         .lt("paid_at", periodEnd.toISOString());
 
+      // A partner with only $0 paid invoices this period (comped/warranty
+      // work) would otherwise pass this guard and get a "$0.00" digest,
+      // which just reads as weird rather than as a thank-you - excluded at
+      // the query itself (gt total_cents 0 above) so both the count and
+      // the total only reflect real closed business.
       const closedInvoices = invoices ?? [];
       if (closedInvoices.length === 0) continue; // Nothing to report - skip rather than send an empty digest.
 
