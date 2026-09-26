@@ -10,7 +10,7 @@ import { triggerImmediateDispatch } from "../lib/dispatch-now";
 // Manual "who hasn't left us a Google review yet" worklist - there's no
 // public API to detect an actual review being left, so left_google_review
 // is a plain manual tick (see ClientDetail.tsx), and this list is just
-// clients where that's still false. The send buttons reuse the existing
+// clients where that's still false. The send button reuses the existing
 // 'job_review_request' automation message (same one editable from
 // Settings > Automation & Messaging) rather than a new template, just
 // queued with entity_type 'client' instead of 'job' - process-scheduled-
@@ -18,6 +18,15 @@ import { triggerImmediateDispatch } from "../lib/dispatch-now";
 // the dormant-client re-engagement campaign) that resolves
 // {client_first_name} etc from entity_id directly, so no Edge Function
 // changes were needed for this module.
+//
+// Email only, deliberately - the communication engine went email-only
+// project-wide (see communication_engine_email_only.sql and
+// process-scheduled-comms' dispatchOne, which fails any non-email row
+// outright). This page used to also offer SMS/"Both" buttons, which
+// always failed ("No active 'Review request' message template found for
+// that channel", since no sms-type template exists post-migration) -
+// removed rather than reintroducing a send path the rest of the app has
+// deliberately turned off.
 async function fetchUnreviewedClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").eq("left_google_review", false).order("name");
   if (error) throw error;
@@ -46,8 +55,6 @@ async function fetchReviewRequestTemplates(tenantId: string): Promise<Communicat
   return data as CommunicationTemplate[];
 }
 
-type SendChannel = "email" | "sms" | "both";
-
 export default function GoogleReviewsPage() {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
@@ -68,22 +75,19 @@ export default function GoogleReviewsPage() {
   });
 
   const sendReviewRequest = useMutation({
-    mutationFn: async ({ client, wantChannel }: { client: Client; wantChannel: SendChannel }) => {
+    mutationFn: async ({ client }: { client: Client }) => {
       if (!profile) throw new Error("Not signed in");
       if (!rule || !rule.is_enabled) {
         throw new Error("The 'Review request' message is turned off in Settings > Automation & Messaging");
       }
-      const wantTypes = wantChannel === "both" ? ["email", "sms"] : [wantChannel];
-      const matching = (templates ?? []).filter(
-        (t) => wantTypes.includes(t.type) && (rule.channel === "both" || rule.channel === t.type)
-      );
+      const matching = (templates ?? []).filter((t) => t.type === "email");
       if (matching.length === 0) {
-        throw new Error("No active 'Review request' message template found for that channel");
+        throw new Error("No active 'Review request' email template found");
       }
 
       let anySent = false;
       for (const template of matching) {
-        const recipient = template.type === "sms" ? (client.phone ?? "") : (client.email ?? "");
+        const recipient = client.email ?? "";
         if (!recipient) continue;
         const { data: row, error } = await supabase
           .from("scheduled_communications")
@@ -184,31 +188,13 @@ export default function GoogleReviewsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => sendReviewRequest.mutate({ client, wantChannel: "email" })}
+                          onClick={() => sendReviewRequest.mutate({ client })}
                           disabled={isSending || !client.email}
                           title={client.email ? undefined : "No email on file"}
                           className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
-                        >
-                          Email
-                        </button>
-                        <button
-                          onClick={() => sendReviewRequest.mutate({ client, wantChannel: "sms" })}
-                          disabled={isSending || !client.phone}
-                          title={client.phone ? undefined : "No phone on file"}
-                          className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                          style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
-                        >
-                          SMS
-                        </button>
-                        <button
-                          onClick={() => sendReviewRequest.mutate({ client, wantChannel: "both" })}
-                          disabled={isSending || (!client.email && !client.phone)}
-                          title={client.email || client.phone ? undefined : "No email or phone on file"}
-                          className="rounded-md border px-2.5 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
                           style={{ backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                         >
-                          {isSending ? "Sending..." : "Both"}
+                          {isSending ? "Sending..." : "Send email"}
                         </button>
                       </div>
                       {message ? (

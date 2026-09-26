@@ -1,16 +1,23 @@
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { usePowerSync, useQuery } from "@powersync/react";
+import * as Location from "expo-location";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { v4 as uuidv4 } from "uuid";
 import {
   createJobLinearMeasurementSchema,
   polylineLengthMeters,
+  type Client,
+  type ClientSite,
   type Coordinate,
+  type JobCard,
   type JobLinearMeasurement,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
+import { formatClientAddress } from "../lib/format";
 import { getErrorMessage } from "../lib/errors";
+import { useTheme } from "../lib/theme-context";
 import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 import { ThemedFormField } from "./theme/ThemedFormField";
 
@@ -21,7 +28,10 @@ import { ThemedFormField } from "./theme/ThemedFormField";
 // on desktop so totals match exactly for identical coordinates).
 // job_linear_measurements is a plain-Supabase table (not PowerSync-
 // synced), same "occasional site tool, requires connectivity" treatment
-// as MaterialTallyCounter.
+// as MaterialTallyCounter. The map's initial region is resolved the same
+// way MeasureRoofTool's is (geocode the job/site address, then device
+// GPS, then a hardcoded fallback) - see that component for the reference
+// implementation this one mirrors.
 
 interface DraftSegment {
   id: string;
@@ -35,6 +45,7 @@ interface DraftSegment {
 // PhotoMarkupEditor's COLORS for the same reasoning).
 const SEGMENT_COLORS = ["#1d4ed8", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 const DEFAULT_REGION: Region = { latitude: -33.8688, longitude: 151.2093, latitudeDelta: 0.003, longitudeDelta: 0.003 };
+const RESOLVED_REGION_DELTA = 0.003;
 
 function toLatLng(coordinate: Coordinate) {
   return { latitude: coordinate.lat, longitude: coordinate.lng };
@@ -52,6 +63,8 @@ async function fetchMeasurements(jobCardId: string): Promise<JobLinearMeasuremen
 
 export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
   const styles = useThemedStyles(createStyles);
+  const { tokens } = useTheme();
+  const powersync = usePowerSync();
   const { profile } = useAuth();
   const [measurements, setMeasurements] = useState<JobLinearMeasurement[]>([]);
 
@@ -61,10 +74,84 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
       .catch((e) => console.error("[LinearMeasurer] Failed to load measurements", e));
   }, [jobCardId]);
 
+  const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [jobCardId]);
+  const job = jobRows[0];
+  const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
+  const client = clientRows[0];
+  const { data: siteRows } = useQuery<ClientSite>("SELECT * FROM client_sites WHERE id = ?", [job?.site_id ?? ""]);
+  const site = siteRows[0];
+  const address =
+    (job?.site_id ? formatClientAddress(site ?? { address_line1: null, address_line2: null, suburb: null, state: null, postcode: null }) : null) ??
+    (client ? formatClientAddress(client) : null);
+
   const [drawing, setDrawing] = useState(false);
+  const [region, setRegion] = useState<Region | null>(null);
+  const [locating, setLocating] = useState(true);
   const [title, setTitle] = useState("");
   const [segments, setSegments] = useState<DraftSegment[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!drawing || !job) return;
+    let cancelled = false;
+
+    async function resolveRegion() {
+      let permissionGranted = false;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        permissionGranted = status === "granted";
+      } catch (e) {
+        console.error("[LinearMeasurer] Failed to request location permission", e);
+      }
+
+      if (address) {
+        try {
+          const results = await Location.geocodeAsync(address);
+          const first = results[0];
+          if (first && !cancelled) {
+            setRegion({
+              latitude: first.latitude,
+              longitude: first.longitude,
+              latitudeDelta: RESOLVED_REGION_DELTA,
+              longitudeDelta: RESOLVED_REGION_DELTA,
+            });
+            setLocating(false);
+            return;
+          }
+        } catch (e) {
+          console.error("[LinearMeasurer] Geocoding failed, falling back to current location", e);
+        }
+      }
+
+      try {
+        if (permissionGranted) {
+          const position = await Location.getCurrentPositionAsync({});
+          if (!cancelled) {
+            setRegion({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              latitudeDelta: RESOLVED_REGION_DELTA,
+              longitudeDelta: RESOLVED_REGION_DELTA,
+            });
+            setLocating(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("[LinearMeasurer] Current location failed, falling back to default region", e);
+      }
+
+      if (!cancelled) {
+        setRegion(DEFAULT_REGION);
+        setLocating(false);
+      }
+    }
+
+    resolveRegion();
+    return () => {
+      cancelled = true;
+    };
+  }, [drawing, job, address]);
 
   const handleMapPress = (event: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
     if (!activeSegmentId) return;
@@ -83,6 +170,8 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
 
   const resetDraft = () => {
     setDrawing(false);
+    setRegion(null);
+    setLocating(true);
     setTitle("");
     setSegments([]);
     setActiveSegmentId(null);
@@ -164,13 +253,10 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
         "",
         ...measurement.segments.map((s) => `${s.label}: ${s.length_meters.toFixed(1)} m`),
       ];
-      const { error } = await supabase.from("job_notes").insert({
-        tenant_id: profile.tenant_id,
-        job_card_id: jobCardId,
-        author_id: profile.id,
-        body: lines.join("\n"),
-      });
-      if (error) throw error;
+      await powersync.execute(
+        "INSERT INTO job_notes (id, tenant_id, job_card_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [uuidv4(), profile.tenant_id, jobCardId, profile.id, lines.join("\n"), new Date().toISOString()]
+      );
       setCopiedId(measurement.id);
       setTimeout(() => setCopiedId(null), 3000);
     } catch (e) {
@@ -222,20 +308,27 @@ export function LinearMeasurerTool({ jobCardId }: { jobCardId: string }) {
         </View>
       </View>
 
-      <MapView style={styles.map} mapType="satellite" initialRegion={DEFAULT_REGION} onPress={handleMapPress}>
-        {segments.map((segment, index) => {
-          const color = SEGMENT_COLORS[index % SEGMENT_COLORS.length]!;
-          const points = segment.coordinates.map(toLatLng);
-          return (
-            <View key={segment.id}>
-              {points.length >= 2 ? <Polyline coordinates={points} strokeColor={color} strokeWidth={3} /> : null}
-              {points.map((point, pointIndex) => (
-                <Marker key={pointIndex} coordinate={point} pinColor={color} />
-              ))}
-            </View>
-          );
-        })}
-      </MapView>
+      {locating || !region ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.accent} />
+          <Text style={styles.empty}>Locating job address...</Text>
+        </View>
+      ) : (
+        <MapView style={styles.map} mapType="satellite" initialRegion={region} onPress={handleMapPress}>
+          {segments.map((segment, index) => {
+            const color = SEGMENT_COLORS[index % SEGMENT_COLORS.length]!;
+            const points = segment.coordinates.map(toLatLng);
+            return (
+              <View key={segment.id}>
+                {points.length >= 2 ? <Polyline coordinates={points} strokeColor={color} strokeWidth={3} /> : null}
+                {points.map((point, pointIndex) => (
+                  <Marker key={pointIndex} coordinate={point} pinColor={color} />
+                ))}
+              </View>
+            );
+          })}
+        </MapView>
+      )}
 
       {!activeSegmentId && segments.length === 0 ? (
         <Text style={styles.hint}>Tap "+ New Run" below, then tap the map to trace a straight run.</Text>
@@ -317,6 +410,8 @@ function createStyles({ tokens, fontFamily }: StyleTheme) {
     totalsLabel: { fontSize: 11, color: tokens.textMuted, ...mono },
     totalsValue: { fontSize: 18, fontWeight: "700", color: tokens.accent, ...mono },
     map: { height: 300, borderRadius: 8 },
+    center: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 24 },
+    empty: { color: tokens.textMuted, ...mono },
     hint: { textAlign: "center", color: tokens.textMuted, fontSize: 12, paddingVertical: 6, paddingHorizontal: 12, ...mono },
     drawer: { maxHeight: 220 },
     drawerContent: { paddingVertical: 8, gap: 8 },
