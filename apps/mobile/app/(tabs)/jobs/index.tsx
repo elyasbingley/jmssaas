@@ -140,8 +140,8 @@ export default function JobsScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, referral_partner_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, referral_partner_id, assigned_technician_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         profile.tenant_id,
@@ -151,6 +151,9 @@ export default function JobsScreen() {
         result.data.service_category_id ?? null,
         result.data.lifecycle_stage_id ?? null,
         result.data.referral_partner_id ?? null,
+        // Defaults to whoever created it - desktop's JobDetail.tsx has the
+        // only reassignment picker today, so "change it" happens there.
+        profile.id,
         profile.id,
         now,
         now,

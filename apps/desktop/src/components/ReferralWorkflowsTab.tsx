@@ -30,7 +30,7 @@ const TRIGGER_LABELS: Record<string, string> = {
 };
 
 const TRIGGER_DESCRIPTIONS: Record<string, string> = {
-  referral_lead_received: "Sent to the partner as soon as they're added, and again if a job is later tagged as referred by them.",
+  referral_lead_received: "Sent to the partner the moment a job is tagged as referred by them.",
   referral_job_completed: "Sent to the partner when the referred job's invoice is marked paid.",
   referral_monthly_digest: "Sent once a month, summarising that partner's closed business for the month just finished.",
 };

@@ -9,6 +9,7 @@ import {
   type ReferralGroup,
   type ReferralGroupType,
   type ReferralPartner,
+  type ReferralPartnerStatus,
   type ReferralPartnerTier,
   type ReferralPartnerType,
   type ReferralReciprocityLog,
@@ -109,6 +110,11 @@ const TIER_OPTIONS: { value: ReferralPartnerTier; label: string }[] = [
   { value: "silver", label: "Silver" },
   { value: "gold", label: "Gold" },
   { value: "vip", label: "VIP" },
+];
+
+const STATUS_OPTIONS: { value: ReferralPartnerStatus; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
 ];
 
 const REWARD_TYPE_OPTIONS: { value: ReferralRewardType; label: string }[] = [
@@ -223,6 +229,7 @@ function DirectoryTab({
   const queryClient = useQueryClient();
 
   const [view, setView] = useState<"partner" | "group">("partner");
+  const [search, setSearch] = useState("");
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const toggleGroup = (id: string) => {
     setExpandedGroupIds((prev) => {
@@ -234,8 +241,19 @@ function DirectoryTab({
   };
 
   const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
-  const partnersByGroup = (groupId: string) => partners.filter((p) => p.group_id === groupId);
-  const ungroupedPartners = partners.filter((p) => !p.group_id);
+
+  const query = search.trim().toLowerCase();
+  const matchesSearch = (p: ReferralPartner) =>
+    !query ||
+    partnerDisplayName(p).toLowerCase().includes(query) ||
+    (p.company_name ?? "").toLowerCase().includes(query) ||
+    (p.email ?? "").toLowerCase().includes(query) ||
+    (p.mobile ?? "").toLowerCase().includes(query);
+  const searchedPartners = partners.filter(matchesSearch);
+
+  const partnersByGroup = (groupId: string) => searchedPartners.filter((p) => p.group_id === groupId);
+  const ungroupedPartners = searchedPartners.filter((p) => !p.group_id);
+  const searchedGroups = query ? groups.filter((g) => partnersByGroup(g.id).length > 0) : groups;
 
   const referralsSentByPartner = useMemo(() => {
     const map = new Map<string, number>();
@@ -312,6 +330,7 @@ function DirectoryTab({
   const [pRewardType, setPRewardType] = useState<ReferralRewardType | "">("none");
   const [pRewardPercent, setPRewardPercent] = useState("");
   const [pRewardFlat, setPRewardFlat] = useState("");
+  const [pStatus, setPStatus] = useState<ReferralPartnerStatus | "">("active");
   const [partnerError, setPartnerError] = useState<string | null>(null);
 
   const openNewPartner = (groupId?: string) => {
@@ -327,6 +346,7 @@ function DirectoryTab({
     setPRewardType("none");
     setPRewardPercent("");
     setPRewardFlat("");
+    setPStatus("active");
     setPartnerError(null);
     setPartnerModalOpen(true);
   };
@@ -344,6 +364,7 @@ function DirectoryTab({
     setPRewardType(partner.reward_type);
     setPRewardPercent(partner.reward_percent != null ? String(partner.reward_percent) : "");
     setPRewardFlat(partner.reward_flat_cents != null ? String(partner.reward_flat_cents / 100) : "");
+    setPStatus(partner.status);
     setPartnerError(null);
     setPartnerModalOpen(true);
   };
@@ -362,6 +383,7 @@ function DirectoryTab({
         reward_type: pRewardType || "none",
         reward_percent: pRewardType === "commission_percent" && pRewardPercent ? Number(pRewardPercent) : undefined,
         reward_flat_cents: (pRewardType === "flat_fee" || pRewardType === "gift_card") && pRewardFlat ? Math.round(Number(pRewardFlat) * 100) : undefined,
+        status: pStatus || "active",
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid partner");
       if (!profile) throw new Error("Not signed in");
@@ -378,6 +400,7 @@ function DirectoryTab({
         reward_type: result.data.reward_type,
         reward_percent: result.data.reward_percent ?? null,
         reward_flat_cents: result.data.reward_flat_cents ?? null,
+        status: result.data.status,
       };
 
       const { error } = pEditId
@@ -559,18 +582,31 @@ function DirectoryTab({
         </div>
       </div>
 
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search partners by name, company, email, or mobile..."
+        className="mb-4 w-full max-w-sm rounded border px-3 py-1.5 focus:outline-none"
+        style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+      />
+
       {view === "partner" ? (
-        partners.length === 0 ? (
-          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No referral partners yet.</p>
+        searchedPartners.length === 0 ? (
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+            {query ? "No partners match your search." : "No referral partners yet."}
+          </p>
         ) : (
-          <div className="grid grid-cols-3 gap-4">{partners.map(renderPartnerCard)}</div>
+          <div className="grid grid-cols-3 gap-4">{searchedPartners.map(renderPartnerCard)}</div>
         )
-      ) : groups.length === 0 && ungroupedPartners.length === 0 ? (
-        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No groups or partners yet.</p>
+      ) : searchedGroups.length === 0 && ungroupedPartners.length === 0 ? (
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          {query ? "No partners match your search." : "No groups or partners yet."}
+        </p>
       ) : (
         <div className="space-y-3">
-          {groups.map((group) => {
-            const expanded = expandedGroupIds.has(group.id);
+          {searchedGroups.map((group) => {
+            const expanded = expandedGroupIds.has(group.id) || Boolean(query);
             const groupPartners = partnersByGroup(group.id);
             return (
               <div key={group.id} className="rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
@@ -655,6 +691,7 @@ function DirectoryTab({
           <ThemedSelectField label="Partner type" value={pPartnerType} onChange={setPPartnerType} options={PARTNER_TYPE_OPTIONS} />
           <ThemedSelectField label="Tier" value={pTier} onChange={setPTier} options={TIER_OPTIONS} />
         </div>
+        <ThemedSelectField label="Status" value={pStatus} onChange={setPStatus} options={STATUS_OPTIONS} />
         <ThemedSelectField label="Reward type" value={pRewardType} onChange={setPRewardType} options={REWARD_TYPE_OPTIONS} />
         {pRewardType === "commission_percent" ? (
           <ThemedFormField

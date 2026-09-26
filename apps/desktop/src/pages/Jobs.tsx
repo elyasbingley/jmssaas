@@ -9,6 +9,7 @@ import {
   type JobLifecycleStage,
   type JobTemplate,
   type LeadSource,
+  type Profile,
   type Property,
   type PropertyManager,
   type ReferralPartner,
@@ -88,6 +89,15 @@ async function fetchJobTemplates(): Promise<JobTemplate[]> {
   return data as JobTemplate[];
 }
 
+// Same "any profile, not just a technician-flagged one" picker JobDetail.tsx
+// already uses for reassignment - an admin who also does field work can
+// assign a job to themselves too.
+async function fetchTechnicians(): Promise<Profile[]> {
+  const { data, error } = await supabase.from("profiles").select("*").order("full_name");
+  if (error) throw error;
+  return data as Profile[];
+}
+
 export default function JobsPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -104,6 +114,7 @@ export default function JobsPage() {
   const { data: leadSources } = useQuery({ queryKey: ["lead-sources"], queryFn: fetchLeadSources });
   const { data: memberClientIds } = useQuery({ queryKey: ["active-member-client-ids"], queryFn: fetchActiveMemberClientIds });
   const { data: jobTemplates } = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
+  const { data: technicians } = useQuery({ queryKey: ["technicians"], queryFn: fetchTechnicians });
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
   const categoryById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
@@ -174,6 +185,9 @@ export default function JobsPage() {
   const [nteLimit, setNteLimit] = useState("");
   const [referralPartnerId, setReferralPartnerId] = useState("");
   const [leadSourceId, setLeadSourceId] = useState("");
+  // Defaults to whoever's creating the job (a technician can always change
+  // it to someone else, or clear it back to Unassigned, before saving).
+  const [technicianId, setTechnicianId] = useState(profile?.id ?? "");
   const [formError, setFormError] = useState<string | null>(null);
 
   const selectedLeadSource = (leadSources ?? []).find((s) => s.id === leadSourceId);
@@ -194,6 +208,7 @@ export default function JobsPage() {
     setNteLimit("");
     setReferralPartnerId("");
     setLeadSourceId("");
+    setTechnicianId(profile?.id ?? "");
     setFormError(null);
   };
 
@@ -224,6 +239,7 @@ export default function JobsPage() {
         // linked a partner drops it rather than leaving it dangling.
         referral_partner_id: isReferralLeadSource ? referralPartnerId || undefined : undefined,
         lead_source_id: leadSourceId || undefined,
+        assigned_technician_id: technicianId || undefined,
       });
       if (!result.success) {
         throw new Error(clientId ? result.error.issues[0]?.message ?? "Invalid job" : "Pick a client first");
@@ -247,6 +263,7 @@ export default function JobsPage() {
           nte_limit_cents: result.data.nte_limit_cents ?? null,
           referral_partner_id: result.data.referral_partner_id ?? null,
           lead_source_id: result.data.lead_source_id ?? null,
+          assigned_technician_id: result.data.assigned_technician_id ?? null,
           created_by: profile.id,
         })
         .select()
@@ -530,6 +547,14 @@ export default function JobsPage() {
             options={(stages ?? []).map((s) => ({ value: s.id, label: s.name }))}
           />
         </div>
+
+        <ThemedSelectField
+          label="Technician"
+          value={technicianId}
+          onChange={setTechnicianId}
+          options={(technicians ?? []).map((t) => ({ value: t.id, label: t.full_name }))}
+          placeholder="Unassigned"
+        />
 
         <label className="mb-3 mt-2 flex items-center gap-2 font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
           <input type="checkbox" checked={isRealEstateJob} onChange={(e) => setIsRealEstateJob(e.target.checked)} />
