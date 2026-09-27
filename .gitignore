@@ -18,6 +18,9 @@ apps/mobile/dist/
 supabase/.branches/
 supabase/.temp/
 
+# Claude Code local tooling (agent worktrees etc.)
+.claude/
+
 # OS / editor
 .DS_Store
 *.log
