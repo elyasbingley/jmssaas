@@ -8781,3 +8781,116 @@ nothing.
   token exchange, webhook signature scheme, Send API shape) none of which
   have run against the real Meta Graph API from this sandbox, so treat the
   Meta App setup and first live connect/send/receive as the real test.
+
+## 64. Notes module
+
+A general-purpose, Obsidian-style "second brain" notes system - markdown
+notes, bidirectional `[[wikilinks]]`, `#tags`, typed properties, templates,
+daily notes, full-text search, and a graph view. Deliberately separate from
+the existing Knowledge module (admin-authored published SOP articles, no
+linking, no offline sync) - different tool for a different job, hence the
+`note_` table prefix throughout. Also deliberately separate from a job
+card's own "Diary" (job notes/files/photos) - the data model doesn't
+preclude a future cross-link between the two (e.g. a job referencing a
+client's SOP note) but that wasn't built this pass.
+
+Fully self-contained - no new third-party service, no new secret.
+
+- **Database** (`supabase/migrations/20261004000100_notes_module.sql`):
+  `notes` (title/body markdown, `notebook_id`, `visibility`/`edit_access`
+  each `'tenant'` or `'admin_only'`, soft-delete via `is_deleted` - the one
+  table in this schema that deviates from the rest's hard-delete-via-RLS
+  convention, since wikilinks reference notes by id/title across
+  potentially-offline devices and a hard delete would orphan backlinks
+  mid-sync), `note_notebooks` (hierarchical), `note_links` (parsed
+  `[[wikilink]]` targets, **recomputed server-side** by a trigger on every
+  note save - never written to directly by either app), `note_tags`/
+  `note_tag_assignments` (`#tag` support, same recompute-on-save trigger),
+  `note_properties` (EAV - one row per typed property, not a jsonb column,
+  specifically so the Table/Card views below can filter/sort per property
+  key with plain SQL), `note_templates`, `note_attachments` (Storage-backed,
+  bucket `note-files`, same private/tenant-scoped shape as `knowledge-files`
+  but gated per-note via `visibility`/`edit_access` too, not just tenant),
+  `note_revisions` (full-body snapshot history). A generated `search_vector`
+  tsvector column (title + body) backs full-text search - this is the first
+  use of Postgres FTS anywhere in this schema; every other "search" feature
+  in the app is a client-side substring filter.
+- **Permissions**: role tiers (`visibility`/`edit_access`, each
+  `'tenant'`/`'admin_only'`), not per-user ACLs - matches every other
+  `is_admin()`-driven RLS gate in this schema, and nothing in the brief
+  asked for per-person sharing. A note created inside a notebook copies the
+  notebook's own defaults at creation time (app-layer, not a live DB
+  inheritance chain). If real per-person sharing is ever needed, that's a
+  `note_permissions(note_id, profile_id, can_edit)` junction table added on
+  top without a rework.
+- **Conflict resolution** (the one part of this feature with no Obsidian
+  equivalent - single-user local apps never have to solve concurrent
+  multi-device edits): `notes.revision` is a counter a `BEFORE UPDATE`
+  trigger (`notes_handle_revision()`) always advances by exactly 1 on every
+  write. Every save from either app must submit the `revision` it last
+  read; the trigger compares that against what's actually on the server and,
+  if it's stale (someone else's edit landed first), snapshots the
+  about-to-be-overwritten version into `note_revisions` tagged
+  `reason = 'conflict_lost'` before applying the write anyway. Nothing is
+  ever rejected and nothing is silently destroyed - the overwritten version
+  is always recoverable from the History pane, which is the same table used
+  for ordinary edit history (`reason = 'edit'`). This is last-write-wins
+  mechanically, but never silent. Verified end-to-end against a real local
+  Postgres 16 instance: wikilink auto-resolution when a previously-unresolved
+  target note is created, `#tag` parsing, the conflict trigger correctly
+  distinguishing a clean sequential save from a stale/conflicting one and
+  snapshotting the right version, and RLS genuinely enforcing the
+  `visibility`/`edit_access` tiers under a non-superuser role (not just
+  reviewed as superuser, which bypasses RLS entirely).
+- **Desktop** (`apps/desktop/src/pages/Notes*.tsx`,
+  `apps/desktop/src/components/notes/*`): full authoring - notebook tree,
+  a markdown editor (`react-markdown` + `remark-gfm`) with Edit/Split/
+  Preview modes and live `[[wikilink]]` autocomplete (click an unresolved
+  link to create-and-navigate), backlinks/outgoing-links panels, `#tag`
+  browsing, daily notes, templates, full-text search
+  (`.textSearch("search_vector", ...)`), a typed properties panel, Table
+  and Card views that actually filter/sort on property values, a
+  conflict banner + History modal (restore pushes straight into draft
+  state so it can't be silently re-overwritten by the next autosave), and
+  a graph view (`react-force-graph-2d`, nodes coloured by notebook, edges =
+  resolved wikilinks only). Not a PowerSync table - like Reports/Calendar/
+  Knowledge, desktop stays Supabase-direct/always-online for Notes.
+- **Mobile** (`apps/mobile/app/notes/*`,
+  `apps/mobile/components/notes/*`, `apps/mobile/lib/use-notes.ts`):
+  **offline-capable** - the one part of this feature that actually needed
+  PowerSync. Two new sync buckets (`note_tenant_data`/`note_admin_data` in
+  `powersync/sync-rules.yaml`, mirroring the existing
+  `tenant_reference_data`/`admin_job_data` split) plus matching `Table()`
+  defs in `packages/shared/src/powersync/schema.ts`. Every local write goes
+  through `powersync.execute()` (never the Supabase client directly),
+  carrying the note's current `revision` per the conflict-detection
+  contract above. Same core feature set as desktop (notebook tree, editor
+  with Edit/Preview via `react-native-markdown-display`, wikilink
+  autocomplete/create, backlinks, tags, daily notes, templates, properties
+  panel, conflict banner) except: full-text search is a local substring
+  filter (Postgres FTS isn't available to a local SQLite query - expected
+  platform difference), and no Table/Card views or graph view (desktop-only
+  for this pass). Building the properties feature surfaced a real sync gap
+  fixed in `apps/mobile/lib/connector.ts`: `note_properties.value_list` has
+  no PowerSync SQLite array type, so it's stored locally as a
+  JSON-stringified array - left as-is it would upload verbatim and
+  PostgREST can't cast a JSON-format string into the Postgres `text[]`
+  column, so a `LIST_COLUMNS_BY_TABLE`/`coerceListColumns` step (same shape
+  as the existing `BOOLEAN_COLUMNS_BY_TABLE` fix) converts it back to a real
+  array before upload.
+- **Deferred, not built this pass** (flagged per the brief rather than
+  silently skipped): Canvas (infinite whiteboard - explicitly the most
+  expensive single item in the original brief, called out as its own
+  milestone requiring separate sign-off), a PDF viewer with page-anchored
+  links, a bulk format importer, audio memo recording, and Workspaces (saved
+  pane layouts) - none of these exist anywhere in this pass. Also deferred:
+  hover/long-press link preview, a `/`-slash insert menu, fully per-type
+  coloured callout panels (desktop renders a labelled/bordered basic
+  version; mobile renders plain blockquotes), a dedicated Cmd+P command
+  palette / Cmd+O quick switcher (the search UI substitutes for v1), split
+  panes (desktop always renders one note at a time), unlinked-mentions
+  surfacing, an attachments UI (the `note_attachments` table/bucket exist
+  and are wired into RLS, but neither app has a UI to upload/browse them
+  yet), and an outline/table-of-contents pane (`extractHeadings()` already
+  exists in `packages/shared/src/notes.ts` for this, just not wired into
+  either editor's UI yet).
