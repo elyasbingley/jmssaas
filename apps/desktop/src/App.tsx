@@ -55,6 +55,13 @@ import QuoteCheckerPage from "./pages/cost-of-ops/QuoteChecker";
 import KnowledgeBasePage from "./pages/KnowledgeBase";
 import KnowledgeCategoryPage from "./pages/KnowledgeCategory";
 import KnowledgeArticlePage from "./pages/KnowledgeArticle";
+import NotesPage from "./pages/Notes";
+import NotesHomePage from "./pages/NotesHome";
+import NoteDetailPage from "./pages/NoteDetail";
+import NotesTableViewPage from "./pages/NotesTableView";
+import NotesCardViewPage from "./pages/NotesCardView";
+import NotesGraphViewPage from "./pages/NotesGraphView";
+import NotesTagViewPage from "./pages/NotesTagView";
 import InboxPage from "./pages/Inbox";
 import InboxMessagePage from "./pages/InboxMessage";
 import ChannelsPage from "./pages/Channels";
@@ -79,6 +86,14 @@ export default function App() {
                 <Route path="/knowledge" element={<KnowledgeBasePage />} />
                 <Route path="/knowledge/categories/:id" element={<KnowledgeCategoryPage />} />
                 <Route path="/knowledge/articles/:id" element={<KnowledgeArticlePage />} />
+                <Route path="/notes" element={<NotesPage />}>
+                  <Route index element={<NotesHomePage />} />
+                  <Route path="note/:noteId" element={<NoteDetailPage />} />
+                  <Route path="table" element={<NotesTableViewPage />} />
+                  <Route path="cards" element={<NotesCardViewPage />} />
+                  <Route path="graph" element={<NotesGraphViewPage />} />
+                  <Route path="tag/:tagName" element={<NotesTagViewPage />} />
+                </Route>
                 <Route path="/dispatch" element={<DispatchPage />} />
                 <Route path="/tasks" element={<TasksPage />}>
                   <Route path=":id" element={<TaskDetailPage />} />

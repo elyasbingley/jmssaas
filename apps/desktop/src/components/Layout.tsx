@@ -19,6 +19,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/dispatch", label: "Dispatch" },
       { to: "/tasks", label: "Tasks" },
       { to: "/knowledge", label: "Knowledge" },
+      { to: "/notes", label: "Notes" },
       { to: "/reports", label: "Forms & Certificates" },
     ],
   },
