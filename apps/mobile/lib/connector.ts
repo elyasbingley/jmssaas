@@ -31,6 +31,8 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   job_lifecycle_stages: ["is_system_default", "is_closed"],
   communication_rules: ["is_enabled"],
   communication_templates: ["is_active"],
+  notes: ["is_deleted"],
+  note_properties: ["value_checkbox"],
 };
 
 function coerceBooleanColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
