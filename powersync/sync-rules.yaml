@@ -98,6 +98,40 @@
 # of one - the same rows, not different ones. They already get everything
 # through admin_job_data regardless.
 #
+# note_tenant_data / note_admin_data (notes_module migration): the Notes
+# module is offline-capable on mobile only (desktop stays Supabase-direct
+# for it, like every other desktop screen) - see that migration's own
+# comment for why. Split the same way admin_job_data splits from
+# tenant_reference_data: note_tenant_data carries every 'tenant'-visibility
+# note/notebook to every signed-in device (anyone can use Notes, not just
+# technicians on assigned jobs - there's no "assigned to me" concept here),
+# note_admin_data additionally carries 'admin_only' ones to admin devices
+# only. note_links/note_tags/note_tag_assignments/note_properties/
+# note_attachments (metadata only, not the file bytes - same as job_files)
+# ride along in both buckets so an admin_only note's own child rows stay
+# admin-only on device too, while a tenant-visibility note's child rows
+# reach everyone. note_revisions (history) and the actual attachment file
+# bytes are NOT synced - history-browsing isn't a "need it in the field"
+# offline case, mirrors quotes/invoices/calendar-events staying Supabase-
+# direct above for the same "office-side, not field-critical" reasoning.
+note_tenant_data:
+  parameters: select tenant_id from profiles where id = request.user_id()
+  data:
+    - select * from note_notebooks where tenant_id = bucket.tenant_id and visibility = 'tenant'
+    - select * from notes where tenant_id = bucket.tenant_id and visibility = 'tenant' and is_deleted = false
+    - select * from note_links where tenant_id = bucket.tenant_id
+    - select * from note_tags where tenant_id = bucket.tenant_id
+    - select * from note_tag_assignments where tenant_id = bucket.tenant_id
+    - select * from note_properties where tenant_id = bucket.tenant_id
+    - select * from note_templates where tenant_id = bucket.tenant_id
+    - select * from note_attachments where tenant_id = bucket.tenant_id
+
+note_admin_data:
+  parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'
+  data:
+    - select * from note_notebooks where tenant_id = bucket.tenant_id and visibility = 'admin_only'
+    - select * from notes where tenant_id = bucket.tenant_id and visibility = 'admin_only' and is_deleted = false
+
 # task_projects/task_sections/task_custom_fields joined tenant_reference_data
 # next (asana_task_engine migration) - same admin-managed-setup-data,
 # tenant-wide-read shape as service_categories/job_lifecycle_stages above:

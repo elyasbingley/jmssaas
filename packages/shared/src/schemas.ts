@@ -1133,3 +1133,67 @@ export const createTaskFromChannelSchema = z.object({
   description: z.string().optional(),
 });
 export type CreateTaskFromChannelInput = z.infer<typeof createTaskFromChannelSchema>;
+
+// ---------------------------------------------------------------------------
+// Notes module
+// ---------------------------------------------------------------------------
+
+const noteAccessLevelSchema = z.enum(["tenant", "admin_only"]);
+
+export const createNoteNotebookSchema = z.object({
+  parent_id: z.string().uuid().optional(),
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().optional(),
+  visibility: noteAccessLevelSchema.default("tenant"),
+  edit_access: noteAccessLevelSchema.default("tenant"),
+});
+export type CreateNoteNotebookInput = z.infer<typeof createNoteNotebookSchema>;
+
+export const createNoteSchema = z.object({
+  notebook_id: z.string().uuid().optional(),
+  title: z.string().min(1, "Title is required"),
+  body: z.string().default(""),
+  daily_note_date: z.string().date().optional(),
+  visibility: noteAccessLevelSchema.default("tenant"),
+  edit_access: noteAccessLevelSchema.default("tenant"),
+});
+export type CreateNoteInput = z.infer<typeof createNoteSchema>;
+
+// `revision` is required here (not on create) - it's the value the editor
+// last read, and is how notes_handle_revision() in the notes_module
+// migration detects a stale/conflicting write. Always send the revision
+// you loaded the note at, never a guess.
+export const updateNoteSchema = z.object({
+  notebook_id: z.string().uuid().nullable().optional(),
+  title: z.string().min(1, "Title is required").optional(),
+  body: z.string().optional(),
+  visibility: noteAccessLevelSchema.optional(),
+  edit_access: noteAccessLevelSchema.optional(),
+  revision: z.number().int(),
+});
+export type UpdateNoteInput = z.infer<typeof updateNoteSchema>;
+
+const notePropertyValueTypeSchema = z.enum(["text", "number", "checkbox", "date", "list"]);
+
+// Cross-field validation (the right value_* column for the chosen
+// value_type) happens in the editor UI, same "the form only ever shows one
+// matching field" reasoning as createReferralPartnerSchema's reward fields -
+// nothing to enforce here beyond the outer shape.
+export const createNotePropertySchema = z.object({
+  note_id: z.string().uuid(),
+  key: z.string().min(1, "Property name is required"),
+  value_type: notePropertyValueTypeSchema,
+  value_text: z.string().optional(),
+  value_number: z.number().optional(),
+  value_checkbox: z.boolean().optional(),
+  value_date: z.string().date().optional(),
+  value_list: z.array(z.string()).optional(),
+  sort_order: z.number().int().optional(),
+});
+export type CreateNotePropertyInput = z.infer<typeof createNotePropertySchema>;
+
+export const createNoteTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  body: z.string().default(""),
+});
+export type CreateNoteTemplateInput = z.infer<typeof createNoteTemplateSchema>;

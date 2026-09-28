@@ -513,6 +513,130 @@ const task_files = new Table(
   { indexes: { task: ["task_id"] } }
 );
 
+// Notes module - offline-capable on mobile only (desktop stays Supabase-
+// direct for Notes, like every other desktop screen - see the notes_module
+// migration's own comment). note_revisions (history) and the note-files
+// storage bucket's actual bytes are deliberately NOT synced here - see
+// sync-rules.yaml's note_tenant_data/note_admin_data comment for why.
+// is_deleted/value_checkbox are boolean-shaped, stored as 0/1
+// (column.integer) like every other flag in this file - see connector.ts's
+// BOOLEAN_COLUMNS_BY_TABLE, which this schema's new tables were added to.
+// value_list has no PowerSync column type (SQLite text/integer/real only)
+// so it's stored as a JSON-stringified array in a text column and parsed
+// at the app layer.
+const note_notebooks = new Table(
+  {
+    tenant_id: column.text,
+    parent_id: column.text,
+    name: column.text,
+    sort_order: column.integer,
+    visibility: column.text,
+    edit_access: column.text,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], parent: ["parent_id"] } }
+);
+
+const notes = new Table(
+  {
+    tenant_id: column.text,
+    notebook_id: column.text,
+    title: column.text,
+    body: column.text,
+    daily_note_date: column.text,
+    visibility: column.text,
+    edit_access: column.text,
+    revision: column.integer,
+    is_deleted: column.integer,
+    deleted_at: column.text,
+    created_by: column.text,
+    updated_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], notebook: ["notebook_id"] } }
+);
+
+// Read-only from mobile's perspective - the only writer is the Postgres
+// trigger (notes_recompute_links_and_tags), which can't run while offline,
+// so a fully-offline device's outgoing-links view only reflects its last
+// sync until it reconnects. Synced anyway so backlinks/graph have
+// *something* to show offline rather than nothing.
+const note_links = new Table(
+  {
+    tenant_id: column.text,
+    source_note_id: column.text,
+    target_note_id: column.text,
+    target_title: column.text,
+    created_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], source: ["source_note_id"], target: ["target_note_id"] } }
+);
+
+const note_tags = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    created_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const note_tag_assignments = new Table(
+  {
+    tenant_id: column.text,
+    note_id: column.text,
+    tag_id: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], note: ["note_id"], tag: ["tag_id"] } }
+);
+
+const note_properties = new Table(
+  {
+    tenant_id: column.text,
+    note_id: column.text,
+    key: column.text,
+    value_type: column.text,
+    value_text: column.text,
+    value_number: column.real,
+    value_checkbox: column.integer,
+    value_date: column.text,
+    value_list: column.text,
+    sort_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], note: ["note_id"] } }
+);
+
+const note_templates = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    body: column.text,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const note_attachments = new Table(
+  {
+    tenant_id: column.text,
+    note_id: column.text,
+    storage_path: column.text,
+    filename: column.text,
+    content_type: column.text,
+    size_bytes: column.integer,
+    created_by: column.text,
+    created_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"], note: ["note_id"] } }
+);
+
 // Tracks local download/upload state for job_files/task_files attachments
 // (photos). See lib/attachments.ts in apps/mobile for the queue that drives
 // this - one AttachmentTable is shared by both, since PowerSync's queue is
@@ -547,6 +671,14 @@ export const AppSchema = new Schema({
   communication_rules,
   communication_templates,
   scheduled_communications,
+  note_notebooks,
+  notes,
+  note_links,
+  note_tags,
+  note_tag_assignments,
+  note_properties,
+  note_templates,
+  note_attachments,
   attachments,
 });
 

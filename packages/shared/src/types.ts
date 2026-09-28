@@ -1854,3 +1854,120 @@ export interface ChannelMessage {
   sent_by: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Notes module - mirrors the notes_module migration. Deliberately separate
+// from the Knowledge base module above (admin-authored published articles,
+// no linking, no offline sync) - this is the general-purpose, bidirectionally-
+// linked, offline-capable (mobile only - see notes_module migration's own
+// comment) "second brain" notes system. See notes.ts for the wikilink/tag
+// parsing helpers and placeholder-token substitution used by both apps.
+// ---------------------------------------------------------------------------
+
+export type NoteAccessLevel = "tenant" | "admin_only";
+export type NotePropertyValueType = "text" | "number" | "checkbox" | "date" | "list";
+export type NoteRevisionReason = "edit" | "conflict_lost";
+
+export interface NoteNotebook {
+  id: string;
+  tenant_id: string;
+  parent_id: string | null;
+  name: string;
+  sort_order: number;
+  visibility: NoteAccessLevel;
+  edit_access: NoteAccessLevel;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Note {
+  id: string;
+  tenant_id: string;
+  notebook_id: string | null;
+  title: string;
+  body: string;
+  daily_note_date: string | null;
+  visibility: NoteAccessLevel;
+  edit_access: NoteAccessLevel;
+  // Conflict-detection counter - every update must submit the revision it
+  // last read (see notes_handle_revision() in the notes_module migration).
+  revision: number;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteRevision {
+  id: string;
+  tenant_id: string;
+  note_id: string;
+  title: string;
+  body: string;
+  revision: number;
+  edited_by: string | null;
+  edited_at: string;
+  reason: NoteRevisionReason;
+}
+
+export interface NoteLink {
+  id: string;
+  tenant_id: string;
+  source_note_id: string;
+  target_note_id: string | null;
+  target_title: string;
+  created_at: string;
+}
+
+export interface NoteTag {
+  id: string;
+  tenant_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface NoteTagAssignment {
+  note_id: string;
+  tag_id: string;
+}
+
+export interface NoteProperty {
+  id: string;
+  tenant_id: string;
+  note_id: string;
+  key: string;
+  value_type: NotePropertyValueType;
+  value_text: string | null;
+  value_number: number | null;
+  value_checkbox: boolean | null;
+  value_date: string | null;
+  value_list: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  body: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteAttachment {
+  id: string;
+  tenant_id: string;
+  note_id: string;
+  storage_path: string;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_by: string | null;
+  created_at: string;
+}

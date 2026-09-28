@@ -11,5 +11,6 @@ export * from "./cost-of-ops";
 export * from "./knowledge";
 export * from "./inbox";
 export * from "./channels";
+export * from "./notes";
 export * from "./powersync/schema";
 export * from "./theme";

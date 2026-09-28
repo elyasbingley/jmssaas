@@ -85,6 +85,7 @@ function RootNavigator() {
       <Stack.Screen name="subcontractors" />
       <Stack.Screen name="b2b-referrals" />
       <Stack.Screen name="knowledge" />
+      <Stack.Screen name="notes" />
       <Stack.Screen name="inbox" />
       <Stack.Screen name="channels" />
       <Stack.Screen name="tasks" />

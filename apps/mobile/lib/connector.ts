@@ -31,6 +31,8 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   job_lifecycle_stages: ["is_system_default", "is_closed"],
   communication_rules: ["is_enabled"],
   communication_templates: ["is_active"],
+  notes: ["is_deleted"],
+  note_properties: ["value_checkbox"],
 };
 
 function coerceBooleanColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
@@ -43,6 +45,42 @@ function coerceBooleanColumns(table: string, data: Record<string, unknown>): Rec
     }
   }
   return result;
+}
+
+// note_properties.value_list is a real Postgres `text[]`, but PowerSync's
+// local SQLite schema has no array column type - packages/shared/src/
+// powersync/schema.ts stores it as a JSON-stringified array in a text
+// column instead (see that file's own comment) and expects the app layer
+// to parse it back. Left as a JSON string, this would upload verbatim, and
+// PostgREST can't cast an arbitrary JSON-format string to `text[]` (it
+// expects Postgres's own `{a,b}` array-literal text, not `["a","b"]`) - so
+// an offline-created "list"-type property would silently never sync up.
+// Same fix shape as coerceBooleanColumns above, for the one column that
+// needs it today.
+const LIST_COLUMNS_BY_TABLE: Record<string, string[]> = {
+  note_properties: ["value_list"],
+};
+
+function coerceListColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
+  const listColumns = LIST_COLUMNS_BY_TABLE[table];
+  if (!listColumns) return data;
+  const result = { ...data };
+  for (const column of listColumns) {
+    if (typeof result[column] === "string") {
+      try {
+        const parsed = JSON.parse(result[column] as string);
+        if (Array.isArray(parsed)) result[column] = parsed;
+      } catch {
+        // Malformed JSON shouldn't block the whole upload transaction -
+        // leave it as-is and let Postgres accept/reject it on its own.
+      }
+    }
+  }
+  return result;
+}
+
+function coerceOutgoingColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
+  return coerceListColumns(table, coerceBooleanColumns(table, data));
 }
 
 // Bridges PowerSync to Supabase: fetchCredentials hands PowerSync the
@@ -80,10 +118,10 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         const table = supabase.from(op.table);
         switch (op.op) {
           case UpdateType.PUT:
-            await table.upsert({ ...coerceBooleanColumns(op.table, op.opData ?? {}), id: op.id }).throwOnError();
+            await table.upsert({ ...coerceOutgoingColumns(op.table, op.opData ?? {}), id: op.id }).throwOnError();
             break;
           case UpdateType.PATCH:
-            await table.update(coerceBooleanColumns(op.table, op.opData ?? {})).eq("id", op.id).throwOnError();
+            await table.update(coerceOutgoingColumns(op.table, op.opData ?? {})).eq("id", op.id).throwOnError();
             break;
           case UpdateType.DELETE:
             await table.delete().eq("id", op.id).throwOnError();
