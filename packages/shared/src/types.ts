@@ -81,6 +81,10 @@ export interface Tenant {
   // channels_whatsapp migration's own comment on why this is a separate
   // column from sms_phone_number rather than reused.
   whatsapp_phone_number: string | null;
+  // How many days out a task's due_date has to be before the Eisenhower
+  // Matrix suggests (never silently applies) is_urgent - see the
+  // eisenhower_matrix migration.
+  task_urgency_threshold_days: number;
   created_at: string;
 }
 
@@ -494,9 +498,23 @@ export interface Task {
   // the new ones.
   client_id: string | null;
   property_id: string | null;
+  // Eisenhower Matrix (see the eisenhower_matrix migration) - two
+  // independent nullable axes, not a single quadrant enum, so each can be
+  // set/cleared on its own. Both null means "Unsorted" (never classified).
+  // Named is_urgent/is_important rather than urgent/important to stay
+  // unambiguous next to TaskPriority's own 'urgent' value below, which is a
+  // separate, pre-existing concept - use taskQuadrant() to derive the
+  // quadrant rather than reading these two directly.
+  is_urgent: boolean | null;
+  is_important: boolean | null;
 }
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+// The four Eisenhower Matrix quadrants, plus "unsorted" for a task that
+// hasn't been classified on either axis yet. See taskQuadrant() in tasks.ts
+// for how a Task's is_urgent/is_important resolve to one of these.
+export type TaskQuadrant = "do_first" | "schedule" | "delegate" | "eliminate" | "unsorted";
 
 export type TaskProjectViewType = "BOARD" | "LIST" | "CALENDAR" | "TIMELINE";
 
