@@ -24,10 +24,12 @@ import {
   type Invoice,
   type InvoiceLineItem,
   type JobCard,
+  taskQuadrant,
   type JobLifecycleStage,
   type JobNote,
   type KeyLog,
   type MaterialTallyItem,
+  type Profile,
   type Property,
   type PropertyManager,
   type PurchaseOrder,
@@ -52,12 +54,15 @@ import { getErrorMessage } from "../../../lib/errors";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { useJobPhotoCapture } from "../../../lib/use-job-photo-capture";
 import { useJobActionOrder, type JobActionId } from "../../../lib/job-actions";
+import { axisParam, isOverdue } from "../../../lib/task-matrix";
 import { Panel } from "../../../components/theme/Panel";
 import { Readout } from "../../../components/theme/Readout";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { ThemedModal } from "../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
+import { QuadrantBadge } from "../../../components/theme/QuadrantBadge";
+import { QuadrantToggleRow } from "../../../components/theme/QuadrantToggleRow";
 import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunicationLog";
 import { JobActionsBar } from "../../../components/theme/JobActionsBar";
 import { JobActionsSheet } from "../../../components/theme/JobActionsSheet";
@@ -229,6 +234,10 @@ export default function JobDetailScreen() {
     "SELECT * FROM tasks WHERE job_card_id = ? ORDER BY (due_date IS NULL), due_date, created_at DESC",
     [id]
   );
+  // Only queried for the Matrix classifier's Delegate-while-unassigned
+  // prompt below - this lightweight task list otherwise has no assignee UI
+  // of its own.
+  const { data: profiles } = useQuery<Profile>("SELECT * FROM profiles ORDER BY full_name");
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
     `SELECT jf.id, jf.file_name, jf.mime_type, a.local_uri
@@ -996,6 +1005,25 @@ export default function JobDetailScreen() {
     await powersync.execute("UPDATE tasks SET status = ? WHERE id = ?", [NEXT_TASK_STATUS[task.status], task.id]);
   };
 
+  // --- Eisenhower Matrix classification (same rules as tasks/[id].tsx) ---
+  const [delegatePromptTaskId, setDelegatePromptTaskId] = useState<string | null>(null);
+  const handleClassifyJobTask = async (task: Task, next: { is_urgent: boolean | null; is_important: boolean | null }) => {
+    await powersync.execute("UPDATE tasks SET is_urgent = ?, is_important = ? WHERE id = ?", [
+      axisParam(next.is_urgent),
+      axisParam(next.is_important),
+      task.id,
+    ]);
+    // Delegate quadrant + unassigned: prompt for an assignee, don't block if dismissed.
+    if (taskQuadrant(next) === "delegate" && !task.assigned_to) {
+      setDelegatePromptTaskId(task.id);
+    }
+  };
+  const handleDelegateAssignee = async (p: Profile | null) => {
+    if (!delegatePromptTaskId) return;
+    await powersync.execute("UPDATE tasks SET assigned_to = ? WHERE id = ?", [p?.id ?? null, delegatePromptTaskId]);
+    setDelegatePromptTaskId(null);
+  };
+
   // Also used by the quick-note modal opened from the Job Actions bar (see
   // runJobAction below) - returns whether the note saved, so that modal
   // knows whether it's safe to close.
@@ -1334,18 +1362,29 @@ export default function JobDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Tasks</Text>
         {jobTasks.map((t) => (
-          <Pressable key={t.id} style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
-            <Text style={styles.taskRowTitle}>{t.title}</Text>
-            <Pressable
-              style={styles.taskStatusBadge}
-              onPress={(e) => {
-                e.stopPropagation();
-                cycleTaskStatus(t);
-              }}
-            >
-              <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
+          <View key={t.id} style={styles.taskItem}>
+            <Pressable style={styles.taskRow} onPress={() => router.push(`/tasks/${t.id}`)}>
+              <Text style={styles.taskRowTitle}>{t.title}</Text>
+              <Pressable
+                style={styles.taskStatusBadge}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  cycleTaskStatus(t);
+                }}
+              >
+                <Text style={styles.taskStatusBadgeText}>{TASK_STATUS_LABELS[t.status]}</Text>
+              </Pressable>
             </Pressable>
-          </Pressable>
+            <View style={styles.taskMatrixRow}>
+              <QuadrantBadge quadrant={taskQuadrant(t)} overdue={isOverdue(t)} />
+            </View>
+            <QuadrantToggleRow
+              isUrgent={t.is_urgent}
+              isImportant={t.is_important}
+              onChange={(next) => handleClassifyJobTask(t, next)}
+              compact
+            />
+          </View>
         ))}
         {jobTasks.length === 0 ? <Text style={styles.empty}>No tasks linked to this job.</Text> : null}
         {profile?.role === "admin" ? (
@@ -1694,6 +1733,16 @@ export default function JobDetailScreen() {
       onClose={() => setReferralPickerVisible(false)}
     />
 
+    <ThemedPickerModal
+      visible={delegatePromptTaskId !== null}
+      title="Assign to..."
+      items={[null, ...profiles]}
+      getKey={(p) => p?.id ?? "none"}
+      getLabel={(p) => p?.full_name ?? "Leave unassigned"}
+      onSelect={handleDelegateAssignee}
+      onClose={() => setDelegatePromptTaskId(null)}
+    />
+
     <ThemedModal visible={workdriveModalVisible} onClose={() => setWorkdriveModalVisible(false)}>
       <Text style={styles.modalTitle}>WorkDrive link</Text>
       <ThemedFormField label="Link" placeholder="https://workdrive.zoho.com/..." value={workdriveInput} onChangeText={setWorkdriveInput} />
@@ -1998,17 +2047,21 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     linkedRowTotal: { color: tokens.accent, fontWeight: "700" as const, ...mono },
     linkButton: { marginTop: 10, alignSelf: "flex-start" as const },
     linkButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    taskItem: {
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.border,
+      gap: 6,
+    },
     taskRow: {
       flexDirection: "row" as const,
       alignItems: "center" as const,
       justifyContent: "space-between" as const,
-      paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: tokens.border,
     },
     taskRowTitle: { fontSize: font.body, color: tokens.textPrimary, flex: 1, marginRight: 8, ...mono },
     taskStatusBadge: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 4 },
     taskStatusBadgeText: { color: tokens.accent, fontWeight: "600" as const, fontSize: font.label, ...mono },
+    taskMatrixRow: { flexDirection: "row" as const, alignItems: "center" as const },
     addTaskRow: { flexDirection: "row" as const, gap: 8, marginTop: 12, alignItems: "flex-end" as const },
     button: { backgroundColor: tokens.accent, borderRadius: 3, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center" as const },
     buttonText: { color: tokens.background, fontWeight: "700" as const, letterSpacing: 0.5, textTransform: "uppercase" as const, ...mono },
