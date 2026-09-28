@@ -262,7 +262,7 @@ export default function TaskDetailPage() {
   // can resurface - if the date changes again after being dismissed.
   const [dismissedSuggestionForDate, setDismissedSuggestionForDate] = useState<string | null>(null);
   const [delegateAssignNudge, setDelegateAssignNudge] = useState(false);
-  const urgencySuggestion = task?.due_date ? suggestIsUrgent(task.due_date, tenant?.task_urgency_threshold_days ?? 3) : null;
+  const urgencySuggestion = task?.due_date ? suggestIsUrgent(task.due_date, tenant?.task_urgency_threshold_days ?? 2) : null;
   const showUrgencySuggestion = !!task && task.due_date != null && urgencySuggestion !== null && urgencySuggestion !== task.is_urgent && dismissedSuggestionForDate !== task.due_date;
 
   const applyQuadrant = (quadrant: TaskQuadrant) => {
