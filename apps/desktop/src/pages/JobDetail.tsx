@@ -9,6 +9,7 @@ import {
   createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
+  taskQuadrant,
   type Agency,
   type CalendarEvent,
   type Client,
@@ -35,9 +36,12 @@ import {
   type SubcontractorCompany,
   type SubcontractorTrade,
   type Task,
+  type TaskQuadrant,
   type TaskStatus,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { QuadrantBadge } from "../components/tasks/QuadrantBadge";
+import { MOVE_TARGETS, patchForQuadrant } from "../components/tasks/matrixHelpers";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
@@ -63,8 +67,11 @@ import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same labels/cycle order as mobile's jobs/[id].tsx and desktop's own
 // ListView.tsx (Tasks board) - a job-embedded task list stays intentionally
-// minimal (title + one-tap status cycle only, no due date/priority inline),
-// so this doesn't reuse Tasks.tsx's fuller create/edit mutations.
+// minimal (title + one-tap status cycle, plus a quadrant badge and a single
+// classification select - no due date/priority inline, no drag-and-drop),
+// so this doesn't reuse Tasks.tsx's fuller create/edit mutations or the
+// Matrix view's own drag/Move-to menu. Quick-add stays unclassified by
+// default (the insert below never sets is_urgent/is_important).
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = { todo: "To do", in_progress: "In progress", done: "Done" };
 const NEXT_TASK_STATUS: Record<TaskStatus, TaskStatus> = { todo: "in_progress", in_progress: "done", done: "todo" };
 const TASK_STATUS_COLOR_VAR: Record<TaskStatus, string> = {
@@ -468,6 +475,14 @@ export default function JobDetailPage() {
   const cycleTaskStatus = useMutation({
     mutationFn: async (task: Task) => {
       const { error } = await supabase.from("tasks").update({ status: NEXT_TASK_STATUS[task.status] }).eq("id", task.id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job-tasks", id] }),
+  });
+
+  const updateTaskQuadrant = useMutation({
+    mutationFn: async ({ taskId, quadrant }: { taskId: string; quadrant: TaskQuadrant }) => {
+      const { error } = await supabase.from("tasks").update(patchForQuadrant(quadrant)).eq("id", taskId);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job-tasks", id] }),
@@ -1529,20 +1544,35 @@ export default function JobDetailPage() {
               <Link
                 key={t.id}
                 to={`/tasks/${t.id}`}
-                className="jms-nav-link flex items-center justify-between rounded px-3 py-2"
+                className="jms-nav-link flex flex-wrap items-center justify-between gap-2 rounded px-3 py-2"
                 style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}
               >
                 <span style={{ color: "var(--jms-text)" }}>{t.title}</span>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    cycleTaskStatus.mutate(t);
-                  }}
-                  className="rounded-full border px-2 py-0.5 font-semibold"
-                  style={{ borderColor: TASK_STATUS_COLOR_VAR[t.status], color: TASK_STATUS_COLOR_VAR[t.status], fontSize: "var(--jms-font-label)" }}
-                >
-                  {TASK_STATUS_LABELS[t.status]}
-                </button>
+                <span className="flex flex-shrink-0 items-center gap-1.5" onClick={(e) => e.preventDefault()}>
+                  <QuadrantBadge quadrant={taskQuadrant(t)} />
+                  <select
+                    value={taskQuadrant(t)}
+                    onChange={(e) => updateTaskQuadrant.mutate({ taskId: t.id, quadrant: e.target.value as TaskQuadrant })}
+                    className="rounded border px-1 py-0.5 font-semibold"
+                    style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    {MOVE_TARGETS.map((mt) => (
+                      <option key={mt.quadrant} value={mt.quadrant}>
+                        {mt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      cycleTaskStatus.mutate(t);
+                    }}
+                    className="rounded-full border px-2 py-0.5 font-semibold"
+                    style={{ borderColor: TASK_STATUS_COLOR_VAR[t.status], color: TASK_STATUS_COLOR_VAR[t.status], fontSize: "var(--jms-font-label)" }}
+                  >
+                    {TASK_STATUS_LABELS[t.status]}
+                  </button>
+                </span>
               </Link>
             ))}
             {!jobTasks || jobTasks.length === 0 ? (
