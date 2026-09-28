@@ -403,6 +403,12 @@ const tasks = new Table(
     actual_hours: column.real,
     client_id: column.text,
     property_id: column.text,
+    // Eisenhower Matrix (see the eisenhower_matrix migration) - nullable,
+    // unlike is_milestone above: null (both axes) means "Unsorted", not
+    // "false". SQLite stores NULL as NULL through an integer column same as
+    // any other type, so this works the same way TEXT columns above do.
+    is_urgent: column.integer,
+    is_important: column.integer,
   },
   {
     indexes: {

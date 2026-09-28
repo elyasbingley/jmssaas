@@ -130,6 +130,11 @@ export const createTaskSchema = z.object({
   actual_hours: z.number().nonnegative().optional(),
   client_id: z.string().uuid().optional(),
   property_id: z.string().uuid().optional(),
+  // Eisenhower Matrix (see the eisenhower_matrix migration) - optional and
+  // unset by default, so quick-add task creation never forces a
+  // classification (per the brief: quick-add doesn't require classifying).
+  is_urgent: z.boolean().optional(),
+  is_important: z.boolean().optional(),
 });
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
