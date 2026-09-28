@@ -151,11 +151,16 @@ export default function TasksScreen() {
         </View>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Tasks</Text>
-          {isAdmin ? (
-            <Pressable style={styles.addButton} onPress={() => setModalVisible(true)} hitSlop={8}>
-              <Text style={styles.addButtonText}>+</Text>
+          <View style={styles.headerActions}>
+            <Pressable style={styles.matrixButton} onPress={() => router.push("/tasks/matrix")} hitSlop={8}>
+              <Text style={styles.matrixButtonText}>▦ Matrix</Text>
             </Pressable>
-          ) : null}
+            {isAdmin ? (
+              <Pressable style={styles.addButton} onPress={() => setModalVisible(true)} hitSlop={8}>
+                <Text style={styles.addButtonText}>+</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.filterRow}>
@@ -317,6 +322,17 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
       paddingTop: 4,
     },
     headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
+    headerActions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    matrixButton: {
+      paddingHorizontal: 10,
+      height: 36,
+      borderRadius: 3,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    matrixButtonText: { color: tokens.textMuted, fontWeight: "600" as const, fontSize: font.label, ...mono },
     addButton: {
       width: 36,
       height: 36,
