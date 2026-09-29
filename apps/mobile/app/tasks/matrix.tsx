@@ -62,19 +62,34 @@ export default function MatrixScreen() {
     router.push({ pathname: "/tasks/matrix-quadrant", params: { quadrant } });
   };
 
+  // Divider borders: each segment only carries the border(s) on the side(s)
+  // facing the shared cross, so together the four segments draw exactly one
+  // continuous "+" through the grid rather than each having its own
+  // four-sided box (which read as four separate floating cards with gaps
+  // between them, not one matrix). Same divider-assignment shape as the
+  // desktop Matrix view's own QuadrantSection.
+  const DIVIDER: Record<RealQuadrant, object> = {
+    do_first: { borderRightWidth: 1, borderBottomWidth: 1 },
+    schedule: { borderBottomWidth: 1 },
+    delegate: { borderRightWidth: 1 },
+    eliminate: {},
+  };
+
   const Segment = ({ quadrant }: { quadrant: RealQuadrant }) => {
     const meta = QUADRANT_META[quadrant];
     const items = grouped[quadrant];
     const preview = items.slice(0, 2);
     const overflow = items.length - preview.length;
     return (
-      <Pressable style={styles.segment} onPress={() => openQuadrant(quadrant)}>
+      <Pressable style={[styles.segment, DIVIDER[quadrant]]} onPress={() => openQuadrant(quadrant)}>
         <View style={styles.segmentHeader}>
           <Text style={styles.segmentIcon}>{QUADRANT_ICON[quadrant]}</Text>
-          <Text style={styles.segmentLabel} numberOfLines={1}>
-            {meta.label}
-          </Text>
-          <Text style={styles.segmentCount}>{items.length}</Text>
+          <View style={styles.segmentTitleGroup}>
+            <Text style={styles.segmentLabel} numberOfLines={1}>
+              {meta.label}
+            </Text>
+            <Text style={styles.segmentCount}>{items.length}</Text>
+          </View>
         </View>
         <Text style={styles.segmentSubtitle} numberOfLines={1}>
           {meta.subtitle}
@@ -124,9 +139,11 @@ export default function MatrixScreen() {
               <View style={styles.rowHeaderCell}>
                 <Text style={[styles.axisText, styles.axisTextVertical]}>{rowIndex === 0 ? "IMPORTANT" : "NOT IMPORTANT"}</Text>
               </View>
-              {row.map((quadrant) => (
-                <Segment key={quadrant} quadrant={quadrant} />
-              ))}
+              <View style={styles.bodyRowContent}>
+                {row.map((quadrant) => (
+                  <Segment key={quadrant} quadrant={quadrant} />
+                ))}
+              </View>
             </View>
           ))}
         </View>
@@ -158,28 +175,37 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     headerTitle: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
     link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
 
-    grid: { flex: 1, paddingHorizontal: 12, paddingBottom: 8, gap: 4 },
-    topHeaderRow: { flexDirection: "row" as const, height: 28, gap: 4 },
-    cornerCell: { width: 26 },
+    // One continuous bordered box holding the whole cross, not a grid of
+    // separately-boxed segments with gaps between them - each segment below
+    // carries only the border(s) it needs (see DIVIDER) so together they
+    // draw a single "+" through the middle, same shape as the desktop
+    // Matrix view's own divider.
+    grid: { flex: 1, marginHorizontal: 12, marginBottom: 8, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, overflow: "hidden" as const },
+    topHeaderRow: { flexDirection: "row" as const, height: 30, borderBottomWidth: 1, borderColor: tokens.border },
+    cornerCell: { width: 26, borderRightWidth: 1, borderColor: tokens.border },
     colHeaderCell: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
-    bodyRow: { flex: 1, flexDirection: "row" as const, gap: 4 },
-    rowHeaderCell: { width: 26, alignItems: "center" as const, justifyContent: "center" as const },
+    bodyRow: { flex: 1, flexDirection: "row" as const },
+    bodyRowContent: { flex: 1, flexDirection: "row" as const },
+    rowHeaderCell: { width: 26, alignItems: "center" as const, justifyContent: "center" as const, borderRightWidth: 1, borderColor: tokens.border },
     axisText: { color: tokens.textMuted, fontSize: font.label - 1, fontWeight: "700" as const, letterSpacing: 1, ...mono },
     axisTextVertical: { transform: [{ rotate: "-90deg" }], width: 100, textAlign: "center" as const },
 
-    segment: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: tokens.border,
-      borderRadius: 4,
-      backgroundColor: tokens.surface,
-      padding: 10,
-    },
+    segment: { flex: 1, padding: 12, borderColor: tokens.border },
     segmentHeader: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
     segmentIcon: { fontSize: font.body },
-    segmentLabel: { flex: 1, color: tokens.textPrimary, fontWeight: "700" as const, fontSize: font.body - 1, ...mono },
-    segmentCount: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.title, ...mono },
-    segmentSubtitle: { color: tokens.textMuted, fontSize: font.label - 2, marginTop: 2, ...mono },
+    segmentTitleGroup: { flexDirection: "row" as const, alignItems: "baseline" as const, gap: 6, flexShrink: 1 },
+    segmentLabel: {
+      color: tokens.accent,
+      fontWeight: "900" as const,
+      fontSize: font.body + 2,
+      letterSpacing: 0.5,
+      borderBottomWidth: 2,
+      borderBottomColor: tokens.accent,
+      paddingBottom: 1,
+      ...mono,
+    },
+    segmentCount: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: font.label, ...mono },
+    segmentSubtitle: { color: tokens.textMuted, fontSize: font.label - 2, marginTop: 4, ...mono },
     segmentBody: { marginTop: 8, gap: 3 },
     segmentEmpty: { color: tokens.textMuted, fontSize: font.label, fontStyle: "italic" as const, ...mono },
     segmentTaskTitle: { color: tokens.textPrimary, fontSize: font.label, ...mono },
