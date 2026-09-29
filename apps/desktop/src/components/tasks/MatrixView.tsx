@@ -15,16 +15,22 @@ import { MoveToMenu } from "./MoveToMenu";
 // TaskProjectViewType enum, since the matrix cuts across every project the
 // same way the existing unscoped List/Calendar already do. Cards are
 // draggable (dnd-kit, same pattern as BoardView.tsx) between the four
-// quadrant panels and the Unsorted hub; every card also carries a Move-to
+// quadrant sections and the Unsorted hub; every card also carries a Move-to
 // menu as a non-drag alternative. Quadrant is always derived via
 // taskQuadrant() - is_urgent/is_important are the only source of truth,
 // this view never stores its own notion of "which quadrant".
+//
+// Layout: one continuous cross (a shared border-right/border-bottom on the
+// 2x2 content area, not four separate boxed/bordered panels) with strong
+// colour-underlined quadrant titles, matching the classic Eisenhower
+// reference layout - deliberately not four floating cards with their own
+// borders and background, which left uneven gaps and read as cluttered.
 
 const VISIBLE_PER_QUADRANT = 6;
 
 function AxisLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div className="flex items-center justify-center px-1 py-1 text-center font-bold uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)", ...style }}>
+    <div className="flex items-center justify-center px-1 py-1.5 text-center font-bold uppercase tracking-widest" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)", ...style }}>
       {children}
     </div>
   );
@@ -59,7 +65,7 @@ function MatrixCard({
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         zIndex: isDragging ? 20 : undefined,
         border: overdue ? "1px solid var(--jms-danger)" : "1px solid var(--jms-border)",
-        backgroundColor: "var(--jms-bg)",
+        backgroundColor: "var(--jms-surface)",
         opacity: isDragging ? 0.7 : 1,
       }}
     >
@@ -81,13 +87,16 @@ function MatrixCard({
   );
 }
 
-function QuadrantPanel({
+function QuadrantSection({
   quadrant,
   tasks,
   profilesById,
   expanded,
   onToggleExpand,
   onMove,
+  dividerStyle,
+  isBottomRow,
+  isTopRow,
 }: {
   quadrant: Exclude<TaskQuadrant, "unsorted">;
   tasks: Task[];
@@ -95,6 +104,16 @@ function QuadrantPanel({
   expanded: boolean;
   onToggleExpand: () => void;
   onMove: (taskId: string, quadrant: TaskQuadrant) => void;
+  dividerStyle: React.CSSProperties;
+  // The Unsorted hub sits pinned at the exact row2/row3 line (see
+  // MatrixView's own comment on why) - a fixed-size circle straddling that
+  // line equally above and below it. A bottom-row section's header starts
+  // right at that same line, and a top-row section's "+N more" link can end
+  // right at it too, so both get a little extra clearance on the edge
+  // nearest the hub regardless of how little (or how much) content either
+  // row actually has.
+  isBottomRow?: boolean;
+  isTopRow?: boolean;
 }) {
   const meta = QUADRANT_META[quadrant];
   const color = QUADRANT_COLORS[quadrant];
@@ -105,21 +124,29 @@ function QuadrantPanel({
   return (
     <div
       ref={setNodeRef}
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded"
-      style={{ border: `1px solid ${color}`, backgroundColor: "var(--jms-surface)", boxShadow: isOver ? `0 0 14px ${color}` : undefined }}
+      className="flex min-h-0 min-w-0 flex-col px-4"
+      style={{
+        ...dividerStyle,
+        paddingTop: isBottomRow ? 76 : 16,
+        paddingBottom: isTopRow ? 56 : 16,
+        backgroundColor: isOver ? `${color}14` : "transparent",
+      }}
     >
-      <div className="flex items-start justify-between gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${color}`, backgroundColor: "var(--jms-bg)" }}>
+      <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
-            <span className="truncate font-bold uppercase tracking-widest" style={{ color, fontSize: "var(--jms-font-label)" }} title={meta.guidance}>
+          <div className="flex items-baseline gap-2">
+            <span
+              className="font-black uppercase tracking-wide"
+              style={{ color, fontSize: "calc(var(--jms-font-title) + 2px)", borderBottom: `2px solid ${color}`, paddingBottom: 1 }}
+              title={meta.guidance}
+            >
               {meta.label}
             </span>
-            <span className="flex-shrink-0 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            <span className="font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               {tasks.length}
             </span>
           </div>
-          <p className="truncate" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
             {meta.subtitle}
           </p>
         </div>
@@ -132,22 +159,16 @@ function QuadrantPanel({
           {expanded ? "⤡" : "⤢"}
         </button>
       </div>
-      <div className="flex-1 space-y-1.5 overflow-y-auto p-2" style={expanded ? undefined : { maxHeight: 360 }}>
+      <div className="flex flex-col gap-1.5 overflow-y-auto" style={expanded ? undefined : { maxHeight: 320 }}>
         {visibleTasks.map((t) => (
           <MatrixCard key={t.id} task={t} quadrant={quadrant} profilesById={profilesById} onMove={onMove} />
         ))}
         {tasks.length === 0 ? (
-          <p className="p-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-            No tasks
-          </p>
+          <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)", fontStyle: "italic" }}>No tasks</p>
         ) : null}
       </div>
       {hiddenCount > 0 ? (
-        <button
-          onClick={onToggleExpand}
-          className="px-3 py-1.5 text-left font-semibold hover:opacity-80"
-          style={{ color, borderTop: `1px solid ${color}`, fontSize: "var(--jms-font-label)" }}
-        >
+        <button onClick={onToggleExpand} className="mt-1.5 text-left font-semibold hover:underline" style={{ color, fontSize: "var(--jms-font-label)" }}>
           +{hiddenCount} more
         </button>
       ) : null}
@@ -164,13 +185,20 @@ function UnsortedHub({ count, onOpen }: { count: number; onOpen: () => void }) {
       title="Unsorted tasks"
       className="flex flex-col items-center justify-center rounded-full font-bold"
       style={{
-        gridColumn: "2 / span 2",
-        gridRow: "2 / span 2",
+        // Sits in its own dedicated zero-size gutter row/column (see
+        // MatrixView's grid below), not spanning the two real quadrant
+        // rows/columns - centering across a span would put it at the
+        // midpoint of their *combined* size, which drifts away from the
+        // true dividing line the moment the two rows (or columns) hold
+        // different amounts of content. A zero-size track's position is
+        // exactly the line itself, so this stays pinned there regardless.
+        gridColumn: 3,
+        gridRow: 3,
         justifySelf: "center",
         alignSelf: "center",
         zIndex: 10,
-        width: 92,
-        height: 92,
+        width: 72,
+        height: 72,
         backgroundColor: "var(--jms-bg)",
         border: `2px solid ${UNSORTED_COLOR}`,
         boxShadow: isOver ? `0 0 28px ${UNSORTED_COLOR}` : `0 0 14px ${UNSORTED_COLOR}`,
@@ -267,9 +295,30 @@ export function MatrixView({
   };
 
   const colTemplate = expanded === "do_first" || expanded === "delegate" ? "2fr 1fr" : expanded === "schedule" || expanded === "eliminate" ? "1fr 2fr" : "1fr 1fr";
-  const rowTemplate = expanded === "do_first" || expanded === "schedule" ? "2fr 1fr" : expanded === "delegate" || expanded === "eliminate" ? "1fr 2fr" : "1fr 1fr";
 
   const assigneePromptTask = assigneePromptTaskId ? tasksById.get(assigneePromptTaskId) : null;
+
+  // A single shared cross-divider across the 2x2 content area (border-right
+  // on the left column, border-bottom on the top row) rather than each
+  // quadrant carrying its own four-sided border - this is what makes it
+  // read as one matrix with a "+" through the middle instead of four
+  // separate floating boxes.
+  const dividerColor = "var(--jms-border)";
+  const doFirstDivider: React.CSSProperties = { borderRight: `1px solid ${dividerColor}`, borderBottom: `1px solid ${dividerColor}` };
+  const scheduleDivider: React.CSSProperties = { borderBottom: `1px solid ${dividerColor}` };
+  const delegateDivider: React.CSSProperties = { borderRight: `1px solid ${dividerColor}` };
+  const eliminateDivider: React.CSSProperties = {};
+
+  // Columns: label | left quadrant | 0px gutter (the hub lives here - see
+  // its own comment) | right quadrant. Rows: label | top quadrant | 0px
+  // gutter | bottom quadrant. Content rows/columns are sized to fit their
+  // own tasks (never forced to split the full remaining page height or
+  // width evenly) - that "1fr 1fr" of a flex-1 container was the actual
+  // cause of the huge empty gap whenever one side had far fewer tasks than
+  // the other, since equal fractions of a tall viewport stay tall
+  // regardless of how little content fills them.
+  const gridTemplateColumns = `88px ${colTemplate.split(" ")[0]} 0px ${colTemplate.split(" ")[1]}`;
+  const gridTemplateRows = "auto minmax(160px, auto) 0px minmax(160px, auto)";
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -279,51 +328,61 @@ export function MatrixView({
           Show completed tasks
         </label>
 
-        <div className="grid flex-1 gap-2" style={{ gridTemplateColumns: `110px ${colTemplate}`, gridTemplateRows: `auto ${rowTemplate}` }}>
-          <div style={{ gridColumn: 1, gridRow: 1 }} />
-          <AxisLabel style={{ gridColumn: 2, gridRow: 1 }}>Urgent</AxisLabel>
-          <AxisLabel style={{ gridColumn: 3, gridRow: 1 }}>Not Urgent</AxisLabel>
-          <AxisLabel style={{ gridColumn: 1, gridRow: 2 }}>Important</AxisLabel>
-          <AxisLabel style={{ gridColumn: 1, gridRow: 3 }}>Not Important</AxisLabel>
+        <div className="grid" style={{ gridTemplateColumns, gridTemplateRows, border: `1px solid ${dividerColor}`, borderRadius: 4 }}>
+          <div style={{ gridColumn: 1, gridRow: 1, borderRight: `1px solid ${dividerColor}`, borderBottom: `1px solid ${dividerColor}` }} />
+          <AxisLabel style={{ gridColumn: 2, gridRow: 1, borderBottom: `1px solid ${dividerColor}` }}>Urgent</AxisLabel>
+          <div style={{ gridColumn: 3, gridRow: 1, borderBottom: `1px solid ${dividerColor}` }} />
+          <AxisLabel style={{ gridColumn: 4, gridRow: 1, borderBottom: `1px solid ${dividerColor}` }}>Not Urgent</AxisLabel>
+          <AxisLabel style={{ gridColumn: 1, gridRow: 2, borderRight: `1px solid ${dividerColor}` }}>Important</AxisLabel>
+          <div style={{ gridColumn: 1, gridRow: 3, borderRight: `1px solid ${dividerColor}` }} />
+          <AxisLabel style={{ gridColumn: 1, gridRow: 4, borderRight: `1px solid ${dividerColor}` }}>Not Important</AxisLabel>
 
           <div style={{ gridColumn: 2, gridRow: 2, minHeight: 0 }}>
-            <QuadrantPanel
+            <QuadrantSection
               quadrant="do_first"
               tasks={grouped.do_first}
               profilesById={profilesById}
               expanded={expanded === "do_first"}
               onToggleExpand={() => setExpanded((e) => (e === "do_first" ? null : "do_first"))}
               onMove={handleMove}
+              dividerStyle={doFirstDivider}
+              isTopRow
             />
           </div>
-          <div style={{ gridColumn: 3, gridRow: 2, minHeight: 0 }}>
-            <QuadrantPanel
+          <div style={{ gridColumn: 4, gridRow: 2, minHeight: 0 }}>
+            <QuadrantSection
               quadrant="schedule"
               tasks={grouped.schedule}
               profilesById={profilesById}
               expanded={expanded === "schedule"}
               onToggleExpand={() => setExpanded((e) => (e === "schedule" ? null : "schedule"))}
               onMove={handleMove}
+              dividerStyle={scheduleDivider}
+              isTopRow
             />
           </div>
-          <div style={{ gridColumn: 2, gridRow: 3, minHeight: 0 }}>
-            <QuadrantPanel
+          <div style={{ gridColumn: 2, gridRow: 4, minHeight: 0 }}>
+            <QuadrantSection
               quadrant="delegate"
               tasks={grouped.delegate}
               profilesById={profilesById}
               expanded={expanded === "delegate"}
               onToggleExpand={() => setExpanded((e) => (e === "delegate" ? null : "delegate"))}
               onMove={handleMove}
+              dividerStyle={delegateDivider}
+              isBottomRow
             />
           </div>
-          <div style={{ gridColumn: 3, gridRow: 3, minHeight: 0 }}>
-            <QuadrantPanel
+          <div style={{ gridColumn: 4, gridRow: 4, minHeight: 0 }}>
+            <QuadrantSection
               quadrant="eliminate"
               tasks={grouped.eliminate}
               profilesById={profilesById}
               expanded={expanded === "eliminate"}
               onToggleExpand={() => setExpanded((e) => (e === "eliminate" ? null : "eliminate"))}
               onMove={handleMove}
+              dividerStyle={eliminateDivider}
+              isBottomRow
             />
           </div>
 
