@@ -9,6 +9,8 @@ import { v4 as uuidv4 } from "uuid";
 import {
   createTaskNoteSchema,
   createTaskSchema,
+  suggestIsUrgent,
+  taskQuadrant,
   type Profile,
   type Task,
   type TaskNote,
@@ -17,6 +19,9 @@ import {
 } from "@jmssaas/shared";
 import { useAuth } from "../../lib/auth-context";
 import { addTaskPhoto } from "../../lib/powersync";
+import { supabase } from "../../lib/supabase";
+import { useSupabaseFetch } from "../../lib/use-supabase-fetch";
+import { axisParam, DEFAULT_TASK_URGENCY_THRESHOLD_DAYS, isOverdue } from "../../lib/task-matrix";
 import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
 import { ThemedModal } from "../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../components/theme/ThemedFormField";
@@ -24,6 +29,8 @@ import { ThemedDateField } from "../../components/theme/ThemedDateField";
 import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../components/theme/ThemedButton";
 import { ThemedPhotoAttachments } from "../../components/theme/ThemedPhotoAttachments";
+import { QuadrantBadge } from "../../components/theme/QuadrantBadge";
+import { QuadrantToggleRow } from "../../components/theme/QuadrantToggleRow";
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
@@ -95,6 +102,56 @@ export default function TaskDetailScreen() {
 
   const handlePriorityChange = async (priority: TaskPriority) => {
     await powersync.execute("UPDATE tasks SET priority = ? WHERE id = ?", [priority, id]);
+  };
+
+  // --- Eisenhower Matrix classification ---
+  // tenants.task_urgency_threshold_days isn't PowerSync-synced (tenants
+  // isn't a local table - see task-matrix.ts), so this is a plain online
+  // fetch that falls back to the migration's own default whenever it
+  // hasn't resolved yet (offline, or still loading).
+  const { data: urgencyThresholdDays } = useSupabaseFetch<number>(async () => {
+    if (!profile) return DEFAULT_TASK_URGENCY_THRESHOLD_DAYS;
+    const { data, error } = await supabase
+      .from("tenants")
+      .select("task_urgency_threshold_days")
+      .eq("id", profile.tenant_id)
+      .single();
+    if (error) throw error;
+    return data.task_urgency_threshold_days ?? DEFAULT_TASK_URGENCY_THRESHOLD_DAYS;
+  }, [profile?.tenant_id]);
+
+  const handleClassify = async (next: { is_urgent: boolean | null; is_important: boolean | null }) => {
+    if (!task) return;
+    await powersync.execute("UPDATE tasks SET is_urgent = ?, is_important = ? WHERE id = ?", [
+      axisParam(next.is_urgent),
+      axisParam(next.is_important),
+      id,
+    ]);
+    // Behaviour rule: moving a task into Delegate while unassigned prompts
+    // for an assignee - doesn't block if dismissed (the picker just closes
+    // and nothing else happens).
+    if (taskQuadrant(next) === "delegate" && !task.assigned_to) {
+      setAssigneePickerVisible(true);
+    }
+  };
+
+  // Covers both "no explicit is_urgent yet, but there's a due date" and
+  // "deadline creep" (an explicit is_urgent that the due date no longer
+  // agrees with) in one computation: suggestIsUrgent() only returns
+  // non-null when there's a due date, and comparing it against the task's
+  // *current* is_urgent (null or boolean) catches both cases - never
+  // applied automatically either way, only ever shown as a dismissable
+  // suggestion per the brief.
+  const threshold = urgencyThresholdDays ?? DEFAULT_TASK_URGENCY_THRESHOLD_DAYS;
+  const suggestion = task ? suggestIsUrgent(task.due_date, threshold) : null;
+  const suggestionDiffers = task && suggestion !== null && suggestion !== task.is_urgent;
+  const [dismissedSuggestionKey, setDismissedSuggestionKey] = useState<string | null>(null);
+  const suggestionKey = task ? `${task.id}:${suggestion}` : null;
+  const showSuggestion = Boolean(suggestionDiffers) && suggestionKey !== dismissedSuggestionKey;
+
+  const handleApplySuggestion = () => {
+    if (!task || suggestion === null) return;
+    handleClassify({ is_urgent: suggestion, is_important: task.is_important });
   };
 
   // --- Edit task title/description/dates ---
@@ -266,6 +323,27 @@ export default function TaskDetailScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Matrix</Text>
+          <QuadrantBadge quadrant={taskQuadrant(task)} overdue={isOverdue(task)} />
+          {showSuggestion ? (
+            <View style={styles.suggestionBox}>
+              <Text style={styles.suggestionText}>
+                Based on the due date, this task looks {suggestion ? "urgent" : "not urgent"}.
+              </Text>
+              <View style={styles.suggestionActions}>
+                <Pressable onPress={() => setDismissedSuggestionKey(suggestionKey)}>
+                  <Text style={styles.link}>Dismiss</Text>
+                </Pressable>
+                <ThemedButton label="Apply" onPress={handleApplySuggestion} />
+              </View>
+            </View>
+          ) : null}
+          <View style={styles.matrixToggleSpacing}>
+            <QuadrantToggleRow isUrgent={task.is_urgent} isImportant={task.is_important} onChange={handleClassify} />
+          </View>
+        </View>
+
         {task.job_card_id ? (
           <View style={styles.section}>
             <Pressable onPress={() => router.push(`/jobs/${task.job_card_id}`)}>
@@ -427,6 +505,18 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     deleteButton: { borderRadius: 3, padding: 14, alignItems: "center" as const, borderWidth: 1, borderColor: tokens.danger },
     deleteButtonText: { color: tokens.danger, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
     assigneeRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const },
+    matrixToggleSpacing: { marginTop: 10 },
+    suggestionBox: {
+      marginTop: 10,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: tokens.warning,
+      borderRadius: 3,
+      backgroundColor: tokens.background,
+      gap: 8,
+    },
+    suggestionText: { color: tokens.textPrimary, fontSize: font.label, ...mono },
+    suggestionActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const, alignItems: "center" as const, gap: 16 },
     subtaskRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, paddingVertical: 8 },
     checkbox: {
       width: 22,

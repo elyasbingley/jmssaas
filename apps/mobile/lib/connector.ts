@@ -33,6 +33,11 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   communication_templates: ["is_active"],
   notes: ["is_deleted"],
   note_properties: ["value_checkbox"],
+  // is_milestone was already affected by this exact bug (set 0/1 at local
+  // insert time in apps/mobile/app/tasks/index.tsx, never coerced back on
+  // upload) before is_urgent/is_important existed - added here now that the
+  // Eisenhower Matrix work adds mobile writes that hit this same path.
+  tasks: ["is_milestone", "is_urgent", "is_important"],
 };
 
 function coerceBooleanColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {

@@ -8894,3 +8894,97 @@ Fully self-contained - no new third-party service, no new secret.
   yet), and an outline/table-of-contents pane (`extractHeadings()` already
   exists in `packages/shared/src/notes.ts` for this, just not wired into
   either editor's UI yet).
+
+## 65. Eisenhower Matrix (Urgent x Important) on Tasks
+
+An enhancement of the existing Tasks module, not a parallel system - a
+2x2 Urgent/Important grid view alongside Tasks' existing Board/List/
+Calendar/Timeline views, plus classification controls wherever a task can
+already be edited. Fully self-contained - no new third-party service, no
+new secret.
+
+- **Database** (`supabase/migrations/20261005000100_eisenhower_matrix.sql`):
+  two new nullable columns on the existing `tasks` table -
+  `is_urgent`/`is_important` (both `null` = "Unsorted", i.e. never
+  classified; each axis is independent, not a single quadrant enum).
+  Named `is_urgent`/`is_important` rather than `urgent`/`important` to
+  stay unambiguous next to `task_priority`'s own pre-existing `'urgent'`
+  enum value (a separate, unrelated concept). A new
+  `tenants.task_urgency_threshold_days` column (default `2`) drives the
+  due-date suggestion below, following the same "plain column on
+  `tenants`" convention every other single-value per-tenant setting
+  already uses (`phone`, `google_review_link`, etc.) rather than a new
+  generic settings table. The existing `log_task_activity()` trigger
+  (from the `asana_task_engine` migration) was extended to log
+  `is_urgent`/`is_important` changes the same way it already logs
+  status/priority/assignee/due-date changes. No new RLS policies - these
+  are just more columns on `tasks`, so they inherit that table's existing
+  "select/update: admin or assigned-to-me" policies automatically. No new
+  PowerSync sync-rule changes either - `tasks` already syncs via
+  `select *` in every bucket that includes it.
+- **Quadrant derivation**: a pure function of `is_urgent`/`is_important`
+  (`taskQuadrant()` in `packages/shared/src/tasks.ts`) - deliberately not
+  stored, since it needs no cross-row logic (unlike e.g. Notes' wikilink
+  graph, which genuinely needed a trigger). `QUADRANT_META` holds the
+  label/subtitle/guidance copy for each quadrant so it's identical
+  everywhere it's shown. `suggestIsUrgent(dueDate, thresholdDays)` is a
+  pure due-date-driven *suggestion* - every call site shows it as a
+  dismissable chip and never applies it automatically; an explicit
+  classification always wins.
+- **Conflict handling**: tasks have no conflict-resolution mechanism
+  today - `apps/mobile/lib/connector.ts`'s `uploadData()` replays every
+  queued write as a blind Supabase upsert/update, silent last-write-wins,
+  same as every table except Notes. Matrix classification changes follow
+  this exact same (lack of) mechanism, as agreed with the user rather
+  than building something new.
+- **Desktop** (`apps/desktop/src/components/tasks/{MatrixView,
+  MoveToMenu,QuadrantBadge,matrixHelpers}.tsx`): "Matrix" is a
+  client-side-only view option on the unscoped "All Tasks" screen (never
+  written to the stored `task_projects.view_type` DB enum, since - like
+  the existing unscoped List/Calendar - it cuts across every project).
+  True cross-shaped CSS grid with axis labels, a glowing "Unsorted" hub
+  at the centre (opens a tray of every unclassified task), 4 colour-coded
+  quadrant panels (fixed palette, since the CRT theme exposes only one
+  active accent colour at a time) with internal scroll + "+N more" and a
+  per-quadrant expand/collapse toggle, drag-and-drop between quadrants
+  (`@dnd-kit`, same pattern as the existing Kanban `BoardView.tsx`) plus a
+  non-drag "Move to" menu on every card, completed tasks hidden by
+  default with a toggle, and a "my tasks" default filter for non-admins.
+  `TaskDetail.tsx`'s drawer and `JobDetail.tsx`'s embedded Job Tasks panel
+  both got a quadrant badge and classification controls (Job Card's stays
+  a plain `<select>`, matching that panel's own deliberately-minimal
+  design); quick-add task creation never forces a classification.
+- **Mobile** (`apps/mobile/app/tasks/{matrix,matrix-quadrant,triage}.tsx`,
+  `apps/mobile/lib/task-matrix.ts`): the same cross-shaped grid sized for
+  a large phone, with each segment showing a compact preview (label,
+  count, 2 task titles) and tapping through to a full navigated list
+  rather than a floating hub overlay - mobile's Unsorted affordance is a
+  bottom bar with a "Triage" button instead, leading into a dedicated
+  one-task-at-a-time classification flow (`triage.tsx`) rather than
+  dumping the whole Unsorted list on the user at once. No drag-and-drop -
+  a bottom-sheet "Move to..." (`MoveToQuadrantSheet.tsx`) instead. Unlike
+  desktop, quadrants are told apart by label text rather than colour (a
+  deliberate call: this theme exposes one accent colour per preset, and
+  inventing four ad hoc colours outside the token system would look
+  inconsistent). `tenants.task_urgency_threshold_days` isn't
+  PowerSync-synced (`tenants` isn't a local table at all), so the due-date
+  suggestion fetches it directly from Supabase with a graceful fallback
+  to the migration's own default when offline.
+- **Behaviour rules** (both platforms): moving a task into Delegate while
+  it has no assignee prompts for one, non-blocking if dismissed; a due-date
+  edit that now disagrees with a task's explicit `is_urgent` surfaces a
+  dismissable suggestion rather than silently reclassifying; an overdue
+  task is visually flagged in whichever quadrant it's currently in.
+- **Built via two parallel background agents** (desktop and mobile, each
+  in an isolated worktree off the shared data-model commit), reviewed
+  file-by-file against the actual diffs before merging - both typecheck
+  clean independently and on the merged branch. Not browser/device-tested
+  in this session (no live Supabase credentials in this environment); the
+  underlying migration itself was verified end-to-end against a real
+  local Postgres 16 instance (full migration chain, the extended activity
+  trigger, RLS inheritance).
+- **Deferred, not built this pass** (per the brief's own "ask before
+  starting" instruction): the optional summary widget/nudges, and any
+  AI/heuristic auto-classification of existing tasks (explicitly out of
+  scope). Also not built: job scheduling/calendar changes and separate
+  per-team-member matrices (both explicitly out of scope in the brief).

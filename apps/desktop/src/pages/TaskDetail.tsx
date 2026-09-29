@@ -6,6 +6,8 @@ import {
   createTaskNoteSchema,
   createTaskSchema,
   setTaskCustomFieldValueSchema,
+  suggestIsUrgent,
+  taskQuadrant,
   type Client,
   type JobCard,
   type Profile,
@@ -19,8 +21,10 @@ import {
   type TaskNote,
   type TaskPriority,
   type TaskProject,
+  type TaskQuadrant,
   type TaskSection,
   type TaskStatus,
+  type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -28,6 +32,8 @@ import { getErrorMessage } from "../lib/errors";
 import { uploadTaskPhoto } from "../lib/uploads";
 import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { PRIORITY_LABELS, PRIORITY_ORDER, dependencyGuardrailMessage, unresolvedBlockers } from "../components/tasks/taskHelpers";
+import { QuadrantBadge } from "../components/tasks/QuadrantBadge";
+import { MOVE_TARGETS, patchForQuadrant, quadrantColor } from "../components/tasks/matrixHelpers";
 
 // Slide-over drawer (see Tasks.tsx's fixed right-side panel + nested
 // /tasks/:id route) - Asana-style task detail: properties grid, JMS
@@ -111,6 +117,11 @@ async function fetchFiles(taskId: string): Promise<TaskFile[]> {
   if (error) throw error;
   return data as TaskFile[];
 }
+async function fetchTenant(tenantId: string): Promise<Tenant> {
+  const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
+  if (error) throw error;
+  return data as Tenant;
+}
 async function fetchFileUrls(files: TaskFile[]): Promise<Record<string, string>> {
   const entries = await Promise.all(
     files.map(async (f) => {
@@ -128,6 +139,16 @@ function activityLine(log: TaskActivityLog, profilesById: Map<string, Profile>):
   return `${actor} changed ${fieldLabel} from "${log.old_value ?? "none"}" to "${log.new_value ?? "none"}"`;
 }
 
+// Whole days between today and a YYYY-MM-DD due date, for the suggestion
+// chip's wording - mirrors suggestIsUrgent()'s own day-rounding so the
+// label always agrees with the suggestion it's attached to.
+function daysUntil(dueDate: string): number {
+  const due = new Date(`${dueDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -135,6 +156,7 @@ export default function TaskDetailPage() {
   const queryClient = useQueryClient();
 
   const { data: task } = useQuery({ queryKey: ["task", id], queryFn: () => fetchTask(id!), enabled: !!id });
+  const { data: tenant } = useQuery({ queryKey: ["tenant", profile?.tenant_id], queryFn: () => fetchTenant(profile!.tenant_id), enabled: !!profile?.tenant_id });
   const { data: allTasks } = useQuery({ queryKey: ["tasks"], queryFn: fetchAllTasksLite });
   const { data: projects } = useQuery({ queryKey: ["task-projects"], queryFn: fetchProjects });
   const { data: sections } = useQuery({ queryKey: ["task-sections-all"], queryFn: fetchSections });
@@ -229,6 +251,30 @@ export default function TaskDetailPage() {
   const commitDescription = () => {
     if (task && descriptionDraft !== (task.description ?? "")) updateTask.mutate({ description: descriptionDraft || null });
   };
+
+  // --- Eisenhower classification ---
+  // A due-date-driven suggestion, never auto-applied (see suggestIsUrgent's
+  // own comment). `suggestion !== task.is_urgent` covers both cases the
+  // brief calls out with one condition: a never-classified task (is_urgent
+  // null, so any boolean suggestion disagrees) and "deadline creep" (an
+  // explicit is_urgent that a later due_date edit now disagrees with).
+  // Dismissal is keyed on the current due_date, so it resets - and the chip
+  // can resurface - if the date changes again after being dismissed.
+  const [dismissedSuggestionForDate, setDismissedSuggestionForDate] = useState<string | null>(null);
+  const [delegateAssignNudge, setDelegateAssignNudge] = useState(false);
+  const urgencySuggestion = task?.due_date ? suggestIsUrgent(task.due_date, tenant?.task_urgency_threshold_days ?? 2) : null;
+  const showUrgencySuggestion = !!task && task.due_date != null && urgencySuggestion !== null && urgencySuggestion !== task.is_urgent && dismissedSuggestionForDate !== task.due_date;
+
+  const applyQuadrant = (quadrant: TaskQuadrant) => {
+    updateTask.mutate(patchForQuadrant(quadrant));
+    if (quadrant === "delegate" && task && !task.assigned_to) setDelegateAssignNudge(true);
+    else setDelegateAssignNudge(false);
+  };
+  // Clears itself once the task actually gets an assignee, from here or
+  // anywhere else (e.g. the Properties grid's own Assignee field below).
+  useEffect(() => {
+    if (task?.assigned_to) setDelegateAssignNudge(false);
+  }, [task?.assigned_to]);
 
   // --- Photos ---
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -456,6 +502,7 @@ export default function TaskDetailPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <QuadrantBadge quadrant={taskQuadrant(task)} />
           <select
             value={task.priority}
             onChange={(e) => updateTask.mutate({ priority: e.target.value as TaskPriority })}
@@ -519,6 +566,66 @@ export default function TaskDetailPage() {
               value={task.actual_hours ?? ""}
               onChange={(e) => updateTask.mutate({ actual_hours: e.target.value ? Number(e.target.value) : null })}
             />
+          </div>
+
+          <div className="mt-3">
+            <p className="mb-1 uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Eisenhower quadrant
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {MOVE_TARGETS.map((t) => {
+                const active = taskQuadrant(task) === t.quadrant;
+                const color = quadrantColor(t.quadrant);
+                return (
+                  <button
+                    key={t.quadrant}
+                    onClick={() => applyQuadrant(t.quadrant)}
+                    className="rounded-full border px-2.5 py-1 font-semibold"
+                    style={active ? { backgroundColor: `${color}22`, borderColor: color, color } : { borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {showUrgencySuggestion ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded px-2.5 py-1.5" style={{ border: "1px solid var(--jms-warning)", backgroundColor: "var(--jms-bg)" }}>
+                <span style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}>
+                  {(() => {
+                    const days = daysUntil(task.due_date!);
+                    const dayText = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "due today" : `due in ${days}d`;
+                    return `${dayText} — mark ${urgencySuggestion ? "Urgent" : "Not urgent"}?`;
+                  })()}
+                </span>
+                <span className="flex flex-shrink-0 gap-2">
+                  <button
+                    onClick={() => updateTask.mutate({ is_urgent: urgencySuggestion })}
+                    className="font-semibold hover:underline"
+                    style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    onClick={() => setDismissedSuggestionForDate(task.due_date)}
+                    style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                  >
+                    Dismiss
+                  </button>
+                </span>
+              </div>
+            ) : null}
+
+            {delegateAssignNudge ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded px-2.5 py-1.5" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)" }}>
+                <span style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Delegate tasks work best with an assignee - pick one above?
+                </span>
+                <button onClick={() => setDelegateAssignNudge(false)} style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Skip
+                </button>
+              </div>
+            ) : null}
           </div>
         </section>
 

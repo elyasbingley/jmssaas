@@ -3,3 +3,17 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+packageExtensions:
+  # markdown-it@10.0.0 (pulled in by react-native-markdown-display, used by
+  # the Notes module's WikilinkMarkdown.tsx) calls require('punycode')
+  # without declaring it as a dependency - it assumes Node's old built-in
+  # punycode module. Metro (React Native's bundler) has no such built-in
+  # and, unlike plain Node, pnpm's strict node_modules layout won't expose
+  # an undeclared dependency to a package that doesn't ask for it, so this
+  # fails "Unable to resolve module punycode" the moment anything actually
+  # bundles the app (eas update/build) rather than just typechecking it.
+  # This tells pnpm to treat punycode as a real dependency of markdown-it,
+  # same as npm's auto-install-peers/legacy behaviour would.
+  markdown-it@10.0.0:
+    dependencies:
+      punycode: ^2.3.1

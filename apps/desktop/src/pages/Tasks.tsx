@@ -24,19 +24,31 @@ import { BoardView } from "../components/tasks/BoardView";
 import { ListView } from "../components/tasks/ListView";
 import { CalendarView } from "../components/tasks/CalendarView";
 import { TimelineView } from "../components/tasks/TimelineView";
+import { MatrixView } from "../components/tasks/MatrixView";
 import { PRIORITY_LABELS, PRIORITY_ORDER, dependencyGuardrailMessage, isOverdue, toMap, unresolvedBlockers } from "../components/tasks/taskHelpers";
 
 // Asana-style multi-view workspace - project selector sidebar, a view
 // switcher (Board/List/Calendar/Timeline) that defaults to the selected
 // project's own view_type, and quick filters. "All Tasks" (no project
-// selected) only offers List/Calendar - Board and Timeline are inherently
-// project-scoped (task_sections belong to one project; a cross-project
-// Gantt of everything at once isn't a real workflow here), same reasoning
-// task_sections.project_id being NOT NULL already encodes at the schema
-// level.
+// selected) only offers List/Calendar/Matrix - Board and Timeline are
+// inherently project-scoped (task_sections belong to one project; a
+// cross-project Gantt of everything at once isn't a real workflow here),
+// same reasoning task_sections.project_id being NOT NULL already encodes
+// at the schema level. Matrix (the Eisenhower Urgent x Important grid) is
+// the other way round - it only makes sense unscoped, cutting across every
+// project the same way List/Calendar already do - so it's client-side-only
+// state here, never a value in the stored task_projects.view_type enum.
 
 const VIEW_TYPES: TaskProjectViewType[] = ["BOARD", "LIST", "CALENDAR", "TIMELINE"];
 const VIEW_LABELS: Record<TaskProjectViewType, string> = { BOARD: "Board", LIST: "List", CALENDAR: "Calendar", TIMELINE: "Timeline" };
+
+// MATRIX is a client-side-only view option, never written to the stored
+// task_projects.view_type enum - it only makes sense for the unscoped "All
+// Tasks" screen (it cuts across every project the same way the unscoped
+// List/Calendar already do), so it's appended to the unscoped switcher's
+// own type below rather than to VIEW_TYPES/TaskProjectViewType itself.
+type UnscopedViewType = TaskProjectViewType | "MATRIX";
+const UNSCOPED_VIEW_TYPES: UnscopedViewType[] = ["LIST", "CALENDAR", "MATRIX"];
 
 type QuickFilter = "all" | "mine" | "overdue" | "unassigned";
 
@@ -73,7 +85,7 @@ async function fetchDependencies(): Promise<TaskDependency[]> {
 
 export default function TasksPage() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const drawerMatch = useMatch("/tasks/:id");
 
@@ -92,7 +104,7 @@ export default function TasksPage() {
     enabled: !!selectedProjectId,
   });
 
-  const [viewType, setViewType] = useState<TaskProjectViewType>("LIST");
+  const [viewType, setViewType] = useState<UnscopedViewType>("LIST");
   useEffect(() => {
     setViewType(selectedProject ? selectedProject.view_type : "LIST");
   }, [selectedProjectId]);
@@ -100,6 +112,15 @@ export default function TasksPage() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | "">("");
   const [search, setSearch] = useState("");
+
+  // Matrix's own filter default per the brief: a non-admin viewer lands on
+  // "my tasks" rather than everyone's, admins still default to "all". Only
+  // nudges the shared quick-filter pills the first time this view is
+  // entered with the untouched "all" default - it never fights a filter
+  // the person picked deliberately.
+  useEffect(() => {
+    if (viewType === "MATRIX" && quickFilter === "all" && !isAdmin) setQuickFilter("mine");
+  }, [viewType]);
 
   const profilesById = toMap(profiles);
   const jobCardsById = toMap(jobCards);
@@ -312,7 +333,7 @@ export default function TasksPage() {
         </div>
 
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {(selectedProjectId ? VIEW_TYPES : (["LIST", "CALENDAR"] as TaskProjectViewType[])).map((v) => (
+          {(selectedProjectId ? VIEW_TYPES : UNSCOPED_VIEW_TYPES).map((v) => (
             <button
               key={v}
               onClick={() => setViewType(v)}
@@ -323,7 +344,7 @@ export default function TasksPage() {
                   : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)" }
               }
             >
-              {VIEW_LABELS[v]}
+              {v === "MATRIX" ? "Matrix" : VIEW_LABELS[v as TaskProjectViewType]}
             </button>
           ))}
         </div>
@@ -382,6 +403,13 @@ export default function TasksPage() {
             />
           ) : viewType === "CALENDAR" ? (
             <CalendarView tasks={filteredTasks} />
+          ) : viewType === "MATRIX" && !selectedProjectId ? (
+            <MatrixView
+              tasks={filteredTasks}
+              profilesById={profilesById}
+              profiles={profiles ?? []}
+              onUpdateTask={(taskId, patch) => updateTask.mutate({ taskId, patch })}
+            />
           ) : viewType === "TIMELINE" && selectedProjectId ? (
             <TimelineView tasks={filteredTasks} dependencies={dependencies ?? []} />
           ) : (
