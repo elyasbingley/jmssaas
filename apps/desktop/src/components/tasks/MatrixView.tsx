@@ -124,7 +124,15 @@ function QuadrantSection({
   return (
     <div
       ref={setNodeRef}
-      className="flex min-h-0 min-w-0 flex-col px-4"
+      // h-full matters here: the wrapping grid-item div (see MatrixView)
+      // already stretches to the row's full height by CSS Grid's own
+      // default (align-items: stretch), but this div is only that grid
+      // item's *child*, not the grid item itself - without h-full it sizes
+      // to its own content and stops there, so a short quadrant's border
+      // hugs its short content instead of reaching the true row boundary.
+      // That's what made a sparse quadrant look like a tight box while its
+      // taller neighbour's divider lines trailed off mid-row.
+      className="flex h-full min-h-0 min-w-0 flex-col px-4"
       style={{
         ...dividerStyle,
         paddingTop: isBottomRow ? 76 : 16,
