@@ -1873,6 +1873,24 @@ export interface ChannelMessage {
   created_at: string;
 }
 
+// Reusable quick-compose text for Channels' SMS/WhatsApp sends -
+// deliberately separate from CommunicationTemplate (the trigger_key-driven
+// automated engine, whose SMS branch was removed after real Twilio
+// reliability problems - see docs/SETUP.md's "SMS removed" section). This
+// is plain admin-authored CRUD with no trigger/schedule machinery, meant
+// for an admin manually composing a one-off message. body supports the
+// same {token} placeholders as CommunicationTemplate (see placeholders.ts's
+// renderTemplate).
+export interface ChannelMessageTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  body: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Notes module - mirrors the notes_module migration. Deliberately separate
 // from the Knowledge base module above (admin-authored published articles,

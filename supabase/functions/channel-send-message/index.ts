@@ -10,8 +10,48 @@
 // token (facebook_connections, set up via facebook-oauth-start/callback).
 // Instagram still needs Meta App Review finished first before there's
 // anywhere to actually send to; see docs/SETUP.md.
+//
+// Two ways to call this: an existing `conversation_id` (replying in an
+// already-open thread, same as always), or `{channel_type, to_phone}` to
+// start a brand new outbound SMS/WhatsApp conversation to a number that's
+// never messaged in before - "I have inbound, I need outbound" per the
+// feature request this was added for. The find-or-create happens here,
+// service-role side, rather than the client inserting channel_conversations
+// directly - that table's own RLS deliberately has no insert policy (see
+// the channels migration's own comment: "inserts... are always done by the
+// service-role webhook or send function, never directly by a client"), so
+// this is the one place that's allowed to create one.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+// Same AU-phone normalizer as packages/shared/src/channels.ts's toE164 -
+// duplicated rather than imported because Supabase Edge Functions can't
+// import code from outside their own function directory (same constraint
+// process-scheduled-comms' own near-identical placeholder-renderer comment
+// already documents). Keep in sync by hand if it ever changes.
+function toE164(rawPhone: string): string | null {
+  const trimmed = rawPhone.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("+")) {
+    const digits = trimmed.slice(1).replace(/\D/g, "");
+    if (digits.length < 8 || digits.length > 15) return null;
+    return `+${digits}`;
+  }
+
+  const digitsOnly = trimmed.replace(/\D/g, "");
+  if (!digitsOnly) return null;
+
+  // "0491 570 156" -> "+61491570156"
+  if (digitsOnly.startsWith("0") && digitsOnly.length === 10) {
+    return `+61${digitsOnly.slice(1)}`;
+  }
+  // Already has the country code but no leading "+", e.g. "61491570156".
+  if (digitsOnly.startsWith("61") && digitsOnly.length === 11) {
+    return `+${digitsOnly}`;
+  }
+  return null;
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -121,29 +161,94 @@ Deno.serve(async (req: Request) => {
   if (!callerProfile) return json({ error: "unauthorized" }, 401);
   if (callerProfile.role !== "admin") return json({ error: "forbidden" }, 403);
 
-  let payload: { conversation_id?: string; body?: string; media?: { storage_path: string; file_name: string; mime_type: string | null } };
+  let payload: {
+    conversation_id?: string;
+    channel_type?: "sms" | "whatsapp";
+    to_phone?: string;
+    client_id?: string;
+    contact_name?: string;
+    body?: string;
+    media?: { storage_path: string; file_name: string; mime_type: string | null };
+  };
   try {
     payload = await req.json();
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
   const bodyText = payload.body?.trim() || undefined;
-  if (!payload.conversation_id || (!bodyText && !payload.media)) {
-    return json({ error: "conversation_id_and_body_or_media_required" }, 400);
+  if (!bodyText && !payload.media) {
+    return json({ error: "body_or_media_required" }, 400);
+  }
+  if (!payload.conversation_id && !(payload.channel_type && payload.to_phone)) {
+    return json({ error: "conversation_id_or_channel_type_and_to_phone_required" }, 400);
   }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  const { data: conversation, error: conversationError } = await admin
-    .from("channel_conversations")
-    .select("id, tenant_id, channel_type, external_contact")
-    .eq("id", payload.conversation_id)
-    .single();
-  if (conversationError || !conversation) return json({ error: "not_found" }, 404);
-  // Service-role queries bypass RLS entirely, so tenant isolation has to
-  // be checked by hand here - the caller's own tenant_id (from their JWT-
-  // verified profile row above), never anything the request body claims.
-  if (conversation.tenant_id !== callerProfile.tenant_id) return json({ error: "not_found" }, 404);
+  let conversation: { id: string; tenant_id: string; channel_type: string; external_contact: string; client_id: string | null };
+
+  if (payload.conversation_id) {
+    const { data: existingById, error: conversationError } = await admin
+      .from("channel_conversations")
+      .select("id, tenant_id, channel_type, external_contact, client_id")
+      .eq("id", payload.conversation_id)
+      .single();
+    if (conversationError || !existingById) return json({ error: "not_found" }, 404);
+    // Service-role queries bypass RLS entirely, so tenant isolation has to
+    // be checked by hand here - the caller's own tenant_id (from their JWT-
+    // verified profile row above), never anything the request body claims.
+    if (existingById.tenant_id !== callerProfile.tenant_id) return json({ error: "not_found" }, 404);
+    conversation = existingById;
+  } else {
+    const channelType = payload.channel_type!;
+    if (channelType !== "sms" && channelType !== "whatsapp") {
+      return json({ error: "unsupported_channel_type" }, 400);
+    }
+    const normalizedPhone = toE164(payload.to_phone!);
+    if (!normalizedPhone) return json({ error: "invalid_phone", message: "Enter a valid phone number, e.g. 0491 570 156" }, 400);
+
+    if (payload.client_id) {
+      const { data: client } = await admin.from("clients").select("id").eq("id", payload.client_id).eq("tenant_id", callerProfile.tenant_id).maybeSingle();
+      if (!client) return json({ error: "client_not_found" }, 404);
+    }
+
+    const { data: existingByPhone } = await admin
+      .from("channel_conversations")
+      .select("id, tenant_id, channel_type, external_contact, client_id")
+      .eq("tenant_id", callerProfile.tenant_id)
+      .eq("channel_type", channelType)
+      .eq("external_contact", normalizedPhone)
+      .maybeSingle();
+
+    if (existingByPhone) {
+      conversation = existingByPhone;
+      // Link a client that wasn't known the first time this number
+      // messaged/was messaged, same "attach now, not before" idea the
+      // channels migration's own comment describes for client_id generally.
+      if (payload.client_id && !existingByPhone.client_id) {
+        await admin.from("channel_conversations").update({ client_id: payload.client_id }).eq("id", existingByPhone.id);
+        conversation.client_id = payload.client_id;
+      }
+    } else {
+      const { data: created, error: createError } = await admin
+        .from("channel_conversations")
+        .insert({
+          tenant_id: callerProfile.tenant_id,
+          channel_type: channelType,
+          external_contact: normalizedPhone,
+          client_id: payload.client_id ?? null,
+          contact_name: payload.contact_name?.trim() || null,
+          last_message_at: new Date().toISOString(),
+        })
+        .select("id, tenant_id, channel_type, external_contact, client_id")
+        .single();
+      if (createError || !created) {
+        console.error("[channel-send-message] Failed to create conversation", createError);
+        return json({ error: "server_error" }, 500);
+      }
+      conversation = created;
+    }
+  }
 
   if (conversation.channel_type !== "sms" && conversation.channel_type !== "whatsapp" && conversation.channel_type !== "messenger") {
     return json({ error: "channel_not_connected", message: "Sending isn't available on this channel yet." }, 400);
@@ -220,5 +325,5 @@ Deno.serve(async (req: Request) => {
     .update({ last_message_at: new Date().toISOString(), last_message_preview: preview })
     .eq("id", conversation.id);
 
-  return json({ ok: true, message_id: message.id });
+  return json({ ok: true, message_id: message.id, conversation_id: conversation.id });
 });

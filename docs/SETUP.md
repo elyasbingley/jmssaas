@@ -8988,3 +8988,84 @@ new secret.
   AI/heuristic auto-classification of existing tasks (explicitly out of
   scope). Also not built: job scheduling/calendar changes and separate
   per-team-member matrices (both explicitly out of scope in the brief).
+
+## 66. Send Quote via SMS, outbound Channels compose, and SMS templates
+
+Lets an admin text a client directly from the Quote detail screen, and
+start a brand-new outbound SMS thread from Channels (to an existing
+client or a manually-typed number), using reusable message templates.
+Deliberately built on Channels' already-working Twilio SMS path (see
+§63), **not** `communication_engine`'s automated-SMS path, which stays
+disabled (its `process-scheduled-comms` function still hard-fails any
+non-email rule - see the `20260810000100_communication_engine_email_only.sql`
+migration and §63's own note). That engine was turned off after real
+Twilio reliability problems (wrong From number, AU-format phone numbers
+instead of E.164); this feature is a one-off manual send by a human
+admin, not another automated trigger, so it doesn't reopen that risk.
+
+- **Database** (`supabase/migrations/20261012000100_channel_message_templates.sql`):
+  a new `channel_message_templates` table (`tenant_id`, `name`, `body`,
+  `created_by`, timestamps) - deliberately separate from
+  `communication_templates` (which belongs to the disabled engine above)
+  rather than reusing or re-enabling it. RLS: tenant-wide read (anyone on
+  the tenant can pick a template to send), admin-only insert/update/delete
+  (matches every other "everyone reads, admin writes" shape already used
+  elsewhere, e.g. the Price Book). No PowerSync changes - desktop-and-
+  mobile Channels UI is online-only already (see §63).
+- **Edge Function** (`supabase/functions/channel-send-message/index.ts`):
+  extended, not replaced. It still accepts an existing `conversation_id`
+  for replies (unchanged). It now also accepts `{channel_type, to_phone,
+  client_id?, contact_name?}` to start a *new* thread: normalizes
+  `to_phone` to E.164 (same `toE164` logic already used for
+  `tenants.sms_phone_number` in Settings), finds an existing
+  `channel_conversations` row by `(tenant_id, channel_type,
+  external_contact)` or creates one server-side (required - that table's
+  RLS has no client-side insert policy by design, only the service-role
+  webhook/this function may insert). Response now also returns
+  `conversation_id` so the client can navigate straight to the thread.
+  Still admin-only (`profiles.role === 'admin'`), still sends via Twilio
+  using `tenants.sms_phone_number` as the From number - same
+  authorization and delivery path as every existing Channels SMS reply.
+- **Desktop** (`apps/desktop/src/components/channels/SendSmsModal.tsx`,
+  `pages/{QuoteDetail,Channels}.tsx`): one reusable compose modal with two
+  modes - `fixed` (Quote detail: phone pre-filled from the client/contacts,
+  can't be changed to a different recipient) and `picker` (Channels' new
+  "+ New Message" button: tabs for "Existing client" search-as-you-type
+  vs. "Manual number"). An inline "Insert template" panel lists
+  `channel_message_templates`, substitutes `{client_first_name}`,
+  `{company_name}`, `{quote_approval_link}`, etc. (`renderTemplate` from
+  `packages/shared/src/placeholders.ts`, the same placeholder set the
+  email quote-send flow already uses) and inserts at the cursor rather
+  than replacing the whole message; admins get inline create/edit/delete
+  on templates directly from that panel. The Quote detail screen's
+  default SMS body uses the same placeholder set as its existing email
+  send. Both screens pre-flight-check `tenants.sms_phone_number` and show
+  a plain "set this up in Settings first" message rather than opening the
+  compose UI if it's missing.
+- **Mobile** (`apps/mobile/components/theme/SendSmsModal.tsx`,
+  `app/channels/{new,templates}.tsx`, `app/sales/quotes/[id].tsx`): same
+  shape as desktop, mobile-native equivalents - a shared compose modal
+  (phone field + tap-to-fill contact chips + body + "Insert
+  template"/"Manage templates" links), a recipient-mode screen for
+  Channels' new "+ New Message" (existing client via picker, or manual
+  number), a dedicated template list/create/edit/delete screen
+  (admin-gated in the UI, RLS enforces it server-side regardless), and a
+  "Send Quote via SMS" button on the Quote detail screen next to the
+  existing email button. Same `tenants.sms_phone_number` pre-flight
+  check, same placeholder set.
+- **Built via two parallel background agents** (desktop and mobile, each
+  in an isolated worktree off the shared data-model commit), reviewed
+  file-by-file against the actual diffs before merging - every prop and
+  helper the agents used against existing components (`ThemedTextAreaField`'s
+  `ref`/`labelHidden`, `ThemedButton`'s `style`) was independently
+  confirmed against that component's real source rather than taken on
+  faith. Both typecheck clean independently and on the merged branch.
+  Not browser/device-tested in this session (no live Supabase credentials
+  in this environment); the new migration and its RLS policies were
+  verified against a real local Postgres instance, including genuinely
+  role-switched (non-superuser) RLS checks, not just reasoning about the
+  policy text.
+- **Deferred, not built this pass** (outside the user's stated scope):
+  WhatsApp compose UI (the data model supports it via `channel_type`, but
+  no button/screen was added for it), and any change to
+  `communication_engine`'s automated SMS path, which remains disabled.
