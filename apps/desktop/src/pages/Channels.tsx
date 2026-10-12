@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useMatch, useNavigate } from "react-router-dom";
-import type { ChannelConversation, ChannelTypeOrEmail, InboxMessage } from "@jmssaas/shared";
+import type { ChannelConversation, ChannelTypeOrEmail, InboxMessage, Tenant } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth-context";
+import { startChannelConversation } from "../lib/channels";
 import { SidePanel } from "../components/SidePanel";
+import { ThemedButton } from "../components/theme/ThemedButton";
+import { SendSmsModal } from "../components/channels/SendSmsModal";
 
 // Consolidates every way a client talks to the business into one list:
 // real conversations (SMS live via Twilio; WhatsApp/Messenger/Instagram
@@ -59,15 +63,57 @@ async function fetchInboxMessages(): Promise<InboxMessage[]> {
   return data as InboxMessage[];
 }
 
+async function fetchTenant(tenantId: string): Promise<Tenant> {
+  const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
+  if (error) throw error;
+  return data as Tenant;
+}
+
 export default function ChannelsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const drawerMatch = useMatch("/channels/:id");
+  const { profile } = useAuth();
 
   const { data: conversations, isLoading: conversationsLoading } = useQuery({ queryKey: ["channel-conversations"], queryFn: fetchConversations });
   const { data: inboxMessages, isLoading: inboxLoading } = useQuery({ queryKey: ["inbox-messages-for-channels"], queryFn: fetchInboxMessages });
+  const { data: tenant } = useQuery({
+    queryKey: ["tenant", profile?.tenant_id],
+    queryFn: () => fetchTenant(profile!.tenant_id),
+    enabled: !!profile,
+  });
 
   const [channelFilter, setChannelFilter] = useState<ChannelTypeOrEmail | "all">("all");
   const [search, setSearch] = useState("");
+
+  // "+ New Message" - start a brand new outbound SMS conversation, either
+  // to an existing client or a manually-typed number (SendSmsModal's own
+  // mode="picker"). Same tenant.sms_phone_number pre-flight check as
+  // QuoteDetail's "Send Quote via SMS" button - checked before the modal
+  // ever opens, not left to fail at send time.
+  const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const [newMessageError, setNewMessageError] = useState<string | null>(null);
+
+  const openNewMessage = () => {
+    setNewMessageError(null);
+    if (!tenant?.sms_phone_number) {
+      setNewMessageError("Set up your SMS number in Settings > Company Settings before sending SMS");
+      return;
+    }
+    setNewMessageOpen(true);
+  };
+
+  const handleSendNewMessage = async (payload: { phone: string; body: string; clientId?: string; contactName?: string }) => {
+    const result = await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: payload.clientId,
+      contactName: payload.contactName,
+    });
+    queryClient.invalidateQueries({ queryKey: ["channel-conversations"] });
+    navigate(`/channels/${result.conversationId}`);
+  };
 
   const rows = useMemo((): UnifiedRow[] => {
     const realRows: UnifiedRow[] = (conversations ?? []).map((c) => ({
@@ -126,6 +172,9 @@ export default function ChannelsPage() {
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <ThemedButton onClick={openNewMessage} style={{ paddingBlock: 6, paddingInline: 14 }}>
+            + New Message
+          </ThemedButton>
           {(["all", "sms", "whatsapp", "messenger", "instagram", "email"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
             <button
               key={f}
@@ -149,6 +198,11 @@ export default function ChannelsPage() {
             style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
           />
         </div>
+        {newMessageError ? (
+          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {newMessageError}
+          </p>
+        ) : null}
 
         {isLoading ? (
           <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
@@ -190,6 +244,30 @@ export default function ChannelsPage() {
       <SidePanel open={!!drawerMatch} onClose={() => navigate("/channels")}>
         <Outlet />
       </SidePanel>
+
+      <SendSmsModal
+        open={newMessageOpen}
+        onClose={() => setNewMessageOpen(false)}
+        title="New message"
+        sendLabel="Send"
+        mode="picker"
+        renderContextBase={
+          tenant
+            ? {
+                company: {
+                  name: tenant.name,
+                  phone: tenant.phone,
+                  email: tenant.email,
+                  bank_account_name: tenant.bank_account_name,
+                  bank_bsb: tenant.bank_bsb,
+                  bank_account_number: tenant.bank_account_number,
+                  google_review_link: tenant.google_review_link,
+                },
+              }
+            : {}
+        }
+        onSend={handleSendNewMessage}
+      />
     </div>
   );
 }

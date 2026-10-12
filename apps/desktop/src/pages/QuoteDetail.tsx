@@ -13,6 +13,7 @@ import {
   type ClientSite,
   type EmailAttachment,
   type LineItemFormInput,
+  type PlaceholderContext,
   type Quote,
   type QuoteStatus,
   type ReferralPartner,
@@ -22,6 +23,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
+import { startChannelConversation } from "../lib/channels";
 import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
 import { blobToDataUrl, buildQuotePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
@@ -29,10 +31,19 @@ import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { EmailComposeModal } from "../components/EmailComposeModal";
+import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { PurchaseOrderNumberModal } from "../components/PurchaseOrderNumberModal";
+
+// Deliberately plain, hardcoded text (not looked up from communication_
+// templates - see openSendSms's own comment) - just a sensible default the
+// admin can edit freely in SendSmsModal before sending, same token set as
+// the email flow's own renderContext below (packages/shared/src/
+// placeholders.ts's renderTemplate).
+const QUOTE_SMS_TEMPLATE =
+  "Hi {client_first_name}, here's your quote from {company_name}: {quote_approval_link}. Reply if you have any questions.";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -404,6 +415,92 @@ export default function QuoteDetailPage() {
     freeText: jobNoteBodies ?? [],
   });
 
+  // "Send Quote via SMS" - same approval-link generation as openSendEmail
+  // above, but there's no communication_rules/communication_templates
+  // lookup here: that engine's SMS branch is deliberately disabled (see
+  // channel-send-message's own comment), so this always goes through
+  // Channels' own working Twilio send path via startChannelConversation,
+  // with a plain hardcoded default body (QUOTE_SMS_TEMPLATE) the admin can
+  // edit in SendSmsModal before sending.
+  const [smsModalOpen, setSmsModalOpen] = useState(false);
+  const [smsDefaultBody, setSmsDefaultBody] = useState("");
+  const [smsRenderContext, setSmsRenderContext] = useState<PlaceholderContext>({});
+  const [openingSms, setOpeningSms] = useState(false);
+  const [sendSmsError, setSendSmsError] = useState<string | null>(null);
+  const [sendSmsResult, setSendSmsResult] = useState<string | null>(null);
+
+  const openSendSms = async () => {
+    if (!data || !profile || !tenant || !data.quote.clients) return;
+    setSendSmsError(null);
+    // Checked before ever opening the modal, not left to fail at send
+    // time - channel-send-message would reject the send anyway (no
+    // tenant Twilio number to send from), but a clear message here saves
+    // the admin from filling out a whole compose form first.
+    if (!tenant.sms_phone_number) {
+      setSendSmsError("Set up your SMS number in Settings > Company Settings before sending SMS");
+      return;
+    }
+    setOpeningSms(true);
+    try {
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_quote_approval_link", { p_quote_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=quote&token=${token}`;
+      }
+      const renderContext: PlaceholderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.quote.clients?.name ?? "", phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
+        quote: {
+          quote_number: data.quote.quote_number,
+          total_cents: data.quote.total_cents,
+          issue_date: data.quote.issue_date,
+          expiry_date: data.quote.expiry_date,
+          approval_link: approvalLink,
+          accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+          decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
+        },
+      };
+      setSmsRenderContext(renderContext);
+      setSmsDefaultBody(renderTemplate(QUOTE_SMS_TEMPLATE, renderContext));
+      setSmsModalOpen(true);
+    } catch (e) {
+      setSendSmsError(getErrorMessage(e, "Failed to prepare SMS"));
+    } finally {
+      setOpeningSms(false);
+    }
+  };
+
+  const handleSendSms = async (payload: { phone: string; body: string; clientId?: string; contactName?: string }) => {
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: payload.clientId,
+      contactName: payload.contactName,
+    });
+    const { error } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
+    if (error) throw error;
+    invalidate();
+    setSendSmsResult("The quote SMS has been sent.");
+    setTimeout(() => setSendSmsResult(null), 5000);
+  };
+
+  // Primary phone first, then any client_contacts row with a phone - same
+  // "prefer primary, fall back to a contact" idea SendSmsModal's own
+  // picker mode uses for an existing client picked from Channels.
+  const smsPhoneOptions: PhoneOption[] = (clientContacts ?? [])
+    .filter((c) => !!c.phone)
+    .map((c) => ({ label: `${c.name} (${c.phone})`, value: c.phone as string }));
+
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressSiteChoice, setAddressSiteChoice] = useState("");
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -555,6 +652,9 @@ export default function QuoteDetailPage() {
         <ThemedButton onClick={() => openSendEmail()} disabled={openingEmail}>
           {openingEmail ? "Preparing..." : "Send Quote via Email"}
         </ThemedButton>
+        <ThemedButton variant="secondary" onClick={() => openSendSms()} disabled={openingSms}>
+          {openingSms ? "Preparing..." : "Send Quote via SMS"}
+        </ThemedButton>
         <ThemedButton variant="secondary" onClick={() => generateLink.mutate()} disabled={generateLink.isPending}>
           {generateLink.isPending
             ? "Generating..."
@@ -581,6 +681,16 @@ export default function QuoteDetailPage() {
       {sendResult ? (
         <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           {sendResult}
+        </p>
+      ) : null}
+      {sendSmsError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {sendSmsError}
+        </p>
+      ) : null}
+      {sendSmsResult ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {sendSmsResult}
         </p>
       ) : null}
       {linkError ? (
@@ -805,6 +915,21 @@ export default function QuoteDetailPage() {
         recipientOptions={recipientOptions}
         onSend={handleSendEmail}
         sendLabel="Send quote"
+      />
+
+      <SendSmsModal
+        open={smsModalOpen}
+        onClose={() => setSmsModalOpen(false)}
+        title="Send quote via SMS"
+        sendLabel="Send SMS"
+        mode="fixed"
+        fixedPhone={data.quote.clients?.phone ?? ""}
+        fixedClientId={data.quote.clients?.id}
+        fixedContactName={data.quote.clients?.name}
+        fixedPhoneOptions={smsPhoneOptions}
+        defaultBody={smsDefaultBody}
+        renderContextBase={smsRenderContext}
+        onSend={handleSendSms}
       />
     </div>
   );
