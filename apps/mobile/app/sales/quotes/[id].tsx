@@ -33,8 +33,10 @@ import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedDateField } from "../../../components/theme/ThemedDateField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
+import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
+import { startChannelConversation } from "../../../lib/channels";
 import { partnerDisplayName } from "../../b2b-referrals/index";
 
 const STATUSES: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
@@ -144,6 +146,10 @@ export default function QuoteDetailScreen() {
   const [emailDefaultAttachments, setEmailDefaultAttachments] = useState<EmailAttachment[]>([]);
   const [quoteTemplateId, setQuoteTemplateId] = useState<string | null>(null);
   const [openingEmail, setOpeningEmail] = useState(false);
+  const [openingSms, setOpeningSms] = useState(false);
+  const [sendSmsError, setSendSmsError] = useState<string | null>(null);
+  const [smsModalVisible, setSmsModalVisible] = useState(false);
+  const [smsDefaults, setSmsDefaults] = useState({ phone: "", body: "" });
   const { data: clientContacts } = useSupabaseFetch<ClientContact[]>(async () => {
     if (!isOnline || !data?.quote.client_id) return [];
     const { data: rows, error } = await supabase.from("client_contacts").select("*").eq("client_id", data.quote.client_id);
@@ -154,6 +160,9 @@ export default function QuoteDetailScreen() {
     clientEmail: data?.quote.clients?.email,
     contactEmails: (clientContacts ?? []).map((c) => c.email),
   });
+  const smsPhoneOptions = (clientContacts ?? [])
+    .filter((c) => c.phone)
+    .map((c) => ({ label: c.name, phone: c.phone as string }));
 
   // Once the client has actually responded, the line items/totals are
   // locked at the database level too (see the accepted case's trigger in
@@ -456,6 +465,87 @@ export default function QuoteDetailScreen() {
     );
   };
 
+  // Mirrors openSendEmail above: checks the tenant's SMS number is set up
+  // first (channel-send-message's own from_number lookup would otherwise
+  // fail server-side with a less helpful error), then builds the same
+  // renderContext shape to seed a default message via renderTemplate - the
+  // actual send goes through startChannelConversation
+  // (lib/channels.ts), not the communication_engine/dispatch-now path
+  // email uses, since Channels' Twilio send is a separate, already-working
+  // system (see that migration's own comment on why SMS isn't routed
+  // through the disabled automated engine).
+  const openSendSms = async () => {
+    if (!data || !profile) return;
+    setOpeningSms(true);
+    setSendSmsError(null);
+    try {
+      const { data: tenantRow, error: tenantError } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+      if (tenantError) throw tenantError;
+      const tenant = tenantRow as Tenant;
+      if (!tenant.sms_phone_number) {
+        throw new Error("Set up your SMS number in Settings > Channels before sending SMS.");
+      }
+
+      const approvalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_quote_approval_link", { p_quote_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=quote&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.quote.clients?.name ?? "", phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
+        quote: {
+          quote_number: data.quote.quote_number,
+          total_cents: data.quote.total_cents,
+          issue_date: data.quote.issue_date,
+          expiry_date: data.quote.expiry_date,
+          approval_link: approvalLink,
+          accept_link: approvalLink ? `${approvalLink}&action=accept` : null,
+          decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
+        },
+      };
+      setSmsDefaults({
+        phone: data.quote.clients?.phone ?? "",
+        body: renderTemplate(
+          "Hi {client_first_name}, here's your quote from {company_name}: {quote_approval_link}. Reply if you have any questions.",
+          renderContext
+        ),
+      });
+      setSmsModalVisible(true);
+    } catch (e) {
+      setSendSmsError(getErrorMessage(e, "Failed to prepare SMS"));
+    } finally {
+      setOpeningSms(false);
+    }
+  };
+
+  const handleSendSms = async (payload: { phone: string; body: string }) => {
+    if (!data) throw new Error("Not loaded");
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: data.quote.client_id ?? undefined,
+      contactName: data.quote.clients?.name,
+    });
+
+    const { error: statusError } = await supabase.from("quotes").update({ status: "sent" }).eq("id", id);
+    if (statusError) throw statusError;
+
+    refetch();
+    setSendSmsError(null);
+    Alert.alert("Sent", "The quote SMS has been sent.");
+  };
+
   const header = (
     <View style={styles.header}>
       <Pressable onPress={() => router.back()} hitSlop={8}>
@@ -571,6 +661,13 @@ export default function QuoteDetailScreen() {
             </View>
           ) : null}
           {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
+
+          {isAdmin ? (
+            <View style={styles.sendSmsButtonWrap}>
+              <ThemedButton label={openingSms ? "Preparing..." : "Send Quote via SMS"} onPress={openSendSms} disabled={openingSms} variant="secondary" />
+            </View>
+          ) : null}
+          {sendSmsError ? <Text style={styles.error}>{sendSmsError}</Text> : null}
 
           {isAdmin ? (
             <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
@@ -689,6 +786,18 @@ export default function QuoteDetailScreen() {
         onSend={handleSendEmail}
         sendLabel="Send quote"
       />
+
+      <SendSmsModal
+        visible={smsModalVisible}
+        onClose={() => setSmsModalVisible(false)}
+        title="Send quote via SMS"
+        defaultPhone={smsDefaults.phone}
+        phoneOptions={smsPhoneOptions}
+        defaultBody={smsDefaults.body}
+        isAdmin={isAdmin}
+        onSend={handleSendSms}
+        sendLabel="Send SMS"
+      />
     </>
   );
 }
@@ -730,6 +839,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     approvalBadgeTextDeclined: { color: tokens.danger },
     declineReason: { color: tokens.danger, fontSize: font.label, marginTop: 6, ...mono },
     sendEmailButtonWrap: { marginTop: 14 },
+    sendSmsButtonWrap: { marginTop: 10 },
     linkButton: { alignSelf: "flex-start" as const, marginTop: 10 },
     linkButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
     lockedNotice: { color: tokens.textMuted, fontSize: font.label, marginBottom: 8, ...mono },
