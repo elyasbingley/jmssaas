@@ -1122,6 +1122,40 @@ export const sendChannelMessageSchema = z.object({
 });
 export type SendChannelMessageInput = z.infer<typeof sendChannelMessageSchema>;
 
+// Starting a brand new outbound SMS/WhatsApp conversation (no existing
+// conversation_id yet) - channel-send-message's own find-or-create handles
+// turning this into a conversation server-side. to_phone is validated/
+// normalised the same way the tenant's own SMS/WhatsApp number is; the
+// Edge Function re-normalises it again itself (it can't import this schema
+// - see its own comment), this is just so the compose UI can show a clear
+// error before ever calling it.
+export const startChannelConversationSchema = z.object({
+  channel_type: z.enum(["sms", "whatsapp"]),
+  to_phone: z.string().transform((val, ctx) => {
+    const normalized = toE164(val);
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid phone number, e.g. 0491 570 156" });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
+  client_id: z.string().uuid().optional(),
+  contact_name: z.string().optional(),
+  body: z.string().min(1, "Message can't be empty"),
+});
+export type StartChannelConversationInput = z.infer<typeof startChannelConversationSchema>;
+
+// Quick-compose canned text (see ChannelMessageTemplate's own comment on
+// why this is separate from communication_templates).
+export const createChannelMessageTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  body: z.string().min(1, "Message can't be empty"),
+});
+export type CreateChannelMessageTemplateInput = z.infer<typeof createChannelMessageTemplateSchema>;
+
+export const updateChannelMessageTemplateSchema = createChannelMessageTemplateSchema;
+export type UpdateChannelMessageTemplateInput = z.infer<typeof updateChannelMessageTemplateSchema>;
+
 // Same shape/intent as createJobFromInboxSchema - always a real client_id
 // by submit time (the form creates a new client first if needed).
 export const createJobFromChannelSchema = z.object({
