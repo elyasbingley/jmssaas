@@ -23,6 +23,7 @@ const ITEMS: SettingsTile[] = [
   { href: "/company-settings", label: "Company Details", emoji: "🏢", adminOnly: true },
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️", adminOnly: true },
   { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦", adminOnly: true },
+  { href: "/channels/templates", label: "SMS Templates", emoji: "💬", adminOnly: true },
 ];
 
 export default function SettingsScreen() {

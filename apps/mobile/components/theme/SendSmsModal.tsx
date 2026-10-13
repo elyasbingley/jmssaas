@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import type { ChannelMessageTemplate } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
@@ -94,7 +95,7 @@ export function SendSmsModal({ visible, onClose, title, defaultPhone, phoneOptio
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
         <View style={styles.header}>
           <Text style={styles.title}>{title}</Text>
           <Pressable onPress={onClose}>
@@ -140,7 +141,7 @@ export function SendSmsModal({ visible, onClose, title, defaultPhone, phoneOptio
             <Text style={styles.sendButtonText}>{sending ? "Sending..." : (sendLabel ?? "Send")}</Text>
           </Pressable>
         </ScrollView>
-      </View>
+      </SafeAreaView>
 
       <ThemedPickerModal
         visible={templatePickerVisible}
