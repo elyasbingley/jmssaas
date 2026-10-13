@@ -9099,3 +9099,14 @@ admin, not another automated trigger, so it doesn't reopen that risk.
   constraint directly; `tsc --noEmit` clean on `packages/shared`,
   `apps/desktop`, `apps/mobile`. Not browser/device-tested with live
   credentials in this session.
+- **Follow-up: standalone desktop Settings page** (`apps/desktop/src/pages/
+  SmsTemplates.tsx`, routed at `/settings/sms-templates`, tiled on
+  SettingsHub). Desktop previously only let an admin manage templates from
+  inside SendSmsModal's own "Insert template" panel mid-compose, with no
+  place to just go look at/edit them outside that flow - mobile already
+  had this via Settings > SMS Templates (`app/channels/templates.tsx`),
+  desktop didn't. Same list/create/edit/delete CRUD, same token picker and
+  "Default for Send Quote via SMS" toggle as SendSmsModal's inline panel -
+  two separate UIs over the same `channel_message_templates` table, kept
+  in sync by hand rather than extracting a shared component across a
+  settings page and a modal panel.
