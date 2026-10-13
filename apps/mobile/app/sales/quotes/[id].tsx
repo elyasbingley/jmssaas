@@ -513,12 +513,20 @@ export default function QuoteDetailScreen() {
           decline_link: approvalLink ? `${approvalLink}&action=decline` : null,
         },
       };
+      // Default body comes from whichever channel_message_templates row has
+      // is_quote_default = true (editable via Settings > SMS Templates) -
+      // the literal string below is only the fallback for a tenant that
+      // hasn't set one yet, so sending never blocks on this being configured.
+      const { data: defaultTemplate } = await supabase
+        .from("channel_message_templates")
+        .select("body")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("is_quote_default", true)
+        .maybeSingle();
+      const fallbackBody = "Hi {client_first_name}, here's your quote from {company_name}: {quote_approval_link}. Reply if you have any questions.";
       setSmsDefaults({
         phone: data.quote.clients?.phone ?? "",
-        body: renderTemplate(
-          "Hi {client_first_name}, here's your quote from {company_name}: {quote_approval_link}. Reply if you have any questions.",
-          renderContext
-        ),
+        body: renderTemplate(defaultTemplate?.body ?? fallbackBody, renderContext),
       });
       setSmsModalVisible(true);
     } catch (e) {

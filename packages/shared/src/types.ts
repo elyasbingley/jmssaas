@@ -1886,6 +1886,13 @@ export interface ChannelMessageTemplate {
   tenant_id: string;
   name: string;
   body: string;
+  // At most one row per tenant - enforced by a partial unique index on
+  // (tenant_id) where is_quote_default. The Quote detail screen's "Send
+  // Quote via SMS" uses this row's body as its default (falling back to a
+  // hardcoded string in code if no tenant has set one yet) instead of a
+  // JS-only constant, so it's actually editable the same way the email
+  // flow's quote_sent communication_templates row already is.
+  is_quote_default: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

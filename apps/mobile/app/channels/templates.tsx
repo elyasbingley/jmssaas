@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
+import { ALL_PLACEHOLDER_TOKENS, createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -41,6 +41,8 @@ export default function ChannelMessageTemplatesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const [bodySelection, setBodySelection] = useState({ start: 0, end: 0 });
+  const [isQuoteDefault, setIsQuoteDefault] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -48,6 +50,8 @@ export default function ChannelMessageTemplatesScreen() {
     setEditingId(null);
     setName("");
     setBody("");
+    setBodySelection({ start: 0, end: 0 });
+    setIsQuoteDefault(false);
     setFormError(null);
     setEditorVisible(true);
   };
@@ -56,8 +60,31 @@ export default function ChannelMessageTemplatesScreen() {
     setEditingId(template.id);
     setName(template.name);
     setBody(template.body);
+    setBodySelection({ start: template.body.length, end: template.body.length });
+    setIsQuoteDefault(template.is_quote_default);
     setFormError(null);
     setEditorVisible(true);
+  };
+
+  const insertToken = (token: string) => {
+    const insert = `{${token}}`;
+    const start = bodySelection.start;
+    const end = bodySelection.end;
+    const next = body.slice(0, start) + insert + body.slice(end);
+    setBody(next);
+    const cursor = start + insert.length;
+    setBodySelection({ start: cursor, end: cursor });
+  };
+
+  // At most one is_quote_default row per tenant (enforced server-side by a
+  // partial unique index too) - clear whichever other row currently holds
+  // it in its own statement before setting/creating this one, since a
+  // plain insert/update racing the unique index would just fail outright.
+  const clearOtherQuoteDefaults = async (excludeId?: string) => {
+    let query = supabase.from("channel_message_templates").update({ is_quote_default: false }).eq("tenant_id", profile?.tenant_id).eq("is_quote_default", true);
+    if (excludeId) query = query.neq("id", excludeId);
+    const { error } = await query;
+    if (error) throw error;
   };
 
   const handleSave = async () => {
@@ -67,14 +94,19 @@ export default function ChannelMessageTemplatesScreen() {
       if (editingId) {
         const result = updateChannelMessageTemplateSchema.safeParse({ name, body });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid template");
-        const { error: updateError } = await supabase.from("channel_message_templates").update(result.data).eq("id", editingId);
+        if (isQuoteDefault) await clearOtherQuoteDefaults(editingId);
+        const { error: updateError } = await supabase
+          .from("channel_message_templates")
+          .update({ ...result.data, is_quote_default: isQuoteDefault })
+          .eq("id", editingId);
         if (updateError) throw updateError;
       } else {
         const result = createChannelMessageTemplateSchema.safeParse({ name, body });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid template");
+        if (isQuoteDefault) await clearOtherQuoteDefaults();
         const { error: insertError } = await supabase
           .from("channel_message_templates")
-          .insert({ ...result.data, tenant_id: profile?.tenant_id, created_by: profile?.id });
+          .insert({ ...result.data, is_quote_default: isQuoteDefault, tenant_id: profile?.tenant_id, created_by: profile?.id });
         if (insertError) throw insertError;
       }
       setEditorVisible(false);
@@ -147,7 +179,10 @@ export default function ChannelMessageTemplatesScreen() {
           ) : null}
           {(templates ?? []).map((t) => (
             <Pressable key={t.id} style={styles.row} disabled={!isAdmin} onPress={() => openEdit(t)}>
-              <Text style={styles.rowTitle}>{t.name}</Text>
+              <View style={styles.rowTitleRow}>
+                <Text style={styles.rowTitle}>{t.name}</Text>
+                {t.is_quote_default ? <Text style={styles.defaultBadge}>★ Quote default</Text> : null}
+              </View>
               <Text style={styles.rowBody} numberOfLines={2}>
                 {t.body}
               </Text>
@@ -159,7 +194,32 @@ export default function ChannelMessageTemplatesScreen() {
       <ThemedModal visible={editorVisible} onClose={() => setEditorVisible(false)}>
         <Text style={styles.modalTitle}>{editingId ? "Edit template" : "New template"}</Text>
         <ThemedFormField label="Name" placeholder="e.g. Quote follow-up" value={name} onChangeText={setName} />
-        <ThemedFormField label="Message" placeholder="Hi {client_first_name}, ..." value={body} onChangeText={setBody} multiline style={styles.multiline} />
+
+        <Text style={styles.fieldLabel}>Insert tag</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tokenScroll}>
+          {ALL_PLACEHOLDER_TOKENS.map((token) => (
+            <Pressable key={token} style={styles.tokenChip} onPress={() => insertToken(token)}>
+              <Text style={styles.tokenChipText}>{`{${token}}`}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <ThemedFormField
+          label="Message"
+          placeholder="Hi {client_first_name}, ..."
+          value={body}
+          onChangeText={setBody}
+          selection={bodySelection}
+          onSelectionChange={(e) => setBodySelection(e.nativeEvent.selection)}
+          multiline
+          style={styles.multiline}
+        />
+
+        <View style={styles.defaultRow}>
+          <Text style={styles.fieldLabel}>Default for "Send Quote via SMS"</Text>
+          <Switch value={isQuoteDefault} onValueChange={setIsQuoteDefault} />
+        </View>
+
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           {editingId ? (
@@ -192,8 +252,23 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     newButton: { borderWidth: 1, borderColor: tokens.accent, borderRadius: 3, paddingVertical: 6, paddingHorizontal: 10 },
     newButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, textTransform: "uppercase" as const, ...mono },
     row: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 12, marginBottom: 10, gap: 4 },
+    rowTitleRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
     rowTitle: { fontSize: font.body - 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
+    defaultBadge: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, ...mono },
     rowBody: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    fieldLabel: {
+      color: tokens.textMuted,
+      fontSize: font.label,
+      letterSpacing: 1,
+      textTransform: "uppercase" as const,
+      marginTop: 12,
+      marginBottom: 6,
+      ...mono,
+    },
+    tokenScroll: { flexGrow: 0, marginBottom: 6 },
+    tokenChip: { backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.accent, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 8, marginRight: 6 },
+    tokenChipText: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    defaultRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, marginTop: 12 },
     empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 24, ...mono },
     error: { color: tokens.danger, marginBottom: 8, ...mono },
     modalTitle: {

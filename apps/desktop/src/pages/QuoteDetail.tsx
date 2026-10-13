@@ -419,9 +419,12 @@ export default function QuoteDetailPage() {
   // above, but there's no communication_rules/communication_templates
   // lookup here: that engine's SMS branch is deliberately disabled (see
   // channel-send-message's own comment), so this always goes through
-  // Channels' own working Twilio send path via startChannelConversation,
-  // with a plain hardcoded default body (QUOTE_SMS_TEMPLATE) the admin can
-  // edit in SendSmsModal before sending.
+  // Channels' own working Twilio send path via startChannelConversation.
+  // The default body comes from whichever channel_message_templates row
+  // has is_quote_default = true (editable in SendSmsModal's own "Insert
+  // template" panel or mobile Settings > SMS Templates) - QUOTE_SMS_TEMPLATE
+  // above is only the fallback for a tenant that hasn't set one, so sending
+  // never blocks on this being configured.
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [smsDefaultBody, setSmsDefaultBody] = useState("");
   const [smsRenderContext, setSmsRenderContext] = useState<PlaceholderContext>({});
@@ -470,7 +473,13 @@ export default function QuoteDetailPage() {
         },
       };
       setSmsRenderContext(renderContext);
-      setSmsDefaultBody(renderTemplate(QUOTE_SMS_TEMPLATE, renderContext));
+      const { data: defaultTemplate } = await supabase
+        .from("channel_message_templates")
+        .select("body")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("is_quote_default", true)
+        .maybeSingle();
+      setSmsDefaultBody(renderTemplate(defaultTemplate?.body ?? QUOTE_SMS_TEMPLATE, renderContext));
       setSmsModalOpen(true);
     } catch (e) {
       setSendSmsError(getErrorMessage(e, "Failed to prepare SMS"));

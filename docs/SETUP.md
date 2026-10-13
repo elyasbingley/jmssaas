@@ -9069,3 +9069,33 @@ admin, not another automated trigger, so it doesn't reopen that risk.
   WhatsApp compose UI (the data model supports it via `channel_type`, but
   no button/screen was added for it), and any change to
   `communication_engine`'s automated SMS path, which remains disabled.
+- **`channel-send-message` needs its own deploy step.** `npx supabase db
+  push` only applies migrations - the Edge Function itself needs `npx
+  supabase functions deploy channel-send-message` separately, same as any
+  other Edge Function change. Easy to miss (the first real deploy of this
+  feature did), and the failure mode is confusing: the *old* function
+  stays live and returns its own old validation error text
+  (`conversation_id_and_body_or_media_required`) rather than anything
+  that points at "you forgot to deploy".
+- **Follow-up (`20261013000100_channel_message_templates_quote_default.sql`):
+  the "Send Quote via SMS" default body is now itself an editable
+  template**, not a hardcoded JS string. `channel_message_templates`
+  gained `is_quote_default boolean` (at most one `true` row per tenant,
+  enforced by a partial unique index); the migration backfills every
+  existing tenant with a starting "Quote via SMS" row carrying the exact
+  text that used to be hardcoded, so nothing changes until an admin
+  touches it. QuoteDetail (both platforms) looks this row up by tenant at
+  send time and falls back to the old hardcoded string only if no
+  tenant row is marked default - sending is never blocked on this being
+  configured. Both template editors (desktop's inline panel, mobile's
+  `app/channels/templates.tsx`) gained the same "Insert tag" token-chip
+  picker (`ALL_PLACEHOLDER_TOKENS`) the email template editor in
+  Automation & Messaging Settings already has, plus a "Default for Send
+  Quote via SMS" toggle that clears any other tenant row's default in its
+  own statement before setting the new one (client-side two-step, backed
+  by the DB-side unique index as the actual guarantee). Verified: the new
+  migration applied cleanly against the full 79-migration chain on a real
+  local Postgres instance, including exercising the one-default-per-tenant
+  constraint directly; `tsc --noEmit` clean on `packages/shared`,
+  `apps/desktop`, `apps/mobile`. Not browser/device-tested with live
+  credentials in this session.
