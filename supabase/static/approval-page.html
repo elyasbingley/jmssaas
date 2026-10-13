@@ -88,6 +88,21 @@
       var params = new URLSearchParams(location.search);
       var docType = params.get("type");
       var token = params.get("token");
+      // Shorter path form - /q/<code> or /i/<code> - purely an additional
+      // accepted format alongside the ?type=&token= query string above
+      // (what every link actually sent to a client uses today, and what
+      // keeps working unchanged either way). Only kicks in when the query
+      // string didn't already supply both, so an old long-token ?type=&
+      // token= link is never affected by this. Needs the Netlify
+      // _redirects file (SPA catch-all) alongside this page, or a path
+      // like /q/AbC123xyz0 just 404s before this script ever runs.
+      if (!docType || !token) {
+        var pathMatch = location.pathname.match(/^\/(q|i)\/([^/]+)\/?$/);
+        if (pathMatch) {
+          docType = pathMatch[1] === "q" ? "quote" : "invoice";
+          token = pathMatch[2];
+        }
+      }
       // One-click accept/decline from an email button - see the
       // reminder_ladder migration's {quote_accept_link}/{quote_decline_link}
       // tokens. Deliberately does NOT auto-submit the moment this page

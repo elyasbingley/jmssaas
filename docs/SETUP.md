@@ -9110,3 +9110,109 @@ admin, not another automated trigger, so it doesn't reopen that risk.
   two separate UIs over the same `channel_message_templates` table, kept
   in sync by hand rather than extracting a shared component across a
   settings page and a modal panel.
+
+## 67. Approval page custom domain + shorter tokens
+
+Moves the quote/invoice approval link from Netlify's auto-generated
+`*.netlify.app` subdomain to the custom domain already live on that same
+Netlify site (`https://approve.bingleytrades.com.au`), and shortens new
+tokens from 64 hex characters to 12 base62 characters. Nothing in this
+repo hardcoded the old `netlify.app`/`wondrous-kulfi` URL anywhere
+(confirmed by grepping the whole repo) - it was purely a runtime config
+value, so this is a config change plus a redeploy, not a code search-
+and-replace.
+
+- **Where the base URL actually lives** (three separate places, all
+  outside git - none of this is committed, by design, same as every
+  other per-deployment secret in this project):
+  1. **Desktop**: `VITE_APPROVAL_PAGE_URL`, read by Vite at *build* time
+     (`import.meta.env.VITE_APPROVAL_PAGE_URL` in `QuoteDetail.tsx`/
+     `InvoiceDetail.tsx`). Since `vercel --prod` builds remotely on
+     Vercel's own servers (not from the local `.env` the way `eas
+     update` reads `apps/mobile/.env` directly), this has to be updated
+     in the **Vercel dashboard** - this project &rarr; Settings &rarr;
+     Environment Variables &rarr; `VITE_APPROVAL_PAGE_URL` &rarr; change
+     the value to `https://approve.bingleytrades.com.au` for every
+     environment in use (Production, and Preview if that's deployed
+     too) &rarr; then a fresh `npx vercel --prod` to rebuild with the new
+     value baked in (no `-c` flag needed - that's not a real `vercel`
+     flag; a plain rebuild is what picks up a changed env var). Also
+     update the local `apps/desktop/.env` to match, so local dev matches
+     production.
+  2. **Mobile**: `EXPO_PUBLIC_APPROVAL_PAGE_URL` in `apps/mobile/.env`,
+     read directly by `expo export`/`eas update` at publish time (no
+     separate dashboard setting the way Vercel has one - `eas.json` has
+     no `env` block for this var, confirmed). Edit the file, then
+     `npx eas-cli update --channel preview --platform android` to
+     publish a new bundle with it baked in.
+  3. **Supabase Edge Function secret**: `APPROVAL_PAGE_URL` (no
+     `EXPO_PUBLIC_`/`VITE_` prefix), read by
+     `supabase/functions/process-scheduled-comms` for the automated
+     email reminder ladder's own quote/invoice/PO links. Update via
+     `npx supabase secrets set APPROVAL_PAGE_URL=https://approve.bingleytrades.com.au`
+     - takes effect on the next invocation immediately, no function
+     redeploy needed (only the function's *code* needs
+     `supabase functions deploy`, not a secret value change).
+- **Shorter tokens** (`supabase/migrations/20261014000100_short_approval_tokens.sql`):
+  `generate_quote_approval_link`/`generate_invoice_approval_link` now
+  mint a 12-character base62 token (`generate_base62_token`, pgcrypto's
+  `gen_random_bytes`-backed with rejection sampling so the base62
+  mapping stays uniform rather than skewing the first 8 alphabet
+  characters the way a plain `% 62` would) instead of the old 64-char
+  hex (`encode(gen_random_bytes(32), 'hex')`), with up to 10 retries on
+  a genuine collision (vanishingly unlikely at a ~3.2 * 10^21 token
+  space, but made airtight rather than merely unlikely). `access_token`
+  is a plain `text unique` column with no length constraint, so this
+  needed no schema change or backfill - an existing long token already
+  stored on a quote/invoice keeps resolving through the exact same
+  `where access_token = p_token` lookup every `get_*_for_approval`/
+  `accept_*_by_token`/`decline_*_by_token` function already used before
+  this change; only a *new* token (a quote/invoice that doesn't have one
+  yet) gets the short form. Verified against a real local Postgres
+  instance: a freshly generated token is exactly 12 base62 characters,
+  calling the generator again on the same quote returns the identical
+  token (no accidental regeneration), a hand-inserted 64-char legacy
+  token still resolves via `get_quote_for_approval`, and the pre-
+  existing unique constraint still rejects a forced duplicate (proving
+  the collision-retry path would actually fire in a real collision).
+  Purchase order approval links (`purchase_orders.access_token`, a
+  separate token used for subcontractor PO sign-off, not client-facing)
+  were deliberately left on the old long-token generator - out of the
+  "client approval links" scope this was asked for.
+- **Optional shorter path form** (`supabase/static/approval-page.html`,
+  mirrored into `approval-page-deploy/index.html`): the page now also
+  accepts `https://approve.bingleytrades.com.au/q/<code>` and `/i/<code>`
+  as an alternative to `?type=quote&token=<code>`/`?type=invoice&token=
+  <code>` - checked only when the query string didn't already supply
+  both, so it's purely additive and every link the app actually
+  generates today (still the `?type=&token=` form) is completely
+  unaffected. Needs `approval-page-deploy/_redirects` (new file, Netlify
+  SPA catch-all: `/* /index.html 200`) alongside `index.html` in the
+  dropped folder - without it, a path like `/q/AbC123xyz0` 404s on
+  Netlify's static file server before this page's own JS ever runs to
+  parse it.
+- **`approval-page-deploy/` was stale** (unrelated bug, found while
+  looking at this folder for this change): the version last dropped on
+  Netlify (`index.html` only, no `_redirects`) predates the optional/
+  bundled line items feature entirely - it was missing the whole
+  checkbox-per-optional-item UI and live total recompute that
+  `supabase/static/approval-page.html` (the Supabase-side copy, which
+  *did* get that feature) already had. Re-synced as part of this change,
+  so the next Netlify Drop fixes both the domain and brings the live
+  page's feature set back in line with what's actually in the repo.
+- **Redeploy**: drag-and-drop the entire `approval-page-deploy/` folder
+  (now `index.html` + `_redirects`) onto the existing Netlify site in
+  the Netlify dashboard (same site that already serves
+  `approve.bingleytrades.com.au` - this is still a manual Netlify Drop
+  deploy, not git-connected, so there's no `netlify deploy` CLI command
+  to run instead).
+- **Verified**: the new migration applied cleanly against the full
+  80-migration chain on a real local Postgres instance, with the token-
+  generation/backward-compat/collision checks above run directly against
+  it. `tsc --noEmit` doesn't apply here (no TypeScript changed - this
+  pass only touched a SQL migration and the static approval page's own
+  inline `<script>`). Not browser-tested against the live
+  `approve.bingleytrades.com.au` domain or a real Netlify deploy in this
+  session (no network access to Netlify from this sandbox) - see the
+  test plan given alongside this change for exactly what to click
+  through after deploying.
