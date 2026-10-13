@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Client, ChannelMessageTemplate, PlaceholderContext } from "@jmssaas/shared";
-import { renderTemplate } from "@jmssaas/shared";
+import { ALL_PLACEHOLDER_TOKENS, renderTemplate } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
@@ -91,9 +91,10 @@ export function SendSmsModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [templateDraft, setTemplateDraft] = useState<{ id?: string; name: string; body: string } | null>(null);
+  const [templateDraft, setTemplateDraft] = useState<{ id?: string; name: string; body: string; isQuoteDefault: boolean } | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const templateBodyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -131,11 +132,23 @@ export function SendSmsModal({
     enabled: open,
   });
 
+  // At most one is_quote_default row per tenant (a partial unique index
+  // enforces this server-side too) - turning one on has to clear whichever
+  // other row currently holds it first, in its own statement, since a
+  // plain insert/update racing the unique index would just fail outright.
+  const clearOtherQuoteDefaults = async (excludeId?: string) => {
+    let query = supabase.from("channel_message_templates").update({ is_quote_default: false }).eq("tenant_id", profile!.tenant_id).eq("is_quote_default", true);
+    if (excludeId) query = query.neq("id", excludeId);
+    const { error } = await query;
+    if (error) throw error;
+  };
+
   const createTemplate = useMutation({
-    mutationFn: async (input: { name: string; body: string }) => {
+    mutationFn: async (input: { name: string; body: string; isQuoteDefault: boolean }) => {
+      if (input.isQuoteDefault) await clearOtherQuoteDefaults();
       const { error } = await supabase
         .from("channel_message_templates")
-        .insert({ tenant_id: profile!.tenant_id, name: input.name, body: input.body, created_by: profile!.id });
+        .insert({ tenant_id: profile!.tenant_id, name: input.name, body: input.body, is_quote_default: input.isQuoteDefault, created_by: profile!.id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -147,8 +160,12 @@ export function SendSmsModal({
   });
 
   const updateTemplate = useMutation({
-    mutationFn: async (input: { id: string; name: string; body: string } ) => {
-      const { error } = await supabase.from("channel_message_templates").update({ name: input.name, body: input.body }).eq("id", input.id);
+    mutationFn: async (input: { id: string; name: string; body: string; isQuoteDefault: boolean }) => {
+      if (input.isQuoteDefault) await clearOtherQuoteDefaults(input.id);
+      const { error } = await supabase
+        .from("channel_message_templates")
+        .update({ name: input.name, body: input.body, is_quote_default: input.isQuoteDefault })
+        .eq("id", input.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -204,6 +221,28 @@ export function SendSmsModal({
     });
   };
 
+  // Same cursor-insert behaviour as insertAtCursor above, but targets the
+  // template draft's own body field (+New template/editing an existing
+  // one) rather than the message being composed right now.
+  const insertTokenIntoDraft = (token: string) => {
+    if (!templateDraft) return;
+    const text = `{${token}}`;
+    const el = templateBodyRef.current;
+    if (!el) {
+      setTemplateDraft({ ...templateDraft, body: `${templateDraft.body}${text}` });
+      return;
+    }
+    const start = el.selectionStart ?? templateDraft.body.length;
+    const end = el.selectionEnd ?? templateDraft.body.length;
+    const next = `${templateDraft.body.slice(0, start)}${text}${templateDraft.body.slice(end)}`;
+    setTemplateDraft({ ...templateDraft, body: next });
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
   const useTemplate = (template: ChannelMessageTemplate) => {
     const context: PlaceholderContext =
       mode === "picker" && selectedClient
@@ -241,9 +280,9 @@ export function SendSmsModal({
       return;
     }
     if (templateDraft.id) {
-      updateTemplate.mutate({ id: templateDraft.id, name, body: draftBody });
+      updateTemplate.mutate({ id: templateDraft.id, name, body: draftBody, isQuoteDefault: templateDraft.isQuoteDefault });
     } else {
-      createTemplate.mutate({ name, body: draftBody });
+      createTemplate.mutate({ name, body: draftBody, isQuoteDefault: templateDraft.isQuoteDefault });
     }
   };
 
@@ -369,13 +408,18 @@ export function SendSmsModal({
                     title={t.body}
                   >
                     <span className="font-semibold">{t.name}</span>
+                    {t.is_quote_default ? (
+                      <span className="ml-1" style={{ color: "var(--jms-accent)" }} title="Default body for &quot;Send Quote via SMS&quot;">
+                        ★ Quote default
+                      </span>
+                    ) : null}
                     <span style={{ color: "var(--jms-text-muted)" }}> - {t.body}</span>
                   </button>
                   {isAdmin ? (
                     <>
                       <button
                         onClick={() => {
-                          setTemplateDraft({ id: t.id, name: t.name, body: t.body });
+                          setTemplateDraft({ id: t.id, name: t.name, body: t.body, isQuoteDefault: t.is_quote_default });
                           setTemplateError(null);
                         }}
                         aria-label={`Edit ${t.name}`}
@@ -407,12 +451,36 @@ export function SendSmsModal({
                   value={templateDraft.name}
                   onChange={(e) => setTemplateDraft({ ...templateDraft, name: e.target.value })}
                 />
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {ALL_PLACEHOLDER_TOKENS.map((token) => (
+                    <button
+                      key={token}
+                      onClick={() => insertTokenIntoDraft(token)}
+                      className="rounded px-2 py-1 font-semibold"
+                      style={{ backgroundColor: "var(--jms-accent-glow)", border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                    >
+                      {`{${token}}`}
+                    </button>
+                  ))}
+                </div>
                 <ThemedTextAreaField
+                  ref={templateBodyRef}
                   label="Template message"
                   rows={3}
                   value={templateDraft.body}
                   onChange={(e) => setTemplateDraft({ ...templateDraft, body: e.target.value })}
                 />
+                <label
+                  className="mb-2 flex items-center gap-2 font-semibold"
+                  style={{ color: templateDraft.isQuoteDefault ? "var(--jms-accent)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={templateDraft.isQuoteDefault}
+                    onChange={(e) => setTemplateDraft({ ...templateDraft, isQuoteDefault: e.target.checked })}
+                  />
+                  Use as default message for "Send Quote via SMS"
+                </label>
                 {templateError ? (
                   <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                     {templateError}
@@ -438,7 +506,7 @@ export function SendSmsModal({
             ) : (
               <button
                 onClick={() => {
-                  setTemplateDraft({ name: "", body: "" });
+                  setTemplateDraft({ name: "", body: "", isQuoteDefault: false });
                   setTemplateError(null);
                 }}
                 className="font-semibold hover:underline"
