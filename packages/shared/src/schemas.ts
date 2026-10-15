@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ReportFieldType } from "./reports";
-import { LINE_ITEM_UNITS, type SubcontractorDocType, type SubcontractorStatus, type SubcontractorTrade } from "./types";
+import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
 import { toE164 } from "./channels";
 
 export const createClientSchema = z.object({
@@ -195,7 +195,11 @@ export type SetTaskCustomFieldValueInput = z.infer<typeof setTaskCustomFieldValu
 
 export const lineItemPricingModelSchema = z.enum(["legacy", "itemized"]);
 
-export const lineItemUnitSchema = z.enum(LINE_ITEM_UNITS);
+// Plain string, not restricted to LINE_ITEM_UNITS - see types.ts's
+// LineItemInput.unit comment. LINE_ITEM_UNITS still drives the editor's
+// curated dropdown; this just has to accept whatever its "other" option's
+// free-text field produces.
+export const lineItemUnitSchema = z.string().max(32);
 
 export const lineItemCrewSchema = z.object({
   labour_cost_entry_id: z.string().uuid().nullable().optional(),

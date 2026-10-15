@@ -690,10 +690,13 @@ export interface LineItemInput {
   // server-side); the itemized fields exist purely so the office can see
   // and edit the cost breakdown that produced it.
   pricing_model?: LineItemPricingModel;
-  // Curated unit the quantity is expressed in (e.g. "lm", "m2") - purely a
-  // label for benchmark-rate reporting (unit_price_cents already carries
-  // the actual $/unit rate via quantity * unit_price_cents, unchanged).
-  unit?: LineItemUnit | null;
+  // The unit the quantity is expressed in (e.g. "lm", "m2") - purely a label
+  // for benchmark-rate reporting (unit_price_cents already carries the
+  // actual $/unit rate via quantity * unit_price_cents, unchanged). Plain
+  // string, not restricted to LINE_ITEM_UNITS - that list is only the
+  // editor's curated dropdown; picking its "other" option stores whatever
+  // free text the office types, same as bundle_name's own free-text field.
+  unit?: string | null;
   // Simple (no crew breakdown) labour: cost per hour vs. what the client is
   // charged per hour. labour_charge_out_rate_cents already includes the
   // tradie's profit, so no markup is applied on top of it - unlike
