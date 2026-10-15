@@ -57,6 +57,7 @@ interface TaskFileWithLocalUri {
   local_uri: string | null;
   file_name: string | null;
   mime_type: string | null;
+  upload_state: number | null;
 }
 
 export default function TaskDetailScreen() {
@@ -75,7 +76,7 @@ export default function TaskDetailScreen() {
   );
 
   const { data: files } = useQuery<TaskFileWithLocalUri>(
-    `SELECT tf.id, tf.file_name, tf.mime_type, a.local_uri
+    `SELECT tf.id, tf.file_name, tf.mime_type, a.local_uri, a.state AS upload_state
        FROM task_files tf
        LEFT JOIN attachments a ON a.id = tf.id
       WHERE tf.task_id = ?
