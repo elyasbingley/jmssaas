@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ReportFieldType } from "./reports";
-import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } from "./types";
+import { LINE_ITEM_UNITS, type SubcontractorDocType, type SubcontractorStatus, type SubcontractorTrade } from "./types";
 import { toE164 } from "./channels";
 
 export const createClientSchema = z.object({
@@ -193,6 +193,30 @@ export const setTaskCustomFieldValueSchema = z.object({
 });
 export type SetTaskCustomFieldValueInput = z.infer<typeof setTaskCustomFieldValueSchema>;
 
+export const lineItemPricingModelSchema = z.enum(["legacy", "itemized"]);
+
+export const lineItemUnitSchema = z.enum(LINE_ITEM_UNITS);
+
+export const lineItemCrewSchema = z.object({
+  labour_cost_entry_id: z.string().uuid().nullable().optional(),
+  worker_name: z.string().min(1),
+  cost_rate_cents: z.number().int().nonnegative().default(0),
+  charge_out_rate_cents: z.number().int().nonnegative().default(0),
+  hours: z.number().nonnegative().default(0),
+  // Optional, not defaulted - matches LineItemCrewInput's own optional
+  // sort_order. The server falls back to array position (see
+  // replace_quote_line_items/replace_invoice_line_items' own
+  // with-ordinality coalesce) when it's omitted.
+  sort_order: z.number().int().optional(),
+});
+
+export const lineItemMaterialSchema = z.object({
+  description: z.string().min(1),
+  quantity: z.number().positive().default(1),
+  unit_cost_cents: z.number().int().nonnegative().default(0),
+  sort_order: z.number().int().optional(),
+});
+
 // Shared by a line item, a price book item, and a price book item variation
 // - all three price the same underlying thing (labour rate/hours, material
 // cost, markup%), just at different points in the pipeline (catalogue entry
@@ -235,6 +259,24 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   is_included: z.boolean().default(true),
   bundle_name: z.string().nullable().optional(),
   image_url: z.string().nullable().optional(),
+  // Itemised quoting rework - see types.ts's LineItemInput comment for how
+  // these fields relate to the breakdown fields above. All optional/
+  // additive; a form building a legacy-style line simply omits them.
+  pricing_model: lineItemPricingModelSchema.optional(),
+  unit: lineItemUnitSchema.nullable().optional(),
+  labour_cost_rate_cents: z.number().int().nonnegative().optional(),
+  labour_charge_out_rate_cents: z.number().int().nonnegative().optional(),
+  crew: z.array(lineItemCrewSchema).optional(),
+  materials: z.array(lineItemMaterialSchema).optional(),
+  material_margin_percent: z.number().min(0).max(99.99).optional(),
+  subcontractor_margin_percent: z.number().min(0).max(99.99).optional(),
+  waste_percent: z.number().nonnegative().optional(),
+  contingency_percent: z.number().nonnegative().optional(),
+  tip_fees_cents: z.number().int().nonnegative().optional(),
+  equipment_hire_cents: z.number().int().nonnegative().optional(),
+  travel_cost_cents: z.number().int().nonnegative().optional(),
+  warranty_text: z.string().nullable().optional(),
+  internal_notes: z.string().nullable().optional(),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 
