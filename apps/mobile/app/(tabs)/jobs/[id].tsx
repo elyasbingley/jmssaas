@@ -6,6 +6,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
+  averageLabourCostPerHourCents,
+  calculateLabour,
   collectRecipientEmails,
   createClientContactSchema,
   createJobCardSchema,
@@ -20,6 +22,7 @@ import {
   type ClientContact,
   type CommunicationRule,
   type CommunicationTemplate,
+  type CostOfOpsSettings,
   type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
@@ -28,6 +31,7 @@ import {
   type JobLifecycleStage,
   type JobNote,
   type KeyLog,
+  type LabourCostEntry,
   type MaterialTallyItem,
   type Profile,
   type Property,
@@ -109,14 +113,22 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-// labour_rate_cents/labour_hours/material_cost_cents on a line item are the
-// PER UNIT cost breakdown that fed into that line's unit_price_cents (see
+// labour_hours/material_cost_cents on a line item are the PER UNIT cost
+// breakdown that fed into that line's unit_price_cents (see
 // computeLineItemUnitPriceCents in packages/shared/src/money.ts) - not
 // already multiplied by quantity - so a line's actual total cost has to
 // scale by quantity here the same way lineItemSubtotalCents scales the
 // charged amount.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
-  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
+//
+// trueLabourRateCents is the tenant's own blended true labour cost ($/hr,
+// from Cost of Ops' Labour roster), not the line's own labour_rate_cents -
+// that field is what the line was *priced* at (what the customer was
+// charged), a pricing decision, not a cost. See desktop JobCosting.tsx's
+// matching comment for the full reasoning. Falls back to the line's own
+// quoted rate when Cost of Ops has no billable-hours roster configured yet.
+function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">, trueLabourRateCents: number): number {
+  const rate = trueLabourRateCents > 0 ? trueLabourRateCents : item.labour_rate_cents;
+  return Math.round(item.quantity * rate * item.labour_hours);
 }
 
 function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
@@ -537,6 +549,24 @@ export default function JobDetailScreen() {
     return (data ?? []) as InvoiceLineItem[];
   }, [isOnline, activeTab, invoiceIds]);
 
+  // Same Cost of Ops Labour roster desktop's JobCosting.tsx costs labour
+  // against, instead of whatever rate a quote line happened to be priced
+  // at - see lineItemLabourCostCents's own comment.
+  const { data: costOfOpsSettings } = useSupabaseFetch<CostOfOpsSettings | null>(async () => {
+    if (!isOnline || activeTab !== "costing") return null;
+    const { data, error } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+    if (error) throw error;
+    return data as CostOfOpsSettings | null;
+  }, [isOnline, activeTab]);
+  const { data: labourCostEntries } = useSupabaseFetch<LabourCostEntry[]>(async () => {
+    if (!isOnline || activeTab !== "costing") return [];
+    const { data, error } = await supabase.from("labour_cost_entries").select("*");
+    if (error) throw error;
+    return (data ?? []) as LabourCostEntry[];
+  }, [isOnline, activeTab]);
+  const trueLabourRateCents =
+    costOfOpsSettings && labourCostEntries ? averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings)) : 0;
+
   const costingDocs: CostingDoc[] = [
     ...(linkedQuotes ?? []).map((q) => ({
       id: q.id,
@@ -573,7 +603,7 @@ export default function JobDetailScreen() {
     ...(quoteLineItems ?? []).filter((item) => costingQuoteIds.has(item.quote_id)),
     ...(invoiceLineItems ?? []).filter((item) => costingInvoiceIds.has(item.invoice_id)),
   ];
-  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
   // GST-inclusive - what the client/agency is actually billed. Used for
   // display and for the NTE guardrail below (an NTE limit is authorised as
@@ -1337,6 +1367,11 @@ export default function JobDetailScreen() {
                   <Text style={styles.costingSummaryLabel}>Margin %</Text>
                   <Text style={styles.costingSummaryValue}>{marginPercent.toFixed(1)}%</Text>
                 </View>
+                <Text style={styles.costingNote}>
+                  {trueLabourRateCents > 0
+                    ? `Labour is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Cost of Ops > Labour), not whatever rate a quote line was priced at.`
+                    : "Labour is costed at each quote line's own quoted rate - set up a roster in Cost of Ops > Labour to cost it against your real labour cost instead."}
+                </Text>
               </>
             )}
           </View>
@@ -2025,6 +2060,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     costingSummaryValue: { color: tokens.textPrimary, fontSize: font.body - 2, fontWeight: "600" as const, ...mono },
     costingSummaryLabelBold: { color: tokens.textPrimary, fontSize: font.body, fontWeight: "700" as const, ...mono },
     costingSummaryValueBold: { color: tokens.accent, fontSize: font.body, fontWeight: "700" as const, ...mono },
+    costingNote: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 10, lineHeight: 16, ...mono },
     pickerField: { borderWidth: 1, borderColor: tokens.border, borderRadius: 3, padding: 12, backgroundColor: tokens.background },
     pickerFieldRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
     // flexShrink so the text is actually width-constrained by the row

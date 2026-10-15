@@ -2,10 +2,14 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
+  averageLabourCostPerHourCents,
+  calculateLabour,
   formatCentsAsAud,
   type Client,
+  type CostOfOpsSettings,
   type InvoiceLineItem,
   type JobCard,
+  type LabourCostEntry,
   type Quote,
   type QuoteLineItem,
 } from "@jmssaas/shared";
@@ -65,13 +69,36 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   if (error) throw error;
   return data as InvoiceLineItem[];
 }
+async function fetchCostOfOpsSettings(): Promise<CostOfOpsSettings | null> {
+  const { data, error } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+  if (error) throw error;
+  return data as CostOfOpsSettings | null;
+}
+async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
+  const { data, error } = await supabase.from("labour_cost_entries").select("*");
+  if (error) throw error;
+  return data as LabourCostEntry[];
+}
 
-// Same helpers as mobile's jobs/[id].tsx - labour_rate_cents/labour_hours/
-// material_cost_cents are the PER UNIT breakdown that fed into
-// unit_price_cents (see computeLineItemUnitPriceCents), not already
-// multiplied by quantity.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
-  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
+// Same helpers as mobile's jobs/[id].tsx - labour_hours/material_cost_cents
+// are the PER UNIT breakdown that fed into unit_price_cents (see
+// computeLineItemUnitPriceCents), not already multiplied by quantity.
+//
+// labourRateCents is the tenant's own blended true labour cost ($/hr, from
+// Cost of Ops' Labour roster - averageLabourCostPerHourCents), NOT the
+// line item's own labour_rate_cents - that field is what the line was
+// *priced* at (what the customer was charged for labour), which is a
+// pricing decision, not a cost. Using the quoted rate as the "cost" meant
+// Job Costing could never show more labour margin than whatever was baked
+// into the quote in the first place - charging $300/hr for labour that
+// actually costs $180/hr to deliver showed $0 extra margin from that gap
+// instead of the real $120/hr. Falls back to the line's own quoted rate
+// only when Cost of Ops' Labour roster has no billable hours configured
+// yet (averageLabourCostPerHourCents returns 0), so an unconfigured
+// tenant doesn't suddenly see every job's labour cost drop to $0.
+function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">, trueLabourRateCents: number): number {
+  const rate = trueLabourRateCents > 0 ? trueLabourRateCents : item.labour_rate_cents;
+  return Math.round(item.quantity * rate * item.labour_hours);
 }
 function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
   return Math.round(item.quantity * item.material_cost_cents);
@@ -112,6 +139,13 @@ export default function JobCostingPage() {
     queryFn: () => fetchInvoiceLineItems(invoiceIds),
     enabled: !!invoices,
   });
+  const { data: costOfOpsSettings } = useQuery({ queryKey: ["job-costing-cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
+  const { data: labourCostEntries } = useQuery({ queryKey: ["job-costing-labour-cost-entries"], queryFn: fetchLabourCostEntries });
+
+  const trueLabourRateCents = useMemo(() => {
+    if (!costOfOpsSettings || !labourCostEntries) return 0;
+    return averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings));
+  }, [costOfOpsSettings, labourCostEntries]);
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("margin_percent");
@@ -177,7 +211,7 @@ export default function JobCostingPage() {
         ...costingInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []),
       ];
 
-      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
       const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       // GST-inclusive - what was actually billed, shown in the Charged
@@ -194,7 +228,7 @@ export default function JobCostingPage() {
       result.push({ job, docs, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
     return result;
-  }, [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems]);
+  }, [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, trueLabourRateCents]);
 
   const filteredRows = rows.filter((r) => {
     const q = search.trim().toLowerCase();
@@ -367,6 +401,20 @@ export default function JobCostingPage() {
         equivalent instead, so they compare like with like against labour/material/subcontractor cost. A quote that's
         since been converted to an invoice, or a voided invoice, is only counted once - same basis as mobile's own Job
         Costing tab.
+        {trueLabourRateCents > 0 ? (
+          <>
+            {" "}
+            Labour is costed at {formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Settings &gt;
+            Cost of Ops &gt; Labour), not whatever rate a quote line was priced at - so quoting labour above that true
+            cost shows up here as extra margin.
+          </>
+        ) : (
+          <>
+            {" "}
+            Labour is costed at each quote line's own quoted rate - set up a roster in Settings &gt; Cost of Ops &gt;
+            Labour to cost it against your real labour cost instead.
+          </>
+        )}
       </p>
     </div>
   );
