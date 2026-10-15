@@ -135,6 +135,33 @@ export function calculateLabour(labour: LabourCostEntry[], settings: CostOfOpsSe
   return { entries, billableResources, nonBillableResources, weeklyLabourCostCents, monthlyLabourCostCents };
 }
 
+// A single blended $/hr true labour cost, weighted by each billable-role
+// roster entry's own billable_hours_per_week - used by Job Costing (both
+// platforms) in place of whatever rate a quote line item happened to be
+// priced at. Deliberately labour-only, not the broader "COO/Hour"
+// (hourlyCooRawCents/hourlyCooAdjustedCents above, which also folds in
+// operating expenses/overhead) - Job Costing's own Material/Subcontractor
+// columns already carry their own separate true cost, so blending overhead
+// into "Labour" too would double up against whatever the business already
+// accounts for there. Non-billable hours and non-billable roles (admin,
+// subcontractor - subcontractor cost is its own Job Costing column) are
+// excluded from both the numerator and denominator. Returns 0 if there's no
+// billable-hours roster yet (e.g. Cost of Ops hasn't been set up) - callers
+// fall back to the old per-line-item rate in that case, so Job Costing
+// never silently reports $0 labour cost just because this is unconfigured.
+export function averageLabourCostPerHourCents(labourResult: LabourResult): number {
+  let weightedCents = 0;
+  let totalHours = 0;
+  for (const e of labourResult.entries) {
+    if (!isBillableResourceRole(e.entry.role_type)) continue;
+    const hours = e.entry.billable_hours_per_week;
+    if (hours <= 0) continue;
+    weightedCents += e.costPerHourCents * hours;
+    totalHours += hours;
+  }
+  return totalHours > 0 ? weightedCents / totalHours : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Cost of Operations
 // ---------------------------------------------------------------------------

@@ -3140,6 +3140,38 @@ over its two documented caveats unchanged, not fixing them:
 - Loading `/job-costing` directly while signed out (Playwright/Chromium)
   correctly redirects to `/login` with no console errors.
 
+### Follow-up: Labour is costed against Cost of Ops, not the quoted rate
+
+The two caveats above (GST-inclusive charged total, converted-quote
+double-counting) were since fixed on both platforms (margin now uses
+each document's GST-exclusive `subtotal_cents`; a converted quote is
+filtered out of the costing set, the invoice wins) - this section's own
+prose above is otherwise left as the original write-up and wasn't
+revisited for that.
+
+A separate, later issue: `lineItemLabourCostCents` used a line item's
+own `labour_rate_cents` as both the price charged *and* the cost - so
+quoting labour at $300/hr when it actually costs the business $180/hr
+showed $0 of that $120/hr gap as margin, since "cost" and "price" were
+literally the same number. Fixed by introducing
+`averageLabourCostPerHourCents` (`packages/shared/src/cost-of-ops.ts`):
+a single blended $/hr, weighted by each billable-role (owner/
+field_staff/apprentice) roster entry's own `billable_hours_per_week`
+from Cost of Ops' Labour page (`calculateLabour`'s existing per-entry
+`costPerHourCents`) - deliberately labour-only, not the broader "COO/
+Hour" figure (`hourlyCooRawCents`/`hourlyCooAdjustedCents`), which also
+folds in operating-expense overhead and would double that in against
+Job Costing's separate Material/Subcontractor columns. Both
+`JobCosting.tsx` (desktop) and the mobile Job Costing tab now fetch
+`cost_of_ops_settings`/`labour_cost_entries` and pass this blended rate
+into `lineItemLabourCostCents` in place of the line's own rate, falling
+back to the old quoted-rate behavior when Cost of Ops has no
+billable-hours roster configured yet (rather than suddenly showing
+every job's labour cost as $0). A one-line note under each platform's
+costing summary states which basis is in effect and, when the blended
+rate is active, what it is - so the number is never a mystery to
+whoever's reading the report.
+
 ## 17. Desktop: Calendar month view no longer needs scrolling
 
 A follow-up fix, not a new screen. The month grid in
