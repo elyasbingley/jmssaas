@@ -5,11 +5,16 @@ import {
   averageLabourCostPerHourCents,
   calculateLabour,
   formatCentsAsAud,
+  lineItemLabourCostCents,
+  lineItemMaterialCostCents,
+  lineItemSubcontractorCostCents,
   type Client,
   type CostOfOpsSettings,
   type InvoiceLineItem,
   type JobCard,
   type LabourCostEntry,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type Quote,
   type QuoteLineItem,
 } from "@jmssaas/shared";
@@ -69,6 +74,47 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   if (error) throw error;
   return data as InvoiceLineItem[];
 }
+// crew/materials live in their own child tables (line_item_rework_schema
+// migration) rather than as columns on quote_line_items/invoice_line_items
+// itself - fetched separately here, keyed by the parent line item's id,
+// and attached below before costing so an itemized line using crew rows
+// (rather than the simple labour_cost_rate_cents fallback) still costs
+// correctly.
+async function fetchQuoteLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_crew").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { quote_line_item_id: string })[];
+}
+async function fetchQuoteLineItemMaterials(lineItemIds: string[]): Promise<(LineItemMaterialInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_materials").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { quote_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_crew").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { invoice_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemMaterials(
+  lineItemIds: string[]
+): Promise<(LineItemMaterialInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_materials").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { invoice_line_item_id: string })[];
+}
+function groupById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    if (!map.has(id)) map.set(id, []);
+    map.get(id)!.push(row);
+  }
+  return map;
+}
 async function fetchCostOfOpsSettings(): Promise<CostOfOpsSettings | null> {
   const { data, error } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
   if (error) throw error;
@@ -78,34 +124,6 @@ async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
   const { data, error } = await supabase.from("labour_cost_entries").select("*");
   if (error) throw error;
   return data as LabourCostEntry[];
-}
-
-// Same helpers as mobile's jobs/[id].tsx - labour_hours/material_cost_cents
-// are the PER UNIT breakdown that fed into unit_price_cents (see
-// computeLineItemUnitPriceCents), not already multiplied by quantity.
-//
-// labourRateCents is the tenant's own blended true labour cost ($/hr, from
-// Cost of Ops' Labour roster - averageLabourCostPerHourCents), NOT the
-// line item's own labour_rate_cents - that field is what the line was
-// *priced* at (what the customer was charged for labour), which is a
-// pricing decision, not a cost. Using the quoted rate as the "cost" meant
-// Job Costing could never show more labour margin than whatever was baked
-// into the quote in the first place - charging $300/hr for labour that
-// actually costs $180/hr to deliver showed $0 extra margin from that gap
-// instead of the real $120/hr. Falls back to the line's own quoted rate
-// only when Cost of Ops' Labour roster has no billable hours configured
-// yet (averageLabourCostPerHourCents returns 0), so an unconfigured
-// tenant doesn't suddenly see every job's labour cost drop to $0.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">, trueLabourRateCents: number): number {
-  const rate = trueLabourRateCents > 0 ? trueLabourRateCents : item.labour_rate_cents;
-  return Math.round(item.quantity * rate * item.labour_hours);
-}
-function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
-  return Math.round(item.quantity * item.material_cost_cents);
-}
-// "Subby box" - per-unit subcontractor cost, same treatment as material.
-function lineItemSubcontractorCostCents(item: Pick<QuoteLineItem, "quantity" | "subcontractor_cost_cents">): number {
-  return Math.round(item.quantity * (item.subcontractor_cost_cents ?? 0));
 }
 
 interface JobCostingRow {
@@ -142,6 +160,30 @@ export default function JobCostingPage() {
   const { data: costOfOpsSettings } = useQuery({ queryKey: ["job-costing-cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
   const { data: labourCostEntries } = useQuery({ queryKey: ["job-costing-labour-cost-entries"], queryFn: fetchLabourCostEntries });
 
+  const quoteLineItemIds = useMemo(() => (quoteLineItems ?? []).map((i) => i.id), [quoteLineItems]);
+  const invoiceLineItemIds = useMemo(() => (invoiceLineItems ?? []).map((i) => i.id), [invoiceLineItems]);
+
+  const { data: quoteLineItemCrew } = useQuery({
+    queryKey: ["job-costing-quote-line-item-crew", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemCrew(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: quoteLineItemMaterials } = useQuery({
+    queryKey: ["job-costing-quote-line-item-materials", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemMaterials(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: invoiceLineItemCrew } = useQuery({
+    queryKey: ["job-costing-invoice-line-item-crew", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemCrew(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+  const { data: invoiceLineItemMaterials } = useQuery({
+    queryKey: ["job-costing-invoice-line-item-materials", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemMaterials(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+
   const trueLabourRateCents = useMemo(() => {
     if (!costOfOpsSettings || !labourCostEntries) return 0;
     return averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings));
@@ -151,7 +193,23 @@ export default function JobCostingPage() {
   const [sortKey, setSortKey] = useState<SortKey>("margin_percent");
 
   const rows: JobCostingRow[] = useMemo(() => {
-    if (!jobCards || !quotes || !invoices || !quoteLineItems || !invoiceLineItems) return [];
+    if (
+      !jobCards ||
+      !quotes ||
+      !invoices ||
+      !quoteLineItems ||
+      !invoiceLineItems ||
+      !quoteLineItemCrew ||
+      !quoteLineItemMaterials ||
+      !invoiceLineItemCrew ||
+      !invoiceLineItemMaterials
+    )
+      return [];
+
+    const quoteCrewByItem = groupById(quoteLineItemCrew, (r) => r.quote_line_item_id);
+    const quoteMaterialsByItem = groupById(quoteLineItemMaterials, (r) => r.quote_line_item_id);
+    const invoiceCrewByItem = groupById(invoiceLineItemCrew, (r) => r.invoice_line_item_id);
+    const invoiceMaterialsByItem = groupById(invoiceLineItemMaterials, (r) => r.invoice_line_item_id);
 
     const quotesByJob = new Map<string, QuoteRow[]>();
     for (const q of quotes) {
@@ -166,12 +224,14 @@ export default function JobCostingPage() {
       invoicesByJob.get(inv.job_card_id)!.push(inv);
     }
     const quoteLineItemsByQuote = new Map<string, QuoteLineItem[]>();
-    for (const item of quoteLineItems) {
+    for (const rawItem of quoteLineItems) {
+      const item = { ...rawItem, crew: quoteCrewByItem.get(rawItem.id) ?? [], materials: quoteMaterialsByItem.get(rawItem.id) ?? [] };
       if (!quoteLineItemsByQuote.has(item.quote_id)) quoteLineItemsByQuote.set(item.quote_id, []);
       quoteLineItemsByQuote.get(item.quote_id)!.push(item);
     }
     const invoiceLineItemsByInvoice = new Map<string, InvoiceLineItem[]>();
-    for (const item of invoiceLineItems) {
+    for (const rawItem of invoiceLineItems) {
+      const item = { ...rawItem, crew: invoiceCrewByItem.get(rawItem.id) ?? [], materials: invoiceMaterialsByItem.get(rawItem.id) ?? [] };
       if (!invoiceLineItemsByInvoice.has(item.invoice_id)) invoiceLineItemsByInvoice.set(item.invoice_id, []);
       invoiceLineItemsByInvoice.get(item.invoice_id)!.push(item);
     }
@@ -228,7 +288,18 @@ export default function JobCostingPage() {
       result.push({ job, docs, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
     return result;
-  }, [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, trueLabourRateCents]);
+  }, [
+    jobCards,
+    quotes,
+    invoices,
+    quoteLineItems,
+    invoiceLineItems,
+    quoteLineItemCrew,
+    quoteLineItemMaterials,
+    invoiceLineItemCrew,
+    invoiceLineItemMaterials,
+    trueLabourRateCents,
+  ]);
 
   const filteredRows = rows.filter((r) => {
     const q = search.trim().toLowerCase();
@@ -262,7 +333,16 @@ export default function JobCostingPage() {
   );
   const totalMarginPercent = totals.chargedCents > 0 ? (totals.marginCents / totals.chargedCents) * 100 : 0;
 
-  const isLoading = !jobCards || !quotes || !invoices || !quoteLineItems || !invoiceLineItems;
+  const isLoading =
+    !jobCards ||
+    !quotes ||
+    !invoices ||
+    !quoteLineItems ||
+    !invoiceLineItems ||
+    !quoteLineItemCrew ||
+    !quoteLineItemMaterials ||
+    !invoiceLineItemCrew ||
+    !invoiceLineItemMaterials;
 
   return (
     <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
@@ -404,17 +484,18 @@ export default function JobCostingPage() {
         {trueLabourRateCents > 0 ? (
           <>
             {" "}
-            Labour is costed at {formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Settings &gt;
-            Cost of Ops &gt; Labour), not whatever rate a quote line was priced at - so quoting labour above that true
-            cost shows up here as extra margin.
+            A legacy (non-itemised) line is costed at {formatCentsAsAud(trueLabourRateCents)}/hr (the blended true
+            cost from Settings &gt; Cost of Ops &gt; Labour), not whatever rate it was priced at - so quoting labour
+            above that true cost shows up here as extra margin.
           </>
         ) : (
           <>
             {" "}
-            Labour is costed at each quote line's own quoted rate - set up a roster in Settings &gt; Cost of Ops &gt;
-            Labour to cost it against your real labour cost instead.
+            A legacy (non-itemised) line is costed at its own quoted rate - set up a roster in Settings &gt; Cost of
+            Ops &gt; Labour to cost it against your real labour cost instead.
           </>
-        )}
+        )}{" "}
+        An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above.
       </p>
     </div>
   );

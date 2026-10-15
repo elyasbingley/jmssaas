@@ -14,6 +14,8 @@ import {
   createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
+  lineItemLabourCostCents,
+  lineItemMaterialCostCents,
   renderTemplate,
   updateJobRealEstateAssignmentSchema,
   type Agency,
@@ -32,6 +34,8 @@ import {
   type JobNote,
   type KeyLog,
   type LabourCostEntry,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type MaterialTallyItem,
   type Profile,
   type Property,
@@ -113,26 +117,14 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-// labour_hours/material_cost_cents on a line item are the PER UNIT cost
-// breakdown that fed into that line's unit_price_cents (see
-// computeLineItemUnitPriceCents in packages/shared/src/money.ts) - not
-// already multiplied by quantity - so a line's actual total cost has to
-// scale by quantity here the same way lineItemSubtotalCents scales the
-// charged amount.
-//
-// trueLabourRateCents is the tenant's own blended true labour cost ($/hr,
-// from Cost of Ops' Labour roster), not the line's own labour_rate_cents -
-// that field is what the line was *priced* at (what the customer was
-// charged), a pricing decision, not a cost. See desktop JobCosting.tsx's
-// matching comment for the full reasoning. Falls back to the line's own
-// quoted rate when Cost of Ops has no billable-hours roster configured yet.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">, trueLabourRateCents: number): number {
-  const rate = trueLabourRateCents > 0 ? trueLabourRateCents : item.labour_rate_cents;
-  return Math.round(item.quantity * rate * item.labour_hours);
-}
-
-function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
-  return Math.round(item.quantity * item.material_cost_cents);
+function groupLineItemChildrenById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    if (!map.has(id)) map.set(id, []);
+    map.get(id)!.push(row);
+  }
+  return map;
 }
 
 interface CostingDoc {
@@ -549,6 +541,42 @@ export default function JobDetailScreen() {
     return (data ?? []) as InvoiceLineItem[];
   }, [isOnline, activeTab, invoiceIds]);
 
+  // crew/materials live in their own child tables (line_item_rework_schema
+  // migration) rather than as columns on quote_line_items/invoice_line_items
+  // itself - fetched separately here, keyed by the parent line item's id,
+  // and attached below before costing, same as desktop JobCosting.tsx.
+  const quoteLineItemIds = (quoteLineItems ?? []).map((i) => i.id).join(",");
+  const invoiceLineItemIds = (invoiceLineItems ?? []).map((i) => i.id).join(",");
+
+  const { data: quoteLineItemCrew } = useSupabaseFetch<(LineItemCrewInput & { quote_line_item_id: string })[]>(async () => {
+    const ids = quoteLineItemIds ? quoteLineItemIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("quote_line_item_crew").select("*").in("quote_line_item_id", ids);
+    if (error) throw error;
+    return (data ?? []) as (LineItemCrewInput & { quote_line_item_id: string })[];
+  }, [isOnline, activeTab, quoteLineItemIds]);
+  const { data: quoteLineItemMaterials } = useSupabaseFetch<(LineItemMaterialInput & { quote_line_item_id: string })[]>(async () => {
+    const ids = quoteLineItemIds ? quoteLineItemIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("quote_line_item_materials").select("*").in("quote_line_item_id", ids);
+    if (error) throw error;
+    return (data ?? []) as (LineItemMaterialInput & { quote_line_item_id: string })[];
+  }, [isOnline, activeTab, quoteLineItemIds]);
+  const { data: invoiceLineItemCrew } = useSupabaseFetch<(LineItemCrewInput & { invoice_line_item_id: string })[]>(async () => {
+    const ids = invoiceLineItemIds ? invoiceLineItemIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("invoice_line_item_crew").select("*").in("invoice_line_item_id", ids);
+    if (error) throw error;
+    return (data ?? []) as (LineItemCrewInput & { invoice_line_item_id: string })[];
+  }, [isOnline, activeTab, invoiceLineItemIds]);
+  const { data: invoiceLineItemMaterials } = useSupabaseFetch<(LineItemMaterialInput & { invoice_line_item_id: string })[]>(async () => {
+    const ids = invoiceLineItemIds ? invoiceLineItemIds.split(",") : [];
+    if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
+    const { data, error } = await supabase.from("invoice_line_item_materials").select("*").in("invoice_line_item_id", ids);
+    if (error) throw error;
+    return (data ?? []) as (LineItemMaterialInput & { invoice_line_item_id: string })[];
+  }, [isOnline, activeTab, invoiceLineItemIds]);
+
   // Same Cost of Ops Labour roster desktop's JobCosting.tsx costs labour
   // against, instead of whatever rate a quote line happened to be priced
   // at - see lineItemLabourCostCents's own comment.
@@ -599,9 +627,18 @@ export default function JobDetailScreen() {
   const costingQuoteIds = new Set(costingQuotes.map((q) => q.id));
   const costingInvoiceIds = new Set(costingInvoices.map((inv) => inv.id));
 
+  const quoteCrewByItem = groupLineItemChildrenById(quoteLineItemCrew ?? [], (r) => r.quote_line_item_id);
+  const quoteMaterialsByItem = groupLineItemChildrenById(quoteLineItemMaterials ?? [], (r) => r.quote_line_item_id);
+  const invoiceCrewByItem = groupLineItemChildrenById(invoiceLineItemCrew ?? [], (r) => r.invoice_line_item_id);
+  const invoiceMaterialsByItem = groupLineItemChildrenById(invoiceLineItemMaterials ?? [], (r) => r.invoice_line_item_id);
+
   const allCostingLineItems = [
-    ...(quoteLineItems ?? []).filter((item) => costingQuoteIds.has(item.quote_id)),
-    ...(invoiceLineItems ?? []).filter((item) => costingInvoiceIds.has(item.invoice_id)),
+    ...(quoteLineItems ?? [])
+      .filter((item) => costingQuoteIds.has(item.quote_id))
+      .map((item) => ({ ...item, crew: quoteCrewByItem.get(item.id) ?? [], materials: quoteMaterialsByItem.get(item.id) ?? [] })),
+    ...(invoiceLineItems ?? [])
+      .filter((item) => costingInvoiceIds.has(item.invoice_id))
+      .map((item) => ({ ...item, crew: invoiceCrewByItem.get(item.id) ?? [], materials: invoiceMaterialsByItem.get(item.id) ?? [] })),
   ];
   const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
@@ -1369,8 +1406,9 @@ export default function JobDetailScreen() {
                 </View>
                 <Text style={styles.costingNote}>
                   {trueLabourRateCents > 0
-                    ? `Labour is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Cost of Ops > Labour), not whatever rate a quote line was priced at.`
-                    : "Labour is costed at each quote line's own quoted rate - set up a roster in Cost of Ops > Labour to cost it against your real labour cost instead."}
+                    ? `A legacy (non-itemised) line is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Cost of Ops > Labour), not whatever rate it was priced at.`
+                    : "A legacy (non-itemised) line is costed at its own quoted rate - set up a roster in Cost of Ops > Labour to cost it against your real labour cost instead."}{" "}
+                  An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above.
                 </Text>
               </>
             )}

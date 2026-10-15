@@ -45,6 +45,17 @@ export function computeLineItemUnitPriceCents(
 export interface ItemizedLinePricing {
   totalCostCents: number;
   totalChargeCents: number;
+  // The three components of totalCostCents, broken out for callers that
+  // need them separately (Job Costing/Analytics show labour/material/
+  // subcontractor cost as distinct columns, same as a legacy line's
+  // labour_rate_cents*labour_hours/material_cost_cents/
+  // subcontractor_cost_cents). Already whole-line totals (quantity is
+  // baked into crew hours/itemised materials/the cost basis, not a
+  // separate multiplier - see unitPriceCents below), unlike a legacy
+  // line's own per-unit fields.
+  labourCostCents: number;
+  materialCostCents: number;
+  subcontractorCostCents: number;
   // What computeLineItemUnitPriceCents produces for a legacy line:
   // Math.round(totalChargeCents / quantity), so quantity * unitPriceCents
   // still equals totalChargeCents and lineItemSubtotalCents/
@@ -143,12 +154,77 @@ export function computeItemizedLinePricing(
   return {
     totalCostCents,
     totalChargeCents,
+    labourCostCents,
+    materialCostCents: materialBasisCents,
+    subcontractorCostCents,
     unitPriceCents: item.quantity > 0 ? Math.round(totalChargeCents / item.quantity) : totalChargeCents,
     profitCents,
     marginPercent: totalChargeCents > 0 ? (profitCents / totalChargeCents) * 100 : 0,
     markupPercent: totalCostCents > 0 ? (profitCents / totalCostCents) * 100 : 0,
     effectiveHourlyRateCents: totalLabourHours > 0 ? Math.round(profitCents / totalLabourHours) : 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Job Costing / Analytics cost breakdown - the labour/material/
+// subcontractor cost of a single line item, legacy or itemized. Used to be
+// three near-identical copies of the legacy-only formula (desktop
+// JobCosting.tsx, mobile's job costing tab, desktop Analytics.tsx) - now
+// one shared implementation covering both pricing models, so a fix here
+// reaches every caller instead of needing the same fix three times.
+//
+// For an itemized line, computeItemizedLinePricing already returns a
+// whole-line total (quantity baked into crew hours/itemised materials, not
+// a separate multiplier), so these pass it through as-is rather than
+// multiplying by quantity again - only the legacy per-unit fields need that
+// multiply.
+// ---------------------------------------------------------------------------
+
+type CostableLineItem = Pick<
+  LineItemInput,
+  | "quantity"
+  | "pricing_model"
+  | "labour_rate_cents"
+  | "labour_hours"
+  | "labour_cost_rate_cents"
+  | "labour_charge_out_rate_cents"
+  | "crew"
+  | "material_cost_cents"
+  | "materials"
+  | "material_margin_percent"
+  | "waste_percent"
+  | "contingency_percent"
+  | "tip_fees_cents"
+  | "equipment_hire_cents"
+  | "travel_cost_cents"
+  | "is_subcontracted"
+  | "subcontractor_cost_cents"
+  | "subcontractor_margin_percent"
+>;
+
+// labourRateCents is the tenant's own true labour cost ($/hr - typically
+// Cost of Ops' averageLabourCostPerHourCents), NOT the line's own
+// labour_rate_cents (what the customer was charged for labour, a pricing
+// decision rather than a cost) - only used as the fallback for a legacy
+// line when the caller has no better rate available (e.g. Cost of Ops
+// isn't configured yet).
+export function lineItemLabourCostCents(item: CostableLineItem, trueLabourRateCents: number): number {
+  if (item.pricing_model === "itemized") return computeItemizedLinePricing(item).labourCostCents;
+  const rate = trueLabourRateCents > 0 ? trueLabourRateCents : item.labour_rate_cents;
+  return Math.round(item.quantity * rate * item.labour_hours);
+}
+
+export function lineItemMaterialCostCents(item: CostableLineItem): number {
+  if (item.pricing_model === "itemized") return computeItemizedLinePricing(item).materialCostCents;
+  return Math.round(item.quantity * item.material_cost_cents);
+}
+
+// "Subby box" - per-unit subcontractor cost on a legacy line, same
+// treatment as material; an itemized line's is_subcontracted gate lives in
+// computeItemizedLinePricing instead.
+export function lineItemSubcontractorCostCents(item: CostableLineItem): number {
+  if (item.pricing_model === "itemized") return computeItemizedLinePricing(item).subcontractorCostCents;
+  return Math.round(item.quantity * (item.subcontractor_cost_cents ?? 0));
 }
 
 // Subtracts waived_amount_cents (0 for any line not flagged is_callout_fee
