@@ -18,6 +18,7 @@ import { useState } from "react";
 interface JobFileWithLocalUri {
   id: string;
   local_uri: string | null;
+  upload_state: number | null;
 }
 
 // The consolidated Job Card notes/photos/files entry point ("Diary" in the
@@ -36,7 +37,7 @@ export default function JobDiaryScreen() {
   const job = jobRows[0];
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, a.local_uri
+    `SELECT jf.id, a.local_uri, a.state AS upload_state
        FROM job_files jf
        LEFT JOIN attachments a ON a.id = jf.id
       WHERE jf.job_card_id = ?
