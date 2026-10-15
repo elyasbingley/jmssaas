@@ -21,6 +21,7 @@ import { ThemedRequiresConnectionNotice } from "../../../../components/theme/The
 import { ThemedModal } from "../../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../../../components/theme/ThemedButton";
+import { UnitPicker } from "../../../../components/UnitPicker";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
@@ -32,6 +33,8 @@ interface VariationFormState {
   labourHours: string;
   materialCost: string;
   markupPercent: string;
+  unit: string | null;
+  warrantyText: string;
 }
 
 const emptyVariationForm: VariationFormState = {
@@ -40,6 +43,8 @@ const emptyVariationForm: VariationFormState = {
   labourHours: "0",
   materialCost: "0",
   markupPercent: "0",
+  unit: null,
+  warrantyText: "",
 };
 
 export default function PriceBookItemScreen() {
@@ -73,6 +78,8 @@ export default function PriceBookItemScreen() {
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
   const [isCalloutFee, setIsCalloutFee] = useState(false);
+  const [unit, setUnit] = useState<string | null>(null);
+  const [warrantyText, setWarrantyText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -84,6 +91,8 @@ export default function PriceBookItemScreen() {
       setMaterialCost((item.material_cost_cents / 100).toString());
       setMarkupPercent(item.markup_percent.toString());
       setIsCalloutFee(item.is_callout_fee ?? false);
+      setUnit(item.unit ?? null);
+      setWarrantyText(item.warranty_text ?? "");
     }
   }, [item]);
 
@@ -104,6 +113,8 @@ export default function PriceBookItemScreen() {
       material_cost_cents: Math.round(parseNumber(materialCost) * 100),
       markup_percent: parseNumber(markupPercent),
       is_callout_fee: isCalloutFee,
+      unit,
+      warranty_text: warrantyText || null,
     });
     if (!result.success) {
       setSaveError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -158,6 +169,8 @@ export default function PriceBookItemScreen() {
       labourHours: variation.labour_hours.toString(),
       materialCost: (variation.material_cost_cents / 100).toString(),
       markupPercent: variation.markup_percent.toString(),
+      unit: variation.unit ?? null,
+      warrantyText: variation.warranty_text ?? "",
     });
     setVariationError(null);
     setVariationModalVisible(true);
@@ -171,6 +184,8 @@ export default function PriceBookItemScreen() {
       labour_hours: parseNumber(variationForm.labourHours),
       material_cost_cents: Math.round(parseNumber(variationForm.materialCost) * 100),
       markup_percent: parseNumber(variationForm.markupPercent),
+      unit: variationForm.unit,
+      warranty_text: variationForm.warrantyText || null,
     });
     if (!result.success) {
       setVariationError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -276,6 +291,21 @@ export default function PriceBookItemScreen() {
             </View>
           </View>
 
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.switchLabel}>Unit</Text>
+              <UnitPicker value={unit} onChangeValue={setUnit} />
+            </View>
+            <View style={styles.fieldCell}>
+              <ThemedFormField
+                label="Warranty (shown to the client)"
+                placeholder="e.g. 10 year workmanship warranty"
+                value={warrantyText}
+                onChangeText={setWarrantyText}
+              />
+            </View>
+          </View>
+
           <View style={styles.switchRow}>
             <View style={{ flexShrink: 1 }}>
               <Text style={styles.switchLabel}>This is the call-out / service fee</Text>
@@ -356,6 +386,20 @@ export default function PriceBookItemScreen() {
               keyboardType="decimal-pad"
               value={variationForm.markupPercent}
               onChangeText={(text) => setVariationForm((f) => ({ ...f, markupPercent: text }))}
+            />
+          </View>
+        </View>
+        <View style={styles.fieldGrid}>
+          <View style={styles.fieldCell}>
+            <Text style={styles.switchLabel}>Unit</Text>
+            <UnitPicker value={variationForm.unit} onChangeValue={(unitValue) => setVariationForm((f) => ({ ...f, unit: unitValue }))} />
+          </View>
+          <View style={styles.fieldCell}>
+            <ThemedFormField
+              label="Warranty (shown to the client)"
+              placeholder="e.g. 10 year workmanship warranty"
+              value={variationForm.warrantyText}
+              onChangeText={(text) => setVariationForm((f) => ({ ...f, warrantyText: text }))}
             />
           </View>
         </View>

@@ -254,16 +254,29 @@ async function renderLineItemsTable(cursor: Cursor, accent: [number, number, num
     const showWaived = item.waived_amount_cents > 0;
     const waivedLineCount = showWaived ? 1 : 0;
     const optionalTagLineCount = item.is_optional ? 1 : 0;
+    const warrantyLines = item.warranty_text
+      ? (cursor.doc.splitTextToSize(item.warranty_text, COL_QTY_X - COL_DESC_X - 40) as string[])
+      : [];
 
     let imageDataUrl: string | null = null;
     const IMAGE_H = 22;
     if (item.image_url) imageDataUrl = await fetchImageDataUrl(item.image_url);
 
-    cursor.ensureSpace((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0) + 4);
+    cursor.ensureSpace(
+      (descLines.length + warrantyLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0) + 4
+    );
     const rowTop = cursor.y;
     cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
     descLines.forEach((line, i) => cursor.doc.text(line, COL_DESC_X, rowTop + i * 4.5));
     let textY = rowTop + descLines.length * 4.5;
+    // warranty_text is the one itemized-rework field that's client-visible
+    // by design (see the line_item_rework_schema migration) - printed
+    // directly under the description, same placement as the HTML PDF path.
+    if (warrantyLines.length > 0) {
+      cursor.doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(107, 114, 128);
+      warrantyLines.forEach((line, i) => cursor.doc.text(line, COL_DESC_X, textY + i * 4.5));
+      textY += warrantyLines.length * 4.5;
+    }
     if (item.is_optional) {
       cursor.doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(126, 34, 206);
       cursor.doc.text(excluded ? "Optional - not selected" : "Optional - included", COL_DESC_X, textY);
@@ -282,7 +295,7 @@ async function renderLineItemsTable(cursor: Cursor, accent: [number, number, num
       }
     }
     cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...rowColor);
-    cursor.doc.text(String(item.quantity), COL_QTY_X, rowTop, { align: "right" });
+    cursor.doc.text(String(item.quantity) + (item.unit ? ` ${item.unit}` : ""), COL_QTY_X, rowTop, { align: "right" });
     cursor.doc.text(formatCentsAsAud(item.unit_price_cents), COL_RATE_X, rowTop, { align: "right" });
     cursor.doc.text(excluded ? "-" : formatCentsAsAud(lineItemSubtotalCents(item)), COL_AMOUNT_X, rowTop, { align: "right" });
     // Draw the separator right at this row's own bottom edge, then leave a
@@ -290,7 +303,8 @@ async function renderLineItemsTable(cursor: Cursor, accent: [number, number, num
     // ~2.3mm, so anything less than that here draws the line straight
     // through the top of the next row's text instead of below this one's.
     const rowBottom =
-      rowTop + Math.max((descLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5);
+      rowTop +
+      Math.max((descLines.length + warrantyLines.length + waivedLineCount + optionalTagLineCount) * 4.5 + (imageDataUrl ? IMAGE_H + 2 : 0), 4.5);
     cursor.doc.setDrawColor(229, 231, 235);
     cursor.doc.line(MARGIN, rowBottom, PAGE_WIDTH - MARGIN, rowBottom);
     cursor.y = rowBottom + 3;

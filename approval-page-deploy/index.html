@@ -34,6 +34,7 @@
       td.optional-check { width: 30px; text-align: center; }
       tr.bundle-heading td { background: #f9fafb; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
       .item-desc { display: flex; flex-direction: column; gap: 6px; }
+      .item-warranty { font-size: 11px; color: #6b7280; }
       .item-image { max-width: 160px; max-height: 100px; border-radius: 6px; object-fit: cover; }
       .optional-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #7e22ce; background: #f3e8ff; border-radius: 10px; padding: 2px 8px; margin-left: 6px; }
       tr.excluded-row td { opacity: 0.5; }
@@ -161,6 +162,13 @@
             var descCell =
               '<td><div class="item-desc"><span>' + escapeHtml(item.description) +
               (item.is_optional ? '<span class="optional-tag">Optional</span>' : "") + "</span>" +
+              // warranty_text is the one itemized-rework field that's
+              // client-visible by design (see the line_item_rework_schema
+              // migration and get_quote_for_approval/get_invoice_for_
+              // approval) - everything else from that rework (pricing_model,
+              // crew, materials, margins, internal_notes) is deliberately
+              // never sent to this page at all.
+              (item.warranty_text ? '<div class="item-warranty">' + escapeHtml(item.warranty_text) + "</div>" : "") +
               (item.image_url ? '<img class="item-image" src="' + escapeHtml(item.image_url) + '" />' : "") +
               "</div></td>";
             return (
@@ -168,7 +176,7 @@
               '<tr class="line-item-row' + (excluded ? " excluded-row" : "") + '" data-item-id="' + escapeHtml(item.id || "") + '">' +
               checkboxCell +
               descCell +
-              '<td class="num">' + item.quantity + "</td>" +
+              '<td class="num">' + item.quantity + (item.unit ? " " + escapeHtml(item.unit) : "") + "</td>" +
               '<td class="num">' + formatCentsAsAud(item.unit_price_cents) + "</td>" +
               '<td class="num">' + formatCentsAsAud(item.quantity * item.unit_price_cents) + "</td>" +
               "</tr>"

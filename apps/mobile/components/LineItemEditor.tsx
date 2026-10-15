@@ -8,7 +8,6 @@ import {
   computeLineItemUnitPriceCents,
   formatCentsAsAud,
   marginPercentToMarkupPercent,
-  LINE_ITEM_UNITS,
   type LabourCostEntry,
   type LineItemCrewInput,
   type LineItemFormInput,
@@ -16,11 +15,11 @@ import {
 } from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
 import { CenteredModal } from "./CenteredModal";
+import { UnitPicker } from "./UnitPicker";
 import { supabase } from "../lib/supabase";
 import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
 const LINE_ITEM_IMAGE_BUCKET = "line-item-images";
-const CURATED_UNITS = LINE_ITEM_UNITS.filter((u) => u !== "other");
 
 interface LineItemEditorProps {
   items: LineItemFormInput[];
@@ -84,63 +83,6 @@ function MarginField({ value, onChangeValue }: { value: number; onChangeValue: (
     <View>
       <DecimalInput value={value} onChangeValue={onChangeValue} placeholder="%" />
       <Text style={styles.marginHint}>= {marginPercentToMarkupPercent(value).toFixed(2)}% markup</Text>
-    </View>
-  );
-}
-
-// Curated dropdown (as a modal picker, RN has no inline <select>) plus a
-// free-text field for anything not on the list.
-function UnitPicker({ value, onChangeValue }: { value: string | null | undefined; onChangeValue: (unit: string | null) => void }) {
-  const styles = useThemedStyles(createStyles);
-  const [open, setOpen] = useState(false);
-  const [customText, setCustomText] = useState(() => (value && !(CURATED_UNITS as readonly string[]).includes(value) ? value : ""));
-
-  return (
-    <View>
-      <Pressable style={styles.input} onPress={() => setOpen(true)}>
-        <Text style={value ? styles.pickerValueText : styles.pickerPlaceholderText}>{value || "No unit"}</Text>
-      </Pressable>
-      <CenteredModal visible={open} onClose={() => setOpen(false)}>
-        <Text style={styles.modalTitle}>Select a unit</Text>
-        <Pressable
-          style={styles.variationRow}
-          onPress={() => {
-            onChangeValue(null);
-            setOpen(false);
-          }}
-        >
-          <Text style={styles.variationRowText}>No unit</Text>
-        </Pressable>
-        {CURATED_UNITS.map((u) => (
-          <Pressable
-            key={u}
-            style={styles.variationRow}
-            onPress={() => {
-              onChangeValue(u);
-              setOpen(false);
-            }}
-          >
-            <Text style={styles.variationRowText}>{u}</Text>
-          </Pressable>
-        ))}
-        <Text style={styles.fieldLabel}>Other (type your own)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. roll, sheet"
-          placeholderTextColor={styles.placeholder.color}
-          value={customText}
-          onChangeText={setCustomText}
-        />
-        <Pressable
-          style={styles.modalCancel}
-          onPress={() => {
-            onChangeValue(customText.trim() || null);
-            setOpen(false);
-          }}
-        >
-          <Text style={styles.modalCancelText}>Use custom unit</Text>
-        </Pressable>
-      </CenteredModal>
     </View>
   );
 }

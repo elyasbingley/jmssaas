@@ -16,9 +16,13 @@ import {
 // component because printToFileAsync wants a raw HTML document, not a
 // React Native render tree. The itemised table intentionally uses the same
 // fields as LineItemSummary (components/LineItemEditor.tsx) - description,
-// quantity, unit_price_cents - and never the labour/material/markup
-// breakdown, so a PDF can never leak internal margin figures regardless of
-// who exports it.
+// unit, quantity, unit_price_cents, warranty_text - and never the labour/
+// material/markup/crew/materials/internal_notes breakdown (see the
+// line_item_rework_schema migration), so a PDF can never leak internal
+// margin figures regardless of who exports it. warranty_text is the one
+// itemized-rework field that's client-visible by design, so it prints
+// directly under the description, same as the optional/waived tags below
+// it.
 //
 // Layout and styling here deliberately mirror the person's real reference
 // invoice/quote templates (uploaded as INV-000037.pdf / QT-000092.pdf):
@@ -212,11 +216,12 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
       <tr class="${excluded ? "excluded-item" : ""}">
         <td>${index + 1}</td>
         <td class="desc">${escapeHtml(item.description)}
+          ${item.warranty_text ? `<br/><span style="color:#6b7280;font-size:10px;">${escapeHtml(item.warranty_text)}</span>` : ""}
           ${item.is_optional ? `<br/><span class="optional-tag">${excluded ? "Optional - not selected" : "Optional - included"}</span>` : ""}
           ${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}
           ${item.image_url ? `<img class="item-image" src="${escapeHtml(item.image_url)}" />` : ""}
         </td>
-        <td class="num">${item.quantity}</td>
+        <td class="num">${item.quantity}${item.unit ? ` ${escapeHtml(item.unit)}` : ""}</td>
         <td class="num">${formatCentsPlain(item.unit_price_cents)}</td>
         <td class="num">${excluded ? "-" : formatCentsPlain(lineItemSubtotalCents(item))}</td>
       </tr>`;

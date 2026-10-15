@@ -298,6 +298,13 @@ export const createPriceBookItemSchema = priceBreakdownSchema.extend({
   // membership plan's waive_callout_fee benefit knows which line item to
   // waive once it's added to a quote/invoice (see AddLineItemBar).
   is_callout_fee: z.boolean().default(false),
+  // Itemised quoting rework (price_book_unit_warranty migration) - carried
+  // straight through to a new line item by AddLineItemBar when this
+  // catalogue item is added to a quote/invoice, same as the price fields
+  // above. The fuller itemized cost-rate/charge-rate/margin split is not
+  // part of the Price Book model (see that migration's header comment).
+  unit: lineItemUnitSchema.nullable().optional(),
+  warranty_text: z.string().nullable().optional(),
 });
 export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
 
@@ -305,6 +312,8 @@ export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
   price_book_item_id: z.string().uuid(),
   name: z.string().min(1, "Name is required"),
   sort_order: z.number().int().default(0),
+  unit: lineItemUnitSchema.nullable().optional(),
+  warranty_text: z.string().nullable().optional(),
 });
 export type CreatePriceBookVariationInput = z.infer<typeof createPriceBookVariationSchema>;
 

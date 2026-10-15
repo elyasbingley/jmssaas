@@ -936,6 +936,11 @@ export interface PriceBookItem {
   // an editable toggle anywhere in the UI (see docs/SETUP.md's own
   // write-up on this gap).
   is_callout_fee?: boolean;
+  // Itemised quoting rework (price_book_unit_warranty migration) - carried
+  // straight through to a new line item by AddLineItemBar, same as the
+  // price fields above.
+  unit?: string | null;
+  warranty_text?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -950,6 +955,8 @@ export interface PriceBookItemVariation {
   material_cost_cents: number;
   markup_percent: number;
   sort_order: number;
+  unit?: string | null;
+  warranty_text?: string | null;
   created_at: string;
   updated_at: string;
 }
