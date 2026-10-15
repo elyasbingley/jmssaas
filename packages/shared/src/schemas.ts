@@ -193,6 +193,34 @@ export const setTaskCustomFieldValueSchema = z.object({
 });
 export type SetTaskCustomFieldValueInput = z.infer<typeof setTaskCustomFieldValueSchema>;
 
+export const lineItemPricingModelSchema = z.enum(["legacy", "itemized"]);
+
+// Plain string, not restricted to LINE_ITEM_UNITS - see types.ts's
+// LineItemInput.unit comment. LINE_ITEM_UNITS still drives the editor's
+// curated dropdown; this just has to accept whatever its "other" option's
+// free-text field produces.
+export const lineItemUnitSchema = z.string().max(32);
+
+export const lineItemCrewSchema = z.object({
+  labour_cost_entry_id: z.string().uuid().nullable().optional(),
+  worker_name: z.string().min(1),
+  cost_rate_cents: z.number().int().nonnegative().default(0),
+  charge_out_rate_cents: z.number().int().nonnegative().default(0),
+  hours: z.number().nonnegative().default(0),
+  // Optional, not defaulted - matches LineItemCrewInput's own optional
+  // sort_order. The server falls back to array position (see
+  // replace_quote_line_items/replace_invoice_line_items' own
+  // with-ordinality coalesce) when it's omitted.
+  sort_order: z.number().int().optional(),
+});
+
+export const lineItemMaterialSchema = z.object({
+  description: z.string().min(1),
+  quantity: z.number().positive().default(1),
+  unit_cost_cents: z.number().int().nonnegative().default(0),
+  sort_order: z.number().int().optional(),
+});
+
 // Shared by a line item, a price book item, and a price book item variation
 // - all three price the same underlying thing (labour rate/hours, material
 // cost, markup%), just at different points in the pipeline (catalogue entry
@@ -235,6 +263,24 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   is_included: z.boolean().default(true),
   bundle_name: z.string().nullable().optional(),
   image_url: z.string().nullable().optional(),
+  // Itemised quoting rework - see types.ts's LineItemInput comment for how
+  // these fields relate to the breakdown fields above. All optional/
+  // additive; a form building a legacy-style line simply omits them.
+  pricing_model: lineItemPricingModelSchema.optional(),
+  unit: lineItemUnitSchema.nullable().optional(),
+  labour_cost_rate_cents: z.number().int().nonnegative().optional(),
+  labour_charge_out_rate_cents: z.number().int().nonnegative().optional(),
+  crew: z.array(lineItemCrewSchema).optional(),
+  materials: z.array(lineItemMaterialSchema).optional(),
+  material_margin_percent: z.number().min(0).max(99.99).optional(),
+  subcontractor_margin_percent: z.number().min(0).max(99.99).optional(),
+  waste_percent: z.number().nonnegative().optional(),
+  contingency_percent: z.number().nonnegative().optional(),
+  tip_fees_cents: z.number().int().nonnegative().optional(),
+  equipment_hire_cents: z.number().int().nonnegative().optional(),
+  travel_cost_cents: z.number().int().nonnegative().optional(),
+  warranty_text: z.string().nullable().optional(),
+  internal_notes: z.string().nullable().optional(),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 
@@ -252,6 +298,13 @@ export const createPriceBookItemSchema = priceBreakdownSchema.extend({
   // membership plan's waive_callout_fee benefit knows which line item to
   // waive once it's added to a quote/invoice (see AddLineItemBar).
   is_callout_fee: z.boolean().default(false),
+  // Itemised quoting rework (price_book_unit_warranty migration) - carried
+  // straight through to a new line item by AddLineItemBar when this
+  // catalogue item is added to a quote/invoice, same as the price fields
+  // above. The fuller itemized cost-rate/charge-rate/margin split is not
+  // part of the Price Book model (see that migration's header comment).
+  unit: lineItemUnitSchema.nullable().optional(),
+  warranty_text: z.string().nullable().optional(),
 });
 export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
 
@@ -259,6 +312,8 @@ export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
   price_book_item_id: z.string().uuid(),
   name: z.string().min(1, "Name is required"),
   sort_order: z.number().int().default(0),
+  unit: lineItemUnitSchema.nullable().optional(),
+  warranty_text: z.string().nullable().optional(),
 });
 export type CreatePriceBookVariationInput = z.infer<typeof createPriceBookVariationSchema>;
 

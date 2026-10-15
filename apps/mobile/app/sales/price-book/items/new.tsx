@@ -14,6 +14,7 @@ import { getErrorMessage } from "../../../../lib/errors";
 import { useThemedStyles, type StyleTheme } from "../../../../lib/use-themed-styles";
 import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../../../components/theme/ThemedButton";
+import { UnitPicker } from "../../../../components/UnitPicker";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
@@ -31,6 +32,8 @@ export default function NewPriceBookItemScreen() {
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
   const [isCalloutFee, setIsCalloutFee] = useState(false);
+  const [unit, setUnit] = useState<string | null>(null);
+  const [warrantyText, setWarrantyText] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -50,6 +53,8 @@ export default function NewPriceBookItemScreen() {
       material_cost_cents: Math.round(parseNumber(materialCost) * 100),
       markup_percent: parseNumber(markupPercent),
       is_callout_fee: isCalloutFee,
+      unit,
+      warranty_text: warrantyText || null,
     });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -111,6 +116,21 @@ export default function NewPriceBookItemScreen() {
             </View>
             <View style={styles.fieldCell}>
               <ThemedFormField label="Markup (%)" placeholder="0" keyboardType="decimal-pad" value={markupPercent} onChangeText={setMarkupPercent} />
+            </View>
+          </View>
+
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.switchLabel}>Unit</Text>
+              <UnitPicker value={unit} onChangeValue={setUnit} />
+            </View>
+            <View style={styles.fieldCell}>
+              <ThemedFormField
+                label="Warranty (shown to the client)"
+                placeholder="e.g. 10 year workmanship warranty"
+                value={warrantyText}
+                onChangeText={setWarrantyText}
+              />
             </View>
           </View>
 

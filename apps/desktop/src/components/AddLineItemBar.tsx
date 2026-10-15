@@ -25,7 +25,10 @@ interface AddLineItemBarProps {
 }
 
 type BundleItemRow = LineItemBundleItem & {
-  price_book_items: Pick<PriceBookItem, "description" | "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent"> | null;
+  price_book_items: Pick<
+    PriceBookItem,
+    "description" | "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent" | "unit" | "warranty_text"
+  > | null;
 };
 
 async function fetchBundles(): Promise<LineItemBundle[]> {
@@ -37,7 +40,7 @@ async function fetchBundles(): Promise<LineItemBundle[]> {
 async function fetchBundleItems(bundleId: string): Promise<BundleItemRow[]> {
   const { data, error } = await supabase
     .from("line_item_bundle_items")
-    .select("*, price_book_items(description, labour_rate_cents, labour_hours, material_cost_cents, markup_percent)")
+    .select("*, price_book_items(description, labour_rate_cents, labour_hours, material_cost_cents, markup_percent, unit, warranty_text)")
     .eq("bundle_id", bundleId)
     .order("sort_order")
     .order("created_at");
@@ -91,6 +94,8 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
               labour_hours: row.price_book_items.labour_hours,
               material_cost_cents: row.price_book_items.material_cost_cents,
               markup_percent: row.price_book_items.markup_percent,
+              unit: row.price_book_items.unit,
+              warranty_text: row.price_book_items.warranty_text,
             }
           : {
               description: row.description ?? "",
@@ -183,6 +188,8 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
           material_cost_cents: variation.material_cost_cents,
           markup_percent: variation.markup_percent,
           is_callout_fee: item.is_callout_fee ?? false,
+          unit: variation.unit ?? item.unit,
+          warranty_text: variation.warranty_text ?? item.warranty_text,
         }
       : {
           description: item.description,
@@ -191,6 +198,8 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
           material_cost_cents: item.material_cost_cents,
           markup_percent: item.markup_percent,
           is_callout_fee: item.is_callout_fee ?? false,
+          unit: item.unit,
+          warranty_text: item.warranty_text,
         };
     onAdd(normalizeLineItem(source, itemCount));
     setQuery("");

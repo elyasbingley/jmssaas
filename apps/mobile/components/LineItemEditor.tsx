@@ -1,9 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { calculateDocumentTotals, computeLineItemUnitPriceCents, formatCentsAsAud, type LineItemFormInput } from "@jmssaas/shared";
+import {
+  calculateDocumentTotals,
+  computeItemizedLinePricing,
+  computeLineItemUnitPriceCents,
+  formatCentsAsAud,
+  marginPercentToMarkupPercent,
+  type LabourCostEntry,
+  type LineItemCrewInput,
+  type LineItemFormInput,
+  type LineItemMaterialInput,
+} from "@jmssaas/shared";
 import { AddLineItemBar } from "./AddLineItemBar";
+import { CenteredModal } from "./CenteredModal";
+import { UnitPicker } from "./UnitPicker";
 import { supabase } from "../lib/supabase";
 import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 
@@ -57,26 +69,293 @@ function DecimalInput({
   );
 }
 
+async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
+  const { data } = await supabase.from("labour_cost_entries").select("*");
+  return (data ?? []) as LabourCostEntry[];
+}
+
+// Margin is the one input (margin = profit / price) - markup (profit /
+// cost) is shown alongside it, never entered directly, per the "Margin 30%
+// (= 42.86% markup)" spec.
+function MarginField({ value, onChangeValue }: { value: number; onChangeValue: (n: number) => void }) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View>
+      <DecimalInput value={value} onChangeValue={onChangeValue} placeholder="%" />
+      <Text style={styles.marginHint}>= {marginPercentToMarkupPercent(value).toFixed(2)}% markup</Text>
+    </View>
+  );
+}
+
+// Lets a crew row default its cost rate from a real Cost of Ops staff
+// member instead of being re-typed - optional, ad-hoc workers have no
+// roster entry at all.
+function RosterPicker({
+  entries,
+  value,
+  onSelect,
+}: {
+  entries: LabourCostEntry[];
+  value: string | null | undefined;
+  onSelect: (entry: LabourCostEntry | null) => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const [open, setOpen] = useState(false);
+  const selected = entries.find((e) => e.id === value);
+
+  return (
+    <View>
+      <Pressable style={styles.input} onPress={() => setOpen(true)}>
+        <Text style={styles.pickerValueText}>{selected ? selected.name ?? selected.role_type : "Ad-hoc worker"}</Text>
+      </Pressable>
+      <CenteredModal visible={open} onClose={() => setOpen(false)}>
+        <Text style={styles.modalTitle}>Select from Cost of Ops roster</Text>
+        <Pressable
+          style={styles.variationRow}
+          onPress={() => {
+            onSelect(null);
+            setOpen(false);
+          }}
+        >
+          <Text style={styles.variationRowText}>Ad-hoc worker (no link)</Text>
+        </Pressable>
+        {entries.map((entry) => (
+          <Pressable
+            key={entry.id}
+            style={styles.variationRow}
+            onPress={() => {
+              onSelect(entry);
+              setOpen(false);
+            }}
+          >
+            <Text style={styles.variationRowText}>{entry.name ?? entry.role_type}</Text>
+          </Pressable>
+        ))}
+      </CenteredModal>
+    </View>
+  );
+}
+
+// Crew lines: more than one worker on an itemized line, each at their own
+// cost/charge-out rate and hours (e.g. "you 8 hrs + offsider 8 hrs").
+function CrewEditor({
+  crew,
+  labourCostEntries,
+  onChange,
+}: {
+  crew: LineItemCrewInput[];
+  labourCostEntries: LabourCostEntry[];
+  onChange: (crew: LineItemCrewInput[]) => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const updateRow = (i: number, patch: Partial<LineItemCrewInput>) => onChange(crew.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const removeRow = (i: number) => onChange(crew.filter((_, idx) => idx !== i));
+  const addRow = () =>
+    onChange([...crew, { worker_name: "", cost_rate_cents: 0, charge_out_rate_cents: 0, hours: 0, sort_order: crew.length }]);
+
+  return (
+    <View style={styles.subPanel}>
+      <View style={styles.subPanelHeader}>
+        <Text style={styles.subPanelTitle}>Crew</Text>
+        <Pressable onPress={addRow}>
+          <Text style={styles.link}>+ Add worker</Text>
+        </Pressable>
+      </View>
+      {crew.map((c, i) => (
+        <View key={i} style={styles.subRow}>
+          {labourCostEntries.length > 0 ? (
+            <RosterPicker
+              entries={labourCostEntries}
+              value={c.labour_cost_entry_id}
+              onSelect={(entry) =>
+                updateRow(i, {
+                  labour_cost_entry_id: entry?.id ?? null,
+                  worker_name: entry ? entry.name ?? c.worker_name : c.worker_name,
+                  cost_rate_cents: entry?.hourly_rate_cents ?? c.cost_rate_cents,
+                })
+              }
+            />
+          ) : null}
+          <TextInput
+            style={styles.input}
+            placeholder="Worker name"
+            placeholderTextColor={styles.placeholder.color}
+            value={c.worker_name}
+            onChangeText={(text) => updateRow(i, { worker_name: text })}
+          />
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Cost $/hr</Text>
+              <DecimalInput value={c.cost_rate_cents / 100} onChangeValue={(n) => updateRow(i, { cost_rate_cents: Math.round(n * 100) })} />
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Charge $/hr</Text>
+              <DecimalInput
+                value={c.charge_out_rate_cents / 100}
+                onChangeValue={(n) => updateRow(i, { charge_out_rate_cents: Math.round(n * 100) })}
+              />
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Hours</Text>
+              <DecimalInput value={c.hours} onChangeValue={(n) => updateRow(i, { hours: n })} />
+            </View>
+          </View>
+          <Pressable onPress={() => removeRow(i)}>
+            <Text style={styles.removeButtonText}>Remove worker</Text>
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Itemised materials sub-table - replaces the single material_cost_cents
+// figure once a line goes itemized.
+function MaterialsEditor({
+  materials,
+  onChange,
+}: {
+  materials: LineItemMaterialInput[];
+  onChange: (materials: LineItemMaterialInput[]) => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const updateRow = (i: number, patch: Partial<LineItemMaterialInput>) =>
+    onChange(materials.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
+  const removeRow = (i: number) => onChange(materials.filter((_, idx) => idx !== i));
+  const addRow = () => onChange([...materials, { description: "", quantity: 1, unit_cost_cents: 0, sort_order: materials.length }]);
+  const subtotalCents = materials.reduce((sum, m) => sum + Math.round(m.quantity * m.unit_cost_cents), 0);
+
+  return (
+    <View style={styles.subPanel}>
+      <View style={styles.subPanelHeader}>
+        <Text style={styles.subPanelTitle}>Materials</Text>
+        <Pressable onPress={addRow}>
+          <Text style={styles.link}>+ Add material</Text>
+        </Pressable>
+      </View>
+      {materials.map((m, i) => (
+        <View key={i} style={styles.subRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="Description"
+            placeholderTextColor={styles.placeholder.color}
+            value={m.description}
+            onChangeText={(text) => updateRow(i, { description: text })}
+          />
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Qty</Text>
+              <DecimalInput value={m.quantity} onChangeValue={(n) => updateRow(i, { quantity: n })} />
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Unit cost $</Text>
+              <DecimalInput value={m.unit_cost_cents / 100} onChangeValue={(n) => updateRow(i, { unit_cost_cents: Math.round(n * 100) })} />
+            </View>
+          </View>
+          <Pressable onPress={() => removeRow(i)}>
+            <Text style={styles.removeButtonText}>Remove material</Text>
+          </Pressable>
+        </View>
+      ))}
+      {materials.length > 0 ? (
+        <View style={styles.totalsRow}>
+          <Text style={styles.totalsLabel}>Materials subtotal</Text>
+          <Text style={styles.totalsValue}>{formatCentsAsAud(subtotalCents)}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ReadoutStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View style={styles.readoutCell}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.readoutValue, warn && styles.readoutValueWarn]}>{value}</Text>
+    </View>
+  );
+}
+
+// Live readout: cost, profit $, margin %, markup %, effective $/hr - updates
+// on every keystroke since it's just computeItemizedLinePricing re-run on
+// the current form state, same as unit_price_cents itself.
+function LiveReadout({ item }: { item: LineItemFormInput }) {
+  const styles = useThemedStyles(createStyles);
+  const pricing = computeItemizedLinePricing(item);
+  return (
+    <View style={styles.readoutBox}>
+      <View style={styles.readoutRow}>
+        <ReadoutStat label="Cost" value={formatCentsAsAud(pricing.totalCostCents)} />
+        <ReadoutStat label="Profit" value={formatCentsAsAud(pricing.profitCents)} warn={pricing.profitCents < 0} />
+      </View>
+      <View style={styles.readoutRow}>
+        <ReadoutStat label="Margin" value={`${pricing.marginPercent.toFixed(1)}%`} warn={pricing.marginPercent < 0} />
+        <ReadoutStat label="Markup" value={`${pricing.markupPercent.toFixed(1)}%`} warn={pricing.markupPercent < 0} />
+      </View>
+      <View style={styles.readoutRow}>
+        <ReadoutStat label="Effective $/hr" value={formatCentsAsAud(pricing.effectiveHourlyRateCents)} warn={pricing.effectiveHourlyRateCents < 0} />
+      </View>
+    </View>
+  );
+}
+
 // Shared by quotes/new, quotes/[id], invoices/new and invoices/[id] - the
-// full internal editor (labour rate/hours, material cost, markup%,
-// quantity), all editable in place, with a live GST-inclusive total computed
-// with the same calculateDocumentTotals helper the totals get saved with.
-// This is admin-only: the breakdown fields (rate/hours/material/markup) are
-// margin-revealing figures the client (and, per the person's brief, anyone
-// non-admin) should never see - see LineItemSummary below for that view.
+// full internal editor, all editable in place, with a live GST-inclusive
+// total computed with the same calculateDocumentTotals helper the totals
+// get saved with. This is admin-only: the breakdown fields are margin-
+// revealing figures the client should never see - see LineItemSummary
+// below for that view.
+//
+// Each line now also carries a pricing_model toggle (line_item_rework_
+// schema migration, ported from the desktop editor): "legacy" keeps the
+// original labour rate/hours + material cost + markup% bracket exactly as
+// before; "itemized" switches to the new crew/materials breakdown,
+// material/subcontractor margin %, waste/contingency/allowance fields, and
+// the live cost/profit/margin/markup/$-per-hour readout. unit_price_cents
+// is still the one value actually persisted and trusted by the server
+// either way - toggling between models just changes which fields on this
+// form produce it.
 export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, tenantId }: LineItemEditorProps) {
   const styles = useThemedStyles(createStyles);
   const totals = calculateDocumentTotals(items);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [labourCostEntries, setLabourCostEntries] = useState<LabourCostEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLabourCostEntries().then((entries) => {
+      if (!cancelled) setLabourCostEntries(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateItem = (index: number, patch: Partial<LineItemFormInput>) => {
     onChange(
       items.map((item, i) => {
         if (i !== index) return item;
         const next = { ...item, ...patch };
-        return { ...next, unit_price_cents: computeLineItemUnitPriceCents(next) };
+        const unit_price_cents =
+          next.pricing_model === "itemized" ? computeItemizedLinePricing(next).unitPriceCents : computeLineItemUnitPriceCents(next);
+        return { ...next, unit_price_cents };
       })
     );
+  };
+
+  // Clears crew/materials when switching back to legacy - otherwise an
+  // itemized line's children would survive the toggle and still get
+  // persisted (replace_quote_line_items/replace_invoice_line_items insert
+  // whatever's in item.crew/item.materials regardless of pricing_model),
+  // leaving a "legacy" line with phantom itemized children.
+  const togglePricingModel = (index: number) => {
+    const item = items[index]!;
+    if (item.pricing_model === "itemized") {
+      updateItem(index, { pricing_model: "legacy", crew: [], materials: [] });
+    } else {
+      updateItem(index, { pricing_model: "itemized" });
+    }
   };
 
   const pickImage = async (index: number) => {
@@ -126,198 +405,365 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
 
   return (
     <View>
-      {items.map((item, index) => (
-        <View key={index} style={styles.row}>
-          <View style={styles.rowHeader}>
-            <View style={styles.rowBadges}>
-              <Text style={styles.rowNumber}>#{index + 1}</Text>
-              {item.is_callout_fee ? (
-                <View style={styles.calloutBadge}>
-                  <Text style={styles.calloutBadgeText}>Call-out fee</Text>
-                </View>
-              ) : null}
-              {item.waived_amount_cents > 0 ? (
-                <View style={styles.waivedBadge}>
-                  <Text style={styles.waivedBadgeText}>Waived - Membership</Text>
-                </View>
-              ) : null}
-              {item.is_subcontracted ? (
-                <View style={styles.subcontractedBadge}>
-                  <Text style={styles.subcontractedBadgeText}>Subcontracted</Text>
-                </View>
-              ) : null}
-              {item.is_optional ? (
-                <View style={styles.optionalBadge}>
-                  <Text style={styles.optionalBadgeText}>Optional</Text>
-                </View>
-              ) : null}
-              {item.bundle_name ? (
-                <View style={styles.bundleBadge}>
-                  <Text style={styles.bundleBadgeText}>Bundle: {item.bundle_name}</Text>
-                </View>
-              ) : null}
+      {items.map((item, index) => {
+        const itemized = item.pricing_model === "itemized";
+        const crew = item.crew ?? [];
+        const materials = item.materials ?? [];
+        return (
+          <View key={index} style={styles.row}>
+            <View style={styles.rowHeader}>
+              <View style={styles.rowBadges}>
+                <Text style={styles.rowNumber}>#{index + 1}</Text>
+                {itemized ? (
+                  <View style={styles.optionalBadge}>
+                    <Text style={styles.optionalBadgeText}>Itemised</Text>
+                  </View>
+                ) : null}
+                {item.is_callout_fee ? (
+                  <View style={styles.calloutBadge}>
+                    <Text style={styles.calloutBadgeText}>Call-out fee</Text>
+                  </View>
+                ) : null}
+                {item.waived_amount_cents > 0 ? (
+                  <View style={styles.waivedBadge}>
+                    <Text style={styles.waivedBadgeText}>Waived - Membership</Text>
+                  </View>
+                ) : null}
+                {item.is_subcontracted ? (
+                  <View style={styles.subcontractedBadge}>
+                    <Text style={styles.subcontractedBadgeText}>Subcontracted</Text>
+                  </View>
+                ) : null}
+                {item.is_optional ? (
+                  <View style={styles.optionalBadge}>
+                    <Text style={styles.optionalBadgeText}>Optional</Text>
+                  </View>
+                ) : null}
+                {item.bundle_name ? (
+                  <View style={styles.bundleBadge}>
+                    <Text style={styles.bundleBadgeText}>Bundle: {item.bundle_name}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.rowMoveButtons}>
+                <Pressable onPress={() => moveItem(index, -1)} disabled={index === 0} style={styles.moveButton}>
+                  <Text style={[styles.moveButtonText, index === 0 && styles.moveButtonTextDisabled]}>&uarr;</Text>
+                </Pressable>
+                <Pressable onPress={() => moveItem(index, 1)} disabled={index === items.length - 1} style={styles.moveButton}>
+                  <Text style={[styles.moveButtonText, index === items.length - 1 && styles.moveButtonTextDisabled]}>&darr;</Text>
+                </Pressable>
+                <Pressable onPress={() => removeItem(index)} style={styles.removeButton}>
+                  <Text style={styles.removeButtonText}>Remove</Text>
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.rowMoveButtons}>
-              <Pressable onPress={() => moveItem(index, -1)} disabled={index === 0} style={styles.moveButton}>
-                <Text style={[styles.moveButtonText, index === 0 && styles.moveButtonTextDisabled]}>&uarr;</Text>
+
+            <TextInput
+              style={[styles.input, styles.descriptionInput]}
+              placeholder={"Description (e.g. supply and install valley channel)\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
+              placeholderTextColor={styles.placeholder.color}
+              value={item.description}
+              onChangeText={(text) => updateItem(index, { description: text })}
+              multiline
+            />
+
+            <View style={styles.pricingToggleRow}>
+              <Pressable style={[styles.pricingToggleButton, !itemized && styles.pricingToggleButtonActive]} onPress={() => togglePricingModel(index)}>
+                <Text style={[styles.pricingToggleText, !itemized && styles.pricingToggleTextActive]}>Simple</Text>
               </Pressable>
-              <Pressable onPress={() => moveItem(index, 1)} disabled={index === items.length - 1} style={styles.moveButton}>
-                <Text style={[styles.moveButtonText, index === items.length - 1 && styles.moveButtonTextDisabled]}>&darr;</Text>
-              </Pressable>
-              <Pressable onPress={() => removeItem(index)} style={styles.removeButton}>
-                <Text style={styles.removeButtonText}>Remove</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            placeholder={"Description (e.g. supply and install valley channel)\n\n- Remove the existing tile\n- Supply and fit new tiles\n- Dispose of trade waste"}
-            placeholderTextColor={styles.placeholder.color}
-            value={item.description}
-            onChangeText={(text) => updateItem(index, { description: text })}
-            multiline
-          />
-
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Labour rate ($/hr)</Text>
-              <DecimalInput
-                placeholder="0"
-                value={item.labour_rate_cents / 100}
-                onChangeValue={(n) => updateItem(index, { labour_rate_cents: Math.round(n * 100) })}
-              />
-            </View>
-            <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Labour hours</Text>
-              <DecimalInput
-                placeholder="0"
-                value={item.labour_hours}
-                onChangeValue={(n) => updateItem(index, { labour_hours: n })}
-              />
-            </View>
-          </View>
-
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Material cost ($)</Text>
-              <DecimalInput
-                placeholder="0"
-                value={item.material_cost_cents / 100}
-                onChangeValue={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
-              />
-            </View>
-            <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Markup (%)</Text>
-              <DecimalInput
-                placeholder="0"
-                value={item.markup_percent}
-                onChangeValue={(n) => updateItem(index, { markup_percent: n })}
-              />
-            </View>
-          </View>
-
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Quantity</Text>
-              <DecimalInput
-                placeholder="1"
-                value={item.quantity}
-                onChangeValue={(n) => updateItem(index, { quantity: n })}
-              />
-            </View>
-            <View style={styles.fieldCell}>
-              <Pressable
-                style={[styles.gstToggle, item.gst_applicable && styles.gstToggleActive]}
-                onPress={() => updateItem(index, { gst_applicable: !item.gst_applicable })}
-              >
-                <Text style={[styles.gstToggleText, item.gst_applicable && styles.gstToggleTextActive]}>
-                  GST {item.gst_applicable ? "applicable" : "not applicable"}
-                </Text>
+              <Pressable style={[styles.pricingToggleButton, itemized && styles.pricingToggleButtonActive]} onPress={() => togglePricingModel(index)}>
+                <Text style={[styles.pricingToggleText, itemized && styles.pricingToggleTextActive]}>Itemised</Text>
               </Pressable>
             </View>
-          </View>
 
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
-              <Pressable
-                style={[styles.subcontractedToggle, item.is_subcontracted && styles.subcontractedToggleActive]}
-                onPress={() =>
-                  updateItem(index, {
-                    is_subcontracted: !item.is_subcontracted,
-                    subcontractor_cost_cents: !item.is_subcontracted ? item.subcontractor_cost_cents ?? 0 : 0,
-                  })
-                }
-              >
-                <Text style={[styles.subcontractedToggleText, item.is_subcontracted && styles.subcontractedToggleTextActive]}>
-                  {item.is_subcontracted ? "Subcontracted" : "Not subcontracted"}
-                </Text>
-              </Pressable>
-            </View>
-            {item.is_subcontracted ? (
+            <View style={styles.fieldGrid}>
               <View style={styles.fieldCell}>
-                <Text style={styles.fieldLabel}>Subcontractor cost ($, per unit)</Text>
-                <DecimalInput
-                  placeholder="0"
-                  value={(item.subcontractor_cost_cents ?? 0) / 100}
-                  onChangeValue={(n) => updateItem(index, { subcontractor_cost_cents: Math.round(n * 100) })}
+                <Text style={styles.fieldLabel}>Quantity</Text>
+                <DecimalInput placeholder="1" value={item.quantity} onChangeValue={(n) => updateItem(index, { quantity: n })} />
+              </View>
+              <View style={styles.fieldCell}>
+                <Text style={styles.fieldLabel}>Unit</Text>
+                <UnitPicker value={item.unit} onChangeValue={(unit) => updateItem(index, { unit })} />
+              </View>
+            </View>
+
+            <View style={styles.fieldGrid}>
+              <View style={styles.fieldCell}>
+                <Pressable
+                  style={[styles.gstToggle, item.gst_applicable && styles.gstToggleActive]}
+                  onPress={() => updateItem(index, { gst_applicable: !item.gst_applicable })}
+                >
+                  <Text style={[styles.gstToggleText, item.gst_applicable && styles.gstToggleTextActive]}>
+                    GST {item.gst_applicable ? "applicable" : "not applicable"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {!itemized ? (
+              <>
+                <View style={styles.fieldGrid}>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Labour rate ($/hr)</Text>
+                    <DecimalInput
+                      placeholder="0"
+                      value={item.labour_rate_cents / 100}
+                      onChangeValue={(n) => updateItem(index, { labour_rate_cents: Math.round(n * 100) })}
+                    />
+                  </View>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Labour hours</Text>
+                    <DecimalInput placeholder="0" value={item.labour_hours} onChangeValue={(n) => updateItem(index, { labour_hours: n })} />
+                  </View>
+                </View>
+                <View style={styles.fieldGrid}>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Material cost ($)</Text>
+                    <DecimalInput
+                      placeholder="0"
+                      value={item.material_cost_cents / 100}
+                      onChangeValue={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
+                    />
+                  </View>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Markup (%)</Text>
+                    <DecimalInput placeholder="0" value={item.markup_percent} onChangeValue={(n) => updateItem(index, { markup_percent: n })} />
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                {crew.length === 0 ? (
+                  <View style={styles.fieldGrid}>
+                    <View style={styles.fieldCell}>
+                      <Text style={styles.fieldLabel}>Labour cost rate ($/hr)</Text>
+                      <DecimalInput
+                        placeholder="0"
+                        value={(item.labour_cost_rate_cents ?? 0) / 100}
+                        onChangeValue={(n) => updateItem(index, { labour_cost_rate_cents: Math.round(n * 100) })}
+                      />
+                    </View>
+                    <View style={styles.fieldCell}>
+                      <Text style={styles.fieldLabel}>Charge-out rate ($/hr)</Text>
+                      <DecimalInput
+                        placeholder="0"
+                        value={(item.labour_charge_out_rate_cents ?? 0) / 100}
+                        onChangeValue={(n) => updateItem(index, { labour_charge_out_rate_cents: Math.round(n * 100) })}
+                      />
+                    </View>
+                    <View style={styles.fieldCell}>
+                      <Text style={styles.fieldLabel}>Labour hours</Text>
+                      <DecimalInput placeholder="0" value={item.labour_hours} onChangeValue={(n) => updateItem(index, { labour_hours: n })} />
+                    </View>
+                  </View>
+                ) : (
+                  <CrewEditor crew={crew} labourCostEntries={labourCostEntries} onChange={(nextCrew) => updateItem(index, { crew: nextCrew })} />
+                )}
+                <Pressable
+                  onPress={() =>
+                    updateItem(
+                      index,
+                      crew.length === 0
+                        ? {
+                            crew: [
+                              {
+                                worker_name: "",
+                                cost_rate_cents: item.labour_cost_rate_cents ?? 0,
+                                charge_out_rate_cents: item.labour_charge_out_rate_cents ?? 0,
+                                hours: item.labour_hours,
+                                sort_order: 0,
+                              },
+                            ],
+                          }
+                        : { crew: [] }
+                    )
+                  }
+                >
+                  <Text style={styles.link}>{crew.length === 0 ? "+ Add crew (multiple workers)" : "Remove crew breakdown"}</Text>
+                </Pressable>
+
+                {materials.length === 0 ? (
+                  <View style={styles.fieldGrid}>
+                    <View style={styles.fieldCell}>
+                      <Text style={styles.fieldLabel}>Material cost ($)</Text>
+                      <DecimalInput
+                        placeholder="0"
+                        value={item.material_cost_cents / 100}
+                        onChangeValue={(n) => updateItem(index, { material_cost_cents: Math.round(n * 100) })}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <MaterialsEditor materials={materials} onChange={(nextMaterials) => updateItem(index, { materials: nextMaterials })} />
+                )}
+                <Pressable
+                  onPress={() =>
+                    updateItem(
+                      index,
+                      materials.length === 0
+                        ? { materials: [{ description: "", quantity: 1, unit_cost_cents: item.material_cost_cents, sort_order: 0 }] }
+                        : { materials: [] }
+                    )
+                  }
+                >
+                  <Text style={styles.link}>{materials.length === 0 ? "+ Itemise materials" : "Remove itemised materials"}</Text>
+                </Pressable>
+
+                <View style={styles.fieldCell}>
+                  <Text style={styles.fieldLabel}>Material margin % (incl. waste/contingency/allowances below)</Text>
+                  <MarginField value={item.material_margin_percent ?? 0} onChangeValue={(n) => updateItem(index, { material_margin_percent: n })} />
+                </View>
+
+                <View style={styles.fieldGrid}>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Waste (%)</Text>
+                    <DecimalInput value={item.waste_percent ?? 0} onChangeValue={(n) => updateItem(index, { waste_percent: n })} />
+                  </View>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Contingency (%)</Text>
+                    <DecimalInput value={item.contingency_percent ?? 0} onChangeValue={(n) => updateItem(index, { contingency_percent: n })} />
+                  </View>
+                </View>
+                <View style={styles.fieldGrid}>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Tip fees ($)</Text>
+                    <DecimalInput
+                      value={(item.tip_fees_cents ?? 0) / 100}
+                      onChangeValue={(n) => updateItem(index, { tip_fees_cents: Math.round(n * 100) })}
+                    />
+                  </View>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Equipment/scaffold ($)</Text>
+                    <DecimalInput
+                      value={(item.equipment_hire_cents ?? 0) / 100}
+                      onChangeValue={(n) => updateItem(index, { equipment_hire_cents: Math.round(n * 100) })}
+                    />
+                  </View>
+                  <View style={styles.fieldCell}>
+                    <Text style={styles.fieldLabel}>Travel ($)</Text>
+                    <DecimalInput
+                      value={(item.travel_cost_cents ?? 0) / 100}
+                      onChangeValue={(n) => updateItem(index, { travel_cost_cents: Math.round(n * 100) })}
+                    />
+                  </View>
+                </View>
+              </>
+            )}
+
+            <View style={styles.fieldGrid}>
+              <View style={styles.fieldCell}>
+                <Pressable
+                  style={[styles.subcontractedToggle, item.is_subcontracted && styles.subcontractedToggleActive]}
+                  onPress={() =>
+                    updateItem(index, {
+                      is_subcontracted: !item.is_subcontracted,
+                      subcontractor_cost_cents: !item.is_subcontracted ? item.subcontractor_cost_cents ?? 0 : 0,
+                    })
+                  }
+                >
+                  <Text style={[styles.subcontractedToggleText, item.is_subcontracted && styles.subcontractedToggleTextActive]}>
+                    {item.is_subcontracted ? "Subcontracted" : "Not subcontracted"}
+                  </Text>
+                </Pressable>
+              </View>
+              {item.is_subcontracted ? (
+                <View style={styles.fieldCell}>
+                  <Text style={styles.fieldLabel}>Subcontractor cost ($, per unit)</Text>
+                  <DecimalInput
+                    placeholder="0"
+                    value={(item.subcontractor_cost_cents ?? 0) / 100}
+                    onChangeValue={(n) => updateItem(index, { subcontractor_cost_cents: Math.round(n * 100) })}
+                  />
+                </View>
+              ) : null}
+            </View>
+            {item.is_subcontracted && itemized ? (
+              <View style={styles.fieldCell}>
+                <Text style={styles.fieldLabel}>Subcontractor margin (%)</Text>
+                <MarginField
+                  value={item.subcontractor_margin_percent ?? 0}
+                  onChangeValue={(n) => updateItem(index, { subcontractor_margin_percent: n })}
                 />
               </View>
             ) : null}
-          </View>
 
-          <View style={styles.fieldGrid}>
+            <View style={styles.fieldGrid}>
+              <View style={styles.fieldCell}>
+                <Text style={styles.fieldLabel}>Bundle name (optional grouping)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Gutter guard package"
+                  placeholderTextColor={styles.placeholder.color}
+                  value={item.bundle_name ?? ""}
+                  onChangeText={(text) => updateItem(index, { bundle_name: text })}
+                />
+              </View>
+            </View>
+
+            <Pressable
+              style={[styles.optionalToggle, item.is_optional && styles.optionalToggleActive]}
+              onPress={() => updateItem(index, { is_optional: !item.is_optional, is_included: item.is_optional })}
+            >
+              <Text style={[styles.optionalToggleText, item.is_optional && styles.optionalToggleTextActive]}>
+                {item.is_optional ? "Optional (client ticks on to include)" : "Not optional - always included"}
+              </Text>
+            </Pressable>
+
             <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>Bundle name (optional grouping)</Text>
+              <Text style={styles.fieldLabel}>Warranty (shown to the client, directly under the description)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Gutter guard package"
+                placeholder="e.g. 10 year workmanship warranty"
                 placeholderTextColor={styles.placeholder.color}
-                value={item.bundle_name ?? ""}
-                onChangeText={(text) => updateItem(index, { bundle_name: text })}
+                value={item.warranty_text ?? ""}
+                onChangeText={(text) => updateItem(index, { warranty_text: text })}
               />
             </View>
-          </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Internal notes (office only - never shown to the client)</Text>
+              <TextInput
+                style={[styles.input, styles.notesInput]}
+                placeholder="e.g. keep copper nails clear of valley"
+                placeholderTextColor={styles.placeholder.color}
+                value={item.internal_notes ?? ""}
+                onChangeText={(text) => updateItem(index, { internal_notes: text })}
+                multiline
+              />
+            </View>
 
-          <Pressable
-            style={[styles.optionalToggle, item.is_optional && styles.optionalToggleActive]}
-            onPress={() => updateItem(index, { is_optional: !item.is_optional, is_included: item.is_optional })}
-          >
-            <Text style={[styles.optionalToggleText, item.is_optional && styles.optionalToggleTextActive]}>
-              {item.is_optional ? "Optional (client ticks on to include)" : "Not optional - always included"}
-            </Text>
-          </Pressable>
-
-          <View style={styles.imageSection}>
-            <Text style={styles.fieldLabel}>Image (shown on the quote/invoice PDF)</Text>
-            {item.image_url ? <Image source={{ uri: item.image_url }} style={styles.itemImagePreview} /> : null}
-            <View style={styles.imageButtonsRow}>
-              <Pressable onPress={() => pickImage(index)} disabled={uploadingIndex === index}>
-                <Text style={styles.link}>
-                  {uploadingIndex === index ? "Uploading..." : item.image_url ? "Change image" : "+ Add image"}
-                </Text>
-              </Pressable>
-              {item.image_url ? (
-                <Pressable onPress={() => updateItem(index, { image_url: "" })}>
-                  <Text style={styles.removeButtonText}>Remove image</Text>
+            <View style={styles.imageSection}>
+              <Text style={styles.fieldLabel}>Image (shown on the quote/invoice PDF)</Text>
+              {item.image_url ? <Image source={{ uri: item.image_url }} style={styles.itemImagePreview} /> : null}
+              <View style={styles.imageButtonsRow}>
+                <Pressable onPress={() => pickImage(index)} disabled={uploadingIndex === index}>
+                  <Text style={styles.link}>
+                    {uploadingIndex === index ? "Uploading..." : item.image_url ? "Change image" : "+ Add image"}
+                  </Text>
                 </Pressable>
-              ) : null}
+                {item.image_url ? (
+                  <Pressable onPress={() => updateItem(index, { image_url: "" })}>
+                    <Text style={styles.removeButtonText}>Remove image</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+
+            {itemized ? <LiveReadout item={item} /> : null}
+
+            <View style={styles.lineTotalRow}>
+              <Text style={styles.lineTotalLabel}>Line total</Text>
+              {item.waived_amount_cents > 0 ? (
+                <View style={styles.lineTotalWaivedRow}>
+                  <Text style={styles.lineTotalStrikethrough}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
+                  <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}</Text>
+                </View>
+              ) : (
+                <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
+              )}
             </View>
           </View>
-
-          <View style={styles.lineTotalRow}>
-            <Text style={styles.lineTotalLabel}>Line total</Text>
-            {item.waived_amount_cents > 0 ? (
-              <View style={styles.lineTotalWaivedRow}>
-                <Text style={styles.lineTotalStrikethrough}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
-                <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}</Text>
-              </View>
-            ) : (
-              <Text style={styles.lineTotalValue}>{formatCentsAsAud(item.quantity * item.unit_price_cents)}</Text>
-            )}
-          </View>
-        </View>
-      ))}
+        );
+      })}
 
       <AddLineItemBar
         itemCount={items.length}
@@ -350,9 +796,12 @@ export function LineItemEditor({ items, onChange, membershipDiscountCents = 0, t
 }
 
 // Client-facing summary: description / qty / rate / amount only - never the
-// labour rate, hours, material cost, or markup that fed into the rate. Used
-// wherever a non-admin views a quote/invoice in-app, and reused as-is for
-// the itemised table in the PDF export (Phase 5) so the two never drift.
+// labour rate, hours, material cost, or markup that fed into the rate.
+// warranty_text and unit are shown too since they're explicitly client-
+// visible by design - crew/materials/internal_notes/pricing_model never
+// appear here. Used wherever a non-admin views a quote/invoice in-app, and
+// reused as-is for the itemised table in the PDF export (Phase 5) so the
+// two never drift.
 export function LineItemSummary({
   items,
   membershipDiscountCents = 0,
@@ -389,8 +838,12 @@ export function LineItemSummary({
                   {item.is_optional ? (
                     <Text style={styles.summaryOptionalLabel}>{excluded ? "Not selected" : "Optional - included"}</Text>
                   ) : null}
+                  {item.warranty_text ? <Text style={styles.summaryWarrantyText}>{item.warranty_text}</Text> : null}
                 </View>
-                <Text style={[styles.summaryCell, styles.summaryNumCell]}>{item.quantity}</Text>
+                <Text style={[styles.summaryCell, styles.summaryNumCell]}>
+                  {item.quantity}
+                  {item.unit ? ` ${item.unit}` : ""}
+                </Text>
                 <Text style={[styles.summaryCell, styles.summaryNumCell]}>{formatCentsAsAud(item.unit_price_cents)}</Text>
                 <Text style={[styles.summaryCell, styles.summaryNumCell]}>
                   {excluded ? "—" : formatCentsAsAud(item.quantity * item.unit_price_cents - item.waived_amount_cents)}
@@ -469,17 +922,40 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     },
     placeholder: { color: tokens.textMuted },
     descriptionInput: { minHeight: 90, textAlignVertical: "top" as const },
+    notesInput: { minHeight: 60, textAlignVertical: "top" as const },
+    pickerValueText: { fontSize: 15, color: tokens.textPrimary, ...mono },
+    pickerPlaceholderText: { fontSize: 15, color: tokens.textMuted, ...mono },
     fieldGrid: { flexDirection: "row" as const, gap: 8 },
     fieldCell: { flex: 1, gap: 4 },
     fieldLabel: { fontSize: 12, fontWeight: "600" as const, color: tokens.textMuted, ...mono },
-    gstToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, marginTop: 18, alignItems: "center" as const },
+    gstToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, alignItems: "center" as const },
     gstToggleActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
     gstToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
     gstToggleTextActive: { color: tokens.accent },
+    pricingToggleRow: { flexDirection: "row" as const, gap: 8 },
+    pricingToggleButton: { flex: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, alignItems: "center" as const },
+    pricingToggleButtonActive: { backgroundColor: tokens.accentGlow, borderColor: tokens.accent },
+    pricingToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
+    pricingToggleTextActive: { color: tokens.accent },
     subcontractedToggle: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.background, alignItems: "center" as const },
     subcontractedToggleActive: { backgroundColor: tokens.warning, borderColor: tokens.warning },
     subcontractedToggleText: { color: tokens.textMuted, fontWeight: "700" as const, fontSize: 12, ...mono },
     subcontractedToggleTextActive: { color: tokens.background },
+    marginHint: { marginTop: 4, fontSize: 11, color: tokens.textMuted, ...mono },
+    subPanel: { borderWidth: 1, borderColor: tokens.border, borderRadius: 8, padding: 10, gap: 8, backgroundColor: tokens.background },
+    subPanelHeader: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
+    subPanelTitle: { fontSize: 12, fontWeight: "700" as const, color: tokens.textMuted, textTransform: "uppercase" as const, letterSpacing: 0.5, ...mono },
+    subRow: { gap: 6, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    modalTitle: { fontSize: 18, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1.5, textTransform: "uppercase" as const, ...mono },
+    variationRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.border },
+    variationRowText: { fontSize: 15, color: tokens.textPrimary, ...mono },
+    modalCancel: { marginTop: 8, alignSelf: "flex-end" as const },
+    modalCancelText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
+    readoutBox: { borderWidth: 1, borderColor: tokens.border, borderRadius: 8, padding: 10, gap: 6, backgroundColor: tokens.background },
+    readoutRow: { flexDirection: "row" as const, gap: 12 },
+    readoutCell: { flex: 1, gap: 2 },
+    readoutValue: { fontWeight: "700" as const, fontSize: 14, color: tokens.accent, ...mono },
+    readoutValueWarn: { color: tokens.danger },
     lineTotalRow: { flexDirection: "row" as const, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.border },
     lineTotalLabel: { color: tokens.textMuted, fontSize: 13, flex: 1, ...mono },
     lineTotalValue: { fontWeight: "700" as const, fontSize: 13, flexShrink: 0, color: tokens.textPrimary, ...mono },
@@ -516,6 +992,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     summaryDescCell: { flex: 3 },
     summaryNumCell: { flex: 1, textAlign: "right" as const },
     summaryOptionalLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" as const, color: tokens.accent, ...mono },
+    summaryWarrantyText: { marginTop: 2, fontSize: 11, color: tokens.textMuted, ...mono },
     summaryWaivedLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" as const, color: tokens.accent, textAlign: "right" as const, ...mono },
   };
 }

@@ -19,9 +19,13 @@ import {
 // against - logo top-left, doc title/number/Balance Due stacked top-right,
 // plain (no $) numbers in the itemised table and Sub Total, green accent
 // for invoices vs. a dark/near-black accent for quotes. The itemised table
-// intentionally uses only description/quantity/unit_price_cents (never the
-// labour/material/markup breakdown), so a PDF can never leak internal
-// margin figures regardless of who exports it.
+// intentionally uses only description/unit/quantity/unit_price_cents/
+// warranty_text (never the labour/material/markup/crew/materials/internal_
+// notes breakdown - see the line_item_rework_schema migration), so a PDF
+// can never leak internal margin figures regardless of who exports it.
+// warranty_text is the one itemized-rework field that's client-visible by
+// design, so it prints directly under the description, same as the
+// optional/waived tags below it.
 
 const ACCENT = {
   quote: "#1f2937",
@@ -228,11 +232,12 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
       <tr class="${excluded ? "excluded-item" : ""}">
         <td>${index + 1}</td>
         <td class="desc">${escapeHtml(item.description)}
+          ${item.warranty_text ? `<br/><span style="color:#6b7280;font-size:10px;">${escapeHtml(item.warranty_text)}</span>` : ""}
           ${item.is_optional ? `<br/><span class="optional-tag">${excluded ? "Optional - not selected" : "Optional - included"}</span>` : ""}
           ${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}
           ${item.image_url ? `<img class="item-image" src="${escapeHtml(item.image_url)}" />` : ""}
         </td>
-        <td class="num">${item.quantity}</td>
+        <td class="num">${item.quantity}${item.unit ? ` ${escapeHtml(item.unit)}` : ""}</td>
         <td class="num">${formatCentsPlain(item.unit_price_cents)}</td>
         <td class="num">${excluded ? "-" : formatCentsPlain(lineItemSubtotalCents(item))}</td>
       </tr>`;

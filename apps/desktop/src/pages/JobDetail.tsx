@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  averageLabourCostPerHourCents,
+  calculateLabour,
   collectRecipientEmails,
   createClientContactSchema,
   createClientSiteSchema,
@@ -9,12 +11,15 @@ import {
   createJobNoteSchema,
   createTaskSchema,
   formatCentsAsAud,
+  lineItemLabourCostCents,
+  lineItemMaterialCostCents,
   taskQuadrant,
   type Agency,
   type CalendarEvent,
   type Client,
   type ClientContact,
   type ClientSite,
+  type CostOfOpsSettings,
   type EmailAttachment,
   type Invoice,
   type InvoiceLineItem,
@@ -22,7 +27,10 @@ import {
   type JobFile,
   type JobLifecycleStage,
   type JobNote,
+  type LabourCostEntry,
   type LeadSource,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type Profile,
   type Property,
   type PropertyManager,
@@ -79,17 +87,6 @@ const TASK_STATUS_COLOR_VAR: Record<TaskStatus, string> = {
   in_progress: "var(--jms-warning)",
   done: "var(--jms-accent)",
 };
-
-// Same tiny cost helpers as JobCosting.tsx (and apps/mobile's own copy in
-// jobs/[id].tsx) - copied verbatim rather than shared, matching how
-// mobile itself keeps its own local copy instead of factoring this into
-// packages/shared.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
-  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
-}
-function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
-  return Math.round(item.quantity * item.material_cost_cents);
-}
 
 async function fetchJob(id: string): Promise<JobCard> {
   const { data, error } = await supabase.from("job_cards").select("*").eq("id", id).single();
@@ -222,6 +219,54 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   const { data, error } = await supabase.from("invoice_line_items").select("*").in("invoice_id", invoiceIds);
   if (error) throw error;
   return data as InvoiceLineItem[];
+}
+// crew/materials live in their own child tables (line_item_rework_schema
+// migration) rather than as columns on quote_line_items/invoice_line_items
+// itself - see desktop JobCosting.tsx's identical fetch functions for why.
+async function fetchQuoteLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_crew").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { quote_line_item_id: string })[];
+}
+async function fetchQuoteLineItemMaterials(lineItemIds: string[]): Promise<(LineItemMaterialInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_materials").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { quote_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_crew").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { invoice_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemMaterials(
+  lineItemIds: string[]
+): Promise<(LineItemMaterialInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_materials").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { invoice_line_item_id: string })[];
+}
+async function fetchCostOfOpsSettings(): Promise<CostOfOpsSettings | null> {
+  const { data, error } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+  if (error) throw error;
+  return data as CostOfOpsSettings | null;
+}
+async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
+  const { data, error } = await supabase.from("labour_cost_entries").select("*");
+  if (error) throw error;
+  return data as LabourCostEntry[];
+}
+function groupById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    if (!map.has(id)) map.set(id, []);
+    map.get(id)!.push(row);
+  }
+  return map;
 }
 
 async function fetchFiles(jobId: string): Promise<JobFile[]> {
@@ -439,6 +484,40 @@ export default function JobDetailPage() {
     queryFn: () => fetchInvoiceLineItems(invoiceIds),
     enabled: !!linkedInvoices,
   });
+  const quoteLineItemIds = (quoteLineItems ?? []).map((i) => i.id);
+  const invoiceLineItemIds = (invoiceLineItems ?? []).map((i) => i.id);
+  const { data: quoteLineItemCrew } = useQuery({
+    queryKey: ["job-quote-line-item-crew", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemCrew(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: quoteLineItemMaterials } = useQuery({
+    queryKey: ["job-quote-line-item-materials", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemMaterials(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: invoiceLineItemCrew } = useQuery({
+    queryKey: ["job-invoice-line-item-crew", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemCrew(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+  const { data: invoiceLineItemMaterials } = useQuery({
+    queryKey: ["job-invoice-line-item-materials", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemMaterials(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+  const { data: costOfOpsSettings } = useQuery({ queryKey: ["job-cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
+  const { data: labourCostEntries } = useQuery({ queryKey: ["job-labour-cost-entries"], queryFn: fetchLabourCostEntries });
+  // Tenant's own true labour cost ($/hr, from Cost of Ops' Labour roster),
+  // not whatever rate a legacy line was priced at - same reasoning as
+  // JobCosting.tsx's identical trueLabourRateCents. This per-job costing
+  // section never got that fix when JobCosting.tsx did (PR #22) - it was
+  // still costing every legacy line at its own quoted rate, same bug the
+  // cross-job report originally had.
+  const trueLabourRateCents = useMemo(() => {
+    if (!costOfOpsSettings || !labourCostEntries) return 0;
+    return averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings));
+  }, [costOfOpsSettings, labourCostEntries]);
   const { data: files } = useQuery({ queryKey: ["job-files", id], queryFn: () => fetchFiles(id!), enabled: !!id });
   const { data: fileUrls } = useQuery({
     queryKey: ["job-file-urls", id, files?.map((f) => f.id).join(",")],
@@ -964,11 +1043,20 @@ export default function JobDetailPage() {
   const costingQuoteIds = new Set(costingQuotes.map((q) => q.id));
   const costingInvoiceIds = new Set(costingInvoices.map((inv) => inv.id));
 
+  const quoteCrewByItem = groupById(quoteLineItemCrew ?? [], (r) => r.quote_line_item_id);
+  const quoteMaterialsByItem = groupById(quoteLineItemMaterials ?? [], (r) => r.quote_line_item_id);
+  const invoiceCrewByItem = groupById(invoiceLineItemCrew ?? [], (r) => r.invoice_line_item_id);
+  const invoiceMaterialsByItem = groupById(invoiceLineItemMaterials ?? [], (r) => r.invoice_line_item_id);
+
   const allCostingLineItems = [
-    ...(quoteLineItems ?? []).filter((item) => costingQuoteIds.has(item.quote_id)),
-    ...(invoiceLineItems ?? []).filter((item) => costingInvoiceIds.has(item.invoice_id)),
+    ...(quoteLineItems ?? [])
+      .filter((item) => costingQuoteIds.has(item.quote_id))
+      .map((item) => ({ ...item, crew: quoteCrewByItem.get(item.id) ?? [], materials: quoteMaterialsByItem.get(item.id) ?? [] })),
+    ...(invoiceLineItems ?? [])
+      .filter((item) => costingInvoiceIds.has(item.invoice_id))
+      .map((item) => ({ ...item, crew: invoiceCrewByItem.get(item.id) ?? [], materials: invoiceMaterialsByItem.get(item.id) ?? [] })),
   ];
-  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+  const totalLabourCents = allCostingLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
   const totalMaterialCents = allCostingLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
   // GST-inclusive - what was actually billed. Used for display and for the
   // NTE guardrail below (an NTE limit is authorised as a real, tax-inclusive
@@ -1726,7 +1814,11 @@ export default function JobDetailPage() {
                 <Link to="/job-costing" className="underline">
                   Job Costing
                 </Link>{" "}
-                report.
+                report.{" "}
+                {trueLabourRateCents > 0
+                  ? `A legacy (non-itemised) line is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Settings > Cost of Ops > Labour), not whatever rate it was priced at.`
+                  : "A legacy (non-itemised) line is costed at its own quoted rate - set up a roster in Settings > Cost of Ops > Labour to cost it against your real labour cost instead."}{" "}
+                An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above.
               </p>
             </>
           )}

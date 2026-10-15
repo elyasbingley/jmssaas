@@ -2,10 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
+  averageLabourCostPerHourCents,
+  calculateLabour,
   formatCentsAsAud,
+  lineItemLabourCostCents,
+  lineItemMaterialCostCents,
+  lineItemSubcontractorCostCents,
   type Client,
+  type CostOfOpsSettings,
   type InvoiceLineItem,
   type JobCard,
+  type LabourCostEntry,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type QuoteLineItem,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -64,6 +73,54 @@ async function fetchInvoiceLineItems(invoiceIds: string[]): Promise<InvoiceLineI
   if (error) throw error;
   return data as InvoiceLineItem[];
 }
+// crew/materials live in their own child tables (line_item_rework_schema
+// migration) rather than as columns on quote_line_items/invoice_line_items
+// itself - see Job Costing's identical fetch functions for why.
+async function fetchQuoteLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_crew").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { quote_line_item_id: string })[];
+}
+async function fetchQuoteLineItemMaterials(lineItemIds: string[]): Promise<(LineItemMaterialInput & { quote_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("quote_line_item_materials").select("*").in("quote_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { quote_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemCrew(lineItemIds: string[]): Promise<(LineItemCrewInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_crew").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemCrewInput & { invoice_line_item_id: string })[];
+}
+async function fetchInvoiceLineItemMaterials(
+  lineItemIds: string[]
+): Promise<(LineItemMaterialInput & { invoice_line_item_id: string })[]> {
+  if (lineItemIds.length === 0) return [];
+  const { data, error } = await supabase.from("invoice_line_item_materials").select("*").in("invoice_line_item_id", lineItemIds);
+  if (error) throw error;
+  return data as (LineItemMaterialInput & { invoice_line_item_id: string })[];
+}
+async function fetchCostOfOpsSettings(): Promise<CostOfOpsSettings | null> {
+  const { data, error } = await supabase.from("cost_of_ops_settings").select("*").maybeSingle();
+  if (error) throw error;
+  return data as CostOfOpsSettings | null;
+}
+async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
+  const { data, error } = await supabase.from("labour_cost_entries").select("*");
+  if (error) throw error;
+  return data as LabourCostEntry[];
+}
+function groupById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    if (!map.has(id)) map.set(id, []);
+    map.get(id)!.push(row);
+  }
+  return map;
+}
 
 type ClientReviewRow = { id: string; name: string; google_review_stars: number; google_review_recorded_at: string };
 
@@ -78,20 +135,6 @@ async function fetchClientReviews(): Promise<ClientReviewRow[]> {
     .not("google_review_stars", "is", null);
   if (error) throw error;
   return data as ClientReviewRow[];
-}
-
-// Same per-unit breakdown as Job Costing / mobile's job costing tab -
-// labour_rate_cents/labour_hours/material_cost_cents are the PER UNIT cost
-// that fed into unit_price_cents, not already multiplied by quantity.
-function lineItemLabourCostCents(item: Pick<QuoteLineItem, "quantity" | "labour_rate_cents" | "labour_hours">): number {
-  return Math.round(item.quantity * item.labour_rate_cents * item.labour_hours);
-}
-function lineItemMaterialCostCents(item: Pick<QuoteLineItem, "quantity" | "material_cost_cents">): number {
-  return Math.round(item.quantity * item.material_cost_cents);
-}
-// "Subby box" - per-unit subcontractor cost, same treatment as material.
-function lineItemSubcontractorCostCents(item: Pick<QuoteLineItem, "quantity" | "subcontractor_cost_cents">): number {
-  return Math.round(item.quantity * (item.subcontractor_cost_cents ?? 0));
 }
 
 type DatePreset = "this_month" | "last_month" | "this_quarter" | "ytd" | "last_12_months" | "custom";
@@ -234,7 +277,52 @@ export default function AnalyticsPage() {
   });
   const { data: clientReviews } = useQuery({ queryKey: ["analytics-client-reviews"], queryFn: fetchClientReviews });
 
-  const isLoading = !jobCards || !quotes || !invoices || !quoteLineItems || !invoiceLineItems;
+  const quoteLineItemIds = useMemo(() => (quoteLineItems ?? []).map((i) => i.id), [quoteLineItems]);
+  const invoiceLineItemIds = useMemo(() => (invoiceLineItems ?? []).map((i) => i.id), [invoiceLineItems]);
+
+  const { data: quoteLineItemCrew } = useQuery({
+    queryKey: ["analytics-quote-line-item-crew", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemCrew(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: quoteLineItemMaterials } = useQuery({
+    queryKey: ["analytics-quote-line-item-materials", quoteLineItemIds.join(",")],
+    queryFn: () => fetchQuoteLineItemMaterials(quoteLineItemIds),
+    enabled: !!quoteLineItems,
+  });
+  const { data: invoiceLineItemCrew } = useQuery({
+    queryKey: ["analytics-invoice-line-item-crew", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemCrew(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+  const { data: invoiceLineItemMaterials } = useQuery({
+    queryKey: ["analytics-invoice-line-item-materials", invoiceLineItemIds.join(",")],
+    queryFn: () => fetchInvoiceLineItemMaterials(invoiceLineItemIds),
+    enabled: !!invoiceLineItems,
+  });
+  const { data: costOfOpsSettings } = useQuery({ queryKey: ["analytics-cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
+  const { data: labourCostEntries } = useQuery({ queryKey: ["analytics-labour-cost-entries"], queryFn: fetchLabourCostEntries });
+
+  // Tenant's own true labour cost ($/hr, from Cost of Ops' Labour roster),
+  // not whatever rate a legacy line was priced at - same reasoning as Job
+  // Costing's identical trueLabourRateCents (this page used to duplicate
+  // the pre-fix formula, always costing a legacy line at its own quoted
+  // rate - see lineItemLabourCostCents' own comment in money.ts).
+  const trueLabourRateCents = useMemo(() => {
+    if (!costOfOpsSettings || !labourCostEntries) return 0;
+    return averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings));
+  }, [costOfOpsSettings, labourCostEntries]);
+
+  const isLoading =
+    !jobCards ||
+    !quotes ||
+    !invoices ||
+    !quoteLineItems ||
+    !invoiceLineItems ||
+    !quoteLineItemCrew ||
+    !quoteLineItemMaterials ||
+    !invoiceLineItemCrew ||
+    !invoiceLineItemMaterials;
 
   const [preset, setPreset] = useState<DatePreset>("this_quarter");
   const [customFrom, setCustomFrom] = useState(() => presetRange("this_quarter").from);
@@ -258,21 +346,27 @@ export default function AnalyticsPage() {
   }, [reviewsInRange]);
 
   const quoteLineItemsByQuote = useMemo(() => {
+    const crewByItem = groupById(quoteLineItemCrew ?? [], (r) => r.quote_line_item_id);
+    const materialsByItem = groupById(quoteLineItemMaterials ?? [], (r) => r.quote_line_item_id);
     const map = new Map<string, QuoteLineItem[]>();
-    for (const item of quoteLineItems ?? []) {
+    for (const rawItem of quoteLineItems ?? []) {
+      const item = { ...rawItem, crew: crewByItem.get(rawItem.id) ?? [], materials: materialsByItem.get(rawItem.id) ?? [] };
       if (!map.has(item.quote_id)) map.set(item.quote_id, []);
       map.get(item.quote_id)!.push(item);
     }
     return map;
-  }, [quoteLineItems]);
+  }, [quoteLineItems, quoteLineItemCrew, quoteLineItemMaterials]);
   const invoiceLineItemsByInvoice = useMemo(() => {
+    const crewByItem = groupById(invoiceLineItemCrew ?? [], (r) => r.invoice_line_item_id);
+    const materialsByItem = groupById(invoiceLineItemMaterials ?? [], (r) => r.invoice_line_item_id);
     const map = new Map<string, InvoiceLineItem[]>();
-    for (const item of invoiceLineItems ?? []) {
+    for (const rawItem of invoiceLineItems ?? []) {
+      const item = { ...rawItem, crew: crewByItem.get(rawItem.id) ?? [], materials: materialsByItem.get(rawItem.id) ?? [] };
       if (!map.has(item.invoice_id)) map.set(item.invoice_id, []);
       map.get(item.invoice_id)!.push(item);
     }
     return map;
-  }, [invoiceLineItems]);
+  }, [invoiceLineItems, invoiceLineItemCrew, invoiceLineItemMaterials]);
 
   // --- Revenue invoiced / collected KPIs, current period vs prior period ---
   function revenueInvoicedCents(from: string, to: string): number {
@@ -358,7 +452,7 @@ export default function AnalyticsPage() {
         ...jobQuotes.flatMap((q) => quoteLineItemsByQuote.get(q.id) ?? []),
         ...jobInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []),
       ];
-      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
       const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       const chargedCents = [...jobQuotes, ...jobInvoices].reduce((sum, doc) => sum + doc.total_cents, 0);
@@ -371,7 +465,7 @@ export default function AnalyticsPage() {
       result.push({ job, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
     }
     return result;
-  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, range.from, range.to]);
+  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, range.from, range.to]);
 
   const filteredJobRows = jobProfitRows.filter((r) => {
     const q = jobSearch.trim().toLowerCase();
@@ -425,7 +519,7 @@ export default function AnalyticsPage() {
         ...jobQuotes.flatMap((q) => quoteLineItemsByQuote.get(q.id) ?? []),
         ...jobInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []),
       ];
-      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item), 0);
+      const labourCents = allLineItems.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
       const materialCents = allLineItems.reduce((sum, item) => sum + lineItemMaterialCostCents(item), 0);
       const subcontractorCents = allLineItems.reduce((sum, item) => sum + lineItemSubcontractorCostCents(item), 0);
       const chargedCents = [...jobQuotes, ...jobInvoices].reduce((sum, doc) => sum + doc.total_cents, 0);
@@ -433,7 +527,7 @@ export default function AnalyticsPage() {
       margins.push(chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0);
     }
     return margins.length > 0 ? margins.reduce((a, b) => a + b, 0) / margins.length : 0;
-  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, prevRange.from, prevRange.to]);
+  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, prevRange.from, prevRange.to]);
 
   const exportRevenueCsv = () => {
     downloadCsv(
@@ -832,7 +926,11 @@ export default function AnalyticsPage() {
             <p className="mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               Total charged is GST-inclusive while labour/material cost are GST-exclusive, so margin here slightly overstates the true
               figure. A quote that's since been converted to an invoice within the same window is counted under both - same basis as
-              the Job Costing report.
+              the Job Costing report.{" "}
+              {trueLabourRateCents > 0
+                ? `A legacy (non-itemised) line is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Settings > Cost of Ops > Labour), not whatever rate it was priced at.`
+                : "A legacy (non-itemised) line is costed at its own quoted rate - set up a roster in Settings > Cost of Ops > Labour to cost it against your real labour cost instead."}{" "}
+              An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above.
             </p>
           </div>
 

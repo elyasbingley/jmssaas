@@ -677,6 +677,97 @@ export interface LineItemInput {
   is_included?: boolean;
   bundle_name?: string | null;
   image_url?: string | null;
+  // Itemised quoting rework (line_item_rework_schema migration). All
+  // optional/additive - a line with pricing_model unset or 'legacy' behaves
+  // exactly as before, still priced by the labour_rate_cents/labour_hours/
+  // material_cost_cents/markup_percent fields above and
+  // computeLineItemUnitPriceCents. A line with pricing_model 'itemized' is
+  // priced instead by LineItemCrewInput[]/LineItemMaterialInput[] (when
+  // present) or labour_cost_rate_cents/labour_charge_out_rate_cents (the
+  // no-crew case) plus material_margin_percent/the allowance fields below -
+  // see money.ts's computeItemizedLinePricing. unit_price_cents is still
+  // the one persisted/trusted value either way (never recomputed
+  // server-side); the itemized fields exist purely so the office can see
+  // and edit the cost breakdown that produced it.
+  pricing_model?: LineItemPricingModel;
+  // The unit the quantity is expressed in (e.g. "lm", "m2") - purely a label
+  // for benchmark-rate reporting (unit_price_cents already carries the
+  // actual $/unit rate via quantity * unit_price_cents, unchanged). Plain
+  // string, not restricted to LINE_ITEM_UNITS - that list is only the
+  // editor's curated dropdown; picking its "other" option stores whatever
+  // free text the office types, same as bundle_name's own free-text field.
+  unit?: string | null;
+  // Simple (no crew breakdown) labour: cost per hour vs. what the client is
+  // charged per hour. labour_charge_out_rate_cents already includes the
+  // tradie's profit, so no markup is applied on top of it - unlike
+  // material_margin_percent below. Ignored once crew is non-empty; the crew
+  // rows' own cost_rate_cents/charge_out_rate_cents/hours take over.
+  labour_cost_rate_cents?: number;
+  labour_charge_out_rate_cents?: number;
+  crew?: LineItemCrewInput[];
+  // Itemised materials list - replaces material_cost_cents for an itemized
+  // line (material_cost_cents stays 0/unused on it).
+  materials?: LineItemMaterialInput[];
+  // Margin % (not markup%) applied on top of the materials basis - after
+  // waste_percent inflates it, and tip_fees_cents/equipment_hire_cents/
+  // travel_cost_cents are added to it (those three allowances are "marked
+  // up like materials", by design, not passed through at cost).
+  material_margin_percent?: number;
+  // Margin % on subcontractor_cost_cents, replacing the old flat
+  // markup_percent for an itemized line's subcontracted cost.
+  subcontractor_margin_percent?: number;
+  // Inflates the material cost basis before material_margin_percent is
+  // applied (ordering extra material to cover on-site waste) - so it's
+  // automatically covered by the charged price, same mechanism as
+  // contingency_percent below.
+  waste_percent?: number;
+  // Inflates the same cost basis as waste_percent, before margin - baked
+  // into the charged price rather than being a margin-reducing internal-
+  // only note, so the client's price already covers it.
+  contingency_percent?: number;
+  // Flat-dollar allowances, added to the materials cost basis (before
+  // waste_percent/contingency_percent/material_margin_percent are applied,
+  // same as any other material cost).
+  tip_fees_cents?: number;
+  equipment_hire_cents?: number;
+  travel_cost_cents?: number;
+  // Client-visible - prints on the PDF/approval page directly under the
+  // line's description (see get_quote_for_approval/get_invoice_for_approval
+  // and quote-invoice-pdf.ts).
+  warranty_text?: string | null;
+  // Office-only - never sent to the PDF or the public approval page, same
+  // treatment as the cost-breakdown fields above.
+  internal_notes?: string | null;
+}
+
+export type LineItemPricingModel = "legacy" | "itemized";
+
+// Curated so benchmark rates (e.g. "ridge re-bed = $X/lm") stay comparable
+// across jobs instead of fragmenting into free-text variants of the same
+// unit - "other" is the escape hatch for anything not on this list.
+export const LINE_ITEM_UNITS = ["lm", "m2", "m3", "ea", "hr", "day", "kg", "L", "other"] as const;
+export type LineItemUnit = (typeof LINE_ITEM_UNITS)[number];
+
+// One worker on an itemized line - multiple rows let a line carry, e.g.,
+// "you 8 hrs + offsider 8 hrs" at different cost rates. labour_cost_entry_id
+// optionally links back to the Cost of Ops labour roster so cost_rate_cents
+// can default from a real staff member's rate instead of being re-typed;
+// nullable for an ad-hoc worker with no Cost of Ops entry.
+export interface LineItemCrewInput {
+  labour_cost_entry_id?: string | null;
+  worker_name: string;
+  cost_rate_cents: number;
+  charge_out_rate_cents: number;
+  hours: number;
+  sort_order?: number;
+}
+
+// One row in an itemized line's materials sub-table.
+export interface LineItemMaterialInput {
+  description: string;
+  quantity: number;
+  unit_cost_cents: number;
+  sort_order?: number;
 }
 
 export interface Quote {
@@ -845,6 +936,11 @@ export interface PriceBookItem {
   // an editable toggle anywhere in the UI (see docs/SETUP.md's own
   // write-up on this gap).
   is_callout_fee?: boolean;
+  // Itemised quoting rework (price_book_unit_warranty migration) - carried
+  // straight through to a new line item by AddLineItemBar, same as the
+  // price fields above.
+  unit?: string | null;
+  warranty_text?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -859,6 +955,8 @@ export interface PriceBookItemVariation {
   material_cost_cents: number;
   markup_percent: number;
   sort_order: number;
+  unit?: string | null;
+  warranty_text?: string | null;
   created_at: string;
   updated_at: string;
 }

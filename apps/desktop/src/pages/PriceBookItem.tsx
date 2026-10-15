@@ -15,6 +15,7 @@ import { getErrorMessage } from "../lib/errors";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { UnitSelect } from "../components/UnitSelect";
 
 const IMAGE_BUCKET = "price-book-images";
 
@@ -45,8 +46,18 @@ interface VariationFormState {
   labourHours: string;
   materialCost: string;
   markupPercent: string;
+  unit: string | null;
+  warrantyText: string;
 }
-const emptyVariationForm: VariationFormState = { name: "", labourRate: "0", labourHours: "0", materialCost: "0", markupPercent: "0" };
+const emptyVariationForm: VariationFormState = {
+  name: "",
+  labourRate: "0",
+  labourHours: "0",
+  materialCost: "0",
+  markupPercent: "0",
+  unit: null,
+  warrantyText: "",
+};
 
 export default function PriceBookItemPage() {
   const { id } = useParams<{ id: string }>();
@@ -67,6 +78,8 @@ export default function PriceBookItemPage() {
   const [materialCost, setMaterialCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState("0");
   const [isCalloutFee, setIsCalloutFee] = useState(false);
+  const [unit, setUnit] = useState<string | null>(null);
+  const [warrantyText, setWarrantyText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -78,6 +91,8 @@ export default function PriceBookItemPage() {
       setMaterialCost((item.material_cost_cents / 100).toString());
       setMarkupPercent(item.markup_percent.toString());
       setIsCalloutFee(item.is_callout_fee ?? false);
+      setUnit(item.unit ?? null);
+      setWarrantyText(item.warranty_text ?? "");
     }
   }, [item]);
 
@@ -104,6 +119,8 @@ export default function PriceBookItemPage() {
         material_cost_cents: Math.round(parseNumber(materialCost) * 100),
         markup_percent: parseNumber(markupPercent),
         is_callout_fee: isCalloutFee,
+        unit,
+        warranty_text: warrantyText || null,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
 
@@ -185,6 +202,8 @@ export default function PriceBookItemPage() {
       labourHours: variation.labour_hours.toString(),
       materialCost: (variation.material_cost_cents / 100).toString(),
       markupPercent: variation.markup_percent.toString(),
+      unit: variation.unit ?? null,
+      warrantyText: variation.warranty_text ?? "",
     });
     setVariationError(null);
     setVariationModalOpen(true);
@@ -199,6 +218,8 @@ export default function PriceBookItemPage() {
         labour_hours: parseNumber(variationForm.labourHours),
         material_cost_cents: Math.round(parseNumber(variationForm.materialCost) * 100),
         markup_percent: parseNumber(variationForm.markupPercent),
+        unit: variationForm.unit,
+        warranty_text: variationForm.warrantyText || null,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
@@ -297,6 +318,21 @@ export default function PriceBookItemPage() {
       <div className="grid grid-cols-2 gap-3">
         <ThemedFormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
         <ThemedFormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Unit
+          </label>
+          <UnitSelect value={unit} onChange={setUnit} />
+        </div>
+        <ThemedFormField
+          label="Warranty (shown to the client when added to a quote/invoice)"
+          value={warrantyText}
+          onChange={(e) => setWarrantyText(e.target.value)}
+          placeholder="e.g. 10 year workmanship warranty"
+        />
       </div>
 
       <label className="mb-4 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
@@ -400,6 +436,20 @@ export default function PriceBookItemPage() {
             label="Markup (%)"
             value={variationForm.markupPercent}
             onChange={(e) => setVariationForm({ ...variationForm, markupPercent: e.target.value })}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Unit
+            </label>
+            <UnitSelect value={variationForm.unit} onChange={(unitValue) => setVariationForm({ ...variationForm, unit: unitValue })} />
+          </div>
+          <ThemedFormField
+            label="Warranty (shown to the client)"
+            value={variationForm.warrantyText}
+            onChange={(e) => setVariationForm({ ...variationForm, warrantyText: e.target.value })}
+            placeholder="e.g. 10 year workmanship warranty"
           />
         </div>
         {variationError ? (
