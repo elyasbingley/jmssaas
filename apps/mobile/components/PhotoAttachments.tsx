@@ -3,6 +3,7 @@ import { Alert, FlatList, Image, Linking, Pressable, StyleSheet, Text, View } fr
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { MultiCaptureCamera, type CapturedPhoto } from "./MultiCaptureCamera";
 import { FullScreenImageViewer } from "./FullScreenImageViewer";
 
@@ -27,10 +28,6 @@ interface PhotoAttachmentsProps {
   photos: PhotoAttachmentItem[];
   uploading: boolean;
   onUpload: (photo: UploadInput) => Promise<void>;
-}
-
-function extensionFor(mimeType: string | undefined): string {
-  return mimeType?.includes("png") ? "png" : "jpg";
 }
 
 function isImageMime(mimeType: string | null | undefined): boolean {
@@ -67,14 +64,14 @@ export function PhotoAttachments({ photos, uploading, onUpload }: PhotoAttachmen
     setCameraVisible(true);
   };
 
-  // Reads each picked asset back off disk via expo-file-system rather than
-  // relying on ImagePicker's own `base64: true` option - that option is
-  // unreliable once `allowsMultipleSelection` triggers the native multi-
-  // select picker (iOS 14+/Android), often coming back with no base64 data
-  // per asset with no error surfaced, which silently skipped every photo
-  // here (the "Choose photos button not working" bug - nothing visibly
-  // happened because the loop just `continue`d past every asset). Same
-  // read-from-uri approach pickDocument already uses below.
+  // Reads each picked asset back off disk (via expo-image-manipulator,
+  // see below) rather than relying on ImagePicker's own `base64: true`
+  // option - that option is unreliable once `allowsMultipleSelection`
+  // triggers the native multi-select picker (iOS 14+/Android), often
+  // coming back with no base64 data per asset with no error surfaced,
+  // which silently skipped every photo here (the "Choose photos button
+  // not working" bug - nothing visibly happened because the loop just
+  // `continue`d past every asset).
   const pickFromLibrary = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -91,13 +88,26 @@ export function PhotoAttachments({ photos, uploading, onUpload }: PhotoAttachmen
     if (result.canceled) return;
 
     for (const asset of result.assets) {
+      // Re-encoded through expo-image-manipulator rather than read as raw
+      // bytes off disk - iOS's Photos library often stores originals as
+      // HEIC even when the picker reports mimeType "image/jpeg" (a best-
+      // effort guess, not a guarantee the bytes actually match). iOS
+      // decodes that mismatch fine locally (so it displayed on mobile),
+      // but desktop browsers can't decode HEIC in an <img> tag at all, so
+      // an un-normalized HEIC photo rendered as a generic broken-image
+      // icon there. manipulate().renderAsync().saveAsync() always
+      // produces genuine JPEG bytes regardless of the source format - a
+      // no-op in practice for a photo that was already a real JPEG (e.g.
+      // the in-app camera path below, which never goes through the Photos
+      // library and needs no re-encode) - and reads straight from
+      // asset.uri the same way FileSystem.readAsStringAsync below does,
+      // so it's unaffected by the unreliable-base64-field bug this
+      // try/catch was originally added for.
       try {
-        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-        await onUpload({
-          base64,
-          mimeType: asset.mimeType ?? "image/jpeg",
-          fileExtension: extensionFor(asset.mimeType),
-        });
+        const rendered = await ImageManipulator.manipulate(asset.uri).renderAsync();
+        const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true });
+        if (!saved.base64) throw new Error("No base64 data returned");
+        await onUpload({ base64: saved.base64, mimeType: "image/jpeg", fileExtension: "jpg" });
       } catch (e) {
         console.error("[PhotoAttachments] Failed to read picked photo", e);
         Alert.alert("Failed to attach photo", asset.fileName ?? "One of the selected photos couldn't be read.");
