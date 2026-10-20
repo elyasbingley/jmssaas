@@ -142,7 +142,7 @@ export default function JobDetailScreen() {
   const { profile } = useAuth();
   const isOnline = useIsOnline();
 
-  const { data: jobRows } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [id]);
+  const { data: jobRows, isLoading: jobLoading } = useQuery<JobCard>("SELECT * FROM job_cards WHERE id = ?", [id]);
   const job = jobRows[0];
 
   const { data: clientRows } = useQuery<Client>("SELECT * FROM clients WHERE id = ?", [job?.client_id ?? ""]);
@@ -1149,12 +1149,29 @@ export default function JobDetailScreen() {
 
   const styles = useThemedStyles(createStyles);
 
+  // isLoading only covers the FIRST query result - once PowerSync's local
+  // query has resolved at all (even to an empty result set), isLoading is
+  // false and job stays undefined forever if this id genuinely isn't in
+  // the local sync set (deleted, not yet synced, or a stale deep link).
+  // The old version of this screen showed a bare "Loading..." with no back
+  // button in BOTH cases, which meant a job that would never load trapped
+  // the person on this screen with no way back to the jobs list short of
+  // force-closing the app. Every branch below keeps the same back button
+  // the loaded screen has, so that trap can't happen regardless of why
+  // `job` is missing.
   if (!job) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
         <StatusBar style="light" />
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+        <View style={styles.section}>
+          <View style={styles.titleRow}>
+            <Pressable onPress={() => router.back()} hitSlop={8}>
+              <Text style={styles.link}>‹ Back</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.empty}>{jobLoading ? "Loading..." : "This job couldn't be found - it may have been deleted."}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 

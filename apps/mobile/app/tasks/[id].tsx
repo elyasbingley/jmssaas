@@ -67,7 +67,7 @@ export default function TaskDetailScreen() {
   const { profile } = useAuth();
   const styles = useThemedStyles(createStyles);
 
-  const { data: taskRows } = useQuery<Task>("SELECT * FROM tasks WHERE id = ?", [id]);
+  const { data: taskRows, isLoading: taskLoading } = useQuery<Task>("SELECT * FROM tasks WHERE id = ?", [id]);
   const task = taskRows[0];
 
   const { data: notes } = useQuery<TaskNote>(
@@ -256,12 +256,25 @@ export default function TaskDetailScreen() {
     }
   };
 
+  // isLoading only covers the FIRST query result - once PowerSync's local
+  // query has resolved at all (even to an empty result set), isLoading is
+  // false and task stays undefined forever if this id genuinely isn't in
+  // the local sync set. See jobs/[id].tsx's matching fix for why a bare
+  // "Loading..." with no back button here traps the person on this screen
+  // with no way back short of force-closing the app.
   if (!task) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
         <StatusBar style="light" />
-        <Text style={styles.empty}>Loading...</Text>
-      </View>
+        <View style={styles.section}>
+          <View style={styles.titleRow}>
+            <Pressable onPress={() => router.back()} hitSlop={8}>
+              <Text style={styles.link}>‹ Back</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.empty}>{taskLoading ? "Loading..." : "This task couldn't be found - it may have been deleted."}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
