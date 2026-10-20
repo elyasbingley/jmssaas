@@ -86,11 +86,30 @@ export default function QuoteDetailScreen() {
         .select("*, clients(*), job_cards!quotes_job_card_id_fkey(title)")
         .eq("id", id)
         .single(),
-      supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
+      // crew/materials live in their own child tables (line_item_rework_
+      // schema migration), embedded here via PostgREST's nested-resource
+      // select - see desktop QuoteDetail.tsx's matching comment for why
+      // (and why it's safe to spread the embedded rows straight back into
+      // replace_quote_line_items on save).
+      supabase
+        .from("quote_line_items")
+        .select("*, quote_line_item_crew(*), quote_line_item_materials(*)")
+        .eq("quote_id", id)
+        .order("sort_order"),
     ]);
     if (quoteError) throw quoteError;
     if (itemsError) throw itemsError;
-    return { quote: quote as QuoteRow, items: (items ?? []) as LineItemFormInput[] };
+    const mappedItems = (
+      (items ?? []) as (LineItemFormInput & {
+        quote_line_item_crew?: LineItemFormInput["crew"];
+        quote_line_item_materials?: LineItemFormInput["materials"];
+      })[]
+    ).map(({ quote_line_item_crew, quote_line_item_materials, ...item }) => ({
+      ...item,
+      crew: quote_line_item_crew ?? [],
+      materials: quote_line_item_materials ?? [],
+    }));
+    return { quote: quote as QuoteRow, items: mappedItems };
   }, [id, isOnline]);
 
   const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {

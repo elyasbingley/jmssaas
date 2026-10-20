@@ -77,11 +77,28 @@ export default function InvoiceDetailScreen() {
         .select("*, clients(*), job_cards!invoices_job_card_id_fkey(title, is_real_estate_job, agency_id, property_id, referral_partner_id)")
         .eq("id", id)
         .single(),
-      supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
+      // crew/materials live in their own child tables (line_item_rework_
+      // schema migration), embedded here via PostgREST's nested-resource
+      // select - see desktop InvoiceDetail.tsx's matching comment for why.
+      supabase
+        .from("invoice_line_items")
+        .select("*, invoice_line_item_crew(*), invoice_line_item_materials(*)")
+        .eq("invoice_id", id)
+        .order("sort_order"),
     ]);
     if (invoiceError) throw invoiceError;
     if (itemsError) throw itemsError;
-    return { invoice: invoice as InvoiceRow, items: (items ?? []) as LineItemFormInput[] };
+    const mappedItems = (
+      (items ?? []) as (LineItemFormInput & {
+        invoice_line_item_crew?: LineItemFormInput["crew"];
+        invoice_line_item_materials?: LineItemFormInput["materials"];
+      })[]
+    ).map(({ invoice_line_item_crew, invoice_line_item_materials, ...item }) => ({
+      ...item,
+      crew: invoice_line_item_crew ?? [],
+      materials: invoice_line_item_materials ?? [],
+    }));
+    return { invoice: invoice as InvoiceRow, items: mappedItems };
   }, [id, isOnline]);
 
   const jobCard = data?.invoice.job_cards;

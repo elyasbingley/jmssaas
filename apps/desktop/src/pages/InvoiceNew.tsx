@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { calculateDocumentTotals, createInvoiceSchema, type Client, type JobCard, type Template } from "@jmssaas/shared";
+import { createInvoiceSchema, type Client, type JobCard, type Template } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -75,8 +75,6 @@ export default function InvoiceNewPage() {
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
 
-      const totals = calculateDocumentTotals(result.data.line_items);
-
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert({
@@ -86,9 +84,6 @@ export default function InvoiceNewPage() {
           status: "draft",
           issue_date: new Date().toISOString().slice(0, 10),
           due_date: result.data.due_date ?? null,
-          subtotal_cents: totals.subtotal_cents,
-          gst_cents: totals.gst_cents,
-          total_cents: totals.total_cents,
           notes: result.data.notes || null,
           created_by: profile.id,
         })
@@ -96,26 +91,16 @@ export default function InvoiceNewPage() {
         .single();
       if (invoiceError) throw invoiceError;
 
-      const { error: lineItemsError } = await supabase.from("invoice_line_items").insert(
-        result.data.line_items.map((item, index) => ({
-          tenant_id: profile.tenant_id,
-          invoice_id: invoice.id,
-          description: item.description,
-          quantity: item.quantity,
-          labour_rate_cents: item.labour_rate_cents,
-          labour_hours: item.labour_hours,
-          material_cost_cents: item.material_cost_cents,
-          markup_percent: item.markup_percent,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-          is_callout_fee: item.is_callout_fee ?? false,
-          is_subcontracted: item.is_subcontracted ?? false,
-          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
-          bundle_name: item.bundle_name || null,
-          image_url: item.image_url || null,
-        }))
-      );
+      // replace_invoice_line_items inserts every line item - including the
+      // itemized breakdown fields and crew/materials children - and
+      // recomputes subtotal/gst/total/membership discount from them
+      // server-side, same as InvoiceDetail.tsx's own save path. See
+      // QuoteNew.tsx's matching comment for why this replaced a hand-rolled
+      // insert that only knew about the pre-itemized-rework columns.
+      const { error: lineItemsError } = await supabase.rpc("replace_invoice_line_items", {
+        p_invoice_id: invoice.id,
+        p_items: result.data.line_items,
+      });
       if (lineItemsError) throw lineItemsError;
 
       return invoice.id as string;

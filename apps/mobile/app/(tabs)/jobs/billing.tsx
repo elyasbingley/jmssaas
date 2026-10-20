@@ -22,6 +22,18 @@ export default function JobBillingScreen() {
   const isOnline = useIsOnline();
   const styles = useThemedStyles(createStyles);
 
+  // "+ New Quote"/"+ New Invoice" below need this job's client_id to pass
+  // through as the clientId param - quotes/new.tsx and invoices/new.tsx
+  // lock the client picker whenever jobCardId is present (expecting it to
+  // auto-fill from clientId), so arriving with jobCardId but no clientId
+  // left the field locked AND empty with no way to pick a client at all.
+  const { data: jobCard } = useSupabaseFetch<{ client_id: string } | null>(async () => {
+    if (!isOnline) return null;
+    const { data, error } = await supabase.from("job_cards").select("client_id").eq("id", jobCardId).single();
+    if (error) throw error;
+    return data as { client_id: string };
+  }, [jobCardId, isOnline]);
+
   const { data: quotes, refetch: refetchQuotes } = useSupabaseFetch<Quote[]>(async () => {
     if (!isOnline) return [];
     const { data, error } = await supabase.from("quotes").select("*").eq("job_card_id", jobCardId);
@@ -69,7 +81,7 @@ export default function JobBillingScreen() {
             <ThemedButton
               variant="secondary"
               label="+ New Quote"
-              onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId } })}
+              onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId, clientId: jobCard?.client_id } })}
             />
           ) : null}
         </Panel>
@@ -91,7 +103,7 @@ export default function JobBillingScreen() {
             <ThemedButton
               variant="secondary"
               label="+ New Invoice"
-              onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId } })}
+              onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId, clientId: jobCard?.client_id } })}
             />
           ) : null}
         </Panel>

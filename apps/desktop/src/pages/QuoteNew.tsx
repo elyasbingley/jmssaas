@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { calculateDocumentTotals, createQuoteSchema, type Client, type JobCard, type ReferralPartner, type Template } from "@jmssaas/shared";
+import { createQuoteSchema, type Client, type JobCard, type ReferralPartner, type Template } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -95,8 +95,6 @@ export default function QuoteNewPage() {
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
 
-      const totals = calculateDocumentTotals(result.data.line_items);
-
       const { data: quote, error: quoteError } = await supabase
         .from("quotes")
         .insert({
@@ -106,9 +104,6 @@ export default function QuoteNewPage() {
           status: "draft",
           issue_date: new Date().toISOString().slice(0, 10),
           expiry_date: result.data.expiry_date ?? null,
-          subtotal_cents: totals.subtotal_cents,
-          gst_cents: totals.gst_cents,
-          total_cents: totals.total_cents,
           notes: result.data.notes || null,
           referral_partner_id: result.data.referral_partner_id ?? null,
           created_by: profile.id,
@@ -117,28 +112,20 @@ export default function QuoteNewPage() {
         .single();
       if (quoteError) throw quoteError;
 
-      const { error: lineItemsError } = await supabase.from("quote_line_items").insert(
-        result.data.line_items.map((item, index) => ({
-          tenant_id: profile.tenant_id,
-          quote_id: quote.id,
-          description: item.description,
-          quantity: item.quantity,
-          labour_rate_cents: item.labour_rate_cents,
-          labour_hours: item.labour_hours,
-          material_cost_cents: item.material_cost_cents,
-          markup_percent: item.markup_percent,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-          is_callout_fee: item.is_callout_fee ?? false,
-          is_subcontracted: item.is_subcontracted ?? false,
-          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
-          is_optional: item.is_optional ?? false,
-          is_included: item.is_included ?? true,
-          bundle_name: item.bundle_name || null,
-          image_url: item.image_url || null,
-        }))
-      );
+      // replace_quote_line_items inserts every line item - including the
+      // itemized breakdown fields and crew/materials children - and
+      // recomputes subtotal/gst/total/membership discount from them
+      // server-side, same as QuoteDetail.tsx's own save path. Previously
+      // this used a second, hand-rolled insert here that only knew about
+      // the pre-itemized-rework columns, so a quote created from scratch
+      // silently lost pricing_model/unit/labour_cost_rate_cents/crew/
+      // materials/etc the moment it was first saved - unit_price_cents
+      // (computed client-side and inserted directly either way) was the
+      // only thing that survived.
+      const { error: lineItemsError } = await supabase.rpc("replace_quote_line_items", {
+        p_quote_id: quote.id,
+        p_items: result.data.line_items,
+      });
       if (lineItemsError) throw lineItemsError;
 
       return quote.id as string;

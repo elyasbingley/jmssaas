@@ -6,7 +6,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  calculateDocumentTotals,
   createInvoiceSchema,
   type Client,
   type JobCard,
@@ -95,7 +94,6 @@ export default function NewInvoiceScreen() {
     setSubmitting(true);
     setFormError(null);
     try {
-      const totals = calculateDocumentTotals(result.data.line_items);
       const invoiceId = uuidv4();
       const now = new Date().toISOString();
 
@@ -107,35 +105,23 @@ export default function NewInvoiceScreen() {
         status: "draft",
         issue_date: now.slice(0, 10),
         due_date: result.data.due_date ?? null,
-        subtotal_cents: totals.subtotal_cents,
-        gst_cents: totals.gst_cents,
-        total_cents: totals.total_cents,
         notes: result.data.notes || null,
         created_by: profile.id,
       });
       if (invoiceError) throw invoiceError;
 
-      const { error: lineItemsError } = await supabase.from("invoice_line_items").insert(
-        result.data.line_items.map((item, index) => ({
-          id: uuidv4(),
-          tenant_id: profile.tenant_id,
-          invoice_id: invoiceId,
-          description: item.description,
-          quantity: item.quantity,
-          labour_rate_cents: item.labour_rate_cents,
-          labour_hours: item.labour_hours,
-          material_cost_cents: item.material_cost_cents,
-          markup_percent: item.markup_percent,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-          is_callout_fee: item.is_callout_fee ?? false,
-          is_subcontracted: item.is_subcontracted ?? false,
-          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
-          bundle_name: item.bundle_name || null,
-          image_url: item.image_url || null,
-        }))
-      );
+      // replace_invoice_line_items inserts every line item - including the
+      // itemized breakdown fields and crew/materials children - and
+      // recomputes subtotal/gst/total server-side, same as the desktop fix
+      // and this screen's own invoices/[id].tsx save path. See
+      // quotes/new.tsx's matching comment for why this replaced a
+      // hand-rolled insert, and why it doesn't change this screen's
+      // offline behaviour (invoices.insert above is already a direct
+      // network call, not a local PowerSync write).
+      const { error: lineItemsError } = await supabase.rpc("replace_invoice_line_items", {
+        p_invoice_id: invoiceId,
+        p_items: result.data.line_items,
+      });
       if (lineItemsError) throw lineItemsError;
 
       router.replace(`/sales/invoices/${invoiceId}`);

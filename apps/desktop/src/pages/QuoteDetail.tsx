@@ -78,6 +78,18 @@ type QuoteJobCard = {
 };
 type QuoteRow = Quote & { clients: Client | null; job_cards: QuoteJobCard | null };
 
+// crew/materials live in their own child tables (line_item_rework_schema
+// migration), embedded here via PostgREST's nested-resource select rather
+// than a separate fetch (unlike Job Costing/Analytics, which cost many
+// line items across many quotes/invoices at once and group by id - a
+// single quote's own line items are cheap enough to embed directly). The
+// embedded keys come back named after the child table, so they're
+// remapped to crew/materials below to match what LineItemEditor expects.
+type QuoteLineItemRow = LineItemFormInput & {
+  quote_line_item_crew?: LineItemFormInput["crew"];
+  quote_line_item_materials?: LineItemFormInput["materials"];
+};
+
 async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineItemFormInput[] }> {
   const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
     supabase
@@ -87,11 +99,20 @@ async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineIte
       )
       .eq("id", id)
       .single(),
-    supabase.from("quote_line_items").select("*").eq("quote_id", id).order("sort_order"),
+    supabase
+      .from("quote_line_items")
+      .select("*, quote_line_item_crew(*), quote_line_item_materials(*)")
+      .eq("quote_id", id)
+      .order("sort_order"),
   ]);
   if (quoteError) throw quoteError;
   if (itemsError) throw itemsError;
-  return { quote: quote as QuoteRow, items: (items ?? []) as LineItemFormInput[] };
+  const mappedItems = ((items ?? []) as QuoteLineItemRow[]).map(({ quote_line_item_crew, quote_line_item_materials, ...item }) => ({
+    ...item,
+    crew: quote_line_item_crew ?? [],
+    materials: quote_line_item_materials ?? [],
+  }));
+  return { quote: quote as QuoteRow, items: mappedItems };
 }
 
 async function fetchTenant(tenantId: string): Promise<Tenant> {

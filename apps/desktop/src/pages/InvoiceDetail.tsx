@@ -67,6 +67,15 @@ type InvoiceJobCard = {
 };
 type InvoiceRow = Invoice & { clients: Client | null; job_cards: InvoiceJobCard | null };
 
+// crew/materials live in their own child tables (line_item_rework_schema
+// migration), embedded here via PostgREST's nested-resource select - see
+// QuoteDetail.tsx's matching comment for why (and why this is safe to
+// just spread straight back into replace_invoice_line_items on save).
+type InvoiceLineItemRow = LineItemFormInput & {
+  invoice_line_item_crew?: LineItemFormInput["crew"];
+  invoice_line_item_materials?: LineItemFormInput["materials"];
+};
+
 async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: LineItemFormInput[] }> {
   const [{ data: invoice, error: invoiceError }, { data: items, error: itemsError }] = await Promise.all([
     supabase
@@ -76,11 +85,22 @@ async function fetchInvoice(id: string): Promise<{ invoice: InvoiceRow; items: L
       )
       .eq("id", id)
       .single(),
-    supabase.from("invoice_line_items").select("*").eq("invoice_id", id).order("sort_order"),
+    supabase
+      .from("invoice_line_items")
+      .select("*, invoice_line_item_crew(*), invoice_line_item_materials(*)")
+      .eq("invoice_id", id)
+      .order("sort_order"),
   ]);
   if (invoiceError) throw invoiceError;
   if (itemsError) throw itemsError;
-  return { invoice: invoice as InvoiceRow, items: (items ?? []) as LineItemFormInput[] };
+  const mappedItems = ((items ?? []) as InvoiceLineItemRow[]).map(
+    ({ invoice_line_item_crew, invoice_line_item_materials, ...item }) => ({
+      ...item,
+      crew: invoice_line_item_crew ?? [],
+      materials: invoice_line_item_materials ?? [],
+    })
+  );
+  return { invoice: invoice as InvoiceRow, items: mappedItems };
 }
 
 async function fetchTenant(tenantId: string): Promise<Tenant> {

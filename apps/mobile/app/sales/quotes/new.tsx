@@ -6,7 +6,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  calculateDocumentTotals,
   createQuoteSchema,
   type Client,
   type JobCard,
@@ -110,7 +109,6 @@ export default function NewQuoteScreen() {
     setSubmitting(true);
     setFormError(null);
     try {
-      const totals = calculateDocumentTotals(result.data.line_items);
       const quoteId = uuidv4();
       const now = new Date().toISOString();
 
@@ -122,38 +120,29 @@ export default function NewQuoteScreen() {
         status: "draft",
         issue_date: now.slice(0, 10),
         expiry_date: result.data.expiry_date ?? null,
-        subtotal_cents: totals.subtotal_cents,
-        gst_cents: totals.gst_cents,
-        total_cents: totals.total_cents,
         notes: result.data.notes || null,
         referral_partner_id: result.data.referral_partner_id ?? null,
         created_by: profile.id,
       });
       if (quoteError) throw quoteError;
 
-      const { error: lineItemsError } = await supabase.from("quote_line_items").insert(
-        result.data.line_items.map((item, index) => ({
-          id: uuidv4(),
-          tenant_id: profile.tenant_id,
-          quote_id: quoteId,
-          description: item.description,
-          quantity: item.quantity,
-          labour_rate_cents: item.labour_rate_cents,
-          labour_hours: item.labour_hours,
-          material_cost_cents: item.material_cost_cents,
-          markup_percent: item.markup_percent,
-          unit_price_cents: item.unit_price_cents,
-          gst_applicable: item.gst_applicable,
-          sort_order: index,
-          is_callout_fee: item.is_callout_fee ?? false,
-          is_subcontracted: item.is_subcontracted ?? false,
-          subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
-          is_optional: item.is_optional ?? false,
-          is_included: item.is_included ?? true,
-          bundle_name: item.bundle_name || null,
-          image_url: item.image_url || null,
-        }))
-      );
+      // replace_quote_line_items inserts every line item - including the
+      // itemized breakdown fields and crew/materials children - and
+      // recomputes subtotal/gst/total/membership discount from them
+      // server-side, same as the desktop fix and this screen's own
+      // quotes/[id].tsx save path. Previously this used a second,
+      // hand-rolled insert here that only knew about the pre-itemized-
+      // rework columns, so a quote created from scratch on mobile silently
+      // lost pricing_model/unit/labour_cost_rate_cents/crew/materials/etc
+      // the moment it was first saved. This screen already requires
+      // connectivity to submit (quotes.insert above is a direct network
+      // call via the plain Supabase client, not a local PowerSync write),
+      // so calling the RPC here doesn't change the screen's offline
+      // behaviour.
+      const { error: lineItemsError } = await supabase.rpc("replace_quote_line_items", {
+        p_quote_id: quoteId,
+        p_items: result.data.line_items,
+      });
       if (lineItemsError) throw lineItemsError;
 
       router.replace(`/sales/quotes/${quoteId}`);
