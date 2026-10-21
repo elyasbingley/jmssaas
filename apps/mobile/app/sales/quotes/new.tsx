@@ -172,8 +172,14 @@ export default function NewQuoteScreen() {
             <Text style={styles.sectionTitle}>Client</Text>
             <Pressable
               style={styles.pickerField}
-              onPress={() => !lockedFromJob && setClientPickerVisible(true)}
-              disabled={lockedFromJob}
+              // Only actually locked once the pre-fill has resolved - if
+              // this screen arrived with jobCardId but the client never
+              // resolves (clientId missing/stale, or the client hasn't
+              // synced locally yet), the field stays pickable instead of
+              // trapping the person on a locked, empty box with no way to
+              // choose anyone and no way to save the quote.
+              onPress={() => (!lockedFromJob || !client) && setClientPickerVisible(true)}
+              disabled={lockedFromJob && !!client}
             >
               <Text style={client ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
                 {client?.name ?? "Select a client"}
@@ -183,8 +189,8 @@ export default function NewQuoteScreen() {
             <Text style={styles.sectionTitle}>Linked Job{lockedFromJob ? "" : " (optional)"}</Text>
             <Pressable
               style={styles.pickerField}
-              onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
-              disabled={!client || lockedFromJob}
+              onPress={() => client && (!lockedFromJob || !jobCard) && setJobPickerVisible(true)}
+              disabled={!client || (lockedFromJob && !!jobCard)}
             >
               <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
                 {jobCard?.title ?? (client ? "Select a job" : "Pick a client first")}

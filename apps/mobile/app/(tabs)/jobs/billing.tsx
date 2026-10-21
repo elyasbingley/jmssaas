@@ -27,7 +27,7 @@ export default function JobBillingScreen() {
   // lock the client picker whenever jobCardId is present (expecting it to
   // auto-fill from clientId), so arriving with jobCardId but no clientId
   // left the field locked AND empty with no way to pick a client at all.
-  const { data: jobCard } = useSupabaseFetch<{ client_id: string } | null>(async () => {
+  const { data: jobCard, loading: jobCardLoading } = useSupabaseFetch<{ client_id: string } | null>(async () => {
     if (!isOnline) return null;
     const { data, error } = await supabase.from("job_cards").select("client_id").eq("id", jobCardId).single();
     if (error) throw error;
@@ -80,7 +80,8 @@ export default function JobBillingScreen() {
           ) : isAdmin ? (
             <ThemedButton
               variant="secondary"
-              label="+ New Quote"
+              label={jobCardLoading ? "Loading..." : "+ New Quote"}
+              disabled={jobCardLoading}
               onPress={() => router.push({ pathname: "/sales/quotes/new", params: { jobCardId, clientId: jobCard?.client_id } })}
             />
           ) : null}
@@ -102,7 +103,8 @@ export default function JobBillingScreen() {
           ) : isAdmin ? (
             <ThemedButton
               variant="secondary"
-              label="+ New Invoice"
+              label={jobCardLoading ? "Loading..." : "+ New Invoice"}
+              disabled={jobCardLoading}
               onPress={() => router.push({ pathname: "/sales/invoices/new", params: { jobCardId, clientId: jobCard?.client_id } })}
             />
           ) : null}

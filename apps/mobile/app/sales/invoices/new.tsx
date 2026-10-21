@@ -151,8 +151,10 @@ export default function NewInvoiceScreen() {
             <Text style={styles.sectionTitle}>Client</Text>
             <Pressable
               style={styles.pickerField}
-              onPress={() => !lockedFromJob && setClientPickerVisible(true)}
-              disabled={lockedFromJob}
+              // Only actually locked once the pre-fill has resolved - see
+              // quotes/new.tsx's matching comment for why.
+              onPress={() => (!lockedFromJob || !client) && setClientPickerVisible(true)}
+              disabled={lockedFromJob && !!client}
             >
               <Text style={client ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
                 {client?.name ?? "Select a client"}
@@ -162,8 +164,8 @@ export default function NewInvoiceScreen() {
             <Text style={styles.sectionTitle}>Linked Job{lockedFromJob ? "" : " (optional)"}</Text>
             <Pressable
               style={styles.pickerField}
-              onPress={() => client && !lockedFromJob && setJobPickerVisible(true)}
-              disabled={!client || lockedFromJob}
+              onPress={() => client && (!lockedFromJob || !jobCard) && setJobPickerVisible(true)}
+              disabled={!client || (lockedFromJob && !!jobCard)}
             >
               <Text style={jobCard ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
                 {jobCard?.title ?? (client ? "Select a job" : "Pick a client first")}
