@@ -12,6 +12,7 @@ import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../lib/pdf";
 import { buildPdfDataUri, exportPdf } from "../../../lib/print";
+import { startChannelConversation } from "../../../lib/channels";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { ThemedRequiresConnectionNotice } from "../../../components/theme/ThemedRequiresConnectionNotice";
 import { ThemedModal } from "../../../components/theme/ThemedModal";
@@ -20,8 +21,15 @@ import { ThemedDateField } from "../../../components/theme/ThemedDateField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
+import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
 import { partnerDisplayName } from "../../b2b-referrals/index";
+
+// Same idea as desktop InvoiceDetail.tsx's INVOICE_SMS_TEMPLATE - a
+// sensible hardcoded fallback, only used when the tenant hasn't set an
+// is_invoice_default channel_message_templates row yet.
+const INVOICE_SMS_FALLBACK_TEMPLATE =
+  "Hi {client_first_name}, here's your invoice from {company_name}: {invoice_payment_link}. Reply if you have any questions.";
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -420,6 +428,89 @@ export default function InvoiceDetailScreen() {
     contactEmails: [...(clientContacts ?? []).map((c) => c.email), property?.owner_landlord_email ?? null, property?.tenant_email ?? null],
   });
 
+  // "Send Invoice via SMS" - mirrors quotes/[id].tsx's own openSendSms/
+  // handleSendSms exactly (same Channels/Twilio send path via
+  // startChannelConversation), sourced from is_invoice_default instead of
+  // is_quote_default and the invoice's own payment link.
+  const [openingSms, setOpeningSms] = useState(false);
+  const [sendSmsError, setSendSmsError] = useState<string | null>(null);
+  const [smsModalVisible, setSmsModalVisible] = useState(false);
+  const [smsDefaults, setSmsDefaults] = useState({ phone: "", body: "" });
+  const smsPhoneOptions = (clientContacts ?? [])
+    .filter((c) => c.phone)
+    .map((c) => ({ label: c.name, phone: c.phone as string }));
+
+  const openSendSms = async () => {
+    if (!data || !profile) return;
+    setOpeningSms(true);
+    setSendSmsError(null);
+    try {
+      const { data: tenantRow, error: tenantError } = await supabase.from("tenants").select("*").eq("id", profile.tenant_id).single();
+      if (tenantError) throw tenantError;
+      const tenant = tenantRow as Tenant;
+      if (!tenant.sms_phone_number) {
+        throw new Error("Set up your SMS number in Settings > Channels before sending SMS.");
+      }
+
+      const approvalPageUrl = process.env.EXPO_PUBLIC_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_invoice_approval_link", { p_invoice_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=invoice&token=${token}`;
+      }
+      const renderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: { name: data.invoice.clients?.name ?? "", phone: data.invoice.clients?.phone ?? null, email: data.invoice.clients?.email ?? null },
+        invoice: {
+          invoice_number: data.invoice.invoice_number,
+          total_cents: data.invoice.total_cents,
+          due_date: data.invoice.due_date,
+          payment_link: approvalLink,
+        },
+      };
+      const { data: defaultTemplate } = await supabase
+        .from("channel_message_templates")
+        .select("body")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("is_invoice_default", true)
+        .maybeSingle();
+      setSmsDefaults({
+        phone: data.invoice.clients?.phone ?? "",
+        body: renderTemplate(defaultTemplate?.body ?? INVOICE_SMS_FALLBACK_TEMPLATE, renderContext),
+      });
+      setSmsModalVisible(true);
+    } catch (e) {
+      setSendSmsError(getErrorMessage(e, "Failed to prepare SMS"));
+    } finally {
+      setOpeningSms(false);
+    }
+  };
+
+  const handleSendSms = async (payload: { phone: string; body: string }) => {
+    if (!data) throw new Error("Not loaded");
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: data.invoice.client_id ?? undefined,
+      contactName: data.invoice.clients?.name,
+    });
+
+    const { error: statusError } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+    if (statusError) throw statusError;
+    refetch();
+    setSendSmsError(null);
+    Alert.alert("Sent", "The invoice SMS has been sent.");
+  };
+
   const openSendEmail = async () => {
     if (!data || !profile || !data.invoice.clients) return;
     if (!invoiceRecipientEmail) {
@@ -679,6 +770,13 @@ export default function InvoiceDetailScreen() {
           {sendEmailError ? <Text style={styles.error}>{sendEmailError}</Text> : null}
 
           {isAdmin ? (
+            <View style={styles.sendSmsButtonWrap}>
+              <ThemedButton label={openingSms ? "Preparing..." : "Send Invoice via SMS"} onPress={openSendSms} disabled={openingSms} variant="secondary" />
+            </View>
+          ) : null}
+          {sendSmsError ? <Text style={styles.error}>{sendSmsError}</Text> : null}
+
+          {isAdmin ? (
             <Pressable style={styles.linkButton} onPress={handleGenerateAndShareLink} disabled={generatingLink}>
               <Text style={styles.linkButtonText}>
                 {generatingLink ? "Generating..." : data.invoice.access_token ? "Share approval link" : "Generate & share approval link"}
@@ -842,6 +940,18 @@ export default function InvoiceDetailScreen() {
         sendLabel="Send invoice"
       />
 
+      <SendSmsModal
+        visible={smsModalVisible}
+        onClose={() => setSmsModalVisible(false)}
+        title="Send invoice via SMS"
+        defaultPhone={smsDefaults.phone}
+        phoneOptions={smsPhoneOptions}
+        defaultBody={smsDefaults.body}
+        isAdmin={isAdmin}
+        onSend={handleSendSms}
+        sendLabel="Send SMS"
+      />
+
       <ThemedModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>
         <Text style={styles.modalTitle}>PO Number</Text>
         <ThemedFormField label="PO number" placeholder="e.g. PO-4821" value={poNumberInput} onChangeText={setPoNumberInput} />
@@ -926,6 +1036,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     approvalBadgeTextDeclined: { color: tokens.danger },
     declineReason: { color: tokens.danger, fontSize: font.label, marginTop: 6, ...mono },
     sendEmailButtonWrap: { marginTop: 14 },
+    sendSmsButtonWrap: { marginTop: 10 },
     linkButton: { alignSelf: "flex-start" as const, marginTop: 10 },
     linkButtonText: { color: tokens.accent, fontWeight: "600" as const, ...mono },
     lockedNotice: { color: tokens.textMuted, fontSize: font.label, marginBottom: 8, ...mono },

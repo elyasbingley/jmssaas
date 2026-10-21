@@ -43,6 +43,7 @@ export default function ChannelMessageTemplatesScreen() {
   const [body, setBody] = useState("");
   const [bodySelection, setBodySelection] = useState({ start: 0, end: 0 });
   const [isQuoteDefault, setIsQuoteDefault] = useState(false);
+  const [isInvoiceDefault, setIsInvoiceDefault] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -52,6 +53,7 @@ export default function ChannelMessageTemplatesScreen() {
     setBody("");
     setBodySelection({ start: 0, end: 0 });
     setIsQuoteDefault(false);
+    setIsInvoiceDefault(false);
     setFormError(null);
     setEditorVisible(true);
   };
@@ -62,6 +64,7 @@ export default function ChannelMessageTemplatesScreen() {
     setBody(template.body);
     setBodySelection({ start: template.body.length, end: template.body.length });
     setIsQuoteDefault(template.is_quote_default);
+    setIsInvoiceDefault(template.is_invoice_default);
     setFormError(null);
     setEditorVisible(true);
   };
@@ -87,6 +90,18 @@ export default function ChannelMessageTemplatesScreen() {
     if (error) throw error;
   };
 
+  // Same idea as clearOtherQuoteDefaults - its own partial unique index.
+  const clearOtherInvoiceDefaults = async (excludeId?: string) => {
+    let query = supabase
+      .from("channel_message_templates")
+      .update({ is_invoice_default: false })
+      .eq("tenant_id", profile?.tenant_id)
+      .eq("is_invoice_default", true);
+    if (excludeId) query = query.neq("id", excludeId);
+    const { error } = await query;
+    if (error) throw error;
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setFormError(null);
@@ -95,18 +110,24 @@ export default function ChannelMessageTemplatesScreen() {
         const result = updateChannelMessageTemplateSchema.safeParse({ name, body });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid template");
         if (isQuoteDefault) await clearOtherQuoteDefaults(editingId);
+        if (isInvoiceDefault) await clearOtherInvoiceDefaults(editingId);
         const { error: updateError } = await supabase
           .from("channel_message_templates")
-          .update({ ...result.data, is_quote_default: isQuoteDefault })
+          .update({ ...result.data, is_quote_default: isQuoteDefault, is_invoice_default: isInvoiceDefault })
           .eq("id", editingId);
         if (updateError) throw updateError;
       } else {
         const result = createChannelMessageTemplateSchema.safeParse({ name, body });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid template");
         if (isQuoteDefault) await clearOtherQuoteDefaults();
-        const { error: insertError } = await supabase
-          .from("channel_message_templates")
-          .insert({ ...result.data, is_quote_default: isQuoteDefault, tenant_id: profile?.tenant_id, created_by: profile?.id });
+        if (isInvoiceDefault) await clearOtherInvoiceDefaults();
+        const { error: insertError } = await supabase.from("channel_message_templates").insert({
+          ...result.data,
+          is_quote_default: isQuoteDefault,
+          is_invoice_default: isInvoiceDefault,
+          tenant_id: profile?.tenant_id,
+          created_by: profile?.id,
+        });
         if (insertError) throw insertError;
       }
       setEditorVisible(false);
@@ -182,6 +203,7 @@ export default function ChannelMessageTemplatesScreen() {
               <View style={styles.rowTitleRow}>
                 <Text style={styles.rowTitle}>{t.name}</Text>
                 {t.is_quote_default ? <Text style={styles.defaultBadge}>★ Quote default</Text> : null}
+                {t.is_invoice_default ? <Text style={styles.defaultBadge}>★ Invoice default</Text> : null}
               </View>
               <Text style={styles.rowBody} numberOfLines={2}>
                 {t.body}
@@ -218,6 +240,10 @@ export default function ChannelMessageTemplatesScreen() {
         <View style={styles.defaultRow}>
           <Text style={styles.fieldLabel}>Default for "Send Quote via SMS"</Text>
           <Switch value={isQuoteDefault} onValueChange={setIsQuoteDefault} />
+        </View>
+        <View style={styles.defaultRow}>
+          <Text style={styles.fieldLabel}>Default for "Send Invoice via SMS"</Text>
+          <Switch value={isInvoiceDefault} onValueChange={setIsInvoiceDefault} />
         </View>
 
         {formError ? <Text style={styles.error}>{formError}</Text> : null}

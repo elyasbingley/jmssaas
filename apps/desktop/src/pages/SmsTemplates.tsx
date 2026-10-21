@@ -30,6 +30,7 @@ interface TemplateDraft {
   name: string;
   body: string;
   isQuoteDefault: boolean;
+  isInvoiceDefault: boolean;
 }
 
 export default function SmsTemplatesPage() {
@@ -44,13 +45,13 @@ export default function SmsTemplatesPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const openNew = () => {
-    setDraft({ name: "", body: "", isQuoteDefault: false });
+    setDraft({ name: "", body: "", isQuoteDefault: false, isInvoiceDefault: false });
     setFormError(null);
     setModalOpen(true);
   };
 
   const openEdit = (t: ChannelMessageTemplate) => {
-    setDraft({ id: t.id, name: t.name, body: t.body, isQuoteDefault: t.is_quote_default });
+    setDraft({ id: t.id, name: t.name, body: t.body, isQuoteDefault: t.is_quote_default, isInvoiceDefault: t.is_invoice_default });
     setFormError(null);
     setModalOpen(true);
   };
@@ -85,12 +86,30 @@ export default function SmsTemplatesPage() {
     if (error) throw error;
   };
 
+  // Same idea as clearOtherQuoteDefaults - its own partial unique index.
+  const clearOtherInvoiceDefaults = async (excludeId?: string) => {
+    let query = supabase
+      .from("channel_message_templates")
+      .update({ is_invoice_default: false })
+      .eq("tenant_id", profile!.tenant_id)
+      .eq("is_invoice_default", true);
+    if (excludeId) query = query.neq("id", excludeId);
+    const { error } = await query;
+    if (error) throw error;
+  };
+
   const createTemplate = useMutation({
-    mutationFn: async (input: { name: string; body: string; isQuoteDefault: boolean }) => {
+    mutationFn: async (input: { name: string; body: string; isQuoteDefault: boolean; isInvoiceDefault: boolean }) => {
       if (input.isQuoteDefault) await clearOtherQuoteDefaults();
-      const { error } = await supabase
-        .from("channel_message_templates")
-        .insert({ tenant_id: profile!.tenant_id, name: input.name, body: input.body, is_quote_default: input.isQuoteDefault, created_by: profile!.id });
+      if (input.isInvoiceDefault) await clearOtherInvoiceDefaults();
+      const { error } = await supabase.from("channel_message_templates").insert({
+        tenant_id: profile!.tenant_id,
+        name: input.name,
+        body: input.body,
+        is_quote_default: input.isQuoteDefault,
+        is_invoice_default: input.isInvoiceDefault,
+        created_by: profile!.id,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -101,11 +120,12 @@ export default function SmsTemplatesPage() {
   });
 
   const updateTemplate = useMutation({
-    mutationFn: async (input: { id: string; name: string; body: string; isQuoteDefault: boolean }) => {
+    mutationFn: async (input: { id: string; name: string; body: string; isQuoteDefault: boolean; isInvoiceDefault: boolean }) => {
       if (input.isQuoteDefault) await clearOtherQuoteDefaults(input.id);
+      if (input.isInvoiceDefault) await clearOtherInvoiceDefaults(input.id);
       const { error } = await supabase
         .from("channel_message_templates")
-        .update({ name: input.name, body: input.body, is_quote_default: input.isQuoteDefault })
+        .update({ name: input.name, body: input.body, is_quote_default: input.isQuoteDefault, is_invoice_default: input.isInvoiceDefault })
         .eq("id", input.id);
       if (error) throw error;
     },
@@ -136,9 +156,9 @@ export default function SmsTemplatesPage() {
       return;
     }
     if (draft.id) {
-      updateTemplate.mutate({ id: draft.id, name, body, isQuoteDefault: draft.isQuoteDefault });
+      updateTemplate.mutate({ id: draft.id, name, body, isQuoteDefault: draft.isQuoteDefault, isInvoiceDefault: draft.isInvoiceDefault });
     } else {
-      createTemplate.mutate({ name, body, isQuoteDefault: draft.isQuoteDefault });
+      createTemplate.mutate({ name, body, isQuoteDefault: draft.isQuoteDefault, isInvoiceDefault: draft.isInvoiceDefault });
     }
   };
 
@@ -189,6 +209,11 @@ export default function SmsTemplatesPage() {
                     ★ Quote default
                   </span>
                 ) : null}
+                {t.is_invoice_default ? (
+                  <span style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }} title='Default body for "Send Invoice via SMS"'>
+                    ★ Invoice default
+                  </span>
+                ) : null}
               </div>
               <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{t.body}</p>
             </button>
@@ -217,11 +242,18 @@ export default function SmsTemplatesPage() {
             <ThemedTextAreaField ref={bodyRef} label="Message" rows={5} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
 
             <label
-              className="mb-4 flex items-center gap-2 font-semibold"
+              className="mb-2 flex items-center gap-2 font-semibold"
               style={{ color: draft.isQuoteDefault ? "var(--jms-accent)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
             >
               <input type="checkbox" checked={draft.isQuoteDefault} onChange={(e) => setDraft({ ...draft, isQuoteDefault: e.target.checked })} />
               Use as default message for "Send Quote via SMS"
+            </label>
+            <label
+              className="mb-4 flex items-center gap-2 font-semibold"
+              style={{ color: draft.isInvoiceDefault ? "var(--jms-accent)" : "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              <input type="checkbox" checked={draft.isInvoiceDefault} onChange={(e) => setDraft({ ...draft, isInvoiceDefault: e.target.checked })} />
+              Use as default message for "Send Invoice via SMS"
             </label>
 
             {formError ? (

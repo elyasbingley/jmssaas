@@ -13,6 +13,7 @@ import {
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
+  type PlaceholderContext,
   type Property,
   type ReferralPartner,
   type Tenant,
@@ -21,6 +22,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
+import { startChannelConversation } from "../lib/channels";
 import { buildInvoicePdfHtml } from "../lib/quote-invoice-pdf";
 import { blobToDataUrl, buildInvoicePdfBytes } from "../lib/quote-invoice-pdf-bytes";
 import { exportPdf } from "../lib/print";
@@ -28,10 +30,17 @@ import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { EmailComposeModal } from "../components/EmailComposeModal";
+import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { ReferralPartnerModal, referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { PurchaseOrderNumberModal } from "../components/PurchaseOrderNumberModal";
+
+// Same idea as QuoteDetail.tsx's QUOTE_SMS_TEMPLATE - a sensible hardcoded
+// fallback, only ever used when the tenant hasn't set an is_invoice_default
+// channel_message_templates row yet (see openSendSms below).
+const INVOICE_SMS_TEMPLATE =
+  "Hi {client_first_name}, here's your invoice from {company_name}: {invoice_payment_link}. Reply if you have any questions.";
 
 function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_line2" | "suburb" | "state" | "postcode">): string {
   return [site.address_line1, site.address_line2, [site.suburb, site.state, site.postcode].filter(Boolean).join(" ")]
@@ -410,6 +419,92 @@ export default function InvoiceDetailPage() {
     freeText: jobNoteBodies ?? [],
   });
 
+  // "Send Invoice via SMS" - mirrors QuoteDetail.tsx's own openSendSms/
+  // handleSendSms exactly (same Channels/Twilio send path via
+  // startChannelConversation, same tenant.sms_phone_number precheck), just
+  // sourced from is_invoice_default instead of is_quote_default and the
+  // invoice's own approval/payment link.
+  const [smsModalOpen, setSmsModalOpen] = useState(false);
+  const [smsDefaultBody, setSmsDefaultBody] = useState("");
+  const [smsRenderContext, setSmsRenderContext] = useState<PlaceholderContext>({});
+  const [openingSms, setOpeningSms] = useState(false);
+  const [sendSmsError, setSendSmsError] = useState<string | null>(null);
+  const [sendSmsResult, setSendSmsResult] = useState<string | null>(null);
+
+  const openSendSms = async () => {
+    if (!data || !profile || !tenant || !data.invoice.clients) return;
+    setSendSmsError(null);
+    if (!tenant.sms_phone_number) {
+      setSendSmsError("Set up your SMS number in Settings > Company Settings before sending SMS");
+      return;
+    }
+    setOpeningSms(true);
+    try {
+      const approvalPageUrl = import.meta.env.VITE_APPROVAL_PAGE_URL;
+      let approvalLink: string | null = null;
+      if (approvalPageUrl) {
+        const { data: token } = await supabase.rpc("generate_invoice_approval_link", { p_invoice_id: id });
+        if (token) approvalLink = `${approvalPageUrl}?type=invoice&token=${token}`;
+      }
+      const renderContext: PlaceholderContext = {
+        company: {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        },
+        client: {
+          name: data.invoice.clients?.name ?? "",
+          phone: data.invoice.clients?.phone ?? null,
+          email: data.invoice.clients?.email ?? null,
+        },
+        invoice: {
+          invoice_number: data.invoice.invoice_number,
+          total_cents: data.invoice.total_cents,
+          due_date: data.invoice.due_date,
+          payment_link: approvalLink,
+        },
+      };
+      setSmsRenderContext(renderContext);
+      const { data: defaultTemplate } = await supabase
+        .from("channel_message_templates")
+        .select("body")
+        .eq("tenant_id", profile.tenant_id)
+        .eq("is_invoice_default", true)
+        .maybeSingle();
+      setSmsDefaultBody(renderTemplate(defaultTemplate?.body ?? INVOICE_SMS_TEMPLATE, renderContext));
+      setSmsModalOpen(true);
+    } catch (e) {
+      setSendSmsError(getErrorMessage(e, "Failed to prepare SMS"));
+    } finally {
+      setOpeningSms(false);
+    }
+  };
+
+  const handleSendSms = async (payload: { phone: string; body: string; clientId?: string; contactName?: string }) => {
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: payload.clientId,
+      contactName: payload.contactName,
+    });
+    const { error } = await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+    if (error) throw error;
+    invalidate();
+    setSendSmsResult("The invoice SMS has been sent.");
+    setTimeout(() => setSendSmsResult(null), 5000);
+  };
+
+  // Primary phone first, then any client_contacts row with a phone - same
+  // idea as QuoteDetail.tsx's own smsPhoneOptions.
+  const smsPhoneOptions: PhoneOption[] = (clientContacts ?? [])
+    .filter((c) => !!c.phone)
+    .map((c) => ({ label: `${c.name} (${c.phone})`, value: c.phone as string }));
+
   // Who this invoice is actually billed to - the agency/PM `clients` row
   // the job was created against (the default, unchanged from before this
   // feature existed) or, once bill_to_landlord is set, the property's own
@@ -690,6 +785,9 @@ export default function InvoiceDetailPage() {
         <ThemedButton onClick={() => openSendEmail()} disabled={openingEmail}>
           {openingEmail ? "Preparing..." : "Send Invoice via Email"}
         </ThemedButton>
+        <ThemedButton variant="secondary" onClick={() => openSendSms()} disabled={openingSms}>
+          {openingSms ? "Preparing..." : "Send Invoice via SMS"}
+        </ThemedButton>
         <ThemedButton variant="secondary" onClick={() => generateLink.mutate()} disabled={generateLink.isPending}>
           {generateLink.isPending
             ? "Generating..."
@@ -716,6 +814,16 @@ export default function InvoiceDetailPage() {
       {sendResult ? (
         <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
           {sendResult}
+        </p>
+      ) : null}
+      {sendSmsError ? (
+        <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+          {sendSmsError}
+        </p>
+      ) : null}
+      {sendSmsResult ? (
+        <p className="mt-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+          {sendSmsResult}
         </p>
       ) : null}
       {linkError ? (
@@ -1043,6 +1151,21 @@ export default function InvoiceDetailPage() {
         recipientOptions={recipientOptions}
         onSend={handleSendEmail}
         sendLabel="Send invoice"
+      />
+
+      <SendSmsModal
+        open={smsModalOpen}
+        onClose={() => setSmsModalOpen(false)}
+        title="Send invoice via SMS"
+        sendLabel="Send SMS"
+        mode="fixed"
+        fixedPhone={data.invoice.clients?.phone ?? ""}
+        fixedClientId={data.invoice.clients?.id}
+        fixedContactName={data.invoice.clients?.name}
+        fixedPhoneOptions={smsPhoneOptions}
+        defaultBody={smsDefaultBody}
+        renderContextBase={smsRenderContext}
+        onSend={handleSendSms}
       />
     </div>
   );

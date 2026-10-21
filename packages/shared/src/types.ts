@@ -1991,6 +1991,9 @@ export interface ChannelMessageTemplate {
   // JS-only constant, so it's actually editable the same way the email
   // flow's quote_sent communication_templates row already is.
   is_quote_default: boolean;
+  // Same idea, for the Invoice detail screen's "Send Invoice via SMS" - see
+  // the channel_message_templates_invoice_default migration.
+  is_invoice_default: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
