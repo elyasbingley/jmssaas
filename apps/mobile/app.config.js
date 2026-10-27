@@ -115,6 +115,21 @@ module.exports = {
           androidGoogleMapsApiKey: googleMapsApiKeyAndroid,
         },
       ],
+      // Android notification icon must be a plain white-on-transparent
+      // silhouette (Android itself ignores colour/detail and renders
+      // whatever's there as a flat white shape) - reusing the adaptive
+      // icon's own foreground here rather than commissioning a separate
+      // asset, since that's already close to that shape. See docs/SETUP.md
+      // for the one-time FCM credentials setup this plugin alone doesn't
+      // cover - Android push needs those uploaded via `eas credentials`
+      // regardless of what's configured here.
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/android-icon-foreground.png",
+          color: "#E6F4FE",
+        },
+      ],
     ],
     extra: {
       router: {},

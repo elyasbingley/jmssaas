@@ -7,6 +7,7 @@ import { PowerSyncContext } from "@powersync/react";
 import { powersync } from "../lib/powersync";
 import { AuthProvider, useAuth } from "../lib/auth-context";
 import { ThemeProvider } from "../lib/theme-context";
+import { usePushNotifications } from "../lib/use-push-notifications";
 
 export default function RootLayout() {
   return (
@@ -27,6 +28,7 @@ function RootNavigator() {
   const { session, isLoading, isWaitingForFirstSync } = useAuth();
   const segments = useSegments() as string[];
   const router = useRouter();
+  usePushNotifications();
 
   useEffect(() => {
     if (isLoading) return;

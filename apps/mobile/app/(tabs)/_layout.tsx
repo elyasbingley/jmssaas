@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { Text, type ColorValue } from "react-native";
 import { useTheme } from "../../lib/theme-context";
+import { useUnreadNotificationCount } from "../../lib/use-notifications";
 
 // Bottom tab bar - just Home, Jobs, Notifications, More now. Every other
 // section (Channels, Tasks, Calendar, Settings, Sales' old children) moved
@@ -14,6 +15,7 @@ function TabIcon({ emoji, color }: { emoji: string; color: ColorValue }) {
 
 export default function TabsLayout() {
   const { tokens } = useTheme();
+  const unreadCount = useUnreadNotificationCount();
   return (
     <Tabs
       screenOptions={{
@@ -33,7 +35,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="notifications"
-        options={{ title: "Notifications", tabBarIcon: ({ color }) => <TabIcon emoji="🔔" color={color} /> }}
+        options={{
+          title: "Notifications",
+          tabBarIcon: ({ color }) => <TabIcon emoji="🔔" color={color} />,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+        }}
       />
       <Tabs.Screen
         name="more"
