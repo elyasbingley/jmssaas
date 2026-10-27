@@ -9304,3 +9304,149 @@ and-replace.
   session (no network access to Netlify from this sandbox) - see the
   test plan given alongside this change for exactly what to click
   through after deploying.
+
+## 68. Notifications (Channels messages + mobile push)
+
+The Notifications tab (`apps/mobile/app/(tabs)/notifications/index.tsx`)
+was a placeholder since the Home/Jobs/Notifications/More tab bar
+restructure, explicitly listing what it would eventually cover: Channels
+messages/emails, quote acceptances, task reminders, job booking
+reminders, stale jobs. This pass builds the real thing and wires up the
+first one - everything else on that list reuses the same primitive, not
+yet built.
+
+### Database
+
+`notifications` (one row per tenant + recipient profile, RLS: a user
+reads/marks-read only their own, no client insert policy at all - every
+row is written server-side by `send-notification`) and `push_tokens`
+(one row per device per profile, unique on `token` since a token can
+legitimately move to a different profile - a reinstall, a shared device -
+and upserting by token rather than by profile is what keeps a stale token
+from double-firing to whoever registered it last). Both Supabase-direct/
+polled, not PowerSync-synced - see the migration's own comment: a
+notification is inherently an "online, right now" concept, and keeping it
+off PowerSync avoids yet another "redeploy `powersync/sync-rules.yaml` via
+the dashboard" manual step a tenant could forget, the exact class of bug
+that made notes/notebooks disappear right after creation earlier in this
+project's history (fixed separately - see that bug's own notes if this
+file still has them).
+
+### Edge Functions
+
+- `send-notification` (service-role-only, called by other Edge Functions,
+  never directly by the app): given `{tenant_id, type, title, body, data,
+  recipient_profile_ids?}`, writes one `notifications` row per recipient
+  (every profile in the tenant when `recipient_profile_ids` is omitted -
+  the Channels case, since nothing like "assigned to me" exists for a
+  conversation) and pushes to Expo
+  (`https://exp.host/--/api/v2/push/send`) for each recipient's
+  registered `push_tokens`. A push failure never blocks the notification
+  row itself - that row, not the push, is the source of truth the
+  Notifications tab reads.
+- `twilio-sms-webhook`/`twilio-whatsapp-webhook`/`facebook-messenger-
+  webhook` each now call `send-notification` after a successful inbound
+  `channel_messages` insert - title is a generic "New SMS/WhatsApp/
+  Messenger message" (no extra lookup for the sender's name, to avoid
+  adding queries to an already-busy webhook; tapping the notification
+  opens the Notifications tab, which has what you need to decide whether
+  to open the conversation), body is the same preview text already
+  computed for the conversation list.
+
+### Mobile (`apps/mobile`)
+
+`lib/use-push-notifications.ts` - called once near the app root
+(`app/_layout.tsx`'s `RootNavigator`) once a profile is known. Requests
+notification permission, gets this device's Expo push token
+(`Notifications.getExpoPushTokenAsync({ projectId })`, the same EAS
+`projectId` already in `app.config.js`), upserts it into `push_tokens`,
+and routes any notification tap straight to the Notifications tab itself
+- not a deep link into the specific conversation, per the explicit ask;
+the Notifications screen is what routes on from there once you tap the
+row. `lib/use-notifications.ts` has the polled list/mark-read hook
+(`useNotifications`) and a lightweight unread-count hook
+(`useUnreadNotificationCount`) that drives the tab bar's badge
+(`app/(tabs)/_layout.tsx`'s `tabBarBadge`). New `expo-notifications`/
+`expo-device` dependencies (SDK 57) and the `expo-notifications` config
+plugin in `app.config.js`.
+
+### One-time setup: Android push credentials (FCM v1)
+
+Expo's legacy shared FCM credentials are deprecated - production push on
+Android now needs your own Firebase Cloud Messaging v1 service account
+key, uploaded to EAS. This is a one-time setup per project, done once by
+whoever owns the EAS account:
+
+1. In the [Firebase Console](https://console.firebase.google.com/),
+   create a project (or use an existing one) and add an Android app with
+   package name `au.bingley.jmssaas` (must match `app.config.js`'s
+   `android.package` exactly).
+2. Project Settings -> Service Accounts -> **Generate new private key** ->
+   download the JSON file.
+3. From `apps/mobile`:
+   ```powershell
+   npx eas credentials
+   ```
+   Select **Android** -> **Push Notifications: Manage your FCM API Key**
+   -> **Set up a FCM v1 service account key** -> upload the JSON file
+   from step 2. (If this is the very first Android credential set up for
+   this project, run `npx eas build:configure -p android` first - EAS
+   can't manage push credentials for a project with no Android build
+   configured yet.)
+4. Deploy the new/changed Edge Functions and push the migration:
+   ```powershell
+   git pull origin main
+   npx supabase db push
+   npx supabase functions deploy send-notification
+   npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+   npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
+   npx supabase functions deploy facebook-messenger-webhook --no-verify-jwt
+   ```
+5. A new EAS build is required to reach devices already installed from a
+   prior build - this is a native-module change (`expo-notifications`),
+   not something an OTA (`eas update`) can deliver:
+   ```powershell
+   cd apps\mobile
+   npx eas build --profile preview --platform android
+   ```
+6. **Push notifications don't work in Expo Go** on this SDK, and need a
+   real device (an emulator/simulator has no push capability) - test
+   against the build from step 5, installed on a physical phone.
+
+iOS push needs its own Apple Developer account + APNs key, set up the
+same way via `eas credentials` (select **iOS** instead) - out of scope
+for now since every build this project has produced so far is Android.
+
+### Test it
+
+1. Build and install the app per the steps above, open it, and grant the
+   notification permission prompt when it appears.
+2. Text the tenant's SMS or WhatsApp number from your own phone.
+3. Within a few seconds: a push notification should arrive on the
+   device (even with the app closed/backgrounded) - tapping it should
+   open the app straight to the Notifications tab, with a new unread row
+   and the 🔔 tab badge showing a count.
+4. Tap the notification row in the list - it should mark itself read
+   (dot disappears, text un-bolds) and open the conversation it's about.
+
+### Known gaps
+
+- **Every other notification type on the tab's own original roadmap**
+  (quote acceptances, task reminders, job booking reminders, stale jobs)
+  is still unbuilt - `send-notification` is ready for them, but nothing
+  calls it for those yet.
+- **No per-recipient dead-token cleanup** - `send-notification` doesn't
+  parse Expo's push receipts to prune a `push_tokens` row once it starts
+  reporting `DeviceNotRegistered`; a stale token (uninstalled app, device
+  reset) just keeps silently failing on every future send rather than
+  being removed. Harmless (nothing breaks), just a small amount of wasted
+  work per send - worth adding if `push_tokens` ever grows large enough
+  to matter.
+- **No notification preferences** - every tenant member gets every
+  Channels notification; there's no per-user "mute this" or per-type
+  opt-out yet.
+- **Not tested against a real Expo push send/receive in this session** -
+  built and verified against the documented Expo/FCM v1 setup flow and a
+  real Postgres instance (schema/RLS), but this sandbox has no way to
+  actually request a push token or receive a push - the real test is the
+  "Test it" section above, on a real device.
