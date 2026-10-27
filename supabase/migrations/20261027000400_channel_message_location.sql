@@ -1,0 +1,18 @@
+-- Inbound WhatsApp location messages - Twilio's own documented fields for
+-- these (Latitude, Longitude, Address, Label - confirmed against Twilio's
+-- WhatsApp message-features docs, not guessed) arrive on the same webhook
+-- POST as a text message, just with no Body. A separate structured column
+-- rather than overloading `media` (storage_path/file_name/mime_type - a
+-- location isn't a file, nothing to store in the channel-media bucket for
+-- it) or `body` (would need ad-hoc parsing back out, when the webhook
+-- already hands this over as clean structured fields).
+--
+-- WhatsApp contact-card messages are a deliberate non-feature here: no
+-- Twilio documentation or changelog entry could be found describing what
+-- fields (if any) it forwards for one, unlike location's own documented
+-- Latitude/Longitude/Address/Label - guessing field names for something
+-- this app would then silently mis-parse (or silently drop) is worse than
+-- just not claiming to support it yet. Revisit once a real inbound
+-- contact-card payload can be inspected (Supabase Edge Function logs, once
+-- one actually arrives) or Twilio documents the shape.
+alter table public.channel_messages add column location jsonb;

@@ -68,11 +68,9 @@ export async function startChannelConversation(params: {
 }
 
 // Mobile port of apps/desktop/src/lib/uploads.ts's uploadChannelMedia -
-// same storage_path convention, image-only here (expo-image-picker,
-// matching the existing company-settings.tsx logo-upload pattern) rather
-// than desktop's any-file-type input, since a native document picker is a
-// separate library this app doesn't otherwise depend on - covers the
-// common "send a photo" case WhatsApp itself is mostly used for.
+// same storage_path convention. Mime-type-agnostic like desktop's own -
+// channels/[id].tsx's two attach buttons (expo-image-picker for photos,
+// expo-document-picker for everything else, e.g. PDFs) both call this.
 export async function uploadChannelMedia(params: {
   tenantId: string;
   conversationId: string;

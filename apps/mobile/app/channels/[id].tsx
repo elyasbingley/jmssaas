@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import {
   createClientSchema,
   splitTextWithLinks,
@@ -248,6 +250,31 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
     }
   };
 
+  // Documents (PDFs etc) alongside pickAttachment's photos - uploadChannelMedia
+  // itself is already mime-type-agnostic (see its own comment), this was
+  // only ever image-only because nothing used expo-document-picker here
+  // yet, not because of any actual limit on what WhatsApp/MMS can carry.
+  const pickDocument = async () => {
+    if (!profile) return;
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset) return;
+
+    setAttaching(true);
+    setSendError(null);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const mimeType = asset.mimeType ?? "application/octet-stream";
+      const uploaded = await uploadChannelMedia({ tenantId: profile.tenant_id, conversationId, base64, fileName: asset.name, mimeType });
+      setAttachment(uploaded);
+    } catch (e) {
+      setSendError(getErrorMessage(e, "Failed to attach file"));
+    } finally {
+      setAttaching(false);
+    }
+  };
+
   const send = async () => {
     if (!reply.trim() && !attachment) return;
     setSending(true);
@@ -289,6 +316,18 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                   style={m.direction === "outbound" ? styles.bubbleTextOutbound : styles.bubbleTextInbound}
                   linkStyle={styles.bubbleLink}
                 />
+              ) : null}
+              {m.location ? (
+                <Text
+                  style={styles.mediaLink}
+                  onPress={() =>
+                    Linking.openURL(`https://www.google.com/maps?q=${m.location!.latitude},${m.location!.longitude}`).catch(() =>
+                      Alert.alert("Couldn't open map")
+                    )
+                  }
+                >
+                  📍 {m.location.label || m.location.address || "Shared location"}
+                </Text>
               ) : null}
               {m.media.map((media) =>
                 mediaUrls[media.storage_path] ? (
@@ -333,6 +372,9 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
             ) : null}
             <View style={styles.composerRow}>
               <Pressable style={styles.attachButton} onPress={pickAttachment} disabled={attaching}>
+                <Text style={styles.attachButtonText}>📷</Text>
+              </Pressable>
+              <Pressable style={styles.attachButton} onPress={pickDocument} disabled={attaching}>
                 <Text style={styles.attachButtonText}>📎</Text>
               </Pressable>
               <TextInput

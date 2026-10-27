@@ -1962,6 +1962,16 @@ export interface ChannelConversation {
   created_at: string;
 }
 
+// Inbound WhatsApp location message - see the channel_message_location
+// migration for why this is its own column/type rather than folded into
+// `media`, and why there's no equivalent for contact cards.
+export interface ChannelLocation {
+  latitude: number;
+  longitude: number;
+  address: string | null;
+  label: string | null;
+}
+
 export interface ChannelMessage {
   id: string;
   conversation_id: string;
@@ -1969,6 +1979,7 @@ export interface ChannelMessage {
   direction: ChannelMessageDirection;
   body: string | null;
   media: ChannelMediaItem[];
+  location: ChannelLocation | null;
   external_message_id: string | null;
   status: ChannelMessageStatus;
   sent_by: string | null;

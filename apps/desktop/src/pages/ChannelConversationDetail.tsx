@@ -321,6 +321,17 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
               }
             >
               {m.body ? <LinkifiedText body={m.body} /> : null}
+              {m.location ? (
+                <a
+                  href={`https://www.google.com/maps?q=${m.location.latitude},${m.location.longitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block underline"
+                  style={{ color: "var(--jms-accent)" }}
+                >
+                  📍 {m.location.label || m.location.address || "Shared location"}
+                </a>
+              ) : null}
               {m.media.map((media) =>
                 mediaUrls[media.storage_path] ? (
                   <a

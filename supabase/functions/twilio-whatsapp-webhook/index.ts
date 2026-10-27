@@ -98,6 +98,17 @@ Deno.serve(async (req: Request) => {
   const toRaw = params.get("To");
   const body = params.get("Body");
   const messageSid = params.get("MessageSid");
+  // A location-share message - Twilio's own documented fields for this
+  // (Latitude/Longitude always present together, Address/Label optional -
+  // see Twilio's WhatsApp "Rich Messaging Features" docs). No equivalent
+  // handling for contact-card messages - see the channel_message_location
+  // migration's own comment on why.
+  const latitudeRaw = params.get("Latitude");
+  const longitudeRaw = params.get("Longitude");
+  const location =
+    latitudeRaw && longitudeRaw
+      ? { latitude: Number(latitudeRaw), longitude: Number(longitudeRaw), address: params.get("Address"), label: params.get("Label") }
+      : null;
   // The WhatsApp account's own display name, when set - not present on
   // plain SMS, worth capturing as a nicer default than a bare number.
   const profileName = params.get("ProfileName");
@@ -129,7 +140,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "server_error" }, 500);
   }
 
-  const preview = (body ?? "").slice(0, 200) || (params.get("NumMedia") !== "0" ? "(attachment)" : null);
+  const preview = (body ?? "").slice(0, 200) || (location ? `📍 ${location.label || location.address || "Shared location"}` : null) || (params.get("NumMedia") !== "0" ? "(attachment)" : null);
   let conversationId: string;
 
   if (existingConversation) {
@@ -193,6 +204,7 @@ Deno.serve(async (req: Request) => {
     direction: "inbound",
     body,
     media,
+    location,
     external_message_id: messageSid,
     status: "received",
   });
