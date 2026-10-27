@@ -75,7 +75,16 @@ export default function ChannelsPage() {
   const drawerMatch = useMatch("/channels/:id");
   const { profile } = useAuth();
 
-  const { data: conversations, isLoading: conversationsLoading } = useQuery({ queryKey: ["channel-conversations"], queryFn: fetchConversations });
+  // Polled, not just invalidated on an admin's own send - an inbound
+  // message (twilio-whatsapp-webhook etc.) writes straight to the
+  // database with nothing to tell a currently-open Channels list to
+  // re-fetch, so a new conversation sat invisible until some unrelated
+  // action (the admin's own next send) happened to invalidate this query.
+  const { data: conversations, isLoading: conversationsLoading } = useQuery({
+    queryKey: ["channel-conversations"],
+    queryFn: fetchConversations,
+    refetchInterval: 8000,
+  });
   const { data: inboxMessages, isLoading: inboxLoading } = useQuery({ queryKey: ["inbox-messages-for-channels"], queryFn: fetchInboxMessages });
   const { data: tenant } = useQuery({
     queryKey: ["tenant", profile?.tenant_id],

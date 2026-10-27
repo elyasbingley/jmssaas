@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -60,6 +60,20 @@ export default function ChannelsScreen() {
     refetchConversations();
     refetchInbox();
   });
+
+  // Also polled while this screen stays focused - an inbound message
+  // (twilio-whatsapp-webhook etc.) writes straight to the database with
+  // nothing to tell an already-open Channels list to re-fetch, so a new
+  // conversation sat invisible until the admin navigated away and back
+  // (triggering useRefetchOnFocus) or sent something themselves.
+  useEffect(() => {
+    if (!isOnline) return;
+    const interval = setInterval(() => {
+      refetchConversations();
+      refetchInbox();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [isOnline, refetchConversations, refetchInbox]);
 
   const [channelFilter, setChannelFilter] = useState<ChannelTypeOrEmail | "all">("all");
   const [search, setSearch] = useState("");
