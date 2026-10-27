@@ -8604,6 +8604,55 @@ the Sandbox above (webhook URL + paste the number into Settings) but with
 your own permanent number instead of the shared Sandbox one - budget for
 Meta's verification timeline before this path is usable.
 
+### WhatsApp Templates + Broadcasts (one-time, in the Twilio Console)
+
+Messaging a client who hasn't texted first - cold outreach, and the
+broadcast feature below - needs a WhatsApp Content Template pre-approved
+by Meta, not a plain body string (same Option B note above). This is
+separate from Option A/B's own webhook setup, which only covers *replying*
+within an open session.
+
+1. Twilio Console -> Messaging -> Content Template Builder -> Create new ->
+   build the template (plain text with `{{1}}`, `{{2}}`... placeholders,
+   e.g. "Hi {{1}}, time for your seasonal checkup from {{2}}. Reply to
+   book.") -> submit for WhatsApp approval. This can take anywhere from
+   minutes to a day or two; the template is unusable until Meta approves it.
+2. Once approved, copy its Content SID (`HXxxxxxxxx...`) -> in this app,
+   Settings -> WhatsApp Templates -> + Register Template -> paste the SID,
+   give it a name, paste the approved copy for reference, and label each
+   `{{n}}` variable in order.
+3. Deploy the broadcast processor (new in this pass):
+   ```powershell
+   git pull origin main
+   npx supabase db push
+   npx supabase functions deploy process-whatsapp-broadcast
+   ```
+   (No new secrets - it reuses `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`,
+   already set for SMS/WhatsApp replies above. Not `--no-verify-jwt`: like
+   `channel-send-message`, this is only ever called by a signed-in admin or
+   the cron sweep's own service-role token, never by Twilio directly.)
+4. Channels -> 📢 Broadcast (desktop) or the same button on mobile's
+   Channels screen -> pick the template, fill in its variables (each
+   client's own name, or one fixed value for everyone, e.g. the company
+   name), pick recipients, Send. The compose screen itself repeatedly calls
+   the processor until nothing's left queued, so this works with no further
+   setup - a broadcast larger than one batch (50 recipients) just takes a
+   few more calls, handled automatically.
+5. Optional backstop: a cron sweep that picks up anything left queued if a
+   broadcast's tab gets closed mid-send, same idea as process-scheduled-
+   comms' own sweep. Run once, from the Supabase SQL Editor (needs this
+   project's own deployed URL and a service-role bearer token):
+   ```sql
+   select cron.schedule(
+     'process-whatsapp-broadcast-sweep',
+     '*/5 * * * *',
+     $$select net.http_post(
+       url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/process-whatsapp-broadcast',
+       headers := jsonb_build_object('Authorization', 'Bearer YOUR-SERVICE-ROLE-KEY')
+     )$$
+   );
+   ```
+
 ### Meta App + Messenger setup (one-time, in the Meta Developer Portal)
 
 1. developers.facebook.com -> My Apps -> Create App (type "Business") ->

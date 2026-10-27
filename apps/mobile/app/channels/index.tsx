@@ -115,9 +115,14 @@ export default function ChannelsScreen() {
           </Pressable>
           <View style={styles.headerRow}>
             <Text style={styles.title}>Channels</Text>
-            <Pressable style={styles.newButton} onPress={() => router.push("/channels/new")}>
-              <Text style={styles.newButtonText}>+ New Message</Text>
-            </Pressable>
+            <View style={styles.headerButtons}>
+              <Pressable style={styles.newButton} onPress={() => router.push("/channels/broadcast")}>
+                <Text style={styles.newButtonText}>📢 Broadcast</Text>
+              </Pressable>
+              <Pressable style={styles.newButton} onPress={() => router.push("/channels/new")}>
+                <Text style={styles.newButtonText}>+ New Message</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
 
@@ -182,6 +187,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 6 },
     link: { color: tokens.accent, fontWeight: "600" as const, ...mono },
     headerRow: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const },
+    headerButtons: { flexDirection: "row" as const, gap: 8 },
     title: { fontSize: font.title + 4, fontWeight: "700" as const, color: tokens.textPrimary, letterSpacing: 1, ...mono },
     newButton: { borderWidth: 1, borderColor: tokens.accent, borderRadius: 3, paddingVertical: 6, paddingHorizontal: 10 },
     newButtonText: { color: tokens.accent, fontWeight: "700" as const, fontSize: font.label, textTransform: "uppercase" as const, ...mono },

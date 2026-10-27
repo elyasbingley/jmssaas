@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Outlet, useMatch, useNavigate } from "react-router-dom";
+import { Link, Outlet, useMatch, useNavigate } from "react-router-dom";
 import type { ChannelConversation, ChannelTypeOrEmail, InboxMessage, Tenant } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -185,6 +185,13 @@ export default function ChannelsPage() {
           <ThemedButton onClick={openNewMessage} style={{ paddingBlock: 6, paddingInline: 14 }}>
             + New Message
           </ThemedButton>
+          <Link
+            to="/whatsapp-broadcast"
+            className="jms-nav-link rounded border px-3 py-1.5 font-semibold"
+            style={{ borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
+            📢 Broadcast
+          </Link>
           {(["all", "sms", "whatsapp", "messenger", "instagram", "email"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
             <button
               key={f}
