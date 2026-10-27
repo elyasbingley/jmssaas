@@ -8562,13 +8562,20 @@ result).
    npx supabase secrets set TWILIO_AUTH_TOKEN=your_auth_token_here
    npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
    npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
+   npx supabase functions deploy twilio-status-callback --no-verify-jwt
    npx supabase functions deploy channel-send-message
    npx vercel --prod
    ```
    (`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` are shared by both webhooks -
    no separate secrets needed for WhatsApp. `channel-send-message` is
    called by the app with the user's own session, not Twilio, so it keeps
-   the platform's default JWT verification - no `--no-verify-jwt`.)
+   the platform's default JWT verification - no `--no-verify-jwt`.
+   `twilio-status-callback` delivers delivery/read receipts for every
+   outbound SMS/WhatsApp send - no Twilio Console configuration needed for
+   it, `channel-send-message`/`process-whatsapp-broadcast` both pass its
+   URL as `StatusCallback` on every send automatically; it does need
+   `--no-verify-jwt` since Twilio calls it directly with no Supabase auth
+   header, same as the two inbound webhooks above.)
 5. A new EAS build is needed for the mobile changes here to reach devices
    already installed from a prior build.
 

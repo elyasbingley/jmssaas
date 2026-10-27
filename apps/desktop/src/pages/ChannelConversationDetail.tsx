@@ -6,6 +6,7 @@ import {
   splitTextWithLinks,
   type ChannelConversation,
   type ChannelMessage,
+  type ChannelMessageStatus,
   type InboxMessage,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -37,6 +38,33 @@ function LinkifiedText({ body }: { body: string }) {
       )}
     </p>
   );
+}
+
+// Delivery/read receipt indicator for an outbound message - ticks
+// mirroring the familiar WhatsApp shape (grey single/double, blue double
+// for read), driven by channel_messages.status as twilio-status-callback
+// updates it. 'sent'/'queued'/'sending' all render as a single tick rather
+// than three near-identical states the recipient's phone never surfaces
+// distinctly either.
+function DeliveryStatus({ status }: { status: ChannelMessageStatus }) {
+  if (status === "failed" || status === "undelivered") {
+    return (
+      <span title={status === "failed" ? "Failed to send" : "Not delivered"} style={{ color: "var(--jms-danger)" }}>
+        ⚠ {status === "failed" ? "Failed" : "Undelivered"}
+      </span>
+    );
+  }
+  if (status === "read") {
+    return (
+      <span title="Read" style={{ color: "var(--jms-accent)" }}>
+        ✓✓
+      </span>
+    );
+  }
+  if (status === "delivered") {
+    return <span title="Delivered">✓✓</span>;
+  }
+  return <span title="Sent">✓</span>;
 }
 
 async function fetchConversation(id: string): Promise<ChannelConversation & { clients: { id: string; name: string } | null }> {
@@ -192,7 +220,10 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: conversation } = useQuery({ queryKey: ["channel-conversation", conversationId], queryFn: () => fetchConversation(conversationId) });
-  const { data: messages } = useQuery({ queryKey: ["channel-messages", conversationId], queryFn: () => fetchMessages(conversationId) });
+  // Polled (not just invalidated on send) since delivery/read status
+  // updates arrive asynchronously via twilio-status-callback, with no
+  // other signal this screen would otherwise see to know a status changed.
+  const { data: messages } = useQuery({ queryKey: ["channel-messages", conversationId], queryFn: () => fetchMessages(conversationId), refetchInterval: 8000 });
 
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -304,8 +335,9 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                   </a>
                 ) : null
               )}
-              <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              <p className="mt-1 flex items-center gap-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                 {new Date(m.created_at).toLocaleString("en-AU")}
+                {m.direction === "outbound" ? <DeliveryStatus status={m.status} /> : null}
               </p>
             </div>
           </div>

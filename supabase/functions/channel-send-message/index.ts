@@ -58,6 +58,11 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
+// Twilio POSTs delivery/read-receipt updates here as each message
+// progresses - see that function's own comment. Passed on every Twilio
+// send below so channel_messages.status stays current after the initial
+// 'sent' write this function itself makes.
+const STATUS_CALLBACK_URL = `${SUPABASE_URL}/functions/v1/twilio-status-callback`;
 const GRAPH_API_VERSION = "v21.0";
 const MEDIA_BUCKET = "channel-media";
 
@@ -81,7 +86,7 @@ async function sendViaTwilio(params: { from: string; to: string; body?: string; 
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) return { error: "twilio_not_configured" };
   const prefix = params.viaWhatsapp ? "whatsapp:" : "";
   const basicAuth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
-  const form = new URLSearchParams({ To: `${prefix}${params.to}`, From: `${prefix}${params.from}` });
+  const form = new URLSearchParams({ To: `${prefix}${params.to}`, From: `${prefix}${params.from}`, StatusCallback: STATUS_CALLBACK_URL });
   if (params.body) form.set("Body", params.body);
   if (params.mediaUrl) form.set("MediaUrl", params.mediaUrl);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {

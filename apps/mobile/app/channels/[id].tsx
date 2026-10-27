@@ -9,6 +9,7 @@ import {
   splitTextWithLinks,
   type ChannelConversation,
   type ChannelMessage,
+  type ChannelMessageStatus,
   type InboxMessage,
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
@@ -30,6 +31,18 @@ import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedReq
 
 const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
 const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
+
+// Mirrors desktop's own DeliveryStatus - a plain text suffix here rather
+// than a separately-styled span, since nesting a differently-coloured
+// inline <Text> for just this adds more complexity than the signal is
+// worth on a small screen.
+function deliveryStatusLabel(status: ChannelMessageStatus): string {
+  if (status === "failed") return "⚠ Failed";
+  if (status === "undelivered") return "⚠ Undelivered";
+  if (status === "read") return "✓✓ Read";
+  if (status === "delivered") return "✓✓ Delivered";
+  return "✓ Sent";
+}
 
 // Renders a message body with any http(s) URLs (splitTextWithLinks, shared
 // with desktop) as tappable, underlined spans - RN's <Text> doesn't
@@ -169,6 +182,15 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
   const { data: conversation, refetch } = useSupabaseFetch(async () => fetchConversation(conversationId), [conversationId]);
   const { data: messages, refetch: refetchMessages } = useSupabaseFetch(async () => fetchMessages(conversationId), [conversationId]);
 
+  // Polled since delivery/read status updates arrive asynchronously via
+  // twilio-status-callback, with no other signal this screen would
+  // otherwise see to know a status changed - same reasoning as desktop's
+  // own refetchInterval on this query.
+  useEffect(() => {
+    const interval = setInterval(() => refetchMessages(), 8000);
+    return () => clearInterval(interval);
+  }, [refetchMessages]);
+
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
@@ -281,6 +303,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
               )}
               <Text style={m.direction === "outbound" ? styles.bubbleTimeOutbound : styles.bubbleTimeInbound}>
                 {new Date(m.created_at).toLocaleString("en-AU")}
+                {m.direction === "outbound" ? ` · ${deliveryStatusLabel(m.status)}` : ""}
               </Text>
             </View>
           </View>

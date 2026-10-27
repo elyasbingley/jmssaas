@@ -1923,7 +1923,11 @@ export interface InboxAttachment {
 export type ChannelType = "sms" | "whatsapp" | "messenger" | "instagram";
 export type ChannelConnectionStatus = "not_connected" | "connected";
 export type ChannelMessageDirection = "inbound" | "outbound";
-export type ChannelMessageStatus = "sent" | "delivered" | "failed" | "received";
+// "queued"/"sending" were added alongside "read"/"undelivered" by the
+// channel_message_delivery_status migration - twilio-status-callback is
+// what actually writes anything past the initial "sent"/"received" an
+// outbound/inbound send already wrote.
+export type ChannelMessageStatus = "queued" | "sending" | "sent" | "delivered" | "read" | "undelivered" | "failed" | "received";
 
 export interface ChannelConnection {
   id: string;

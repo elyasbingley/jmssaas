@@ -34,6 +34,10 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
+// See twilio-status-callback's own comment - passed on every send so each
+// recipient's channel_messages row (and so the Channels thread) picks up
+// delivered/read/undelivered as Twilio reports it.
+const STATUS_CALLBACK_URL = `${SUPABASE_URL}/functions/v1/twilio-status-callback`;
 
 // Same bound as process-scheduled-comms' own BATCH_LIMIT - keeps one
 // invocation fast and bounded; the caller (or the next cron tick) picks up
@@ -80,6 +84,7 @@ async function sendTemplateViaTwilio(params: { from: string; to: string; content
     To: `whatsapp:${params.to}`,
     From: `whatsapp:${params.from}`,
     ContentSid: params.contentSid,
+    StatusCallback: STATUS_CALLBACK_URL,
   });
   if (Object.keys(contentVariables).length > 0) form.set("ContentVariables", JSON.stringify(contentVariables));
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
