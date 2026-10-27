@@ -49,6 +49,14 @@ interface SendSmsModalProps {
   title: string;
   sendLabel?: string;
   mode: "fixed" | "picker";
+  // mode="picker" only - lets Channels' "+ New Message" offer a choice of
+  // channel when the tenant has more than one outbound number configured.
+  // Omitted (or a single-entry array) renders no toggle at all - every
+  // other caller (QuoteDetail/InvoiceDetail's fixed-mode SMS buttons) is
+  // unaffected.
+  channelType?: "sms" | "whatsapp";
+  onChannelTypeChange?: (channelType: "sms" | "whatsapp") => void;
+  availableChannelTypes?: ("sms" | "whatsapp")[];
   // mode="fixed" only - the recipient is already known (e.g. the quote's
   // client); the phone field still starts out editable.
   fixedPhone?: string;
@@ -71,6 +79,9 @@ export function SendSmsModal({
   title,
   sendLabel,
   mode,
+  channelType,
+  onChannelTypeChange,
+  availableChannelTypes,
   fixedPhone,
   fixedClientId,
   fixedContactName,
@@ -288,6 +299,25 @@ export function SendSmsModal({
 
   return (
     <ThemedModal open={open} onClose={onClose} title={title}>
+      {mode === "picker" && onChannelTypeChange && availableChannelTypes && availableChannelTypes.length > 1 ? (
+        <div className="mb-3 flex gap-2">
+          {availableChannelTypes.map((ct) => (
+            <button
+              key={ct}
+              onClick={() => onChannelTypeChange(ct)}
+              className="rounded-full border px-3 py-1.5 font-semibold"
+              style={
+                channelType === ct
+                  ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }
+                  : { backgroundColor: "transparent", borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }
+              }
+            >
+              {ct === "sms" ? "💬 SMS" : "🟢 WhatsApp"}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {mode === "picker" ? (
         <div className="mb-4">
           <div className="mb-3 flex gap-2">

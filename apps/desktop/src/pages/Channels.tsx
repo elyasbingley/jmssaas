@@ -86,26 +86,36 @@ export default function ChannelsPage() {
   const [channelFilter, setChannelFilter] = useState<ChannelTypeOrEmail | "all">("all");
   const [search, setSearch] = useState("");
 
-  // "+ New Message" - start a brand new outbound SMS conversation, either
-  // to an existing client or a manually-typed number (SendSmsModal's own
-  // mode="picker"). Same tenant.sms_phone_number pre-flight check as
-  // QuoteDetail's "Send Quote via SMS" button - checked before the modal
-  // ever opens, not left to fail at send time.
+  // "+ New Message" - start a brand new outbound SMS or WhatsApp
+  // conversation, either to an existing client or a manually-typed number
+  // (SendSmsModal's own mode="picker"). Same "check the number's configured
+  // before the modal ever opens" idea as QuoteDetail's "Send Quote via SMS"
+  // button, now per channel - availableChannelTypes only lists the ones
+  // the tenant has actually set up in Settings > Channels.
   const [newMessageOpen, setNewMessageOpen] = useState(false);
   const [newMessageError, setNewMessageError] = useState<string | null>(null);
+  const [newMessageChannelType, setNewMessageChannelType] = useState<"sms" | "whatsapp">("sms");
+
+  const availableNewMessageChannels = useMemo((): ("sms" | "whatsapp")[] => {
+    const types: ("sms" | "whatsapp")[] = [];
+    if (tenant?.sms_phone_number) types.push("sms");
+    if (tenant?.whatsapp_phone_number) types.push("whatsapp");
+    return types;
+  }, [tenant]);
 
   const openNewMessage = () => {
     setNewMessageError(null);
-    if (!tenant?.sms_phone_number) {
-      setNewMessageError("Set up your SMS number in Settings > Company Settings before sending SMS");
+    if (availableNewMessageChannels.length === 0) {
+      setNewMessageError("Set up your SMS or WhatsApp number in Settings > Company Settings before sending a message");
       return;
     }
+    setNewMessageChannelType(availableNewMessageChannels[0]!);
     setNewMessageOpen(true);
   };
 
   const handleSendNewMessage = async (payload: { phone: string; body: string; clientId?: string; contactName?: string }) => {
     const result = await startChannelConversation({
-      channelType: "sms",
+      channelType: newMessageChannelType,
       toPhone: payload.phone,
       body: payload.body,
       clientId: payload.clientId,
@@ -249,8 +259,11 @@ export default function ChannelsPage() {
         open={newMessageOpen}
         onClose={() => setNewMessageOpen(false)}
         title="New message"
-        sendLabel="Send"
+        sendLabel={newMessageChannelType === "whatsapp" ? "Send WhatsApp" : "Send SMS"}
         mode="picker"
+        channelType={newMessageChannelType}
+        onChannelTypeChange={setNewMessageChannelType}
+        availableChannelTypes={availableNewMessageChannels}
         renderContextBase={
           tenant
             ? {

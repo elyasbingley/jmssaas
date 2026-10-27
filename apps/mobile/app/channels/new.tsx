@@ -51,6 +51,16 @@ export default function NewChannelMessageScreen() {
   const [composeVisible, setComposeVisible] = useState(false);
   const [recipientError, setRecipientError] = useState<string | null>(null);
 
+  const availableChannels: ("sms" | "whatsapp")[] = [
+    ...(tenant?.sms_phone_number ? (["sms"] as const) : []),
+    ...(tenant?.whatsapp_phone_number ? (["whatsapp"] as const) : []),
+  ];
+  const [channelTypeChoice, setChannelTypeChoice] = useState<"sms" | "whatsapp">("sms");
+  // Falls back to whichever channel is actually configured rather than a
+  // plain useState default, since the tenant row (and so which numbers
+  // exist) only arrives after this component's first render.
+  const channelType = availableChannels.includes(channelTypeChoice) ? channelTypeChoice : availableChannels[0];
+
   const header = (
     <View style={styles.header}>
       <Pressable onPress={() => router.back()} hitSlop={8}>
@@ -75,14 +85,15 @@ export default function NewChannelMessageScreen() {
   // Same pre-flight check as the Quote detail screen's "Send Quote via
   // SMS" - blocks before the recipient/compose UI even opens rather than
   // failing later inside channel-send-message with a less helpful error.
-  if (!tenantLoading && tenant && !tenant.sms_phone_number) {
+  // Now per channel: either number configured is enough to proceed.
+  if (!tenantLoading && tenant && availableChannels.length === 0) {
     return (
       <>
         <StatusBar style="light" />
         <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
           {header}
           <View style={styles.notConfiguredWrap}>
-            <Text style={styles.notConfigured}>Set up your SMS number in Settings &gt; Channels before sending SMS.</Text>
+            <Text style={styles.notConfigured}>Set up your SMS or WhatsApp number in Settings &gt; Channels before sending a message.</Text>
           </View>
         </SafeAreaView>
       </>
@@ -110,7 +121,7 @@ export default function NewChannelMessageScreen() {
 
   const handleSend = async (payload: { phone: string; body: string }) => {
     const result = await startChannelConversation({
-      channelType: "sms",
+      channelType: channelType ?? "sms",
       toPhone: payload.phone,
       body: payload.body,
       clientId: mode === "client" ? selectedClient?.id : undefined,
@@ -125,6 +136,25 @@ export default function NewChannelMessageScreen() {
       <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
         {header}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {availableChannels.length > 1 ? (
+            <>
+              <Text style={styles.sectionTitle}>Channel</Text>
+              <View style={[styles.modeRow, { marginBottom: 16 }]}>
+                {availableChannels.map((ct) => (
+                  <Pressable
+                    key={ct}
+                    style={[styles.modeChip, channelType === ct && styles.modeChipActive]}
+                    onPress={() => setChannelTypeChoice(ct)}
+                  >
+                    <Text style={[styles.modeChipText, channelType === ct && styles.modeChipTextActive]}>
+                      {ct === "sms" ? "💬 SMS" : "🟢 WhatsApp"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+
           <Text style={styles.sectionTitle}>Send to</Text>
           <View style={styles.modeRow}>
             <Pressable
@@ -191,7 +221,7 @@ export default function NewChannelMessageScreen() {
         defaultBody=""
         isAdmin={isAdmin}
         onSend={handleSend}
-        sendLabel="Send"
+        sendLabel={channelType === "whatsapp" ? "Send WhatsApp" : "Send SMS"}
       />
     </>
   );
