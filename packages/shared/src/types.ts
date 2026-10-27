@@ -2150,3 +2150,41 @@ export interface NoteAttachment {
   created_by: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Notifications - see the notifications migration's own comment for why
+// this is a general-purpose primitive (not Channels-specific) and why it's
+// Supabase-direct/polled rather than PowerSync-synced.
+// ---------------------------------------------------------------------------
+
+export type NotificationType = "channel_message";
+
+// Per-type `data` shape - a union keyed by `type` so the app can route a
+// tap without a runtime shape-guess. Add a member here alongside each new
+// NotificationType as the rest of the roadmap (quote_accepted, task_due,
+// job_booking_reminder, stale_job) gets built.
+export interface ChannelMessageNotificationData {
+  conversation_id: string;
+}
+
+export interface Notification {
+  id: string;
+  tenant_id: string;
+  profile_id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: ChannelMessageNotificationData;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface PushToken {
+  id: string;
+  tenant_id: string;
+  profile_id: string;
+  token: string;
+  platform: "ios" | "android";
+  created_at: string;
+  updated_at: string;
+}

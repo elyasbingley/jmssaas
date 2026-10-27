@@ -23,9 +23,31 @@ const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
 const FUNCTION_URL = `${SUPABASE_URL}/functions/v1/twilio-whatsapp-webhook`;
 const MEDIA_BUCKET = "channel-media";
 const WHATSAPP_PREFIX = "whatsapp:";
+const SEND_NOTIFICATION_URL = `${SUPABASE_URL}/functions/v1/send-notification`;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+// See twilio-sms-webhook's own identical helper - notifies every profile
+// in the tenant, best-effort (never fails the webhook over it).
+async function notifyNewMessage(tenantId: string, conversationId: string, title: string, preview: string): Promise<void> {
+  try {
+    const res = await fetch(SEND_NOTIFICATION_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        type: "channel_message",
+        title,
+        body: preview,
+        data: { conversation_id: conversationId },
+      }),
+    });
+    if (!res.ok) console.error("[twilio-whatsapp-webhook] send-notification call failed", res.status, await res.text());
+  } catch (e) {
+    console.error("[twilio-whatsapp-webhook] send-notification call threw", e);
+  }
 }
 
 function stripWhatsappPrefix(value: string): string {
@@ -212,6 +234,8 @@ Deno.serve(async (req: Request) => {
     console.error("[twilio-whatsapp-webhook] Failed to insert message", messageError);
     return json({ error: "server_error" }, 500);
   }
+
+  await notifyNewMessage(tenant.id, conversationId, "New WhatsApp message", preview || "(attachment)");
 
   return json({ ok: true, conversation_id: conversationId });
 });

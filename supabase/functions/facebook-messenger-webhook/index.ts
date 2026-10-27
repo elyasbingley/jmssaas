@@ -26,9 +26,31 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "
 const FACEBOOK_APP_SECRET = Deno.env.get("FACEBOOK_APP_SECRET") ?? "";
 const FACEBOOK_WEBHOOK_VERIFY_TOKEN = Deno.env.get("FACEBOOK_WEBHOOK_VERIFY_TOKEN") ?? "";
 const MEDIA_BUCKET = "channel-media";
+const SEND_NOTIFICATION_URL = `${SUPABASE_URL}/functions/v1/send-notification`;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+// See twilio-sms-webhook's own identical helper - notifies every profile
+// in the tenant, best-effort (never fails the webhook over it).
+async function notifyNewMessage(tenantId: string, conversationId: string, title: string, preview: string): Promise<void> {
+  try {
+    const res = await fetch(SEND_NOTIFICATION_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        type: "channel_message",
+        title,
+        body: preview,
+        data: { conversation_id: conversationId },
+      }),
+    });
+    if (!res.ok) console.error("[facebook-messenger-webhook] send-notification call failed", res.status, await res.text());
+  } catch (e) {
+    console.error("[facebook-messenger-webhook] send-notification call threw", e);
+  }
 }
 
 async function verifySignature(rawBody: string, signatureHeader: string | null): Promise<boolean> {
@@ -213,7 +235,11 @@ Deno.serve(async (req: Request) => {
         external_message_id: message.mid,
         status: "received",
       });
-      if (messageError) console.error("[facebook-messenger-webhook] Failed to insert message", messageError);
+      if (messageError) {
+        console.error("[facebook-messenger-webhook] Failed to insert message", messageError);
+      } else {
+        await notifyNewMessage(connection.tenant_id, conversationId, "New Messenger message", preview || "(attachment)");
+      }
     }
   }
 
