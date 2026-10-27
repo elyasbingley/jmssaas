@@ -1999,6 +1999,26 @@ export interface ChannelMessageTemplate {
   updated_at: string;
 }
 
+// WhatsApp approved message template ("Content Template" in Twilio's own
+// terms) - see the whatsapp_templates migration's own comment for why this
+// is a separate concept from ChannelMessageTemplate above: content_sid is
+// a Meta-approved template Twilio sends by SID, required for messaging a
+// contact outside the 24-hour session window (cold outreach, broadcasts),
+// not a free-text body this app can render and send itself.
+export interface WhatsappTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  content_sid: string;
+  body_preview: string;
+  // One label per positional {{n}} variable in the approved copy, in order.
+  variable_labels: string[];
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Notes module - mirrors the notes_module migration. Deliberately separate
 // from the Knowledge base module above (admin-authored published articles,

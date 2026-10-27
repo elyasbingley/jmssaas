@@ -1211,6 +1211,24 @@ export type CreateChannelMessageTemplateInput = z.infer<typeof createChannelMess
 export const updateChannelMessageTemplateSchema = createChannelMessageTemplateSchema;
 export type UpdateChannelMessageTemplateInput = z.infer<typeof updateChannelMessageTemplateSchema>;
 
+// WhatsApp approved Content Template registration (see WhatsappTemplate's
+// own comment) - content_sid isn't strictly validated against Twilio's own
+// "HX..." shape since a Flow/other content type can have a different
+// prefix; just required and non-empty. variable_labels stays an array of
+// non-empty strings, one per positional {{n}} in the approved copy - order
+// matters (the compose UI zips it against {{1}}, {{2}}... by index) but
+// the count against what Twilio actually expects can't be validated here.
+export const createWhatsappTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  content_sid: z.string().min(1, "Content SID is required"),
+  body_preview: z.string().min(1, "Paste the approved template text for reference"),
+  variable_labels: z.array(z.string().min(1, "Variable label can't be empty")).default([]),
+});
+export type CreateWhatsappTemplateInput = z.infer<typeof createWhatsappTemplateSchema>;
+
+export const updateWhatsappTemplateSchema = createWhatsappTemplateSchema;
+export type UpdateWhatsappTemplateInput = z.infer<typeof updateWhatsappTemplateSchema>;
+
 // Same shape/intent as createJobFromInboxSchema - always a real client_id
 // by submit time (the form creates a new client first if needed).
 export const createJobFromChannelSchema = z.object({

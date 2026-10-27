@@ -24,6 +24,7 @@ const ITEMS: SettingsTile[] = [
   { href: "/job-setup", label: "Job Card Setup", emoji: "🛠️", adminOnly: true },
   { href: "/inventory-setup", label: "Inventory Setup", emoji: "📦", adminOnly: true },
   { href: "/channels/templates", label: "SMS Templates", emoji: "💬", adminOnly: true },
+  { href: "/channels/whatsapp-templates", label: "WhatsApp Templates", emoji: "🟢", adminOnly: true },
 ];
 
 export default function SettingsScreen() {

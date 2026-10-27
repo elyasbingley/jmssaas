@@ -23,6 +23,7 @@ import SettingsPage from "./pages/Settings";
 import UISettingsPage from "./pages/UISettings";
 import AutomationSettingsPage from "./pages/AutomationSettings";
 import SmsTemplatesPage from "./pages/SmsTemplates";
+import WhatsappTemplatesPage from "./pages/WhatsappTemplates";
 import JobSetupPage from "./pages/JobSetup";
 import JobTemplatesPage from "./pages/JobTemplates";
 import BundlesPage from "./pages/Bundles";
@@ -136,6 +137,7 @@ export default function App() {
                 <Route path="/settings/ui-settings" element={<UISettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/sms-templates" element={<SmsTemplatesPage />} />
+                <Route path="/settings/whatsapp-templates" element={<WhatsappTemplatesPage />} />
                 <Route path="/settings/job-setup" element={<JobSetupPage />} />
                 <Route path="/settings/job-templates" element={<JobTemplatesPage />} />
                 <Route path="/settings/bundles" element={<BundlesPage />} />

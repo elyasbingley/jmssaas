@@ -18,6 +18,7 @@ const TILES = [
   { to: "/settings/ui-settings", label: "UI Settings", emoji: "🎨" },
   { to: "/settings/automation", label: "Automation & Messaging", emoji: "💬" },
   { to: "/settings/sms-templates", label: "SMS Templates", emoji: "📱" },
+  { to: "/settings/whatsapp-templates", label: "WhatsApp Templates", emoji: "🟢" },
   { to: "/settings/job-setup", label: "Job Setup", emoji: "🛠️" },
   { to: "/settings/job-templates", label: "Job Templates", emoji: "📝" },
   { to: "/settings/bundles", label: "Bundles", emoji: "📦" },
