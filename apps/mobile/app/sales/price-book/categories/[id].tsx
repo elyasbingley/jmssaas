@@ -3,7 +3,13 @@ import { ImageBackground, Pressable, ScrollView, Text, View } from "react-native
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { computeLineItemUnitPriceCents, formatCentsAsAud, type PriceBookCategory, type PriceBookItem } from "@jmssaas/shared";
+import {
+  computeItemizedLinePricing,
+  computeLineItemUnitPriceCents,
+  formatCentsAsAud,
+  type PriceBookCategory,
+  type PriceBookItem,
+} from "@jmssaas/shared";
 import { useIsOnline } from "../../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../../lib/use-supabase-fetch";
 import { supabase } from "../../../../lib/supabase";
@@ -13,6 +19,30 @@ import { ThemedRequiresConnectionNotice } from "../../../../components/theme/The
 import { ThemedModal } from "../../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../../../components/theme/ThemedButton";
+
+// Same branch the desktop port of this screen (PriceBookCategory.tsx) uses -
+// an itemized item's price isn't in labour_rate_cents/material_cost_cents/
+// markup_percent at all (those stay 0), so computeLineItemUnitPriceCents
+// alone always came back $0 for one here.
+function previewItemPriceCents(item: PriceBookItem): number {
+  if (item.pricing_model !== "itemized") return computeLineItemUnitPriceCents(item);
+  return computeItemizedLinePricing({
+    quantity: item.quantity ?? 1,
+    labour_hours: item.labour_hours,
+    labour_cost_rate_cents: item.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: item.labour_charge_out_rate_cents ?? undefined,
+    material_cost_cents: item.material_cost_cents,
+    material_margin_percent: item.material_margin_percent ?? undefined,
+    waste_percent: item.waste_percent ?? undefined,
+    contingency_percent: item.contingency_percent ?? undefined,
+    tip_fees_cents: item.tip_fees_cents ?? undefined,
+    equipment_hire_cents: item.equipment_hire_cents ?? undefined,
+    travel_cost_cents: item.travel_cost_cents ?? undefined,
+    is_subcontracted: item.is_subcontracted ?? false,
+    subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+    subcontractor_margin_percent: item.subcontractor_margin_percent ?? undefined,
+  }).unitPriceCents;
+}
 
 export default function PriceBookCategoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -99,7 +129,7 @@ export default function PriceBookCategoryScreen() {
                         <Text style={styles.tileImageLabel} numberOfLines={2}>
                           {item.description}
                         </Text>
-                        <Text style={styles.tileImagePrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</Text>
+                        <Text style={styles.tileImagePrice}>{formatCentsAsAud(previewItemPriceCents(item))}</Text>
                       </View>
                     </ImageBackground>
                   ) : (
@@ -107,7 +137,7 @@ export default function PriceBookCategoryScreen() {
                       <Text style={styles.tileLabel} numberOfLines={2}>
                         {item.description}
                       </Text>
-                      <Text style={styles.tilePrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(item))}</Text>
+                      <Text style={styles.tilePrice}>{formatCentsAsAud(previewItemPriceCents(item))}</Text>
                     </View>
                   )}
                 </Pressable>

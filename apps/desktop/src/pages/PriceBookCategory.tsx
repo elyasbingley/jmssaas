@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  computeItemizedLinePricing,
   computeLineItemUnitPriceCents,
   createPriceBookItemSchema,
   formatCentsAsAud,
@@ -19,6 +20,32 @@ const IMAGE_BUCKET = "price-book-images";
 
 function parseNumber(text: string): number {
   return parseFloat(text) || 0;
+}
+
+// Same branch PriceBookItem.tsx's own previewPriceCents uses - an itemized
+// item's price isn't in labour_rate_cents/material_cost_cents/markup_percent
+// at all (those stay 0), so computeLineItemUnitPriceCents alone always came
+// back $0 for one here. Crew/materials are left out (undefined -> []) same
+// as the variations list in PriceBookItem.tsx - fetching every item's child
+// rows just for this grid isn't worth an N+1 query.
+function previewItemPriceCents(item: PriceBookItem): number {
+  if (item.pricing_model !== "itemized") return computeLineItemUnitPriceCents(item);
+  return computeItemizedLinePricing({
+    quantity: item.quantity ?? 1,
+    labour_hours: item.labour_hours,
+    labour_cost_rate_cents: item.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: item.labour_charge_out_rate_cents ?? undefined,
+    material_cost_cents: item.material_cost_cents,
+    material_margin_percent: item.material_margin_percent ?? undefined,
+    waste_percent: item.waste_percent ?? undefined,
+    contingency_percent: item.contingency_percent ?? undefined,
+    tip_fees_cents: item.tip_fees_cents ?? undefined,
+    equipment_hire_cents: item.equipment_hire_cents ?? undefined,
+    travel_cost_cents: item.travel_cost_cents ?? undefined,
+    is_subcontracted: item.is_subcontracted ?? false,
+    subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+    subcontractor_margin_percent: item.subcontractor_margin_percent ?? undefined,
+  }).unitPriceCents;
 }
 
 async function fetchCategory(id: string): Promise<PriceBookCategory> {
@@ -227,7 +254,7 @@ export default function PriceBookCategoryPage() {
                     {item.description}
                   </span>
                   <span className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
-                    {formatCentsAsAud(computeLineItemUnitPriceCents(item))}
+                    {formatCentsAsAud(previewItemPriceCents(item))}
                   </span>
                 </div>
               </Link>
@@ -242,7 +269,7 @@ export default function PriceBookCategoryPage() {
                   {item.description}
                 </span>
                 <span className="font-semibold" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
-                  {formatCentsAsAud(computeLineItemUnitPriceCents(item))}
+                  {formatCentsAsAud(previewItemPriceCents(item))}
                 </span>
               </Link>
             ),
