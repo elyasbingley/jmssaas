@@ -140,6 +140,44 @@ export async function uploadTaskPhoto(params: {
   return storagePath;
 }
 
+// Same pattern as uploadJobPhoto/uploadTaskPhoto, for Leak Check Checklist
+// item photos - same job-files bucket, same "<tenant_id>/leak-<item_id>/
+// <uuid>.<ext>" storage path shape as apps/mobile/lib/powersync.ts's
+// addLeakCheckItemPhoto, just a direct upload instead of PowerSync's
+// offline attachment queue.
+export async function uploadLeakCheckItemPhoto(params: {
+  tenantId: string;
+  itemId: string;
+  jobCardId: string;
+  uploadedBy: string;
+  file: File;
+}): Promise<string> {
+  const id = crypto.randomUUID();
+  const extension = params.file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const fileName = `${id}.${extension}`;
+  const storagePath = `${params.tenantId}/leak-${params.itemId}/${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("job-files")
+    .upload(storagePath, params.file, { contentType: params.file.type || undefined });
+  if (uploadError) throw uploadError;
+
+  const { error: insertError } = await supabase.from("job_leak_check_item_files").insert({
+    id,
+    tenant_id: params.tenantId,
+    item_id: params.itemId,
+    job_card_id: params.jobCardId,
+    storage_path: storagePath,
+    file_name: fileName,
+    mime_type: params.file.type || null,
+    size_bytes: params.file.size,
+    uploaded_by: params.uploadedBy,
+  });
+  if (insertError) throw insertError;
+
+  return storagePath;
+}
+
 // Channels - an admin attaching a file to an outbound reply (see the
 // channels_outbound_media migration's new insert policy). Same "no DB row"
 // shape as uploadReportPhoto/uploadKnowledgeImage - channel-send-message

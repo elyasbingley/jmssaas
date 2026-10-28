@@ -29,6 +29,8 @@ import JobSetupPage from "./pages/JobSetup";
 import JobTemplatesPage from "./pages/JobTemplates";
 import BundlesPage from "./pages/Bundles";
 import BundleDetailPage from "./pages/BundleDetail";
+import LeakCheckTemplatesPage from "./pages/LeakCheckTemplates";
+import LeakCheckTemplateDetailPage from "./pages/LeakCheckTemplateDetail";
 import InventoryPage from "./pages/Inventory";
 import InventorySetupPage from "./pages/InventorySetup";
 import DispatchPage from "./pages/Dispatch";
@@ -144,6 +146,8 @@ export default function App() {
                 <Route path="/settings/job-templates" element={<JobTemplatesPage />} />
                 <Route path="/settings/bundles" element={<BundlesPage />} />
                 <Route path="/settings/bundles/:id" element={<BundleDetailPage />} />
+                <Route path="/settings/leak-check-templates" element={<LeakCheckTemplatesPage />} />
+                <Route path="/settings/leak-check-templates/:id" element={<LeakCheckTemplateDetailPage />} />
                 <Route path="/settings/inventory-setup" element={<InventorySetupPage />} />
                 <Route path="/settings/cost-of-ops" element={<CostOfOpsLayout />}>
                   <Route index element={<Navigate to="operating-expenses" replace />} />

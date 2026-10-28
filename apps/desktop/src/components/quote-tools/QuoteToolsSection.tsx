@@ -6,8 +6,9 @@ import { MaterialTally } from "./MaterialTally";
 import { PhotoMarkup } from "./PhotoMarkup";
 import { ConcreteCalculator } from "./ConcreteCalculator";
 import { MaterialOrderForm } from "./MaterialOrderForm";
+import { LeakCheckTool } from "./LeakCheckTool";
 
-type ToolKey = "roof" | "linear" | "tally" | "markup" | "concrete" | "order";
+type ToolKey = "roof" | "linear" | "tally" | "markup" | "concrete" | "order" | "leak_check";
 
 const TOOLS: { key: ToolKey; label: string }[] = [
   { key: "roof", label: "Roof Area" },
@@ -16,6 +17,7 @@ const TOOLS: { key: ToolKey; label: string }[] = [
   { key: "markup", label: "Photo Markup" },
   { key: "concrete", label: "Concrete Calculator" },
   { key: "order", label: "Material Order" },
+  { key: "leak_check", label: "Leak Check" },
 ];
 
 // Job Card "Quote Tools" - a hub for site-estimating tools, including the
@@ -67,6 +69,7 @@ export function QuoteToolsSection({ jobCardId }: { jobCardId: string }) {
       {activeTool === "order" ? (
         <MaterialOrderForm jobCardId={jobCardId} prefillItems={transferredTallyItems} onConsumedPrefill={() => setTransferredTallyItems(null)} />
       ) : null}
+      {activeTool === "leak_check" ? <LeakCheckTool jobCardId={jobCardId} /> : null}
     </div>
   );
 }
