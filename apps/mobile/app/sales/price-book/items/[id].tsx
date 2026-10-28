@@ -4,12 +4,19 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  computeItemizedLinePricing,
   computeLineItemUnitPriceCents,
   createPriceBookItemSchema,
   createPriceBookVariationSchema,
   formatCentsAsAud,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type PriceBookItem,
+  type PriceBookItemCrew,
+  type PriceBookItemMaterial,
   type PriceBookItemVariation,
+  type PriceBookItemVariationCrew,
+  type PriceBookItemVariationMaterial,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../../lib/auth-context";
 import { useIsOnline } from "../../../../lib/connectivity";
@@ -22,30 +29,100 @@ import { ThemedModal } from "../../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../../../components/theme/ThemedButton";
 import { UnitPicker } from "../../../../components/UnitPicker";
+import { PriceBookItemizedFields, type PriceBookPricingFields } from "../../../../components/PriceBookItemizedFields";
 
-function parseNumber(text: string): number {
-  return parseFloat(text) || 0;
-}
-
-interface VariationFormState {
-  name: string;
-  labourRate: string;
-  labourHours: string;
-  materialCost: string;
-  markupPercent: string;
-  unit: string | null;
-  warrantyText: string;
-}
-
-const emptyVariationForm: VariationFormState = {
-  name: "",
-  labourRate: "0",
-  labourHours: "0",
-  materialCost: "0",
-  markupPercent: "0",
-  unit: null,
-  warrantyText: "",
+const emptyPricing: PriceBookPricingFields = {
+  pricing_model: "legacy",
+  quantity: 1,
+  labour_rate_cents: 0,
+  labour_hours: 0,
+  labour_cost_rate_cents: undefined,
+  labour_charge_out_rate_cents: undefined,
+  crew: [],
+  material_cost_cents: 0,
+  materials: [],
+  markup_percent: 0,
+  material_margin_percent: undefined,
+  waste_percent: undefined,
+  contingency_percent: undefined,
+  tip_fees_cents: undefined,
+  equipment_hire_cents: undefined,
+  travel_cost_cents: undefined,
+  is_subcontracted: false,
+  subcontractor_cost_cents: 0,
+  subcontractor_margin_percent: undefined,
 };
+
+function pricingFromItem(
+  item: PriceBookItem | PriceBookItemVariation,
+  crew: LineItemCrewInput[],
+  materials: LineItemMaterialInput[]
+): PriceBookPricingFields {
+  return {
+    pricing_model: item.pricing_model === "itemized" ? "itemized" : "legacy",
+    quantity: item.quantity ?? 1,
+    labour_rate_cents: item.labour_rate_cents,
+    labour_hours: item.labour_hours,
+    labour_cost_rate_cents: item.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: item.labour_charge_out_rate_cents ?? undefined,
+    crew,
+    material_cost_cents: item.material_cost_cents,
+    materials,
+    markup_percent: item.markup_percent,
+    material_margin_percent: item.material_margin_percent ?? undefined,
+    waste_percent: item.waste_percent ?? undefined,
+    contingency_percent: item.contingency_percent ?? undefined,
+    tip_fees_cents: item.tip_fees_cents ?? undefined,
+    equipment_hire_cents: item.equipment_hire_cents ?? undefined,
+    travel_cost_cents: item.travel_cost_cents ?? undefined,
+    is_subcontracted: item.is_subcontracted ?? false,
+    subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+    subcontractor_margin_percent: item.subcontractor_margin_percent ?? undefined,
+  };
+}
+
+function previewPriceCents(pricing: PriceBookPricingFields): number {
+  return pricing.pricing_model === "itemized" ? computeItemizedLinePricing(pricing).unitPriceCents : computeLineItemUnitPriceCents(pricing);
+}
+
+// See the desktop port of this file (PriceBookItem.tsx) for why this
+// exists - crew/materials aren't real columns on price_book_items/
+// price_book_item_variations, they're their own child tables.
+function splitPricingResult<T extends { crew?: LineItemCrewInput[]; materials?: LineItemMaterialInput[] }>(
+  data: T
+): { scalar: Omit<T, "crew" | "materials">; crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] } {
+  const { crew, materials, ...scalar } = data;
+  return { scalar, crew: crew ?? [], materials: materials ?? [] };
+}
+
+async function fetchItemCrew(itemId: string): Promise<PriceBookItemCrew[]> {
+  const { data, error } = await supabase.from("price_book_item_crew").select("*").eq("price_book_item_id", itemId).order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemCrew[];
+}
+async function fetchItemMaterials(itemId: string): Promise<PriceBookItemMaterial[]> {
+  const { data, error } = await supabase.from("price_book_item_materials").select("*").eq("price_book_item_id", itemId).order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemMaterial[];
+}
+async function fetchVariationCrew(variationId: string): Promise<PriceBookItemVariationCrew[]> {
+  const { data, error } = await supabase
+    .from("price_book_item_variation_crew")
+    .select("*")
+    .eq("price_book_item_variation_id", variationId)
+    .order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemVariationCrew[];
+}
+async function fetchVariationMaterials(variationId: string): Promise<PriceBookItemVariationMaterial[]> {
+  const { data, error } = await supabase
+    .from("price_book_item_variation_materials")
+    .select("*")
+    .eq("price_book_item_variation_id", variationId)
+    .order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemVariationMaterial[];
+}
 
 export default function PriceBookItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -60,6 +137,12 @@ export default function PriceBookItemScreen() {
     return data as PriceBookItem;
   }, [id, isOnline]);
 
+  const { data: itemCrew, refetch: refetchItemCrew } = useSupabaseFetch<PriceBookItemCrew[]>(async () => fetchItemCrew(id), [id, isOnline]);
+  const { data: itemMaterials, refetch: refetchItemMaterials } = useSupabaseFetch<PriceBookItemMaterial[]>(
+    async () => fetchItemMaterials(id),
+    [id, isOnline]
+  );
+
   const { data: variations, refetch: refetchVariations } = useSupabaseFetch<PriceBookItemVariation[]>(async () => {
     const { data, error } = await supabase
       .from("price_book_item_variations")
@@ -73,48 +156,44 @@ export default function PriceBookItemScreen() {
   useRefetchOnFocus(refetchVariations);
 
   const [description, setDescription] = useState("");
-  const [labourRate, setLabourRate] = useState("0");
-  const [labourHours, setLabourHours] = useState("0");
-  const [materialCost, setMaterialCost] = useState("0");
-  const [markupPercent, setMarkupPercent] = useState("0");
   const [isCalloutFee, setIsCalloutFee] = useState(false);
+  const [gstApplicable, setGstApplicable] = useState(true);
   const [unit, setUnit] = useState<string | null>(null);
   const [warrantyText, setWarrantyText] = useState("");
+  const [pricing, setPricing] = useState<PriceBookPricingFields>(emptyPricing);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (item) {
+    if (item && itemCrew && itemMaterials) {
       setDescription(item.description);
-      setLabourRate((item.labour_rate_cents / 100).toString());
-      setLabourHours(item.labour_hours.toString());
-      setMaterialCost((item.material_cost_cents / 100).toString());
-      setMarkupPercent(item.markup_percent.toString());
       setIsCalloutFee(item.is_callout_fee ?? false);
+      setGstApplicable(item.gst_applicable ?? true);
       setUnit(item.unit ?? null);
       setWarrantyText(item.warranty_text ?? "");
+      setPricing(
+        pricingFromItem(
+          item,
+          itemCrew.map((c) => ({ ...c })),
+          itemMaterials.map((m) => ({ ...m }))
+        )
+      );
     }
-  }, [item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item, itemCrew, itemMaterials]);
 
-  const previewCents = computeLineItemUnitPriceCents({
-    labour_rate_cents: Math.round(parseNumber(labourRate) * 100),
-    labour_hours: parseNumber(labourHours),
-    material_cost_cents: Math.round(parseNumber(materialCost) * 100),
-    markup_percent: parseNumber(markupPercent),
-  });
+  const previewCents = previewPriceCents(pricing);
 
   const handleSave = async () => {
-    if (!item) return;
+    if (!item || !profile) return;
     const result = createPriceBookItemSchema.safeParse({
       category_id: item.category_id,
       description,
-      labour_rate_cents: Math.round(parseNumber(labourRate) * 100),
-      labour_hours: parseNumber(labourHours),
-      material_cost_cents: Math.round(parseNumber(materialCost) * 100),
-      markup_percent: parseNumber(markupPercent),
       is_callout_fee: isCalloutFee,
+      gst_applicable: gstApplicable,
       unit,
       warranty_text: warrantyText || null,
+      ...pricing,
     });
     if (!result.success) {
       setSaveError(result.error.issues[0]?.message ?? "Check the form for errors");
@@ -123,9 +202,31 @@ export default function PriceBookItemScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      const { error } = await supabase.from("price_book_items").update(result.data).eq("id", id);
+      const { scalar, crew, materials } = splitPricingResult(result.data);
+      const { error } = await supabase.from("price_book_items").update(scalar).eq("id", id);
       if (error) throw error;
+
+      const { error: deleteCrewError } = await supabase.from("price_book_item_crew").delete().eq("price_book_item_id", id);
+      if (deleteCrewError) throw deleteCrewError;
+      if (crew.length > 0) {
+        const { error: crewError } = await supabase
+          .from("price_book_item_crew")
+          .insert(crew.map((c, i) => ({ ...c, tenant_id: profile.tenant_id, price_book_item_id: id, sort_order: c.sort_order ?? i })));
+        if (crewError) throw crewError;
+      }
+
+      const { error: deleteMaterialsError } = await supabase.from("price_book_item_materials").delete().eq("price_book_item_id", id);
+      if (deleteMaterialsError) throw deleteMaterialsError;
+      if (materials.length > 0) {
+        const { error: materialsError } = await supabase
+          .from("price_book_item_materials")
+          .insert(materials.map((m, i) => ({ ...m, tenant_id: profile.tenant_id, price_book_item_id: id, sort_order: m.sort_order ?? i })));
+        if (materialsError) throw materialsError;
+      }
+
       refetchItem();
+      refetchItemCrew();
+      refetchItemMaterials();
     } catch (e) {
       console.error("[PriceBook] Failed to save item", e);
       setSaveError(getErrorMessage(e, "Failed to save (see console for details)"));
@@ -151,54 +252,82 @@ export default function PriceBookItemScreen() {
   // --- Variations ---
   const [variationModalVisible, setVariationModalVisible] = useState(false);
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
-  const [variationForm, setVariationForm] = useState<VariationFormState>(emptyVariationForm);
+  const [variationName, setVariationName] = useState("");
+  const [variationUnit, setVariationUnit] = useState<string | null>(null);
+  const [variationWarrantyText, setVariationWarrantyText] = useState("");
+  const [variationPricing, setVariationPricing] = useState<PriceBookPricingFields>(emptyPricing);
   const [variationError, setVariationError] = useState<string | null>(null);
 
   const openNewVariation = () => {
     setEditingVariationId(null);
-    setVariationForm(emptyVariationForm);
+    setVariationName("");
+    setVariationUnit(null);
+    setVariationWarrantyText("");
+    setVariationPricing(emptyPricing);
     setVariationError(null);
     setVariationModalVisible(true);
   };
 
-  const openEditVariation = (variation: PriceBookItemVariation) => {
+  const openEditVariation = async (variation: PriceBookItemVariation) => {
     setEditingVariationId(variation.id);
-    setVariationForm({
-      name: variation.name,
-      labourRate: (variation.labour_rate_cents / 100).toString(),
-      labourHours: variation.labour_hours.toString(),
-      materialCost: (variation.material_cost_cents / 100).toString(),
-      markupPercent: variation.markup_percent.toString(),
-      unit: variation.unit ?? null,
-      warrantyText: variation.warranty_text ?? "",
-    });
+    setVariationName(variation.name);
+    setVariationUnit(variation.unit ?? null);
+    setVariationWarrantyText(variation.warranty_text ?? "");
     setVariationError(null);
     setVariationModalVisible(true);
+    const [crew, materials] = await Promise.all([fetchVariationCrew(variation.id), fetchVariationMaterials(variation.id)]);
+    setVariationPricing(pricingFromItem(variation, crew, materials));
   };
 
   const handleSaveVariation = async () => {
+    if (!profile) return;
     const result = createPriceBookVariationSchema.safeParse({
       price_book_item_id: id,
-      name: variationForm.name,
-      labour_rate_cents: Math.round(parseNumber(variationForm.labourRate) * 100),
-      labour_hours: parseNumber(variationForm.labourHours),
-      material_cost_cents: Math.round(parseNumber(variationForm.materialCost) * 100),
-      markup_percent: parseNumber(variationForm.markupPercent),
-      unit: variationForm.unit,
-      warranty_text: variationForm.warrantyText || null,
+      name: variationName,
+      unit: variationUnit,
+      warranty_text: variationWarrantyText || null,
+      ...variationPricing,
     });
     if (!result.success) {
       setVariationError(result.error.issues[0]?.message ?? "Check the form for errors");
       return;
     }
-    if (!profile) return;
     try {
-      const { error } = editingVariationId
-        ? await supabase.from("price_book_item_variations").update(result.data).eq("id", editingVariationId)
+      const { scalar, crew, materials } = splitPricingResult(result.data);
+      const { data: savedVariation, error } = editingVariationId
+        ? await supabase.from("price_book_item_variations").update(scalar).eq("id", editingVariationId).select("id").single()
         : await supabase
             .from("price_book_item_variations")
-            .insert({ ...result.data, tenant_id: profile.tenant_id });
+            .insert({ ...scalar, tenant_id: profile.tenant_id })
+            .select("id")
+            .single();
       if (error) throw error;
+      const variationId = savedVariation.id as string;
+
+      const { error: deleteCrewError } = await supabase
+        .from("price_book_item_variation_crew")
+        .delete()
+        .eq("price_book_item_variation_id", variationId);
+      if (deleteCrewError) throw deleteCrewError;
+      if (crew.length > 0) {
+        const { error: crewError } = await supabase
+          .from("price_book_item_variation_crew")
+          .insert(crew.map((c, i) => ({ ...c, tenant_id: profile.tenant_id, price_book_item_variation_id: variationId, sort_order: c.sort_order ?? i })));
+        if (crewError) throw crewError;
+      }
+
+      const { error: deleteMaterialsError } = await supabase
+        .from("price_book_item_variation_materials")
+        .delete()
+        .eq("price_book_item_variation_id", variationId);
+      if (deleteMaterialsError) throw deleteMaterialsError;
+      if (materials.length > 0) {
+        const { error: materialsError } = await supabase.from("price_book_item_variation_materials").insert(
+          materials.map((m, i) => ({ ...m, tenant_id: profile.tenant_id, price_book_item_variation_id: variationId, sort_order: m.sort_order ?? i }))
+        );
+        if (materialsError) throw materialsError;
+      }
+
       setVariationModalVisible(false);
       refetchVariations();
     } catch (e) {
@@ -275,24 +404,6 @@ export default function PriceBookItemScreen() {
 
           <View style={styles.fieldGrid}>
             <View style={styles.fieldCell}>
-              <ThemedFormField label="Labour rate ($/hr)" keyboardType="decimal-pad" value={labourRate} onChangeText={setLabourRate} />
-            </View>
-            <View style={styles.fieldCell}>
-              <ThemedFormField label="Labour hours" keyboardType="decimal-pad" value={labourHours} onChangeText={setLabourHours} />
-            </View>
-          </View>
-
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
-              <ThemedFormField label="Material cost ($)" keyboardType="decimal-pad" value={materialCost} onChangeText={setMaterialCost} />
-            </View>
-            <View style={styles.fieldCell}>
-              <ThemedFormField label="Markup (%)" keyboardType="decimal-pad" value={markupPercent} onChangeText={setMarkupPercent} />
-            </View>
-          </View>
-
-          <View style={styles.fieldGrid}>
-            <View style={styles.fieldCell}>
               <Text style={styles.switchLabel}>Unit</Text>
               <UnitPicker value={unit} onChangeValue={setUnit} />
             </View>
@@ -306,6 +417,20 @@ export default function PriceBookItemScreen() {
             </View>
           </View>
 
+          <View style={{ marginTop: 12 }}>
+            <PriceBookItemizedFields value={pricing} onChange={(patch) => setPricing((prev) => ({ ...prev, ...patch }))} />
+            {pricing.pricing_model === "itemized" ? (
+              <View style={{ marginTop: 12 }}>
+                <ThemedFormField
+                  label="Benchmark quantity (what the itemized total above was priced for, e.g. 70 for a $/lm rate)"
+                  keyboardType="decimal-pad"
+                  value={String(pricing.quantity)}
+                  onChangeText={(text) => setPricing((prev) => ({ ...prev, quantity: parseFloat(text) || 1 }))}
+                />
+              </View>
+            ) : null}
+          </View>
+
           <View style={styles.switchRow}>
             <View style={{ flexShrink: 1 }}>
               <Text style={styles.switchLabel}>This is the call-out / service fee</Text>
@@ -316,8 +441,13 @@ export default function PriceBookItemScreen() {
             <Switch value={isCalloutFee} onValueChange={setIsCalloutFee} />
           </View>
 
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>GST applicable</Text>
+            <Switch value={gstApplicable} onValueChange={setGstApplicable} />
+          </View>
+
           <View style={styles.previewBox}>
-            <Text style={styles.previewLabel}>Computed Price</Text>
+            <Text style={styles.previewLabel}>Computed Price{pricing.pricing_model === "itemized" ? ` (per ${pricing.quantity} ${unit ?? "unit"})` : ""}</Text>
             <Text style={styles.previewValue}>{formatCentsAsAud(previewCents)}</Text>
           </View>
 
@@ -331,7 +461,7 @@ export default function PriceBookItemScreen() {
           {(variations ?? []).map((variation) => (
             <Pressable key={variation.id} style={styles.variationRow} onPress={() => openEditVariation(variation)}>
               <Text style={styles.variationName}>{variation.name}</Text>
-              <Text style={styles.variationPrice}>{formatCentsAsAud(computeLineItemUnitPriceCents(variation))}</Text>
+              <Text style={styles.variationPrice}>{formatCentsAsAud(previewPriceCents(pricingFromItem(variation, [], [])))}</Text>
             </Pressable>
           ))}
           {(variations ?? []).length === 0 ? <Text style={styles.empty}>No variations yet.</Text> : null}
@@ -346,76 +476,58 @@ export default function PriceBookItemScreen() {
       </SafeAreaView>
 
       <ThemedModal visible={variationModalVisible} onClose={() => setVariationModalVisible(false)}>
-        <Text style={styles.modalTitle}>{editingVariationId ? "Edit Variation" : "New Variation"}</Text>
-        <ThemedFormField
-          label="Name"
-          placeholder="e.g. Standard, Premium"
-          value={variationForm.name}
-          onChangeText={(text) => setVariationForm((f) => ({ ...f, name: text }))}
-        />
-        <View style={styles.fieldGrid}>
-          <View style={styles.fieldCell}>
-            <ThemedFormField
-              label="Labour rate ($/hr)"
-              keyboardType="decimal-pad"
-              value={variationForm.labourRate}
-              onChangeText={(text) => setVariationForm((f) => ({ ...f, labourRate: text }))}
-            />
+        <ScrollView>
+          <Text style={styles.modalTitle}>{editingVariationId ? "Edit Variation" : "New Variation"}</Text>
+          <ThemedFormField label="Name" placeholder="e.g. Standard, Premium" value={variationName} onChangeText={setVariationName} />
+
+          <View style={styles.fieldGrid}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.switchLabel}>Unit</Text>
+              <UnitPicker value={variationUnit} onChangeValue={setVariationUnit} />
+            </View>
+            <View style={styles.fieldCell}>
+              <ThemedFormField
+                label="Warranty (shown to the client)"
+                placeholder="e.g. 10 year workmanship warranty"
+                value={variationWarrantyText}
+                onChangeText={setVariationWarrantyText}
+              />
+            </View>
           </View>
-          <View style={styles.fieldCell}>
-            <ThemedFormField
-              label="Labour hours"
-              keyboardType="decimal-pad"
-              value={variationForm.labourHours}
-              onChangeText={(text) => setVariationForm((f) => ({ ...f, labourHours: text }))}
-            />
+
+          <View style={{ marginTop: 12 }}>
+            <PriceBookItemizedFields value={variationPricing} onChange={(patch) => setVariationPricing((prev) => ({ ...prev, ...patch }))} />
+            {variationPricing.pricing_model === "itemized" ? (
+              <View style={{ marginTop: 12 }}>
+                <ThemedFormField
+                  label="Benchmark quantity (what the itemized total above was priced for)"
+                  keyboardType="decimal-pad"
+                  value={String(variationPricing.quantity)}
+                  onChangeText={(text) => setVariationPricing((prev) => ({ ...prev, quantity: parseFloat(text) || 1 }))}
+                />
+              </View>
+            ) : null}
           </View>
-        </View>
-        <View style={styles.fieldGrid}>
-          <View style={styles.fieldCell}>
-            <ThemedFormField
-              label="Material cost ($)"
-              keyboardType="decimal-pad"
-              value={variationForm.materialCost}
-              onChangeText={(text) => setVariationForm((f) => ({ ...f, materialCost: text }))}
-            />
+
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>Computed Price</Text>
+            <Text style={styles.previewValue}>{formatCentsAsAud(previewPriceCents(variationPricing))}</Text>
           </View>
-          <View style={styles.fieldCell}>
-            <ThemedFormField
-              label="Markup (%)"
-              keyboardType="decimal-pad"
-              value={variationForm.markupPercent}
-              onChangeText={(text) => setVariationForm((f) => ({ ...f, markupPercent: text }))}
-            />
-          </View>
-        </View>
-        <View style={styles.fieldGrid}>
-          <View style={styles.fieldCell}>
-            <Text style={styles.switchLabel}>Unit</Text>
-            <UnitPicker value={variationForm.unit} onChangeValue={(unitValue) => setVariationForm((f) => ({ ...f, unit: unitValue }))} />
-          </View>
-          <View style={styles.fieldCell}>
-            <ThemedFormField
-              label="Warranty (shown to the client)"
-              placeholder="e.g. 10 year workmanship warranty"
-              value={variationForm.warrantyText}
-              onChangeText={(text) => setVariationForm((f) => ({ ...f, warrantyText: text }))}
-            />
-          </View>
-        </View>
-        {variationError ? <Text style={styles.error}>{variationError}</Text> : null}
-        <View style={styles.modalActions}>
-          {editingVariationId ? (
-            <Pressable onPress={handleDeleteVariation}>
-              <Text style={styles.deleteLink}>Delete</Text>
+
+          {variationError ? <Text style={styles.error}>{variationError}</Text> : null}
+          <View style={styles.modalActions}>
+            {editingVariationId ? (
+              <Pressable onPress={handleDeleteVariation}>
+                <Text style={styles.deleteLink}>Delete</Text>
+              </Pressable>
+            ) : null}
+            <View style={{ flex: 1 }} />
+            <Pressable onPress={() => setVariationModalVisible(false)}>
+              <Text style={styles.link}>Cancel</Text>
             </Pressable>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          <Pressable onPress={() => setVariationModalVisible(false)}>
-            <Text style={styles.link}>Cancel</Text>
-          </Pressable>
-          <ThemedButton label="Save" onPress={handleSaveVariation} />
-        </View>
+            <ThemedButton label="Save" onPress={handleSaveVariation} />
+          </View>
+        </ScrollView>
       </ThemedModal>
     </>
   );
