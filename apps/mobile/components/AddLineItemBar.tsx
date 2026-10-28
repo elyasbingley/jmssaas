@@ -9,7 +9,9 @@ import {
   type LabourCostEntry,
   type LineItemBundle,
   type LineItemBundleItem,
+  type LineItemCrewInput,
   type LineItemFormInput,
+  type LineItemMaterialInput,
   type OperatingExpense,
   type PriceBookItem,
   type PriceBookItemVariation,
@@ -26,12 +28,7 @@ interface AddLineItemBarProps {
   onAddMany: (items: LineItemFormInput[]) => void;
 }
 
-type BundleItemRow = LineItemBundleItem & {
-  price_book_items: Pick<
-    PriceBookItem,
-    "description" | "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent" | "unit" | "warranty_text"
-  > | null;
-};
+type BundleItemRow = LineItemBundleItem & { price_book_items: PriceBookItem | null };
 
 async function fetchBundles(): Promise<LineItemBundle[]> {
   const { data, error } = await supabase.from("line_item_bundles").select("*").order("sort_order").order("name");
@@ -40,14 +37,74 @@ async function fetchBundles(): Promise<LineItemBundle[]> {
 }
 
 async function fetchBundleItems(bundleId: string): Promise<BundleItemRow[]> {
+  // price_book_items(*) rather than a hand-picked column list - the
+  // itemized breakdown has grown enough fields (see the price_book_
+  // itemized_pricing migration) that listing them individually here would
+  // just be a second place to keep in sync with that table's own columns.
   const { data, error } = await supabase
     .from("line_item_bundle_items")
-    .select("*, price_book_items(description, labour_rate_cents, labour_hours, material_cost_cents, markup_percent, unit, warranty_text)")
+    .select("*, price_book_items(*)")
     .eq("bundle_id", bundleId)
     .order("sort_order")
     .order("created_at");
   if (error) throw error;
   return data as unknown as BundleItemRow[];
+}
+
+// A catalogue item/variation's crew/materials aren't embedded in its own
+// row - separate child tables (price_book_item_crew/materials, or the
+// _variation_ equivalents). Only fetched when the source is actually
+// itemized (see the two call sites below) - a legacy item has nothing
+// there to fetch.
+async function fetchPriceBookItemChildren(itemId: string): Promise<{ crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }> {
+  const [{ data: crew }, { data: materials }] = await Promise.all([
+    supabase.from("price_book_item_crew").select("*").eq("price_book_item_id", itemId).order("sort_order"),
+    supabase.from("price_book_item_materials").select("*").eq("price_book_item_id", itemId).order("sort_order"),
+  ]);
+  return { crew: (crew ?? []) as LineItemCrewInput[], materials: (materials ?? []) as LineItemMaterialInput[] };
+}
+
+async function fetchPriceBookVariationChildren(variationId: string): Promise<{ crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }> {
+  const [{ data: crew }, { data: materials }] = await Promise.all([
+    supabase.from("price_book_item_variation_crew").select("*").eq("price_book_item_variation_id", variationId).order("sort_order"),
+    supabase.from("price_book_item_variation_materials").select("*").eq("price_book_item_variation_id", variationId).order("sort_order"),
+  ]);
+  return { crew: (crew ?? []) as LineItemCrewInput[], materials: (materials ?? []) as LineItemMaterialInput[] };
+}
+
+// The itemized scalar fields a line can inherit from whichever catalogue
+// row (item or variation) actually supplies the price - factored out so
+// applyBundle/addFromPriceBookItem don't each repeat the same ~15-field
+// spread by hand.
+function itemizedFieldsFrom(sourceItem: PriceBookItem | PriceBookItemVariation, children: { crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }) {
+  if (sourceItem.pricing_model !== "itemized") return {};
+  return {
+    pricing_model: "itemized" as const,
+    // The new quote/invoice line's quantity has to start at the
+    // catalogue's own benchmark denominator, not the usual blank-line
+    // default of 1 - crew/materials below carry absolute totals (e.g.
+    // "14 hours, 70 units of material"), priced at that benchmark
+    // quantity (see computeItemizedLinePricing's own comment: unit price
+    // = total charge / quantity). Starting the new line at quantity=1
+    // would divide those same absolute totals by 1 instead of 70,
+    // inflating the per-unit price ~70x. Quantity=70 reproduces the
+    // catalogue's own price exactly; the admin can still edit it from
+    // there like any other field.
+    quantity: sourceItem.quantity ?? 1,
+    labour_cost_rate_cents: sourceItem.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: sourceItem.labour_charge_out_rate_cents ?? undefined,
+    crew: children.crew,
+    materials: children.materials,
+    material_margin_percent: sourceItem.material_margin_percent ?? undefined,
+    subcontractor_margin_percent: sourceItem.subcontractor_margin_percent ?? undefined,
+    waste_percent: sourceItem.waste_percent ?? undefined,
+    contingency_percent: sourceItem.contingency_percent ?? undefined,
+    tip_fees_cents: sourceItem.tip_fees_cents ?? undefined,
+    equipment_hire_cents: sourceItem.equipment_hire_cents ?? undefined,
+    travel_cost_cents: sourceItem.travel_cost_cents ?? undefined,
+    is_subcontracted: sourceItem.is_subcontracted ?? false,
+    subcontractor_cost_cents: sourceItem.subcontractor_cost_cents ?? 0,
+  };
 }
 
 // Matches the reference design's "Search Price Book (3+ characters) or
@@ -95,26 +152,44 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
     setBundleError(null);
     try {
       const rows = await fetchBundleItems(bundle.id);
-      const newItems = rows.map((row, index) => {
-        const breakdown = row.price_book_items
-          ? {
-              description: row.price_book_items.description,
-              labour_rate_cents: row.price_book_items.labour_rate_cents,
-              labour_hours: row.price_book_items.labour_hours,
-              material_cost_cents: row.price_book_items.material_cost_cents,
-              markup_percent: row.price_book_items.markup_percent,
-              unit: row.price_book_items.unit,
-              warranty_text: row.price_book_items.warranty_text,
-            }
-          : {
-              description: row.description ?? "",
-              labour_rate_cents: row.labour_rate_cents,
-              labour_hours: row.labour_hours,
-              material_cost_cents: row.material_cost_cents,
-              markup_percent: row.markup_percent,
-            };
-        return normalizeLineItem({ ...breakdown, quantity: row.quantity, bundle_name: bundle.name }, itemCount + index);
-      });
+      const newItems = await Promise.all(
+        rows.map(async (row, index) => {
+          const priceBookItem = row.price_book_items;
+          const children =
+            priceBookItem && priceBookItem.pricing_model === "itemized" ? await fetchPriceBookItemChildren(priceBookItem.id) : { crew: [], materials: [] };
+          const breakdown = priceBookItem
+            ? {
+                description: priceBookItem.description,
+                labour_rate_cents: priceBookItem.labour_rate_cents,
+                labour_hours: priceBookItem.labour_hours,
+                material_cost_cents: priceBookItem.material_cost_cents,
+                markup_percent: priceBookItem.markup_percent,
+                unit: priceBookItem.unit,
+                warranty_text: priceBookItem.warranty_text,
+                gst_applicable: priceBookItem.gst_applicable ?? true,
+                ...itemizedFieldsFrom(priceBookItem, children),
+              }
+            : {
+                description: row.description ?? "",
+                labour_rate_cents: row.labour_rate_cents,
+                labour_hours: row.labour_hours,
+                material_cost_cents: row.material_cost_cents,
+                markup_percent: row.markup_percent,
+              };
+          // A legacy item's per-unit price scales cleanly with any
+          // quantity, so the bundle's own row.quantity (how many of this
+          // item the bundle adds) is used directly, same as always. An
+          // itemized item's crew/materials are absolute totals priced at
+          // its own benchmark quantity (see itemizedFieldsFrom's own
+          // comment) - multiplying that benchmark by an unrelated bundle
+          // count has no well-defined meaning, so the catalogue's own
+          // quantity wins instead; a bundle multiplier on an itemized
+          // catalogue item is a rare enough combination that this is a
+          // reasonable place to simplify rather than invent a scaling rule.
+          const resolvedQuantity = priceBookItem?.pricing_model === "itemized" ? priceBookItem.quantity ?? 1 : row.quantity;
+          return normalizeLineItem({ ...breakdown, quantity: resolvedQuantity, bundle_name: bundle.name }, itemCount + index);
+        })
+      );
       onAddMany(newItems);
       setBundlePickerOpen(false);
     } catch (e) {
@@ -183,28 +258,26 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
     };
   }, [query]);
 
-  const addFromPriceBookItem = (item: PriceBookItem, variation?: PriceBookItemVariation) => {
-    const source = variation
-      ? {
-          description: `${item.description} (${variation.name})`,
-          labour_rate_cents: variation.labour_rate_cents,
-          labour_hours: variation.labour_hours,
-          material_cost_cents: variation.material_cost_cents,
-          markup_percent: variation.markup_percent,
-          is_callout_fee: item.is_callout_fee ?? false,
-          unit: variation.unit ?? item.unit,
-          warranty_text: variation.warranty_text ?? item.warranty_text,
-        }
-      : {
-          description: item.description,
-          labour_rate_cents: item.labour_rate_cents,
-          labour_hours: item.labour_hours,
-          material_cost_cents: item.material_cost_cents,
-          markup_percent: item.markup_percent,
-          is_callout_fee: item.is_callout_fee ?? false,
-          unit: item.unit,
-          warranty_text: item.warranty_text,
-        };
+  const addFromPriceBookItem = async (item: PriceBookItem, variation?: PriceBookItemVariation) => {
+    const sourceItem = variation ?? item;
+    const children =
+      sourceItem.pricing_model === "itemized"
+        ? variation
+          ? await fetchPriceBookVariationChildren(variation.id)
+          : await fetchPriceBookItemChildren(item.id)
+        : { crew: [], materials: [] };
+    const source = {
+      description: variation ? `${item.description} (${variation.name})` : item.description,
+      labour_rate_cents: sourceItem.labour_rate_cents,
+      labour_hours: sourceItem.labour_hours,
+      material_cost_cents: sourceItem.material_cost_cents,
+      markup_percent: sourceItem.markup_percent,
+      is_callout_fee: item.is_callout_fee ?? false,
+      unit: sourceItem.unit ?? item.unit,
+      warranty_text: sourceItem.warranty_text ?? item.warranty_text,
+      gst_applicable: sourceItem.gst_applicable ?? true,
+      ...itemizedFieldsFrom(sourceItem, children),
+    };
     onAdd(normalizeLineItem(source, itemCount));
     setQuery("");
     setResults([]);
@@ -223,7 +296,7 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
       setVariations(itemVariations);
       setVariationTarget(item);
     } else {
-      addFromPriceBookItem(item);
+      await addFromPriceBookItem(item);
     }
   };
 
