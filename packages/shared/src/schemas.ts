@@ -1401,3 +1401,15 @@ export const createJobLeakCheckItemSchema = z.object({
   sort_order: z.number().int().default(0),
 });
 export type CreateJobLeakCheckItemInput = z.infer<typeof createJobLeakCheckItemSchema>;
+
+// ---------------------------------------------------------------------------
+// Fine Print templates - mirrors the fine_print_templates migration.
+// ---------------------------------------------------------------------------
+
+export const createFinePrintTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  body: z.string().default(""),
+  sort_order: z.number().int().default(0),
+});
+export type CreateFinePrintTemplateInput = z.infer<typeof createFinePrintTemplateSchema>;
+export const updateFinePrintTemplateSchema = createFinePrintTemplateSchema;

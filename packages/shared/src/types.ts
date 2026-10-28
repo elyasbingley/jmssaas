@@ -788,6 +788,11 @@ export interface Quote {
   gst_cents: number;
   total_cents: number;
   notes: string | null;
+  // Frozen copy of a fine_print_templates row's body, picked from a
+  // dropdown - never a live reference (see the fine_print_templates
+  // migration's own comment). Plain editable text after that, same as
+  // notes.
+  fine_print_text: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -845,6 +850,11 @@ export interface Invoice {
   gst_cents: number;
   total_cents: number;
   notes: string | null;
+  // Frozen copy of a fine_print_templates row's body, picked from a
+  // dropdown - never a live reference (see the fine_print_templates
+  // migration's own comment). Plain editable text after that, same as
+  // notes.
+  fine_print_text: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1082,6 +1092,21 @@ export interface LineItemBundleItem {
   markup_percent: number;
   quantity: number;
   sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Reusable named terms/conditions text, picked from a dropdown on a quote/
+// invoice - see the fine_print_templates migration's own comment for why
+// picking one copies its body (quotes/invoices' own fine_print_text) rather
+// than keeping a live reference to this row.
+export interface FinePrintTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  body: string;
+  sort_order: number;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
