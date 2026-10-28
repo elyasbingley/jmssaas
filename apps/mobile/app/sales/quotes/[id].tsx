@@ -12,6 +12,7 @@ import {
   type Client,
   type ClientContact,
   type EmailAttachment,
+  type FinePrintTemplate,
   type LineItemFormInput,
   type Quote,
   type QuoteStatus,
@@ -146,8 +147,17 @@ export default function QuoteDetailScreen() {
     }
   };
 
+  const { data: finePrintTemplates } = useSupabaseFetch<FinePrintTemplate[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("fine_print_templates").select("*").order("sort_order").order("name");
+    if (error) throw error;
+    return data as FinePrintTemplate[];
+  }, [isOnline]);
+  const [finePrintPickerVisible, setFinePrintPickerVisible] = useState(false);
+
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
+  const [finePrintText, setFinePrintText] = useState("");
   const [expiryDate, setExpiryDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -196,6 +206,7 @@ export default function QuoteDetailScreen() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.quote.notes ?? "");
+      setFinePrintText(data.quote.fine_print_text ?? "");
       setExpiryDate(parseDate(data.quote.expiry_date ?? ""));
     }
   }, [data]);
@@ -225,7 +236,7 @@ export default function QuoteDetailScreen() {
   const persistQuoteAndLineItems = async () => {
     const { error: updateError } = await supabase
       .from("quotes")
-      .update({ notes: notes || null, expiry_date: toDateInput(expiryDate) || null })
+      .update({ notes: notes || null, fine_print_text: finePrintText || null, expiry_date: toDateInput(expiryDate) || null })
       .eq("id", id);
     if (updateError) throw updateError;
 
@@ -745,6 +756,26 @@ export default function QuoteDetailScreen() {
             <ThemedFormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
           </View>
 
+          <View style={styles.fieldSpacing}>
+            {isAdmin && !isLocked && finePrintTemplates && finePrintTemplates.length > 0 ? (
+              <View style={styles.referralRow}>
+                <Text />
+                <Pressable onPress={() => setFinePrintPickerVisible(true)}>
+                  <Text style={styles.linkButtonText}>Insert fine print template</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <ThemedFormField
+              label="Fine print"
+              placeholder="Picking a template above fills this in - edit freely afterward"
+              value={finePrintText}
+              onChangeText={setFinePrintText}
+              multiline
+              style={styles.multiline}
+              editable={isAdmin && !isLocked}
+            />
+          </View>
+
           {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
           {isAdmin && !isLocked ? (
@@ -787,6 +818,19 @@ export default function QuoteDetailScreen() {
         getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
         onSelect={handleSelectReferralPartner}
         onClose={() => setReferralPickerVisible(false)}
+      />
+
+      <ThemedPickerModal
+        visible={finePrintPickerVisible}
+        title="Fine print template"
+        items={finePrintTemplates ?? []}
+        getKey={(t) => t.id}
+        getLabel={(t) => t.name}
+        onSelect={(t) => {
+          setFinePrintText(t.body);
+          setFinePrintPickerVisible(false);
+        }}
+        onClose={() => setFinePrintPickerVisible(false)}
       />
 
       <ThemedModal visible={poModalVisible} onClose={() => setPoModalVisible(false)}>

@@ -3,7 +3,7 @@ import { Alert, Linking, Pressable, ScrollView, Share, Text, View } from "react-
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collectRecipientEmails, renderTemplate, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type ReferralPartner, type Tenant } from "@jmssaas/shared";
+import { collectRecipientEmails, renderTemplate, type Agency, type ApprovalStatus, type Client, type ClientContact, type EmailAttachment, type FinePrintTemplate, type Invoice, type InvoiceStatus, type LineItemFormInput, type Property, type ReferralPartner, type Tenant } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
@@ -163,8 +163,17 @@ export default function InvoiceDetailScreen() {
     }
   };
 
+  const { data: finePrintTemplates } = useSupabaseFetch<FinePrintTemplate[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("fine_print_templates").select("*").order("sort_order").order("name");
+    if (error) throw error;
+    return data as FinePrintTemplate[];
+  }, [isOnline]);
+  const [finePrintPickerVisible, setFinePrintPickerVisible] = useState(false);
+
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
+  const [finePrintText, setFinePrintText] = useState("");
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -289,6 +298,7 @@ export default function InvoiceDetailScreen() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.invoice.notes ?? "");
+      setFinePrintText(data.invoice.fine_print_text ?? "");
       setDueDate(parseDate(data.invoice.due_date ?? ""));
     }
   }, [data]);
@@ -305,7 +315,7 @@ export default function InvoiceDetailScreen() {
     try {
       const { error: updateError } = await supabase
         .from("invoices")
-        .update({ notes: notes || null, due_date: toDateInput(dueDate) || null })
+        .update({ notes: notes || null, fine_print_text: finePrintText || null, due_date: toDateInput(dueDate) || null })
         .eq("id", id);
       if (updateError) throw updateError;
 
@@ -878,6 +888,26 @@ export default function InvoiceDetailScreen() {
             <ThemedFormField label="Notes" placeholder="Payment terms, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
           </View>
 
+          <View style={styles.fieldSpacing}>
+            {isAdmin && !isLocked && finePrintTemplates && finePrintTemplates.length > 0 ? (
+              <View style={styles.referralRow}>
+                <Text />
+                <Pressable onPress={() => setFinePrintPickerVisible(true)}>
+                  <Text style={styles.linkButtonText}>Insert fine print template</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <ThemedFormField
+              label="Fine print"
+              placeholder="Picking a template above fills this in - edit freely afterward"
+              value={finePrintText}
+              onChangeText={setFinePrintText}
+              multiline
+              style={styles.multiline}
+              editable={isAdmin && !isLocked}
+            />
+          </View>
+
           {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
           {isAdmin && !isLocked ? (
@@ -972,6 +1002,19 @@ export default function InvoiceDetailScreen() {
         getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
         onSelect={handleSelectReferralPartner}
         onClose={() => setReferralPickerVisible(false)}
+      />
+
+      <ThemedPickerModal
+        visible={finePrintPickerVisible}
+        title="Fine print template"
+        items={finePrintTemplates ?? []}
+        getKey={(t) => t.id}
+        getLabel={(t) => t.name}
+        onSelect={(t) => {
+          setFinePrintText(t.body);
+          setFinePrintPickerVisible(false);
+        }}
+        onClose={() => setFinePrintPickerVisible(false)}
       />
     </>
   );
