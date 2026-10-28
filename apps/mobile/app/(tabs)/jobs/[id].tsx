@@ -82,6 +82,7 @@ import { LinearMeasurerTool } from "../../../components/LinearMeasurerTool";
 import { MaterialTallyCounter } from "../../../components/MaterialTallyCounter";
 import { PhotoMarkupEditor } from "../../../components/PhotoMarkupEditor";
 import { ConcreteCalculatorTool } from "../../../components/ConcreteCalculatorTool";
+import { LeakCheckTool } from "../../../components/LeakCheckTool";
 import { MaterialOrderFormTool } from "../../../components/MaterialOrderFormTool";
 import { TIER_LABELS, TRADE_LABELS } from "../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
@@ -1340,6 +1341,9 @@ export default function JobDetailScreen() {
             prefillItems={transferredTallyItems}
             onConsumedPrefill={() => setTransferredTallyItems(null)}
           />
+
+          <Text style={[styles.subtitle, { marginTop: 20 }]}>Leak Check</Text>
+          <LeakCheckTool jobCardId={id} />
 
           <Text style={[styles.subtitle, { marginTop: 20 }]}>Photo Markup</Text>
           {markupPhoto ? (
