@@ -374,6 +374,120 @@ const job_measurements = new Table(
   { indexes: { job: ["job_card_id"] } }
 );
 
+// Leak Check Checklist - templates are admin-managed, tenant-wide read
+// setup data like communication_templates above (a technician needs the
+// list offline to start a checklist with no reception, even though only an
+// admin can author one); job_leak_checks (+ categories/items/item_files)
+// are job-scoped field data like job_measurements above, offline-editable
+// the same way. is_archived is boolean-shaped (0/1), see connector.ts's
+// BOOLEAN_COLUMNS_BY_TABLE. See the leak_check_checklist migration.
+const leak_check_templates = new Table(
+  {
+    tenant_id: column.text,
+    name: column.text,
+    description: column.text,
+    is_archived: column.integer,
+    sort_order: column.integer,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { tenant: ["tenant_id"] } }
+);
+
+const leak_check_template_categories = new Table(
+  {
+    tenant_id: column.text,
+    template_id: column.text,
+    name: column.text,
+    sort_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { template: ["template_id"] } }
+);
+
+const leak_check_template_items = new Table(
+  {
+    tenant_id: column.text,
+    template_id: column.text,
+    category_id: column.text,
+    item_type: column.text,
+    label: column.text,
+    sort_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { template: ["template_id"], category: ["category_id"] } }
+);
+
+const job_leak_checks = new Table(
+  {
+    tenant_id: column.text,
+    job_card_id: column.text,
+    template_id: column.text,
+    title: column.text,
+    status: column.text,
+    // share_token/shared_at are omitted from the local schema - generated
+    // server-side on demand by a dedicated RPC (see the migration's own
+    // comment), never set or read from a device.
+    completed_at: column.text,
+    completed_by: column.text,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { job: ["job_card_id"] } }
+);
+
+const job_leak_check_categories = new Table(
+  {
+    tenant_id: column.text,
+    leak_check_id: column.text,
+    job_card_id: column.text,
+    name: column.text,
+    sort_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { leak_check: ["leak_check_id"], job: ["job_card_id"] } }
+);
+
+const job_leak_check_items = new Table(
+  {
+    tenant_id: column.text,
+    leak_check_id: column.text,
+    category_id: column.text,
+    job_card_id: column.text,
+    item_type: column.text,
+    label: column.text,
+    result: column.text,
+    notes: column.text,
+    meter_start_reading: column.real,
+    meter_end_reading: column.real,
+    meter_wait_minutes: column.real,
+    sort_order: column.integer,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { leak_check: ["leak_check_id"], category: ["category_id"], job: ["job_card_id"] } }
+);
+
+const job_leak_check_item_files = new Table(
+  {
+    tenant_id: column.text,
+    item_id: column.text,
+    job_card_id: column.text,
+    storage_path: column.text,
+    file_name: column.text,
+    mime_type: column.text,
+    size_bytes: column.integer,
+    uploaded_by: column.text,
+    created_at: column.text,
+  },
+  { indexes: { item: ["item_id"], job: ["job_card_id"] } }
+);
+
 const tasks = new Table(
   {
     tenant_id: column.text,

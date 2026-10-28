@@ -15,6 +15,7 @@ import {
   ExpoLocalStorageAdapter,
   SupabaseRemoteStorageAdapter,
   jobFileMetaData,
+  leakCheckItemFileMetaData,
   taskFileMetaData,
   watchFileAttachments,
 } from "./attachments";
@@ -156,6 +157,51 @@ export async function addTaskPhoto(params: {
           params.tenantId,
           params.taskId,
           `${params.tenantId}/task-${params.taskId}/${fileName}`,
+          fileName,
+          params.mediaType,
+          attachment.size ?? null,
+          params.uploadedBy,
+          new Date().toISOString(),
+        ]
+      );
+    },
+  });
+}
+
+// Same pattern as addJobPhoto/addTaskPhoto, for leak check checklist item
+// photos (Leak Check Checklist tool). jobCardId is passed in directly by
+// the caller (same as addJobPhoto/addTaskPhoto take their own parent id
+// directly) rather than looked up via a subquery against the item row -
+// the screen calling this already has it from the checklist it's editing.
+export async function addLeakCheckItemPhoto(params: {
+  tenantId: string;
+  itemId: string;
+  jobCardId: string;
+  uploadedBy: string;
+  imageArrayBuffer: ArrayBuffer;
+  mediaType: string;
+  fileExtension: string;
+}): Promise<void> {
+  const id = uuidv4();
+  const fileName = `${id}.${params.fileExtension}`;
+
+  await attachmentQueue.saveFile({
+    id,
+    data: params.imageArrayBuffer,
+    fileExtension: params.fileExtension,
+    mediaType: params.mediaType,
+    metaData: leakCheckItemFileMetaData(params.tenantId, params.itemId),
+    updateHook: async (tx: Transaction, attachment: AttachmentRecord) => {
+      await tx.execute(
+        `INSERT INTO job_leak_check_item_files
+           (id, tenant_id, item_id, job_card_id, storage_path, file_name, mime_type, size_bytes, uploaded_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          attachment.id,
+          params.tenantId,
+          params.itemId,
+          params.jobCardId,
+          `${params.tenantId}/leak-${params.itemId}/${fileName}`,
           fileName,
           params.mediaType,
           attachment.size ?? null,

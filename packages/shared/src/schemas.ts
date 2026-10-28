@@ -1335,3 +1335,69 @@ export const createNoteTemplateSchema = z.object({
   body: z.string().default(""),
 });
 export type CreateNoteTemplateInput = z.infer<typeof createNoteTemplateSchema>;
+
+// ---------------------------------------------------------------------------
+// Leak Check Checklist - mirrors the leak_check_checklist migration.
+// ---------------------------------------------------------------------------
+
+export const leakCheckItemTypeSchema = z.enum(["standard", "water_meter"]);
+export const leakCheckItemResultSchema = z.enum(["pass", "fail", "na"]);
+
+export const createLeakCheckTemplateSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().nullable().optional(),
+  is_archived: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+});
+export type CreateLeakCheckTemplateInput = z.infer<typeof createLeakCheckTemplateSchema>;
+
+export const createLeakCheckTemplateCategorySchema = z.object({
+  template_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateLeakCheckTemplateCategoryInput = z.infer<typeof createLeakCheckTemplateCategorySchema>;
+
+export const createLeakCheckTemplateItemSchema = z.object({
+  template_id: z.string().uuid(),
+  category_id: z.string().uuid(),
+  item_type: leakCheckItemTypeSchema.default("standard"),
+  label: z.string().min(1, "Label is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateLeakCheckTemplateItemInput = z.infer<typeof createLeakCheckTemplateItemSchema>;
+
+export const createJobLeakCheckSchema = z.object({
+  job_card_id: z.string().uuid(),
+  template_id: z.string().uuid().nullable().optional(),
+  title: z.string().min(1, "Title is required").default("Leak Check"),
+});
+export type CreateJobLeakCheckInput = z.infer<typeof createJobLeakCheckSchema>;
+
+export const createJobLeakCheckCategorySchema = z.object({
+  leak_check_id: z.string().uuid(),
+  job_card_id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+  sort_order: z.number().int().default(0),
+});
+export type CreateJobLeakCheckCategoryInput = z.infer<typeof createJobLeakCheckCategorySchema>;
+
+// Cross-field validation (meter_* fields only meaningful for item_type
+// 'water_meter', result only for 'standard') happens in the editor UI, same
+// "the form only ever shows one matching set of fields" reasoning as
+// createNotePropertySchema's value_* fields above - nothing to enforce here
+// beyond the outer shape.
+export const createJobLeakCheckItemSchema = z.object({
+  leak_check_id: z.string().uuid(),
+  category_id: z.string().uuid(),
+  job_card_id: z.string().uuid(),
+  item_type: leakCheckItemTypeSchema.default("standard"),
+  label: z.string().min(1, "Label is required"),
+  result: leakCheckItemResultSchema.nullable().optional(),
+  notes: z.string().nullable().optional(),
+  meter_start_reading: z.number().nullable().optional(),
+  meter_end_reading: z.number().nullable().optional(),
+  meter_wait_minutes: z.number().nullable().optional(),
+  sort_order: z.number().int().default(0),
+});
+export type CreateJobLeakCheckItemInput = z.infer<typeof createJobLeakCheckItemSchema>;

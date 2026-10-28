@@ -38,6 +38,7 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   // upload) before is_urgent/is_important existed - added here now that the
   // Eisenhower Matrix work adds mobile writes that hit this same path.
   tasks: ["is_milestone", "is_urgent", "is_important"],
+  leak_check_templates: ["is_archived"],
 };
 
 function coerceBooleanColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {

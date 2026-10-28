@@ -71,6 +71,16 @@
 #   reception, same as adding a note or photo), and Postgres RLS already
 #   restricts it to admin-or-assigned-technician the same way.
 #
+#   job_leak_checks/_categories/_items/_item_files (leak_check_checklist
+#   migration) joined both buckets next, same reasoning again - a
+#   technician under a house with no signal still needs to start and fill
+#   in a leak check checklist. leak_check_templates/_template_categories/
+#   _template_items joined tenant_reference_data instead (below), not this
+#   bucket or technician_assigned_jobs - they're admin-managed setup data
+#   like communication_templates, not job-scoped, and every technician
+#   (not just admins) needs the template list offline to start a checklist
+#   in the first place.
+#
 # - technician_assigned_jobs / technician_own_tasks: technician devices no
 #   longer download every job in the tenant. technician_assigned_jobs uses a
 #   parameter query that returns one row per job card assigned to the
@@ -187,6 +197,9 @@ bucket_definitions:
       - select * from task_projects where tenant_id = bucket.tenant_id
       - select * from task_sections where tenant_id = bucket.tenant_id
       - select * from task_custom_fields where tenant_id = bucket.tenant_id
+      - select * from leak_check_templates where tenant_id = bucket.tenant_id
+      - select * from leak_check_template_categories where tenant_id = bucket.tenant_id
+      - select * from leak_check_template_items where tenant_id = bucket.tenant_id
 
   admin_job_data:
     parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'
@@ -195,6 +208,10 @@ bucket_definitions:
       - select * from job_notes where tenant_id = bucket.tenant_id
       - select * from job_files where tenant_id = bucket.tenant_id
       - select * from job_measurements where tenant_id = bucket.tenant_id
+      - select * from job_leak_checks where tenant_id = bucket.tenant_id
+      - select * from job_leak_check_categories where tenant_id = bucket.tenant_id
+      - select * from job_leak_check_items where tenant_id = bucket.tenant_id
+      - select * from job_leak_check_item_files where tenant_id = bucket.tenant_id
       - select * from tasks where tenant_id = bucket.tenant_id
       - select * from task_notes where tenant_id = bucket.tenant_id
       - select * from task_files where tenant_id = bucket.tenant_id
@@ -208,6 +225,10 @@ bucket_definitions:
       - select * from job_notes where job_card_id = bucket.job_card_id
       - select * from job_files where job_card_id = bucket.job_card_id
       - select * from job_measurements where job_card_id = bucket.job_card_id
+      - select * from job_leak_checks where job_card_id = bucket.job_card_id
+      - select * from job_leak_check_categories where job_card_id = bucket.job_card_id
+      - select * from job_leak_check_items where job_card_id = bucket.job_card_id
+      - select * from job_leak_check_item_files where job_card_id = bucket.job_card_id
       - select * from tasks where job_card_id = bucket.job_card_id
       - select * from task_notes where job_card_id = bucket.job_card_id
       - select * from task_files where job_card_id = bucket.job_card_id

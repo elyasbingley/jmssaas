@@ -1453,6 +1453,121 @@ export interface JobMaterialOrder {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Leak Check Checklist - mirrors the leak_check_checklist migration. A
+// residential plumbing leak inspection tool: a library of admin-managed
+// templates (LeakCheckTemplate + categories/items) a technician picks from
+// to start a job's own checklist (JobLeakCheck + categories/items), which is
+// then freely customised per property - add/remove a fixture row, mark a
+// result, add a category on the fly. See the migration's own header
+// comment for why categories are part of the template rather than a fixed
+// set, and why item_type is one table with mode-dependent columns rather
+// than two.
+// ---------------------------------------------------------------------------
+
+export type LeakCheckItemType = "standard" | "water_meter";
+
+export interface LeakCheckTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  is_archived: boolean;
+  sort_order: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeakCheckTemplateCategory {
+  id: string;
+  tenant_id: string;
+  template_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeakCheckTemplateItem {
+  id: string;
+  tenant_id: string;
+  template_id: string;
+  category_id: string;
+  item_type: LeakCheckItemType;
+  label: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LeakCheckStatus = "in_progress" | "completed";
+
+export interface JobLeakCheck {
+  id: string;
+  tenant_id: string;
+  job_card_id: string;
+  template_id: string | null;
+  title: string;
+  status: LeakCheckStatus;
+  // Nullable, generated on demand by a dedicated RPC rather than at row
+  // creation - see the migration's own comment (mirrors quotes/invoices'
+  // own access_token pattern).
+  share_token: string | null;
+  shared_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobLeakCheckCategory {
+  id: string;
+  tenant_id: string;
+  leak_check_id: string;
+  job_card_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LeakCheckItemResult = "pass" | "fail" | "na";
+
+export interface JobLeakCheckItem {
+  id: string;
+  tenant_id: string;
+  leak_check_id: string;
+  category_id: string;
+  job_card_id: string;
+  item_type: LeakCheckItemType;
+  label: string;
+  result: LeakCheckItemResult | null;
+  notes: string | null;
+  // water_meter rows only - see the migration's own comment. Null/unused
+  // on a 'standard' row.
+  meter_start_reading: number | null;
+  meter_end_reading: number | null;
+  meter_wait_minutes: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobLeakCheckItemFile {
+  id: string;
+  tenant_id: string;
+  item_id: string;
+  job_card_id: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
 // Mirrors supabase/migrations/20260804000100_communication_engine.sql.
 export type CommunicationDelayUnit = "hours" | "days";
 export type CommunicationDelayDirection = "before" | "after";
