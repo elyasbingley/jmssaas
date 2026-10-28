@@ -349,6 +349,20 @@ function renderNotes(cursor: Cursor, notes: string | null) {
   cursor.y += 4;
 }
 
+function renderFinePrint(cursor: Cursor, finePrintText: string | null) {
+  if (!finePrintText) return;
+  cursor.ensureSpace(12);
+  cursor.bold("Fine Print", MARGIN, 9, [107, 114, 128]);
+  cursor.y += 5;
+  const lines = cursor.doc.splitTextToSize(finePrintText, CONTENT_WIDTH) as string[];
+  for (const line of lines) {
+    cursor.ensureSpace(5);
+    cursor.text(line, MARGIN, 9);
+    cursor.y += 4.5;
+  }
+  cursor.y += 4;
+}
+
 function renderBankDetails(cursor: Cursor, tenant: Tenant) {
   if (!tenant.bank_account_name && !tenant.bank_bsb && !tenant.bank_account_number) return;
   cursor.ensureSpace(16);
@@ -402,6 +416,7 @@ export async function buildQuotePdfBytes(params: {
   await renderLineItemsTable(cursor, ACCENT.quote, lineItems);
   renderTotals(cursor, lineItems, null, quote.membership_discount_cents);
   renderNotes(cursor, quote.notes);
+  renderFinePrint(cursor, quote.fine_print_text);
   await renderSignature(cursor, quote.accepted_by_name, quote.accepted_at, quote.accepted_signature_svg);
 
   return doc.output("blob");
@@ -445,6 +460,7 @@ export async function buildInvoicePdfBytes(params: {
   await renderLineItemsTable(cursor, ACCENT.invoice, lineItems);
   renderTotals(cursor, lineItems, balanceDueCents, invoice.membership_discount_cents);
   renderNotes(cursor, invoice.notes);
+  renderFinePrint(cursor, invoice.fine_print_text);
   await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);
   renderBankDetails(cursor, tenant);
 

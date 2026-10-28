@@ -23,6 +23,7 @@ const TILES = [
   { to: "/settings/job-templates", label: "Job Templates", emoji: "📝" },
   { to: "/settings/bundles", label: "Bundles", emoji: "📦" },
   { to: "/settings/leak-check-templates", label: "Leak Check Templates", emoji: "🔧" },
+  { to: "/settings/fine-print-templates", label: "Fine Print Templates", emoji: "📄" },
   { to: "/settings/inventory-setup", label: "Inventory Setup", emoji: "📋" },
   { to: "/settings/cost-of-ops", label: "Cost of Ops", emoji: "📊" },
 ] as const;

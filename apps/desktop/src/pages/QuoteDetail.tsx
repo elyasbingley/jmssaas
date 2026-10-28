@@ -12,6 +12,7 @@ import {
   type ClientContact,
   type ClientSite,
   type EmailAttachment,
+  type FinePrintTemplate,
   type LineItemFormInput,
   type PlaceholderContext,
   type Quote,
@@ -156,6 +157,12 @@ async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
   return data as ReferralPartner;
 }
 
+async function fetchFinePrintTemplates(): Promise<FinePrintTemplate[]> {
+  const { data, error } = await supabase.from("fine_print_templates").select("*").order("sort_order").order("name");
+  if (error) throw error;
+  return data as FinePrintTemplate[];
+}
+
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -194,9 +201,11 @@ export default function QuoteDetailPage() {
     queryFn: () => fetchReferralPartner(data!.quote.referral_partner_id!),
     enabled: !!data?.quote.referral_partner_id,
   });
+  const { data: finePrintTemplates } = useQuery({ queryKey: ["fine-print-templates"], queryFn: fetchFinePrintTemplates });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
+  const [finePrintText, setFinePrintText] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -214,6 +223,7 @@ export default function QuoteDetailPage() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.quote.notes ?? "");
+      setFinePrintText(data.quote.fine_print_text ?? "");
       setExpiryDate(data.quote.expiry_date ?? "");
     }
   }, [data]);
@@ -237,7 +247,7 @@ export default function QuoteDetailPage() {
     mutationFn: async () => {
       const { error: updateError } = await supabase
         .from("quotes")
-        .update({ notes: notes || null, expiry_date: expiryDate || null })
+        .update({ notes: notes || null, fine_print_text: finePrintText || null, expiry_date: expiryDate || null })
         .eq("id", id);
       if (updateError) throw updateError;
 
@@ -267,7 +277,7 @@ export default function QuoteDetailPage() {
       // to block converting the quote they accepted into an invoice.
       const { error: updateError } = await supabase
         .from("quotes")
-        .update({ notes: notes || null, expiry_date: expiryDate || null })
+        .update({ notes: notes || null, fine_print_text: finePrintText || null, expiry_date: expiryDate || null })
         .eq("id", id);
       if (updateError) throw updateError;
       if (!isLocked) {
@@ -791,6 +801,42 @@ export default function QuoteDetailPage() {
           disabled={isLocked}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
+          className="w-full rounded border px-3 py-2 disabled:opacity-50"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+        />
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1 flex items-center justify-between">
+          <label className="block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Fine print
+          </label>
+          {!isLocked && finePrintTemplates && finePrintTemplates.length > 0 ? (
+            <select
+              value=""
+              disabled={isLocked}
+              onChange={(e) => {
+                const template = finePrintTemplates.find((t) => t.id === e.target.value);
+                if (template) setFinePrintText(template.body);
+              }}
+              className="rounded border px-2 py-1 focus:outline-none"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+            >
+              <option value="">Insert template...</option>
+              {finePrintTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+        <textarea
+          rows={3}
+          disabled={isLocked}
+          value={finePrintText}
+          onChange={(e) => setFinePrintText(e.target.value)}
+          placeholder="Picking a template above fills this in - edit freely afterward, it won't change if the template is edited later."
           className="w-full rounded border px-3 py-2 disabled:opacity-50"
           style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />

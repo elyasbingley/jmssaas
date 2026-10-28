@@ -288,6 +288,14 @@ function renderNotes(notes: string | null): string {
   `;
 }
 
+function renderFinePrint(finePrintText: string | null): string {
+  if (!finePrintText) return "";
+  return `
+    <div class="section-title">Fine Print</div>
+    <div class="section-body">${escapeHtml(finePrintText)}</div>
+  `;
+}
+
 function renderBankDetails(tenant: Tenant): string {
   if (!tenant.bank_account_name && !tenant.bank_account_number && !tenant.bank_bsb) return "";
   return `
@@ -330,6 +338,7 @@ export function buildQuotePdfHtml(params: {
     ${renderItemsTable("quote", lineItems)}
     ${renderTotals(lineItems, null, quote.membership_discount_cents)}
     ${renderNotes(quote.notes)}
+    ${renderFinePrint(quote.fine_print_text)}
     ${renderAcceptanceSignature("quote", quote)}
   </body>
 </html>`;
@@ -374,6 +383,7 @@ export function buildInvoicePdfHtml(params: {
     ${renderItemsTable("invoice", lineItems)}
     ${renderTotals(lineItems, balanceDueCents, invoice.membership_discount_cents)}
     ${renderNotes(invoice.notes)}
+    ${renderFinePrint(invoice.fine_print_text)}
     ${renderAcceptanceSignature("invoice", invoice)}
     ${renderBankDetails(tenant)}
   </body>

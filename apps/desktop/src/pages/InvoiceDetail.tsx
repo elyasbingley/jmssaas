@@ -10,6 +10,7 @@ import {
   type ClientContact,
   type ClientSite,
   type EmailAttachment,
+  type FinePrintTemplate,
   type Invoice,
   type InvoiceStatus,
   type LineItemFormInput,
@@ -136,6 +137,12 @@ async function fetchReferralPartner(id: string): Promise<ReferralPartner> {
   return data as ReferralPartner;
 }
 
+async function fetchFinePrintTemplates(): Promise<FinePrintTemplate[]> {
+  const { data, error } = await supabase.from("fine_print_templates").select("*").order("sort_order").order("name");
+  if (error) throw error;
+  return data as FinePrintTemplate[];
+}
+
 async function fetchClientSites(clientId: string): Promise<ClientSite[]> {
   const { data, error } = await supabase
     .from("client_sites")
@@ -201,6 +208,7 @@ export default function InvoiceDetailPage() {
     queryFn: () => fetchReferralPartner(jobCard!.referral_partner_id!),
     enabled: !!jobCard?.referral_partner_id,
   });
+  const { data: finePrintTemplates } = useQuery({ queryKey: ["fine-print-templates"], queryFn: fetchFinePrintTemplates });
 
   // Workflow 4 of the Real Estate & Strata spec: an agency that requires a
   // work order number on every invoice should never actually receive one
@@ -214,6 +222,7 @@ export default function InvoiceDetailPage() {
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
   const [notes, setNotes] = useState("");
+  const [finePrintText, setFinePrintText] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -228,6 +237,7 @@ export default function InvoiceDetailPage() {
     if (data) {
       setLineItems(data.items);
       setNotes(data.invoice.notes ?? "");
+      setFinePrintText(data.invoice.fine_print_text ?? "");
       setDueDate(data.invoice.due_date ?? "");
     }
   }, [data]);
@@ -249,7 +259,7 @@ export default function InvoiceDetailPage() {
     mutationFn: async () => {
       const { error: updateError } = await supabase
         .from("invoices")
-        .update({ notes: notes || null, due_date: dueDate || null })
+        .update({ notes: notes || null, fine_print_text: finePrintText || null, due_date: dueDate || null })
         .eq("id", id);
       if (updateError) throw updateError;
 
@@ -974,6 +984,42 @@ export default function InvoiceDetailPage() {
           disabled={isLocked}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
+          className="w-full rounded border px-3 py-2 disabled:opacity-50"
+          style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+        />
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1 flex items-center justify-between">
+          <label className="block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Fine print
+          </label>
+          {!isLocked && finePrintTemplates && finePrintTemplates.length > 0 ? (
+            <select
+              value=""
+              disabled={isLocked}
+              onChange={(e) => {
+                const template = finePrintTemplates.find((t) => t.id === e.target.value);
+                if (template) setFinePrintText(template.body);
+              }}
+              className="rounded border px-2 py-1 focus:outline-none"
+              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+            >
+              <option value="">Insert template...</option>
+              {finePrintTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+        <textarea
+          rows={3}
+          disabled={isLocked}
+          value={finePrintText}
+          onChange={(e) => setFinePrintText(e.target.value)}
+          placeholder="Picking a template above fills this in - edit freely afterward, it won't change if the template is edited later."
           className="w-full rounded border px-3 py-2 disabled:opacity-50"
           style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
         />
