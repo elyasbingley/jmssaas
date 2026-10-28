@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { LeakCheckItemType, LeakCheckTemplate, LeakCheckTemplateCategory, LeakCheckTemplateItem } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
@@ -83,6 +84,7 @@ function LeakCheckTemplateForm({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
 
   const [name, setName] = useState(template.name);
   const [description, setDescription] = useState(template.description ?? "");
@@ -108,6 +110,7 @@ function LeakCheckTemplateForm({
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
       if (!name.trim()) throw new Error("Name is required");
       for (const c of localCategories) {
         if (!c.name.trim()) throw new Error("Every category needs a name");
@@ -133,13 +136,14 @@ function LeakCheckTemplateForm({
 
       if (localCategories.length > 0) {
         const { error: categoriesError } = await supabase.from("leak_check_template_categories").insert(
-          localCategories.map((c, i) => ({ id: c.id, template_id: id, name: c.name.trim(), sort_order: i }))
+          localCategories.map((c, i) => ({ id: c.id, tenant_id: profile.tenant_id, template_id: id, name: c.name.trim(), sort_order: i }))
         );
         if (categoriesError) throw categoriesError;
 
         const allItems = localCategories.flatMap((c, ci) =>
           c.items.map((it, ii) => ({
             id: it.id,
+            tenant_id: profile.tenant_id,
             template_id: id,
             category_id: c.id,
             item_type: it.item_type,
