@@ -585,6 +585,7 @@
           '<div class="totals-row total"><span>Total</span><span id="totals-total">' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
           "</div>" +
           (doc.notes ? '<div class="notes"><strong>Notes</strong><br/>' + escapeHtml(doc.notes) + "</div>" : "") +
+          (doc.fine_print_text ? '<div class="notes"><strong>Fine Print</strong><br/>' + escapeHtml(doc.fine_print_text) + "</div>" : "") +
           actionSection;
 
         attachOptionalCheckboxHandlers(doc);
