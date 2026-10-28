@@ -2,12 +2,19 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  computeItemizedLinePricing,
   computeLineItemUnitPriceCents,
   createPriceBookItemSchema,
   createPriceBookVariationSchema,
   formatCentsAsAud,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type PriceBookItem,
+  type PriceBookItemCrew,
+  type PriceBookItemMaterial,
   type PriceBookItemVariation,
+  type PriceBookItemVariationCrew,
+  type PriceBookItemVariationMaterial,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
@@ -16,17 +23,92 @@ import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { UnitSelect } from "../components/UnitSelect";
+import { PriceBookItemizedFields, type PriceBookPricingFields } from "../components/PriceBookItemizedFields";
 
 const IMAGE_BUCKET = "price-book-images";
 
-function parseNumber(text: string): number {
-  return parseFloat(text) || 0;
+const emptyPricing: PriceBookPricingFields = {
+  pricing_model: "legacy",
+  quantity: 1,
+  labour_rate_cents: 0,
+  labour_hours: 0,
+  labour_cost_rate_cents: undefined,
+  labour_charge_out_rate_cents: undefined,
+  crew: [],
+  material_cost_cents: 0,
+  materials: [],
+  markup_percent: 0,
+  material_margin_percent: undefined,
+  waste_percent: undefined,
+  contingency_percent: undefined,
+  tip_fees_cents: undefined,
+  equipment_hire_cents: undefined,
+  travel_cost_cents: undefined,
+  is_subcontracted: false,
+  subcontractor_cost_cents: 0,
+  subcontractor_margin_percent: undefined,
+};
+
+function pricingFromItem(item: PriceBookItem | PriceBookItemVariation, crew: LineItemCrewInput[], materials: LineItemMaterialInput[]): PriceBookPricingFields {
+  return {
+    pricing_model: item.pricing_model === "itemized" ? "itemized" : "legacy",
+    quantity: item.quantity ?? 1,
+    labour_rate_cents: item.labour_rate_cents,
+    labour_hours: item.labour_hours,
+    labour_cost_rate_cents: item.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: item.labour_charge_out_rate_cents ?? undefined,
+    crew,
+    material_cost_cents: item.material_cost_cents,
+    materials,
+    markup_percent: item.markup_percent,
+    material_margin_percent: item.material_margin_percent ?? undefined,
+    waste_percent: item.waste_percent ?? undefined,
+    contingency_percent: item.contingency_percent ?? undefined,
+    tip_fees_cents: item.tip_fees_cents ?? undefined,
+    equipment_hire_cents: item.equipment_hire_cents ?? undefined,
+    travel_cost_cents: item.travel_cost_cents ?? undefined,
+    is_subcontracted: item.is_subcontracted ?? false,
+    subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+    subcontractor_margin_percent: item.subcontractor_margin_percent ?? undefined,
+  };
+}
+
+function previewPriceCents(pricing: PriceBookPricingFields): number {
+  return pricing.pricing_model === "itemized" ? computeItemizedLinePricing(pricing).unitPriceCents : computeLineItemUnitPriceCents(pricing);
+}
+
+// Strips crew/materials (not real columns on price_book_items/price_book_
+// item_variations - their own child tables) out of a successfully-parsed
+// schema result, returning just the scalar fields to write to the parent
+// row, plus crew/materials separately for the caller to replace in their
+// own tables. No RPC for this (unlike replace_quote_line_items) - a price
+// book item/variation is a single row with a small, bounded child-row
+// count, so a plain delete-then-insert from the client is simple enough
+// and consistent with how this app already handles other small child-row
+// replacements (e.g. note_properties).
+function splitPricingResult<T extends { crew?: LineItemCrewInput[]; materials?: LineItemMaterialInput[] }>(
+  data: T
+): { scalar: Omit<T, "crew" | "materials">; crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] } {
+  const { crew, materials, ...scalar } = data;
+  return { scalar, crew: crew ?? [], materials: materials ?? [] };
 }
 
 async function fetchItem(id: string): Promise<PriceBookItem> {
   const { data, error } = await supabase.from("price_book_items").select("*").eq("id", id).single();
   if (error) throw error;
   return data as PriceBookItem;
+}
+
+async function fetchItemCrew(itemId: string): Promise<PriceBookItemCrew[]> {
+  const { data, error } = await supabase.from("price_book_item_crew").select("*").eq("price_book_item_id", itemId).order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemCrew[];
+}
+
+async function fetchItemMaterials(itemId: string): Promise<PriceBookItemMaterial[]> {
+  const { data, error } = await supabase.from("price_book_item_materials").select("*").eq("price_book_item_id", itemId).order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemMaterial[];
 }
 
 async function fetchVariations(itemId: string): Promise<PriceBookItemVariation[]> {
@@ -40,24 +122,25 @@ async function fetchVariations(itemId: string): Promise<PriceBookItemVariation[]
   return data as PriceBookItemVariation[];
 }
 
-interface VariationFormState {
-  name: string;
-  labourRate: string;
-  labourHours: string;
-  materialCost: string;
-  markupPercent: string;
-  unit: string | null;
-  warrantyText: string;
+async function fetchVariationCrew(variationId: string): Promise<PriceBookItemVariationCrew[]> {
+  const { data, error } = await supabase
+    .from("price_book_item_variation_crew")
+    .select("*")
+    .eq("price_book_item_variation_id", variationId)
+    .order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemVariationCrew[];
 }
-const emptyVariationForm: VariationFormState = {
-  name: "",
-  labourRate: "0",
-  labourHours: "0",
-  materialCost: "0",
-  markupPercent: "0",
-  unit: null,
-  warrantyText: "",
-};
+
+async function fetchVariationMaterials(variationId: string): Promise<PriceBookItemVariationMaterial[]> {
+  const { data, error } = await supabase
+    .from("price_book_item_variation_materials")
+    .select("*")
+    .eq("price_book_item_variation_id", variationId)
+    .order("sort_order");
+  if (error) throw error;
+  return data as PriceBookItemVariationMaterial[];
+}
 
 export default function PriceBookItemPage() {
   const { id } = useParams<{ id: string }>();
@@ -66,6 +149,8 @@ export default function PriceBookItemPage() {
   const queryClient = useQueryClient();
 
   const { data: item } = useQuery({ queryKey: ["price-book-item", id], queryFn: () => fetchItem(id!), enabled: !!id });
+  const { data: itemCrew } = useQuery({ queryKey: ["price-book-item-crew", id], queryFn: () => fetchItemCrew(id!), enabled: !!id });
+  const { data: itemMaterials } = useQuery({ queryKey: ["price-book-item-materials", id], queryFn: () => fetchItemMaterials(id!), enabled: !!id });
   const { data: variations } = useQuery({
     queryKey: ["price-book-variations", id],
     queryFn: () => fetchVariations(id!),
@@ -73,59 +158,76 @@ export default function PriceBookItemPage() {
   });
 
   const [description, setDescription] = useState("");
-  const [labourRate, setLabourRate] = useState("0");
-  const [labourHours, setLabourHours] = useState("0");
-  const [materialCost, setMaterialCost] = useState("0");
-  const [markupPercent, setMarkupPercent] = useState("0");
   const [isCalloutFee, setIsCalloutFee] = useState(false);
+  const [gstApplicable, setGstApplicable] = useState(true);
   const [unit, setUnit] = useState<string | null>(null);
   const [warrantyText, setWarrantyText] = useState("");
+  const [pricing, setPricing] = useState<PriceBookPricingFields>(emptyPricing);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (item) {
+    if (item && itemCrew && itemMaterials) {
       setDescription(item.description);
-      setLabourRate((item.labour_rate_cents / 100).toString());
-      setLabourHours(item.labour_hours.toString());
-      setMaterialCost((item.material_cost_cents / 100).toString());
-      setMarkupPercent(item.markup_percent.toString());
       setIsCalloutFee(item.is_callout_fee ?? false);
+      setGstApplicable(item.gst_applicable ?? true);
       setUnit(item.unit ?? null);
       setWarrantyText(item.warranty_text ?? "");
+      setPricing(
+        pricingFromItem(
+          item,
+          itemCrew.map((c) => ({ ...c })),
+          itemMaterials.map((m) => ({ ...m }))
+        )
+      );
     }
-  }, [item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item, itemCrew, itemMaterials]);
 
-  const previewCents = computeLineItemUnitPriceCents({
-    labour_rate_cents: Math.round(parseNumber(labourRate) * 100),
-    labour_hours: parseNumber(labourHours),
-    material_cost_cents: Math.round(parseNumber(materialCost) * 100),
-    markup_percent: parseNumber(markupPercent),
-  });
+  const previewCents = previewPriceCents(pricing);
 
   const invalidateItem = () => {
     queryClient.invalidateQueries({ queryKey: ["price-book-item", id] });
+    queryClient.invalidateQueries({ queryKey: ["price-book-item-crew", id] });
+    queryClient.invalidateQueries({ queryKey: ["price-book-item-materials", id] });
     queryClient.invalidateQueries({ queryKey: ["price-book-items", item?.category_id] });
   };
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!item) throw new Error("Not loaded yet");
+      if (!item || !profile) throw new Error("Not loaded yet");
       const result = createPriceBookItemSchema.safeParse({
         category_id: item.category_id,
         description,
-        labour_rate_cents: Math.round(parseNumber(labourRate) * 100),
-        labour_hours: parseNumber(labourHours),
-        material_cost_cents: Math.round(parseNumber(materialCost) * 100),
-        markup_percent: parseNumber(markupPercent),
         is_callout_fee: isCalloutFee,
+        gst_applicable: gstApplicable,
         unit,
         warranty_text: warrantyText || null,
+        ...pricing,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
+      const { scalar, crew, materials } = splitPricingResult(result.data);
 
-      const { error } = await supabase.from("price_book_items").update(result.data).eq("id", id);
+      const { error } = await supabase.from("price_book_items").update(scalar).eq("id", id);
       if (error) throw error;
+
+      const { error: deleteCrewError } = await supabase.from("price_book_item_crew").delete().eq("price_book_item_id", id);
+      if (deleteCrewError) throw deleteCrewError;
+      if (crew.length > 0) {
+        const { error: crewError } = await supabase
+          .from("price_book_item_crew")
+          .insert(crew.map((c, i) => ({ ...c, tenant_id: profile.tenant_id, price_book_item_id: id, sort_order: c.sort_order ?? i })));
+        if (crewError) throw crewError;
+      }
+
+      const { error: deleteMaterialsError } = await supabase.from("price_book_item_materials").delete().eq("price_book_item_id", id);
+      if (deleteMaterialsError) throw deleteMaterialsError;
+      if (materials.length > 0) {
+        const { error: materialsError } = await supabase
+          .from("price_book_item_materials")
+          .insert(materials.map((m, i) => ({ ...m, tenant_id: profile.tenant_id, price_book_item_id: id, sort_order: m.sort_order ?? i })));
+        if (materialsError) throw materialsError;
+      }
     },
     onSuccess: () => {
       invalidateItem();
@@ -184,50 +286,79 @@ export default function PriceBookItemPage() {
 
   const [variationModalOpen, setVariationModalOpen] = useState(false);
   const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
-  const [variationForm, setVariationForm] = useState<VariationFormState>(emptyVariationForm);
+  const [variationName, setVariationName] = useState("");
+  const [variationUnit, setVariationUnit] = useState<string | null>(null);
+  const [variationWarrantyText, setVariationWarrantyText] = useState("");
+  const [variationPricing, setVariationPricing] = useState<PriceBookPricingFields>(emptyPricing);
   const [variationError, setVariationError] = useState<string | null>(null);
 
   const openNewVariation = () => {
     setEditingVariationId(null);
-    setVariationForm(emptyVariationForm);
+    setVariationName("");
+    setVariationUnit(null);
+    setVariationWarrantyText("");
+    setVariationPricing(emptyPricing);
     setVariationError(null);
     setVariationModalOpen(true);
   };
 
-  const openEditVariation = (variation: PriceBookItemVariation) => {
+  const openEditVariation = async (variation: PriceBookItemVariation) => {
     setEditingVariationId(variation.id);
-    setVariationForm({
-      name: variation.name,
-      labourRate: (variation.labour_rate_cents / 100).toString(),
-      labourHours: variation.labour_hours.toString(),
-      materialCost: (variation.material_cost_cents / 100).toString(),
-      markupPercent: variation.markup_percent.toString(),
-      unit: variation.unit ?? null,
-      warrantyText: variation.warranty_text ?? "",
-    });
+    setVariationName(variation.name);
+    setVariationUnit(variation.unit ?? null);
+    setVariationWarrantyText(variation.warranty_text ?? "");
     setVariationError(null);
     setVariationModalOpen(true);
+    const [crew, materials] = await Promise.all([fetchVariationCrew(variation.id), fetchVariationMaterials(variation.id)]);
+    setVariationPricing(pricingFromItem(variation, crew, materials));
   };
 
   const saveVariation = useMutation({
     mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
       const result = createPriceBookVariationSchema.safeParse({
         price_book_item_id: id,
-        name: variationForm.name,
-        labour_rate_cents: Math.round(parseNumber(variationForm.labourRate) * 100),
-        labour_hours: parseNumber(variationForm.labourHours),
-        material_cost_cents: Math.round(parseNumber(variationForm.materialCost) * 100),
-        markup_percent: parseNumber(variationForm.markupPercent),
-        unit: variationForm.unit,
-        warranty_text: variationForm.warrantyText || null,
+        name: variationName,
+        unit: variationUnit,
+        warranty_text: variationWarrantyText || null,
+        ...variationPricing,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
-      if (!profile) throw new Error("Not signed in");
+      const { scalar, crew, materials } = splitPricingResult(result.data);
 
-      const { error } = editingVariationId
-        ? await supabase.from("price_book_item_variations").update(result.data).eq("id", editingVariationId)
-        : await supabase.from("price_book_item_variations").insert({ ...result.data, tenant_id: profile.tenant_id });
+      const { data: savedVariation, error } = editingVariationId
+        ? await supabase.from("price_book_item_variations").update(scalar).eq("id", editingVariationId).select("id").single()
+        : await supabase
+            .from("price_book_item_variations")
+            .insert({ ...scalar, tenant_id: profile.tenant_id })
+            .select("id")
+            .single();
       if (error) throw error;
+      const variationId = savedVariation.id as string;
+
+      const { error: deleteCrewError } = await supabase
+        .from("price_book_item_variation_crew")
+        .delete()
+        .eq("price_book_item_variation_id", variationId);
+      if (deleteCrewError) throw deleteCrewError;
+      if (crew.length > 0) {
+        const { error: crewError } = await supabase
+          .from("price_book_item_variation_crew")
+          .insert(crew.map((c, i) => ({ ...c, tenant_id: profile.tenant_id, price_book_item_variation_id: variationId, sort_order: c.sort_order ?? i })));
+        if (crewError) throw crewError;
+      }
+
+      const { error: deleteMaterialsError } = await supabase
+        .from("price_book_item_variation_materials")
+        .delete()
+        .eq("price_book_item_variation_id", variationId);
+      if (deleteMaterialsError) throw deleteMaterialsError;
+      if (materials.length > 0) {
+        const { error: materialsError } = await supabase
+          .from("price_book_item_variation_materials")
+          .insert(materials.map((m, i) => ({ ...m, tenant_id: profile.tenant_id, price_book_item_variation_id: variationId, sort_order: m.sort_order ?? i })));
+        if (materialsError) throw materialsError;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["price-book-variations", id] });
@@ -311,15 +442,6 @@ export default function PriceBookItemPage() {
 
       <ThemedTextAreaField label="Description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
 
-      <div className="grid grid-cols-2 gap-3">
-        <ThemedFormField label="Labour rate ($/hr)" value={labourRate} onChange={(e) => setLabourRate(e.target.value)} />
-        <ThemedFormField label="Labour hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <ThemedFormField label="Material cost ($)" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
-        <ThemedFormField label="Markup (%)" value={markupPercent} onChange={(e) => setMarkupPercent(e.target.value)} />
-      </div>
-
       <div className="mb-4 grid grid-cols-2 gap-3">
         <div>
           <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
@@ -335,17 +457,33 @@ export default function PriceBookItemPage() {
         />
       </div>
 
-      <label className="mb-4 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+      <div className="mb-4">
+        <PriceBookItemizedFields value={pricing} onChange={(patch) => setPricing((prev) => ({ ...prev, ...patch }))} />
+        {pricing.pricing_model === "itemized" ? (
+          <ThemedFormField
+            label="Benchmark quantity (what the itemized total above was priced for, e.g. 70 for a $/lm rate)"
+            value={String(pricing.quantity)}
+            onChange={(e) => setPricing((prev) => ({ ...prev, quantity: parseFloat(e.target.value) || 1 }))}
+          />
+        ) : null}
+      </div>
+
+      <label className="mb-2 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
         <input type="checkbox" checked={isCalloutFee} onChange={(e) => setIsCalloutFee(e.target.checked)} />
         This is the call-out / service fee
       </label>
-      <p className="mb-4 -mt-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+      <p className="mb-4 -mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         A membership plan that waives the call-out fee will waive this item automatically when it's added to a quote or invoice.
       </p>
 
+      <label className="mb-4 flex items-center gap-2" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+        <input type="checkbox" checked={gstApplicable} onChange={(e) => setGstApplicable(e.target.checked)} />
+        GST applicable (carried through as the default when added to a quote/invoice)
+      </label>
+
       <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)" }}>
         <p className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-          Computed price
+          Computed price{pricing.pricing_model === "itemized" ? ` (per ${pricing.quantity} ${unit ?? "unit"})` : ""}
         </p>
         <p className="text-xl font-extrabold" style={{ color: "var(--jms-accent)" }}>
           {formatCentsAsAud(previewCents)}
@@ -387,7 +525,12 @@ export default function PriceBookItemPage() {
                 {variation.name}
               </span>
               <span className="font-semibold" style={{ color: "var(--jms-accent)" }}>
-                {formatCentsAsAud(computeLineItemUnitPriceCents(variation))}
+                {/* Approximate for an itemized variation with real crew/materials rows
+                    (uses the flat labour_cost_rate_cents/material_cost_cents fields,
+                    not the children - fetching every variation's children just for
+                    this list isn't worth an N+1 query here). The edit modal above
+                    fetches and computes the real figure. */}
+                {formatCentsAsAud(previewPriceCents(pricingFromItem(variation, [], [])))}
               </span>
             </button>
           ))
@@ -408,50 +551,43 @@ export default function PriceBookItemPage() {
       </div>
 
       <ThemedModal open={variationModalOpen} onClose={() => setVariationModalOpen(false)} title={editingVariationId ? "Edit variation" : "New variation"}>
-        <ThemedFormField
-          label="Name"
-          value={variationForm.name}
-          onChange={(e) => setVariationForm({ ...variationForm, name: e.target.value })}
-          placeholder="e.g. Standard, Premium"
-        />
-        <div className="grid grid-cols-2 gap-3">
-          <ThemedFormField
-            label="Labour rate ($/hr)"
-            value={variationForm.labourRate}
-            onChange={(e) => setVariationForm({ ...variationForm, labourRate: e.target.value })}
-          />
-          <ThemedFormField
-            label="Labour hours"
-            value={variationForm.labourHours}
-            onChange={(e) => setVariationForm({ ...variationForm, labourHours: e.target.value })}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <ThemedFormField
-            label="Material cost ($)"
-            value={variationForm.materialCost}
-            onChange={(e) => setVariationForm({ ...variationForm, materialCost: e.target.value })}
-          />
-          <ThemedFormField
-            label="Markup (%)"
-            value={variationForm.markupPercent}
-            onChange={(e) => setVariationForm({ ...variationForm, markupPercent: e.target.value })}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+        <ThemedFormField label="Name" value={variationName} onChange={(e) => setVariationName(e.target.value)} placeholder="e.g. Standard, Premium" />
+
+        <div className="mb-4 grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
               Unit
             </label>
-            <UnitSelect value={variationForm.unit} onChange={(unitValue) => setVariationForm({ ...variationForm, unit: unitValue })} />
+            <UnitSelect value={variationUnit} onChange={setVariationUnit} />
           </div>
           <ThemedFormField
             label="Warranty (shown to the client)"
-            value={variationForm.warrantyText}
-            onChange={(e) => setVariationForm({ ...variationForm, warrantyText: e.target.value })}
+            value={variationWarrantyText}
+            onChange={(e) => setVariationWarrantyText(e.target.value)}
             placeholder="e.g. 10 year workmanship warranty"
           />
         </div>
+
+        <div className="mb-4">
+          <PriceBookItemizedFields value={variationPricing} onChange={(patch) => setVariationPricing((prev) => ({ ...prev, ...patch }))} />
+          {variationPricing.pricing_model === "itemized" ? (
+            <ThemedFormField
+              label="Benchmark quantity (what the itemized total above was priced for)"
+              value={String(variationPricing.quantity)}
+              onChange={(e) => setVariationPricing((prev) => ({ ...prev, quantity: parseFloat(e.target.value) || 1 }))}
+            />
+          ) : null}
+        </div>
+
+        <div className="mb-4 rounded p-3" style={{ backgroundColor: "var(--jms-surface)", border: "1px solid var(--jms-border)" }}>
+          <p className="font-bold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+            Computed price
+          </p>
+          <p className="text-xl font-extrabold" style={{ color: "var(--jms-accent)" }}>
+            {formatCentsAsAud(previewPriceCents(variationPricing))}
+          </p>
+        </div>
+
         {variationError ? (
           <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             {variationError}
