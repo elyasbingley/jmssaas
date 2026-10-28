@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -145,8 +145,6 @@ async function fetchVariationMaterials(variationId: string): Promise<PriceBookIt
 export default function PriceBookItemPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
-  const queryClient = useQueryClient();
 
   const { data: item } = useQuery({ queryKey: ["price-book-item", id], queryFn: () => fetchItem(id!), enabled: !!id });
   const { data: itemCrew } = useQuery({ queryKey: ["price-book-item-crew", id], queryFn: () => fetchItemCrew(id!), enabled: !!id });
@@ -157,32 +155,69 @@ export default function PriceBookItemPage() {
     enabled: !!id,
   });
 
-  const [description, setDescription] = useState("");
-  const [isCalloutFee, setIsCalloutFee] = useState(false);
-  const [gstApplicable, setGstApplicable] = useState(true);
-  const [unit, setUnit] = useState<string | null>(null);
-  const [warrantyText, setWarrantyText] = useState("");
-  const [pricing, setPricing] = useState<PriceBookPricingFields>(emptyPricing);
+  // Gate on all three fetches, not just `item`: the form below seeds its
+  // local state (including every DecimalField's own displayed text) once
+  // from props on mount, with no re-seeding effect watching for later
+  // prop changes. Mounting it before itemCrew/itemMaterials have loaded -
+  // as a `useEffect([item, itemCrew, itemMaterials])` reseed used to allow -
+  // means it captures a zeroed/blank value and then never updates its
+  // displayed text once the real data arrives a render later, which is
+  // what made labour (and every other field) appear wiped after save-and-
+  // return. `key={id}` below forces a fresh mount (and fresh seed) if the
+  // route ever points at a different item without a full page reload.
+  if (!item || !itemCrew || !itemMaterials) {
+    return (
+      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        Loading...
+      </div>
+    );
+  }
+
+  return (
+    <PriceBookItemForm
+      key={id}
+      id={id!}
+      item={item}
+      itemCrew={itemCrew}
+      itemMaterials={itemMaterials}
+      variations={variations ?? []}
+      navigate={navigate}
+    />
+  );
+}
+
+function PriceBookItemForm({
+  id,
+  item,
+  itemCrew,
+  itemMaterials,
+  variations,
+  navigate,
+}: {
+  id: string;
+  item: PriceBookItem;
+  itemCrew: PriceBookItemCrew[];
+  itemMaterials: PriceBookItemMaterial[];
+  variations: PriceBookItemVariation[];
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const { profile } = useAuth();
+  const queryClient = useQueryClient();
+
+  const [description, setDescription] = useState(item.description);
+  const [isCalloutFee, setIsCalloutFee] = useState(item.is_callout_fee ?? false);
+  const [gstApplicable, setGstApplicable] = useState(item.gst_applicable ?? true);
+  const [unit, setUnit] = useState<string | null>(item.unit ?? null);
+  const [warrantyText, setWarrantyText] = useState(item.warranty_text ?? "");
+  const [pricing, setPricing] = useState<PriceBookPricingFields>(() =>
+    pricingFromItem(
+      item,
+      itemCrew.map((c) => ({ ...c })),
+      itemMaterials.map((m) => ({ ...m }))
+    )
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (item && itemCrew && itemMaterials) {
-      setDescription(item.description);
-      setIsCalloutFee(item.is_callout_fee ?? false);
-      setGstApplicable(item.gst_applicable ?? true);
-      setUnit(item.unit ?? null);
-      setWarrantyText(item.warranty_text ?? "");
-      setPricing(
-        pricingFromItem(
-          item,
-          itemCrew.map((c) => ({ ...c })),
-          itemMaterials.map((m) => ({ ...m }))
-        )
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item, itemCrew, itemMaterials]);
 
   const previewCents = previewPriceCents(pricing);
 
@@ -190,12 +225,12 @@ export default function PriceBookItemPage() {
     queryClient.invalidateQueries({ queryKey: ["price-book-item", id] });
     queryClient.invalidateQueries({ queryKey: ["price-book-item-crew", id] });
     queryClient.invalidateQueries({ queryKey: ["price-book-item-materials", id] });
-    queryClient.invalidateQueries({ queryKey: ["price-book-items", item?.category_id] });
+    queryClient.invalidateQueries({ queryKey: ["price-book-items", item.category_id] });
   };
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!item || !profile) throw new Error("Not loaded yet");
+      if (!profile) throw new Error("Not loaded yet");
       const result = createPriceBookItemSchema.safeParse({
         category_id: item.category_id,
         description,
@@ -242,7 +277,6 @@ export default function PriceBookItemPage() {
 
   const changeImage = useMutation({
     mutationFn: async (file: File) => {
-      if (!item) throw new Error("Not loaded yet");
       const extension = file.type.includes("png") ? "png" : "jpg";
       const path = `${item.tenant_id}/item-${item.id}-${Date.now()}.${extension}`;
       const { error: uploadError } = await supabase.storage
@@ -279,8 +313,8 @@ export default function PriceBookItemPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["price-book-items", item?.category_id] });
-      navigate(item ? `/price-book/categories/${item.category_id}` : "/price-book");
+      queryClient.invalidateQueries({ queryKey: ["price-book-items", item.category_id] });
+      navigate(`/price-book/categories/${item.category_id}`);
     },
   });
 
@@ -378,14 +412,6 @@ export default function PriceBookItemPage() {
       setVariationModalOpen(false);
     },
   });
-
-  if (!item) {
-    return (
-      <div className="p-8" style={{ color: "var(--jms-text-muted)", fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
-        Loading...
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto max-w-3xl p-8" style={{ fontFamily: "var(--jms-font)" }}>

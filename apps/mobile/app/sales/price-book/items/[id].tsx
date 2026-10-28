@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -127,7 +127,6 @@ async function fetchVariationMaterials(variationId: string): Promise<PriceBookIt
 export default function PriceBookItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { profile } = useAuth();
   const isOnline = useIsOnline();
   const styles = useThemedStyles(createStyles);
 
@@ -155,37 +154,113 @@ export default function PriceBookItemScreen() {
   }, [id, isOnline]);
   useRefetchOnFocus(refetchVariations);
 
-  const [description, setDescription] = useState("");
-  const [isCalloutFee, setIsCalloutFee] = useState(false);
-  const [gstApplicable, setGstApplicable] = useState(true);
-  const [unit, setUnit] = useState<string | null>(null);
-  const [warrantyText, setWarrantyText] = useState("");
-  const [pricing, setPricing] = useState<PriceBookPricingFields>(emptyPricing);
+  const header = (
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Text style={styles.link}>‹ Back</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>Item</Text>
+    </View>
+  );
+
+  if (!isOnline) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <ThemedRequiresConnectionNotice label="Price book" />
+        </SafeAreaView>
+      </>
+    );
+  }
+
+  // Gate on all three fetches, not just `item`: PriceBookItemForm below
+  // seeds its local state (including every DecimalInput's own displayed
+  // text, inside PriceBookItemizedFields) once from props on mount, with
+  // no re-seeding effect watching for later prop changes. Mounting it
+  // before itemCrew/itemMaterials have loaded - as a
+  // `useEffect([item, itemCrew, itemMaterials])` reseed used to allow -
+  // means it captures a zeroed/blank value and then never updates its
+  // displayed text once the real data arrives a render later, which is
+  // what made labour (and every other field) appear wiped after save-and-
+  // return. `key={id}` on PriceBookItemForm forces a fresh mount (and
+  // fresh seed) if this screen ever points at a different item without a
+  // full unmount.
+  if (!item || !itemCrew || !itemMaterials) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+          {header}
+          <View style={styles.container}>
+            <Text style={styles.empty}>Loading...</Text>
+          </View>
+        </SafeAreaView>
+      </>
+    );
+  }
+
+  return (
+    <PriceBookItemForm
+      key={id}
+      id={id}
+      item={item}
+      itemCrew={itemCrew}
+      itemMaterials={itemMaterials}
+      variations={variations ?? []}
+      refetchItem={refetchItem}
+      refetchItemCrew={refetchItemCrew}
+      refetchItemMaterials={refetchItemMaterials}
+      refetchVariations={refetchVariations}
+    />
+  );
+}
+
+function PriceBookItemForm({
+  id,
+  item,
+  itemCrew,
+  itemMaterials,
+  variations,
+  refetchItem,
+  refetchItemCrew,
+  refetchItemMaterials,
+  refetchVariations,
+}: {
+  id: string;
+  item: PriceBookItem;
+  itemCrew: PriceBookItemCrew[];
+  itemMaterials: PriceBookItemMaterial[];
+  variations: PriceBookItemVariation[];
+  refetchItem: () => Promise<void> | void;
+  refetchItemCrew: () => Promise<void> | void;
+  refetchItemMaterials: () => Promise<void> | void;
+  refetchVariations: () => Promise<void> | void;
+}) {
+  const router = useRouter();
+  const { profile } = useAuth();
+  const styles = useThemedStyles(createStyles);
+
+  const [description, setDescription] = useState(item.description);
+  const [isCalloutFee, setIsCalloutFee] = useState(item.is_callout_fee ?? false);
+  const [gstApplicable, setGstApplicable] = useState(item.gst_applicable ?? true);
+  const [unit, setUnit] = useState<string | null>(item.unit ?? null);
+  const [warrantyText, setWarrantyText] = useState(item.warranty_text ?? "");
+  const [pricing, setPricing] = useState<PriceBookPricingFields>(() =>
+    pricingFromItem(
+      item,
+      itemCrew.map((c) => ({ ...c })),
+      itemMaterials.map((m) => ({ ...m }))
+    )
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (item && itemCrew && itemMaterials) {
-      setDescription(item.description);
-      setIsCalloutFee(item.is_callout_fee ?? false);
-      setGstApplicable(item.gst_applicable ?? true);
-      setUnit(item.unit ?? null);
-      setWarrantyText(item.warranty_text ?? "");
-      setPricing(
-        pricingFromItem(
-          item,
-          itemCrew.map((c) => ({ ...c })),
-          itemMaterials.map((m) => ({ ...m }))
-        )
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item, itemCrew, itemMaterials]);
 
   const previewCents = previewPriceCents(pricing);
 
   const handleSave = async () => {
-    if (!item || !profile) return;
+    if (!profile) return;
     const result = createPriceBookItemSchema.safeParse({
       category_id: item.category_id,
       description,
@@ -360,32 +435,6 @@ export default function PriceBookItemScreen() {
       <Text style={styles.headerTitle}>Item</Text>
     </View>
   );
-
-  if (!isOnline) {
-    return (
-      <>
-        <StatusBar style="light" />
-        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-          {header}
-          <ThemedRequiresConnectionNotice label="Price book" />
-        </SafeAreaView>
-      </>
-    );
-  }
-
-  if (!item) {
-    return (
-      <>
-        <StatusBar style="light" />
-        <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-          {header}
-          <View style={styles.container}>
-            <Text style={styles.empty}>Loading...</Text>
-          </View>
-        </SafeAreaView>
-      </>
-    );
-  }
 
   return (
     <>
