@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leak Check Report</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Helvetica, Arial, sans-serif; color: #111827; margin: 0; padding: 0; background: #f3f4f6; }
+      .page { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
+      .card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .logo { max-width: 200px; max-height: 80px; margin-bottom: 16px; }
+      .doc-title { font-size: 24px; margin: 0; }
+      .meta { color: #374151; font-size: 13px; margin-top: 10px; line-height: 1.6; }
+      .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-top: 12px; }
+      .badge.completed { background: #dcfce7; color: #15803d; }
+      .badge.in_progress { background: #f3f4f6; color: #6b7280; }
+      .category { margin-top: 28px; }
+      .category-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; margin-bottom: 12px; }
+      .item { border-top: 1px solid #e5e7eb; padding: 12px 0; }
+      .item:first-child { border-top: none; }
+      .item-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+      .item-label { font-size: 14px; font-weight: 600; }
+      .result { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; flex-shrink: 0; }
+      .result.pass { background: #dcfce7; color: #15803d; }
+      .result.fail { background: #fee2e2; color: #b91c1c; }
+      .result.na { background: #f3f4f6; color: #6b7280; }
+      .item-notes { margin-top: 6px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+      .meter-row { display: flex; gap: 16px; margin-top: 6px; font-size: 13px; color: #374151; }
+      .meter-readout { margin-top: 6px; font-size: 13px; font-weight: 700; }
+      .meter-readout.leak { color: #b91c1c; }
+      .meter-readout.ok { color: #15803d; }
+      .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .photos img { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
+      .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
+      .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
+      .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; }
+    </style>
+  </head>
+  <body>
+    <div class="page"><div class="card" id="card">
+      <p class="message-body">Loading...</p>
+    </div></div>
+
+    <script>
+      // Static shell for the public leak check share page - hosted the same
+      // way as supabase/static/approval-page.html (an external static host,
+      // not Supabase itself - see that file's own comment for why). One
+      // file, uploaded once - everything else (which leak check, its data)
+      // comes from the ?token= query param and a fetch() to the
+      // leak-check-share Edge Function.
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatDateTime(dateString) {
+        if (!dateString) return null;
+        var d = new Date(dateString);
+        if (isNaN(d.getTime())) return dateString;
+        return d.toLocaleString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      }
+
+      var params = new URLSearchParams(location.search);
+      var token = params.get("token");
+      // Same "deployed cross-origin from the function" reasoning as
+      // approval-page.html's own SUPABASE_URL - same project, update both
+      // together if it ever changes.
+      var SUPABASE_URL = "https://qnlxmpxjmmhcnzzpcabd.supabase.co";
+      var functionUrl = SUPABASE_URL + "/functions/v1/leak-check-share";
+      var card = document.getElementById("card");
+
+      function renderMessage(title, body) {
+        card.innerHTML =
+          '<p class="message-title">' + escapeHtml(title) + "</p>" +
+          '<p class="message-body">' + escapeHtml(body) + "</p>";
+      }
+
+      function renderResultBadge(result) {
+        if (!result) return "";
+        var label = result === "pass" ? "Pass" : result === "fail" ? "Fail" : "N/A";
+        return '<span class="result ' + result + '">' + label + "</span>";
+      }
+
+      function renderItem(item) {
+        var html = '<div class="item"><div class="item-top"><span class="item-label">' + escapeHtml(item.label) + "</span>";
+        if (item.item_type === "standard") html += renderResultBadge(item.result);
+        html += "</div>";
+
+        if (item.item_type === "water_meter") {
+          var hasReadings = item.meter_start_reading !== null && item.meter_end_reading !== null;
+          html += '<div class="meter-row">';
+          html += "<span>Start: " + (item.meter_start_reading ?? "-") + "</span>";
+          html += "<span>End: " + (item.meter_end_reading ?? "-") + "</span>";
+          html += "<span>Wait: " + (item.meter_wait_minutes ?? "-") + " min</span>";
+          html += "</div>";
+          if (hasReadings) {
+            var moved = item.meter_start_reading !== item.meter_end_reading;
+            html +=
+              '<div class="meter-readout ' + (moved ? "leak" : "ok") + '">' +
+              (moved ? "Meter moved - likely leak" : "Meter steady - no leak detected") +
+              "</div>";
+          }
+        }
+
+        if (item.notes) html += '<div class="item-notes">' + escapeHtml(item.notes) + "</div>";
+
+        if (item.photos && item.photos.length > 0) {
+          html += '<div class="photos">';
+          item.photos.forEach(function (url) {
+            html += '<img src="' + encodeURI(url) + '" alt="" />';
+          });
+          html += "</div>";
+        }
+
+        html += "</div>";
+        return html;
+      }
+
+      function renderReport(report) {
+        var html = "";
+        if (report.tenant_logo_url) {
+          html += '<img class="logo" src="' + encodeURI(report.tenant_logo_url) + '" alt="' + escapeHtml(report.tenant_name) + '" />';
+        }
+        html += '<h1 class="doc-title">' + escapeHtml(report.title) + "</h1>";
+        html += '<div class="meta">';
+        html += escapeHtml(report.job_title) + "<br/>";
+        html += "Client: " + escapeHtml(report.client_name) + "<br/>";
+        if (report.completed_at) html += "Completed: " + escapeHtml(formatDateTime(report.completed_at));
+        html += "</div>";
+        html += '<span class="badge ' + report.status + '">' + (report.status === "completed" ? "Completed" : "In progress") + "</span>";
+
+        report.categories.forEach(function (category) {
+          html += '<div class="category"><div class="category-name">' + escapeHtml(category.name) + "</div>";
+          category.items.forEach(function (item) {
+            html += renderItem(item);
+          });
+          html += "</div>";
+        });
+
+        html += '<div class="footer">Prepared by ' + escapeHtml(report.tenant_name) + "</div>";
+        card.innerHTML = html;
+      }
+
+      if (!token) {
+        renderMessage("Link not found", "This link is missing its access token.");
+      } else {
+        fetch(functionUrl + "?token=" + encodeURIComponent(token))
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.error === "not_found") {
+              renderMessage("Report not found", "This link may have expired or is no longer valid.");
+            } else if (data.error) {
+              renderMessage("Something went wrong", "Please try again later or contact the office directly.");
+            } else {
+              renderReport(data);
+            }
+          })
+          .catch(function () {
+            renderMessage("Something went wrong", "Please check your connection and try again.");
+          });
+      }
+    </script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { v4 as uuidv4 } from "uuid";
@@ -15,6 +15,7 @@ import type {
 } from "@jmssaas/shared";
 import { useAuth } from "../lib/auth-context";
 import { addLeakCheckItemPhoto } from "../lib/powersync";
+import { supabase } from "../lib/supabase";
 import { getErrorMessage } from "../lib/errors";
 import { useThemedStyles, type StyleTheme } from "../lib/use-themed-styles";
 import { CenteredModal } from "./CenteredModal";
@@ -249,6 +250,35 @@ function LeakCheckEditor({ leakCheckId, jobCardId, onBack }: { leakCheckId: stri
     }
   };
 
+  const [sharing, setSharing] = useState(false);
+
+  // Generates the share token if one doesn't exist yet (idempotent - same
+  // RPC shape as the quote/invoice share flow), then hands the resulting
+  // link straight to the native Share sheet - same pattern quotes/
+  // invoices already use on mobile. This one call genuinely needs a live
+  // connection (minting a token is a server round trip), unlike the rest
+  // of this tool - same as quotes/invoices' own share flow being Supabase-
+  // direct even though job cards/tasks are offline-capable.
+  const handleShare = async () => {
+    const sharePageUrl = process.env.EXPO_PUBLIC_LEAK_CHECK_SHARE_PAGE_URL;
+    if (!sharePageUrl) {
+      setActionError("Leak check share page URL not configured - set EXPO_PUBLIC_LEAK_CHECK_SHARE_PAGE_URL in .env (see docs/SETUP.md)");
+      return;
+    }
+    setSharing(true);
+    try {
+      const { data: token, error } = await supabase.rpc("generate_leak_check_share_link", { p_leak_check_id: leakCheckId });
+      if (error) throw error;
+      const url = `${sharePageUrl}?token=${token}`;
+      await Share.share({ message: `Leak check report: ${url}` });
+      setActionError(null);
+    } catch (e) {
+      setActionError(getErrorMessage(e, "Failed to generate share link"));
+    } finally {
+      setSharing(false);
+    }
+  };
+
   if (!leakCheck) {
     return <Text style={styles.empty}>Loading...</Text>;
   }
@@ -276,6 +306,7 @@ function LeakCheckEditor({ leakCheckId, jobCardId, onBack }: { leakCheckId: stri
           ) : (
             <ThemedButton label="Mark complete" onPress={() => setStatus("completed")} />
           )}
+          <ThemedButton label={sharing ? "..." : "Share"} onPress={handleShare} disabled={sharing} />
         </View>
       </View>
 

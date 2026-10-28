@@ -340,6 +340,32 @@ function LeakCheckEditor({ leakCheckId, jobCardId, onBack }: { leakCheckId: stri
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job-leak-check", leakCheckId] }),
   });
 
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Generates the share token if one doesn't exist yet (idempotent, same
+  // RPC shape as QuoteDetail.tsx's own generateLink), copies the link to
+  // the clipboard - same "desktop's equivalent of mobile's native Share
+  // sheet handoff" pattern that page uses.
+  const shareLeakCheck = useMutation({
+    mutationFn: async () => {
+      const sharePageUrl = import.meta.env.VITE_LEAK_CHECK_SHARE_PAGE_URL;
+      if (!sharePageUrl) {
+        throw new Error("Leak check share page URL not configured - set VITE_LEAK_CHECK_SHARE_PAGE_URL in .env (see docs/SETUP.md)");
+      }
+      const { data: token, error } = await supabase.rpc("generate_leak_check_share_link", { p_leak_check_id: leakCheckId });
+      if (error) throw error;
+      const url = `${sharePageUrl}?token=${token}`;
+      await navigator.clipboard.writeText(url);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-leak-check", leakCheckId] });
+      setActionError(null);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 3000);
+    },
+    onError: (e) => setActionError(getErrorMessage(e, "Failed to generate share link")),
+  });
+
   if (!leakCheck || !categories || !items) {
     return (
       <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>Loading...</p>
@@ -369,6 +395,9 @@ function LeakCheckEditor({ leakCheckId, jobCardId, onBack }: { leakCheckId: stri
               Mark complete
             </ThemedButton>
           )}
+          <ThemedButton onClick={() => shareLeakCheck.mutate()} disabled={shareLeakCheck.isPending}>
+            {shareLeakCheck.isPending ? "..." : shareCopied ? "Link copied!" : "Share"}
+          </ThemedButton>
         </div>
       </div>
 
