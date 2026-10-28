@@ -325,6 +325,11 @@ function PriceBookItemForm({
   const [variationWarrantyText, setVariationWarrantyText] = useState("");
   const [variationPricing, setVariationPricing] = useState<PriceBookPricingFields>(emptyPricing);
   const [variationError, setVariationError] = useState<string | null>(null);
+  // Bumped every time the modal is (re)opened, and used as PriceBookItemizedFields'
+  // key below, forcing a fresh mount - and a fresh DecimalField seed - every
+  // time, even if the modal's own open/close toggle were ever changed to not
+  // fully unmount its content (as mobile's RN <Modal> already doesn't).
+  const [variationSessionKey, setVariationSessionKey] = useState(0);
 
   const openNewVariation = () => {
     setEditingVariationId(null);
@@ -333,18 +338,28 @@ function PriceBookItemForm({
     setVariationWarrantyText("");
     setVariationPricing(emptyPricing);
     setVariationError(null);
+    setVariationSessionKey((k) => k + 1);
     setVariationModalOpen(true);
   };
 
   const openEditVariation = async (variation: PriceBookItemVariation) => {
+    // Fetch crew/materials and set every field - including pricing - before
+    // opening the modal, not after: opening it first (as this used to do)
+    // mounts PriceBookItemizedFields - and every DecimalField inside it,
+    // which seeds its own displayed text once on mount with no resync -
+    // while variationPricing still holds the previous variation's values
+    // (or emptyPricing), and that stale seed never catches up once the
+    // real fetch resolves a moment later. Same race as PriceBookItem's own
+    // reseed bug, just one level down in the variation modal.
+    setVariationError(null);
+    const [crew, materials] = await Promise.all([fetchVariationCrew(variation.id), fetchVariationMaterials(variation.id)]);
     setEditingVariationId(variation.id);
     setVariationName(variation.name);
     setVariationUnit(variation.unit ?? null);
     setVariationWarrantyText(variation.warranty_text ?? "");
-    setVariationError(null);
-    setVariationModalOpen(true);
-    const [crew, materials] = await Promise.all([fetchVariationCrew(variation.id), fetchVariationMaterials(variation.id)]);
     setVariationPricing(pricingFromItem(variation, crew, materials));
+    setVariationSessionKey((k) => k + 1);
+    setVariationModalOpen(true);
   };
 
   const saveVariation = useMutation({
@@ -595,7 +610,11 @@ function PriceBookItemForm({
         </div>
 
         <div className="mb-4">
-          <PriceBookItemizedFields value={variationPricing} onChange={(patch) => setVariationPricing((prev) => ({ ...prev, ...patch }))} />
+          <PriceBookItemizedFields
+            key={variationSessionKey}
+            value={variationPricing}
+            onChange={(patch) => setVariationPricing((prev) => ({ ...prev, ...patch }))}
+          />
           {variationPricing.pricing_model === "itemized" ? (
             <ThemedFormField
               label="Benchmark quantity (what the itemized total above was priced for)"
