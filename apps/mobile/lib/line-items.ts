@@ -1,4 +1,4 @@
-import { computeLineItemUnitPriceCents, type LineItemFormInput } from "@jmssaas/shared";
+import { computeItemizedLinePricing, computeLineItemUnitPriceCents, type LineItemFormInput } from "@jmssaas/shared";
 
 // Shared by LineItemEditor and AddLineItemBar - kept in a plain lib module
 // (not re-exported from either component) so the two don't end up with a
@@ -42,5 +42,12 @@ export function normalizeLineItem(raw: Partial<LineItemFormInput> & { descriptio
     material_cost_cents: raw.material_cost_cents ?? raw.unit_price_cents ?? base.material_cost_cents,
     sort_order: sortOrder,
   };
-  return { ...merged, unit_price_cents: computeLineItemUnitPriceCents(merged) };
+  // Bug fix: this used to always recompute via the legacy formula
+  // regardless of pricing_model, silently corrupting unit_price_cents for
+  // any itemized item passed through here (a job template's default_line_
+  // items, or a price-book item/variation/bundle sourced via
+  // AddLineItemBar) - mirrors LineItemEditor's own updateItem branch.
+  const unit_price_cents =
+    merged.pricing_model === "itemized" ? computeItemizedLinePricing(merged).unitPriceCents : computeLineItemUnitPriceCents(merged);
+  return { ...merged, unit_price_cents };
 }

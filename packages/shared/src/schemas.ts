@@ -290,7 +290,34 @@ export const createPriceBookCategorySchema = z.object({
 });
 export type CreatePriceBookCategoryInput = z.infer<typeof createPriceBookCategorySchema>;
 
-export const createPriceBookItemSchema = priceBreakdownSchema.extend({
+// The full itemized cost-rate/charge-rate/margin split, shared by both
+// price book schemas below - same fields as lineItemSchema's own itemized
+// additions (see that schema's comment), minus the quote/invoice-only
+// concepts (waived_amount_cents, is_optional/is_included, bundle_name,
+// internal_notes) that don't mean anything on a reusable catalogue entry.
+// quantity here is the benchmark denominator the itemized total was
+// priced at, not a document line's multiplier - see the price_book_
+// itemized_pricing migration's own comment.
+const priceBookItemizedFieldsSchema = z.object({
+  quantity: z.number().positive().default(1),
+  gst_applicable: z.boolean().default(true),
+  pricing_model: lineItemPricingModelSchema.optional(),
+  labour_cost_rate_cents: z.number().int().nonnegative().optional(),
+  labour_charge_out_rate_cents: z.number().int().nonnegative().optional(),
+  crew: z.array(lineItemCrewSchema).optional(),
+  materials: z.array(lineItemMaterialSchema).optional(),
+  material_margin_percent: z.number().min(0).max(99.99).optional(),
+  subcontractor_margin_percent: z.number().min(0).max(99.99).optional(),
+  waste_percent: z.number().nonnegative().optional(),
+  contingency_percent: z.number().nonnegative().optional(),
+  tip_fees_cents: z.number().int().nonnegative().optional(),
+  equipment_hire_cents: z.number().int().nonnegative().optional(),
+  travel_cost_cents: z.number().int().nonnegative().optional(),
+  is_subcontracted: z.boolean().default(false),
+  subcontractor_cost_cents: z.number().int().nonnegative().default(0),
+});
+
+export const createPriceBookItemSchema = priceBreakdownSchema.extend(priceBookItemizedFieldsSchema.shape).extend({
   category_id: z.string().uuid(),
   description: z.string().min(1, "Description is required"),
   sort_order: z.number().int().default(0),
@@ -301,14 +328,13 @@ export const createPriceBookItemSchema = priceBreakdownSchema.extend({
   // Itemised quoting rework (price_book_unit_warranty migration) - carried
   // straight through to a new line item by AddLineItemBar when this
   // catalogue item is added to a quote/invoice, same as the price fields
-  // above. The fuller itemized cost-rate/charge-rate/margin split is not
-  // part of the Price Book model (see that migration's header comment).
+  // above.
   unit: lineItemUnitSchema.nullable().optional(),
   warranty_text: z.string().nullable().optional(),
 });
 export type CreatePriceBookItemInput = z.infer<typeof createPriceBookItemSchema>;
 
-export const createPriceBookVariationSchema = priceBreakdownSchema.extend({
+export const createPriceBookVariationSchema = priceBreakdownSchema.extend(priceBookItemizedFieldsSchema.shape).extend({
   price_book_item_id: z.string().uuid(),
   name: z.string().min(1, "Name is required"),
   sort_order: z.number().int().default(0),

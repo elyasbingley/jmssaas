@@ -941,6 +941,29 @@ export interface PriceBookItem {
   // price fields above.
   unit?: string | null;
   warranty_text?: string | null;
+  // Full itemized cost-rate/charge-rate/margin split (price_book_itemized_
+  // pricing migration) - the "later pass" the migration above deferred.
+  // Same fields/meaning as LineItemInput's own itemized additions, with
+  // one difference: quantity here is the benchmark denominator the
+  // itemized total was priced at (e.g. "70" for a $X/70-per-lm rate), not
+  // a document line's multiplier - see that migration's own comment.
+  // crew/materials are fetched separately (price_book_item_crew/
+  // price_book_item_materials), not embedded here, same split as
+  // PriceBookItemCrew/PriceBookItemMaterial below.
+  quantity?: number;
+  gst_applicable?: boolean;
+  pricing_model?: LineItemPricingModel;
+  labour_cost_rate_cents?: number | null;
+  labour_charge_out_rate_cents?: number | null;
+  material_margin_percent?: number | null;
+  subcontractor_margin_percent?: number | null;
+  waste_percent?: number | null;
+  contingency_percent?: number | null;
+  tip_fees_cents?: number | null;
+  equipment_hire_cents?: number | null;
+  travel_cost_cents?: number | null;
+  is_subcontracted?: boolean;
+  subcontractor_cost_cents?: number;
   created_at: string;
   updated_at: string;
 }
@@ -957,8 +980,72 @@ export interface PriceBookItemVariation {
   sort_order: number;
   unit?: string | null;
   warranty_text?: string | null;
+  // Same itemized fields as PriceBookItem above.
+  quantity?: number;
+  gst_applicable?: boolean;
+  pricing_model?: LineItemPricingModel;
+  labour_cost_rate_cents?: number | null;
+  labour_charge_out_rate_cents?: number | null;
+  material_margin_percent?: number | null;
+  subcontractor_margin_percent?: number | null;
+  waste_percent?: number | null;
+  contingency_percent?: number | null;
+  tip_fees_cents?: number | null;
+  equipment_hire_cents?: number | null;
+  travel_cost_cents?: number | null;
+  is_subcontracted?: boolean;
+  subcontractor_cost_cents?: number;
   created_at: string;
   updated_at: string;
+}
+
+// Crew/materials child rows for an itemized price book item or variation -
+// mirrors LineItemCrewInput/LineItemMaterialInput's shape but as a real DB
+// row (id/tenant_id/parent id), same split as quote_line_item_crew vs
+// LineItemCrewInput. One pair of types per parent table, matching the
+// price_book_itemized_pricing migration's own four child tables.
+export interface PriceBookItemCrew {
+  id: string;
+  tenant_id: string;
+  price_book_item_id: string;
+  labour_cost_entry_id: string | null;
+  worker_name: string;
+  cost_rate_cents: number;
+  charge_out_rate_cents: number;
+  hours: number;
+  sort_order: number;
+}
+
+export interface PriceBookItemMaterial {
+  id: string;
+  tenant_id: string;
+  price_book_item_id: string;
+  description: string;
+  quantity: number;
+  unit_cost_cents: number;
+  sort_order: number;
+}
+
+export interface PriceBookItemVariationCrew {
+  id: string;
+  tenant_id: string;
+  price_book_item_variation_id: string;
+  labour_cost_entry_id: string | null;
+  worker_name: string;
+  cost_rate_cents: number;
+  charge_out_rate_cents: number;
+  hours: number;
+  sort_order: number;
+}
+
+export interface PriceBookItemVariationMaterial {
+  id: string;
+  tenant_id: string;
+  price_book_item_variation_id: string;
+  description: string;
+  quantity: number;
+  unit_cost_cents: number;
+  sort_order: number;
 }
 
 // A named, pre-built set of line items (e.g. everything a hot water system
