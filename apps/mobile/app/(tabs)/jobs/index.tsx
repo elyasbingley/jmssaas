@@ -51,6 +51,7 @@ export default function JobsScreen() {
   const { data: categories } = useQuery<ServiceCategory>("SELECT * FROM service_categories ORDER BY name");
   const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
   const clientById = new Map(clients.map((c) => [c.id, c]));
+  const stageById = new Map(stages.map((s) => [s.id, s]));
 
   // referral_partners isn't a PowerSync table (see app/b2b-referrals/
   // index.tsx), so this picker's options only load while online - offline
@@ -168,6 +169,7 @@ export default function JobsScreen() {
   function renderJobRow(job: JobCard) {
     const jobClient = clientById.get(job.client_id);
     const address = jobClient ? formatClientAddress(jobClient) : null;
+    const stage = stageById.get(job.lifecycle_stage_id ?? "");
     return (
       <Pressable key={job.id} style={styles.row} onPress={() => router.push(`/jobs/${job.id}`)}>
         <View style={styles.rowLeft}>
@@ -187,6 +189,18 @@ export default function JobsScreen() {
           <Text style={styles.rowJobTitle} numberOfLines={1}>
             {job.title}
           </Text>
+          {stage ? (
+            <View
+              style={[
+                styles.stageBadge,
+                { borderColor: stage.color ?? styles.stageBadge.borderColor },
+              ]}
+            >
+              <Text style={[styles.stageBadgeText, { color: stage.color ?? styles.stageBadgeText.color }]} numberOfLines={1}>
+                {stage.name}
+              </Text>
+            </View>
+          ) : null}
         </View>
         <Text style={styles.rowNumber}>{job.number ?? "Pending sync"}</Text>
       </Pressable>
@@ -412,6 +426,22 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     rowClientName: { fontSize: font.body + 1, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
     rowAddress: { fontSize: font.body + 1, color: tokens.textPrimary, ...mono },
     rowJobTitle: { fontSize: font.label, color: tokens.textMuted, marginTop: 3, ...mono },
+    stageBadge: {
+      alignSelf: "flex-start" as const,
+      marginTop: 6,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 100,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    stageBadgeText: {
+      fontSize: font.label - 1,
+      fontWeight: "700" as const,
+      color: tokens.textMuted,
+      letterSpacing: 0.5,
+      ...mono,
+    },
     rowNumber: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, ...mono },
     empty: { marginHorizontal: 16, color: tokens.textMuted, fontSize: font.body - 1, ...mono },
     modalTitle: {
