@@ -76,7 +76,7 @@ import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunic
 import { JobActionsBar } from "../../../components/theme/JobActionsBar";
 import { JobActionsSheet } from "../../../components/theme/JobActionsSheet";
 import { MultiCaptureCamera } from "../../../components/MultiCaptureCamera";
-import { EmailComposeModal } from "../../../components/EmailComposeModal";
+import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
 import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { MeasureRoofTool } from "../../../components/MeasureRoofTool";
 import { MembershipStatusCard } from "../../../components/MembershipStatusCard";
@@ -291,6 +291,29 @@ export default function JobDetailScreen() {
     if (error) throw error;
     return (data ?? []) as ReportTemplate[];
   }, [isOnline]);
+
+  // Every active email template, any trigger - same "pick a starting point
+  // or write from scratch" tool as desktop JobDetail.tsx's own
+  // fetchEmailTemplates, so the free-form job email has the same template
+  // picker on both platforms (communication_templates, not
+  // channel_message_templates - that one's SMS-only, no subject field).
+  const { data: jobEmailTemplates } = useSupabaseFetch<EmailTemplateOption[]>(async () => {
+    if (!isOnline || !profile) return [];
+    const { data, error } = await supabase
+      .from("communication_templates")
+      .select("id, name, subject, body")
+      .eq("tenant_id", profile.tenant_id)
+      .eq("type", "email")
+      .eq("is_active", true)
+      .order("name");
+    if (error) throw error;
+    return (data ?? []).map((t) => ({
+      id: t.id as string,
+      name: t.name as string,
+      subject: (t.subject as string | null) ?? "",
+      body: t.body as string,
+    }));
+  }, [isOnline, profile?.tenant_id]);
 
   const [createReportModalVisible, setCreateReportModalVisible] = useState(false);
   const [createReportSearch, setCreateReportSearch] = useState("");
@@ -1983,6 +2006,7 @@ export default function JobDetailScreen() {
       defaultSubject=""
       defaultBody=""
       recipientOptions={jobRecipientOptions}
+      templates={jobEmailTemplates ?? undefined}
       onSend={handleSendJobEmail}
       sendLabel="Send email"
     />
