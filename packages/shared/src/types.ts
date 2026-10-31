@@ -122,8 +122,17 @@ export interface Client {
   // full name. "Company" clients: this is the primary contact person's name
   // - the company's own name lives in company_name instead, so a company
   // client can never be created with just a person's name in the company
-  // slot (or vice versa).
+  // slot (or vice versa). Kept in sync with first_name/last_name by a DB
+  // trigger (clients_sync_full_name) - see the client_first_last_name
+  // migration - so it's always safe to just read, never written directly
+  // once first_name/last_name are in play.
   name: string;
+  // Added by the client_first_last_name migration so {client_first_name}
+  // resolves to a real first name instead of splitting `name` on
+  // whitespace at render time. Null only for rows the backfill/trigger
+  // hasn't touched yet, which in practice is never post-migration.
+  first_name: string | null;
+  last_name: string | null;
   client_type: ClientType;
   company_name: string | null;
   email: string | null;

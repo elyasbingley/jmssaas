@@ -126,7 +126,7 @@ interface PlaceholderContext {
     bank_account_number: string | null;
     google_review_link: string | null;
   };
-  client?: { name: string; phone: string | null; email: string | null };
+  client?: { name: string; first_name: string | null; phone: string | null; email: string | null };
   quote?: {
     quote_number: string;
     total_cents: number;
@@ -197,7 +197,7 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
   const tokens: Record<string, string> = {};
   if (context.client) {
     tokens.client_full_name = context.client.name;
-    tokens.client_first_name = firstName(context.client.name);
+    tokens.client_first_name = context.client.first_name || firstName(context.client.name);
     tokens.client_phone = context.client.phone ?? "";
     tokens.client_email = context.client.email ?? "";
   }
@@ -411,7 +411,7 @@ async function buildEntityContext(
     const { data: quote } = await admin.from("quotes").select("*").eq("id", row.entity_id).single();
     if (!quote) return context;
     const { data: client } = await admin.from("clients").select("*").eq("id", quote.client_id).single();
-    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     let approvalLink: string | null = null;
     if (APPROVAL_PAGE_URL) {
       const { data: token } = await admin.rpc("generate_quote_approval_link", { p_quote_id: quote.id });
@@ -430,7 +430,7 @@ async function buildEntityContext(
     const { data: invoice } = await admin.from("invoices").select("*").eq("id", row.entity_id).single();
     if (!invoice) return context;
     const { data: client } = await admin.from("clients").select("*").eq("id", invoice.client_id).single();
-    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     let paymentLink: string | null = null;
     if (APPROVAL_PAGE_URL) {
       const { data: token } = await admin.rpc("generate_invoice_approval_link", { p_invoice_id: invoice.id });
@@ -446,7 +446,7 @@ async function buildEntityContext(
     const { data: job } = await admin.from("job_cards").select("*").eq("id", row.entity_id).single();
     if (!job) return context;
     const { data: client } = await admin.from("clients").select("*").eq("id", job.client_id).single();
-    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     let siteAddress: string | null = null;
     if (job.site_id) {
       const { data: site } = await admin.from("client_sites").select("*").eq("id", job.site_id).single();
@@ -482,7 +482,7 @@ async function buildEntityContext(
     // there's no quote/invoice/job to hang context off, just the client
     // themselves.
     const { data: client } = await admin.from("clients").select("*").eq("id", row.entity_id).single();
-    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
   } else if (row.entity_type === "property_asset") {
     // property_maintenance_due rows (see process-real-estate-maintenance)
     // - entity_id is the property_assets row itself, not the property,
@@ -562,7 +562,7 @@ async function buildEntityContext(
     }
     if (clientId) {
       const { data: client } = await admin.from("clients").select("*").eq("id", clientId).maybeSingle();
-      if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+      if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     }
 
     let pdfLink: string | null = null;
@@ -664,7 +664,7 @@ async function buildEntityContext(
     const { data: membership } = await admin.from("client_memberships").select("*").eq("id", row.entity_id).single();
     if (!membership) return context;
     const { data: client } = await admin.from("clients").select("*").eq("id", membership.client_id).single();
-    if (client) context.client = { name: client.name, phone: client.phone, email: client.email };
+    if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     const { data: plan } = await admin.from("membership_plans").select("*").eq("id", membership.membership_plan_id).single();
     if (!plan) return context;
 

@@ -4,14 +4,19 @@ import type { SubcontractorDocType, SubcontractorStatus, SubcontractorTrade } fr
 import { toE164 } from "./channels";
 
 export const createClientSchema = z.object({
-  // "Individual" (regular COD homeowner): `name` is their own full name.
-  // "Company": `name` is the primary contact person, company_name is the
-  // company's own name (required in that case - see the refine below) -
-  // this is what stops a company client ever being saved with just a
-  // person's name and no company name, or vice versa.
+  // "Individual" (regular COD homeowner): first_name/last_name are their
+  // own name. "Company": they're the primary contact person, company_name
+  // is the company's own name (required in that case - see the refine
+  // below) - this is what stops a company client ever being saved with
+  // just a person's name and no company name, or vice versa. `name` isn't
+  // collected here - it's always just the two of these merged, kept in
+  // sync by the clients_sync_full_name DB trigger (and computed
+  // client-side too via joinClientName, so forms can show/offline-write it
+  // immediately without waiting on that trigger).
   client_type: z.enum(["individual", "company"]).default("individual"),
   company_name: z.string().optional(),
-  name: z.string().min(1, "Name is required"),
+  first_name: z.string().min(1, "First name is required"),
+  last_name: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   notes: z.string().optional(),
@@ -26,6 +31,20 @@ export const createClientSchema = z.object({
   path: ["company_name"],
 });
 export type CreateClientInput = z.infer<typeof createClientSchema>;
+
+// Used only by the handful of "quick-create a client from one text field"
+// flows (converting an Inbox message or Channels conversation into a job,
+// where there's no natural reason to split the sender's name into two
+// inputs) - name-only, same shape those flows already had. The
+// clients_sync_full_name DB trigger best-effort splits it into
+// first_name/last_name server-side, same as it does for any pre-existing
+// row that predates this migration.
+export const quickCreateClientSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+});
+export type QuickCreateClientInput = z.infer<typeof quickCreateClientSchema>;
 
 export const createClientContactSchema = z.object({
   client_id: z.string().uuid(),

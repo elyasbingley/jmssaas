@@ -23,10 +23,10 @@ export interface PhoneOption {
   value: string;
 }
 
-async function fetchClientsForPicker(): Promise<Pick<Client, "id" | "name" | "company_name" | "phone">[]> {
-  const { data, error } = await supabase.from("clients").select("id, name, company_name, phone").order("name");
+async function fetchClientsForPicker(): Promise<Pick<Client, "id" | "name" | "first_name" | "company_name" | "phone">[]> {
+  const { data, error } = await supabase.from("clients").select("id, name, first_name, company_name, phone").order("name");
   if (error) throw error;
-  return data as Pick<Client, "id" | "name" | "company_name" | "phone">[];
+  return data as Pick<Client, "id" | "name" | "first_name" | "company_name" | "phone">[];
 }
 
 async function fetchClientContactPhones(clientId: string): Promise<PhoneOption[]> {
@@ -95,7 +95,7 @@ export function SendSmsModal({
 
   const [recipientTab, setRecipientTab] = useState<"client" | "manual">("client");
   const [clientSearch, setClientSearch] = useState("");
-  const [selectedClient, setSelectedClient] = useState<Pick<Client, "id" | "name" | "company_name" | "phone"> | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Pick<Client, "id" | "name" | "first_name" | "company_name" | "phone"> | null>(null);
   const [manualPhone, setManualPhone] = useState("");
   const [phone, setPhone] = useState("");
   const [body, setBody] = useState("");
@@ -257,7 +257,7 @@ export function SendSmsModal({
   const useTemplate = (template: ChannelMessageTemplate) => {
     const context: PlaceholderContext =
       mode === "picker" && selectedClient
-        ? { ...renderContextBase, client: { name: selectedClient.name, phone: selectedClient.phone, email: null } }
+        ? { ...renderContextBase, client: { name: selectedClient.name, first_name: selectedClient.first_name, phone: selectedClient.phone, email: null } }
         : renderContextBase;
     insertAtCursor(renderTemplate(template.body, context));
     setTemplatesOpen(false);

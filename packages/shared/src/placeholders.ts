@@ -28,6 +28,12 @@ export interface PlaceholderCompanyContext {
 
 export interface PlaceholderClientContext {
   name: string;
+  // Optional for backward compatibility with any caller still only
+  // passing name - firstName(name) remains the fallback when this isn't
+  // supplied. Every real client row has this since the
+  // client_first_last_name migration (first_name is only null for a
+  // caller that never looked it up).
+  first_name?: string | null;
   phone: string | null;
   email: string | null;
 }
@@ -178,7 +184,7 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
 
   if (context.client) {
     tokens.client_full_name = context.client.name;
-    tokens.client_first_name = firstName(context.client.name);
+    tokens.client_first_name = context.client.first_name || firstName(context.client.name);
     tokens.client_phone = context.client.phone ?? "";
     tokens.client_email = context.client.email ?? "";
   }

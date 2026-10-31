@@ -6,6 +6,7 @@ import {
   createClientSchema,
   createClientSiteSchema,
   createJobCardSchema,
+  joinClientName,
   type Client,
   type ClientContact,
   type ClientSite,
@@ -159,7 +160,8 @@ export default function ClientDetailPage() {
   const [editForm, setEditForm] = useState({
     client_type: "individual" as "individual" | "company",
     company_name: "",
-    name: "",
+    first_name: "",
+    last_name: "",
     phone: "",
     email: "",
     notes: "",
@@ -177,7 +179,8 @@ export default function ClientDetailPage() {
     setEditForm({
       client_type: client.client_type,
       company_name: client.company_name ?? "",
-      name: client.name,
+      first_name: client.first_name ?? client.name,
+      last_name: client.last_name ?? "",
       phone: client.phone ?? "",
       email: client.email ?? "",
       notes: client.notes ?? "",
@@ -202,7 +205,9 @@ export default function ClientDetailPage() {
         .update({
           client_type: result.data.client_type,
           company_name: result.data.client_type === "company" ? result.data.company_name || null : null,
-          name: result.data.name,
+          first_name: result.data.first_name,
+          last_name: result.data.last_name || null,
+          name: joinClientName(result.data.first_name, result.data.last_name),
           phone: result.data.phone || null,
           email: result.data.email || null,
           notes: result.data.notes || null,
@@ -679,11 +684,18 @@ export default function ClientDetailPage() {
             onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })}
           />
         ) : null}
-        <ThemedFormField
-          label={editForm.client_type === "company" ? "Primary contact full name" : "Full name"}
-          value={editForm.name}
-          onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <ThemedFormField
+            label={editForm.client_type === "company" ? "Primary contact first name" : "First name"}
+            value={editForm.first_name}
+            onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+          />
+          <ThemedFormField
+            label="Last name (optional)"
+            value={editForm.last_name}
+            onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+          />
+        </div>
         <ThemedFormField
           label="Phone"
           value={editForm.phone}

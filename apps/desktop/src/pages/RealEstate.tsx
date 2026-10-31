@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import {
   createAgencySchema,
   createClientSchema,
+  joinClientName,
   createPropertyManagerSchema,
   createPropertySchema,
   type Agency,
@@ -189,7 +190,11 @@ function DirectoryTab() {
         const clientResult = createClientSchema.safeParse({
           client_type: "company",
           company_name: result.data.name,
-          name: result.data.name,
+          // No real "primary contact" exists yet for an agency-auto-created
+          // client - reuses the agency's own name as a placeholder contact
+          // name, same as this flow always has, just now split through
+          // first_name/last_name like any other client.
+          first_name: result.data.name,
           email: result.data.billing_email || "",
         });
         if (!clientResult.success) throw new Error(clientResult.error.issues[0]?.message ?? "Invalid client");
@@ -199,7 +204,9 @@ function DirectoryTab() {
             tenant_id: profile.tenant_id,
             client_type: clientResult.data.client_type,
             company_name: clientResult.data.company_name,
-            name: clientResult.data.name,
+            first_name: clientResult.data.first_name,
+            last_name: clientResult.data.last_name || null,
+            name: joinClientName(clientResult.data.first_name, clientResult.data.last_name),
             email: clientResult.data.email || null,
           })
           .select("id")

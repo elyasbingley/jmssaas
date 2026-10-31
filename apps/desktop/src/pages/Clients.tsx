@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { createClientSchema, type Client } from "@jmssaas/shared";
+import { createClientSchema, joinClientName, type Client } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -18,7 +18,8 @@ async function fetchClients(): Promise<Client[]> {
 const emptyForm = {
   client_type: "individual" as "individual" | "company",
   company_name: "",
-  name: "",
+  first_name: "",
+  last_name: "",
   phone: "",
   email: "",
   address_line1: "",
@@ -49,7 +50,9 @@ export default function ClientsPage() {
         tenant_id: profile.tenant_id,
         client_type: result.data.client_type,
         company_name: result.data.client_type === "company" ? result.data.company_name || null : null,
-        name: result.data.name,
+        first_name: result.data.first_name,
+        last_name: result.data.last_name || null,
+        name: joinClientName(result.data.first_name, result.data.last_name),
         phone: result.data.phone || null,
         email: result.data.email || null,
         address_line1: result.data.address_line1 || null,
@@ -176,12 +179,20 @@ export default function ClientsPage() {
             placeholder="e.g. Copano Property Services"
           />
         ) : null}
-        <ThemedFormField
-          label={form.client_type === "company" ? "Primary contact full name" : "Full name"}
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder={form.client_type === "company" ? "e.g. Andrew Smith" : undefined}
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <ThemedFormField
+            label={form.client_type === "company" ? "Primary contact first name" : "First name"}
+            value={form.first_name}
+            onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+            placeholder={form.client_type === "company" ? "e.g. Andrew" : undefined}
+          />
+          <ThemedFormField
+            label="Last name (optional)"
+            value={form.last_name}
+            onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+            placeholder={form.client_type === "company" ? "e.g. Smith" : undefined}
+          />
+        </div>
         <ThemedFormField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         <ThemedFormField
           label="Email"

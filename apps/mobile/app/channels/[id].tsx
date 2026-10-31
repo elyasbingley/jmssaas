@@ -7,7 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import {
-  createClientSchema,
+  quickCreateClientSchema,
   splitTextWithLinks,
   type ChannelConversation,
   type ChannelMessage,
@@ -104,7 +104,7 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
     setBusy(true);
     setError(null);
     try {
-      const result = createClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
+      const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
       if (!jobTitle.trim()) throw new Error("Title is required");
 

@@ -3,7 +3,7 @@ import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
+import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -178,7 +178,7 @@ export default function InboxMessageScreen() {
     try {
       let clientId = existingClient?.id ?? "";
       if (!clientId) {
-        const result = createClientSchema.safeParse({ name: clientName, email: clientEmail, phone: clientPhone });
+        const result = quickCreateClientSchema.safeParse({ name: clientName, email: clientEmail, phone: clientPhone });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a client name");
         const { data: newClient, error: clientError } = await supabase
           .from("clients")

@@ -361,6 +361,7 @@ export default function InvoiceDetailPage() {
         },
         client: {
           name: data.invoice.clients?.name ?? "",
+          first_name: data.invoice.clients?.first_name ?? null,
           phone: data.invoice.clients?.phone ?? null,
           email: data.invoice.clients?.email ?? null,
         },
@@ -468,6 +469,7 @@ export default function InvoiceDetailPage() {
         },
         client: {
           name: data.invoice.clients?.name ?? "",
+          first_name: data.invoice.clients?.first_name ?? null,
           phone: data.invoice.clients?.phone ?? null,
           email: data.invoice.clients?.email ?? null,
         },

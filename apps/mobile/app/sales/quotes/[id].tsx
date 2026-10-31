@@ -425,7 +425,7 @@ export default function QuoteDetailScreen() {
           bank_account_number: tenant.bank_account_number,
           google_review_link: tenant.google_review_link,
         },
-        client: { name: data.quote.clients.name, phone: data.quote.clients.phone, email: data.quote.clients.email },
+        client: { name: data.quote.clients.name, first_name: data.quote.clients.first_name, phone: data.quote.clients.phone, email: data.quote.clients.email },
         quote: {
           quote_number: data.quote.quote_number,
           total_cents: data.quote.total_cents,
@@ -532,7 +532,7 @@ export default function QuoteDetailScreen() {
           bank_account_number: tenant.bank_account_number,
           google_review_link: tenant.google_review_link,
         },
-        client: { name: data.quote.clients?.name ?? "", phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
+        client: { name: data.quote.clients?.name ?? "", first_name: data.quote.clients?.first_name ?? null, phone: data.quote.clients?.phone ?? null, email: data.quote.clients?.email ?? null },
         quote: {
           quote_number: data.quote.quote_number,
           total_cents: data.quote.total_cents,

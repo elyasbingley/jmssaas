@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  createClientSchema,
+  quickCreateClientSchema,
   splitTextWithLinks,
   type ChannelConversation,
   type ChannelMessage,
@@ -109,7 +109,7 @@ function CreateJobTaskSection(props: {
   const createJob = useMutation({
     mutationFn: async () => {
       if (!profile) throw new Error("Not signed in");
-      const result = createClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
+      const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
       if (!jobTitle.trim()) throw new Error("Title is required");
 

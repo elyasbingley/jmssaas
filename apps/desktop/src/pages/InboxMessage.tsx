@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
+import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -163,7 +163,7 @@ export default function InboxMessagePage() {
 
       let clientId = existingClientId;
       if (!clientId) {
-        const result = createClientSchema.safeParse({ name: clientName, email: clientEmail, phone: clientPhone });
+        const result = quickCreateClientSchema.safeParse({ name: clientName, email: clientEmail, phone: clientPhone });
         if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a client name");
         const { data: newClient, error: clientError } = await supabase
           .from("clients")

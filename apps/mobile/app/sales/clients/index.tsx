@@ -5,7 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { v4 as uuidv4 } from "uuid";
-import { createClientSchema, type Client } from "@jmssaas/shared";
+import { createClientSchema, joinClientName, type Client } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { ThemedModal } from "../../../components/theme/ThemedModal";
@@ -20,7 +20,8 @@ export default function ClientsScreen() {
   const styles = useThemedStyles(createStyles);
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
@@ -31,7 +32,8 @@ export default function ClientsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const resetForm = () => {
-    setName("");
+    setFirstName("");
+    setLastName("");
     setPhone("");
     setEmail("");
     setAddressLine1("");
@@ -49,7 +51,8 @@ export default function ClientsScreen() {
 
   const handleCreate = async () => {
     const result = createClientSchema.safeParse({
-      name,
+      first_name: firstName,
+      last_name: lastName,
       phone,
       email,
       address_line1: addressLine1,
@@ -67,12 +70,14 @@ export default function ClientsScreen() {
     const now = new Date().toISOString();
     await powersync.execute(
       `INSERT INTO clients
-         (id, tenant_id, name, phone, email, address_line1, address_line2, suburb, state, postcode, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, tenant_id, first_name, last_name, name, phone, email, address_line1, address_line2, suburb, state, postcode, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuidv4(),
         profile.tenant_id,
-        result.data.name,
+        result.data.first_name,
+        result.data.last_name || null,
+        joinClientName(result.data.first_name, result.data.last_name),
         result.data.phone || null,
         result.data.email || null,
         result.data.address_line1 || null,
@@ -122,7 +127,8 @@ export default function ClientsScreen() {
 
       <ThemedModal visible={modalVisible} onClose={closeModal}>
         <Text style={styles.modalTitle}>New Client</Text>
-        <ThemedFormField label="Name" placeholder="Client name" value={name} onChangeText={setName} />
+        <ThemedFormField label="First name" placeholder="First name" value={firstName} onChangeText={setFirstName} />
+        <ThemedFormField label="Last name (optional)" placeholder="Last name" value={lastName} onChangeText={setLastName} />
         <ThemedFormField label="Phone" placeholder="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
         <ThemedFormField
           label="Email"

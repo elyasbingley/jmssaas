@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./client-name";
 export * from "./money";
 export * from "./geo";
 export * from "./placeholders";

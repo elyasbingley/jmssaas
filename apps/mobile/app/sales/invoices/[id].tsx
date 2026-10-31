@@ -478,7 +478,7 @@ export default function InvoiceDetailScreen() {
           bank_account_number: tenant.bank_account_number,
           google_review_link: tenant.google_review_link,
         },
-        client: { name: data.invoice.clients?.name ?? "", phone: data.invoice.clients?.phone ?? null, email: data.invoice.clients?.email ?? null },
+        client: { name: data.invoice.clients?.name ?? "", first_name: data.invoice.clients?.first_name ?? null, phone: data.invoice.clients?.phone ?? null, email: data.invoice.clients?.email ?? null },
         invoice: {
           invoice_number: data.invoice.invoice_number,
           total_cents: data.invoice.total_cents,
@@ -576,7 +576,7 @@ export default function InvoiceDetailScreen() {
           bank_account_number: tenant.bank_account_number,
           google_review_link: tenant.google_review_link,
         },
-        client: { name: data.invoice.clients.name, phone: data.invoice.clients.phone, email: data.invoice.clients.email },
+        client: { name: data.invoice.clients.name, first_name: data.invoice.clients.first_name, phone: data.invoice.clients.phone, email: data.invoice.clients.email },
         invoice: {
           invoice_number: data.invoice.invoice_number,
           total_cents: data.invoice.total_cents,

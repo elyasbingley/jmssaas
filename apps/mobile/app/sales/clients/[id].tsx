@@ -10,6 +10,7 @@ import {
   createClientSchema,
   createClientSiteSchema,
   createJobCardSchema,
+  joinClientName,
   type Client,
   type ClientContact,
   type ClientSite,
@@ -83,7 +84,8 @@ export default function ClientDetailScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editClientType, setEditClientType] = useState<ClientType>("individual");
   const [editCompanyName, setEditCompanyName] = useState("");
-  const [editName, setEditName] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editAddressLine1, setEditAddressLine1] = useState("");
@@ -98,7 +100,8 @@ export default function ClientDetailScreen() {
     if (!client) return;
     setEditClientType(client.client_type ?? "individual");
     setEditCompanyName(client.company_name ?? "");
-    setEditName(client.name);
+    setEditFirstName(client.first_name ?? client.name);
+    setEditLastName(client.last_name ?? "");
     setEditPhone(client.phone ?? "");
     setEditEmail(client.email ?? "");
     setEditAddressLine1(client.address_line1 ?? "");
@@ -115,7 +118,8 @@ export default function ClientDetailScreen() {
     const result = createClientSchema.safeParse({
       client_type: editClientType,
       company_name: editCompanyName,
-      name: editName,
+      first_name: editFirstName,
+      last_name: editLastName,
       phone: editPhone,
       email: editEmail,
       address_line1: editAddressLine1,
@@ -132,13 +136,15 @@ export default function ClientDetailScreen() {
 
     await powersync.execute(
       `UPDATE clients
-          SET client_type = ?, company_name = ?, name = ?, phone = ?, email = ?, address_line1 = ?, address_line2 = ?,
+          SET client_type = ?, company_name = ?, first_name = ?, last_name = ?, name = ?, phone = ?, email = ?, address_line1 = ?, address_line2 = ?,
               suburb = ?, state = ?, postcode = ?, notes = ?, updated_at = ?
         WHERE id = ?`,
       [
         result.data.client_type,
         result.data.company_name || null,
-        result.data.name,
+        result.data.first_name,
+        result.data.last_name || null,
+        joinClientName(result.data.first_name, result.data.last_name),
         result.data.phone || null,
         result.data.email || null,
         result.data.address_line1 || null,
@@ -529,11 +535,12 @@ export default function ClientDetailScreen() {
           <ThemedFormField label="Company name" placeholder="e.g. McGrath Estate Agents" value={editCompanyName} onChangeText={setEditCompanyName} />
         ) : null}
         <ThemedFormField
-          label={editClientType === "company" ? "Primary contact name" : "Name"}
-          placeholder="Client name"
-          value={editName}
-          onChangeText={setEditName}
+          label={editClientType === "company" ? "Primary contact first name" : "First name"}
+          placeholder="First name"
+          value={editFirstName}
+          onChangeText={setEditFirstName}
         />
+        <ThemedFormField label="Last name (optional)" placeholder="Last name" value={editLastName} onChangeText={setEditLastName} />
         <ThemedFormField label="Phone" placeholder="Phone number" value={editPhone} onChangeText={setEditPhone} keyboardType="phone-pad" />
         <ThemedFormField
           label="Email"

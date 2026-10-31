@@ -38,6 +38,11 @@ const clients = new Table(
     client_type: column.text,
     company_name: column.text,
     workdrive_url: column.text,
+    // See the client_first_last_name migration - name stays the merge of
+    // these two, kept in sync server-side by a trigger and client-side by
+    // joinClientName so an offline edit shows the right name immediately.
+    first_name: column.text,
+    last_name: column.text,
   },
   { indexes: { tenant: ["tenant_id"] } }
 );
