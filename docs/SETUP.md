@@ -9450,3 +9450,357 @@ for now since every build this project has produced so far is Android.
   real Postgres instance (schema/RLS), but this sandbox has no way to
   actually request a push token or receive a push - the real test is the
   "Test it" section above, on a real device.
+
+## 69. WhatsApp: starting conversations, approved templates, broadcast, delivery receipts, richer media
+
+Five-part batch (the first three items below predate section 68 above -
+built just before Notifications and never written up at the time;
+grouped here instead of renumbering everything that follows).
+
+- **Start a WhatsApp conversation, not just SMS**: `Channels.tsx`
+  (desktop) and `channels/new.tsx` (mobile) hardcoded `channelType: "sms"`
+  for a brand-new outbound conversation, gated only on
+  `tenant.sms_phone_number` - so a verified WhatsApp sender had no way to
+  start a fresh conversation, only reply to inbound ones. Both now offer
+  a channel toggle when more than one number is configured, gated
+  per-channel. `channel-send-message` already supported
+  `channel_type: "whatsapp"` in its find-or-create path - this was
+  UI-only.
+- **WhatsApp Message Templates**: messaging a client who hasn't texted
+  first (cold outreach, and the broadcast feature below) requires a
+  pre-approved Meta Content Template, sent by its Twilio Content SID
+  with positional `{{n}}` variables - not a plain body string the app
+  can compose itself, unlike `channel_message_templates`' free-text
+  snippets. New `whatsapp_templates` table (tenant read / admin write)
+  records the already-approved template's SID, a copy of its text for
+  reference, and a label per variable. Settings UI on both platforms to
+  register/retire templates - building and submitting the template for
+  Meta approval still happens in the Twilio Console, not here.
+- **WhatsApp broadcast**: the actual feature behind "broadcast to 50 old
+  clients for marketing", once it was clear Twilio's Conversations-API
+  "group" workaround can't serve it (only reaches people who messaged in
+  the last 24h). New `whatsapp_broadcasts` + `whatsapp_broadcast_
+  recipients` tables track overall and per-recipient progress;
+  `process-whatsapp-broadcast` (new Edge Function) sends each recipient
+  their own ordinary WhatsApp message via Twilio's Content API
+  (ContentSid + ContentVariables, required outside the 24h session) and
+  records it as a normal outbound `channel_messages` row, so it shows up
+  in that client's Channels thread like any other message. A broadcast
+  finishes with no pg_cron setup required - the compose screen
+  repeatedly calls the function for its own `broadcast_id` until nothing
+  is left queued (pg_cron is an optional backstop only). New "📢
+  Broadcast" screens on both platforms: pick a template, fill its
+  variables (each client's own name, or one fixed value for everyone),
+  multi-select recipients, send.
+- **Delivery/read receipts**: `channel_messages.status` declared
+  `delivered`/`failed` as possible values since the original Channels
+  migration, but nothing ever actually wrote them - every outbound send
+  just stayed `sent` forever. New `twilio-status-callback` Edge Function
+  (same signature-verification pattern as the inbound webhooks) receives
+  Twilio's own `MessageStatus` updates and advances a message's status
+  (queued/sending/sent/delivered/read/undelivered/failed), never
+  backward on an out-of-order callback. `channel-send-message` and
+  `process-whatsapp-broadcast` both pass its URL as `StatusCallback` on
+  every Twilio send. Both platforms' Channels threads show the resulting
+  ticks, polling every 8s since the update arrives asynchronously with
+  no other signal either screen would see.
+- **Richer media**: mobile Channels replies were image-only
+  (`expo-image-picker`) despite `uploadChannelMedia` already being
+  mime-type-agnostic like desktop's own - `expo-document-picker` was
+  already a dependency (used elsewhere) but never wired into this
+  screen, so a PDF etc. can now be sent the same way desktop already
+  could. New `channel_messages.location` column (lat/long/address/label)
+  captures inbound WhatsApp location-share messages, rendered as a
+  tap-to-open Google Maps link on both platforms. Contact-card parsing
+  was deliberately left out - no Twilio documentation describes what
+  fields (if any) it sends for one, and guessing risks silently
+  mis-parsing or dropping them.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy channel-send-message --no-verify-jwt
+npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
+npx supabase functions deploy twilio-status-callback --no-verify-jwt
+npx supabase functions deploy process-whatsapp-broadcast --no-verify-jwt
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
+
+## 70. Small fixes: Channels list not live-updating, noisy `.npmrc` warning
+
+- **Channels list polling**: a client's inbound WhatsApp/SMS message (via
+  the Twilio webhooks) writes straight to `channel_conversations`/
+  `channel_messages` server-side, with no signal to an already-open
+  Channels list that anything changed - it only ever refreshed when some
+  unrelated action happened to re-fetch it. Confirmed live: a client's
+  "hello" was received and stored correctly, but never appeared until
+  the admin sent their own message, which incidentally refreshed the
+  list. Both platforms now also poll every 8s while the list is in view,
+  same approach already used for delivery receipts above.
+- **`.npmrc` fix**: `network-timeout` is Yarn Classic's setting; npm and
+  pnpm both call this `fetch-timeout`, which is why every npm/npx/pnpm
+  command printed `Unknown project config "network-timeout"`. Harmless,
+  just noisy - fixed to the correct key name.
+
+## 71. Price Book: itemized pricing (cost/charge rate, margins, crew/materials), plus three save-race bugs found while wiring it up
+
+`price_book_items` and `price_book_item_variations` get the same
+itemized cost-rate/charge-rate/margin split quotes and invoices already
+have (`pricing_model`, `labour_cost_rate_cents`/
+`labour_charge_out_rate_cents`, material/subcontractor margin, waste/
+contingency/allowances, subcontractor cost), plus two concepts specific
+to a reusable catalogue entry: `quantity` (the benchmark denominator an
+itemized total was priced at, e.g. 70 for a $X/70-per-lm rate) and
+`gst_applicable` (carried through to a new quote/invoice line the same
+way `unit`/`warranty_text` already are). New crew/materials child
+tables, one pair per parent (items and variations are separate rows).
+
+New `PriceBookItemizedFields` component on both platforms (pricing model
+toggle, crew editor, materials editor, margin field, waste/contingency/
+allowances, subcontractor toggle+margin, live cost/profit/margin/markup/
+$-per-hour readout) - a deliberately separate component from
+`LineItemEditor.tsx`'s own itemized block rather than a shared refactor,
+since that screen is the most heavily-used in the app and a refactor
+there risks a regression for no benefit this side needs. `AddLineItemBar`
+on both platforms now carries the full itemized breakdown through when
+adding a price-book item/variation/bundle item to a quote/invoice -
+previously only the legacy labour/material/markup fields made it across,
+silently dropping pricing_model/crew/materials/margins at the moment it
+actually mattered. An itemized catalogue item's new line starts at the
+catalogue's own benchmark quantity rather than the usual blank-line
+default of 1 (its crew/materials are absolute totals priced at that
+benchmark, so starting at 1 would silently inflate the per-unit price
+~70x).
+
+Also fixed a real latent bug found while wiring this up:
+`normalizeLineItem` (both platforms) always recomputed `unit_price_cents`
+via the legacy formula regardless of `pricing_model`, silently corrupting
+any itemized item passed through it.
+
+### Three save-race bugs, all the same root cause
+
+All three below share one shape: a form gated its loading screen on one
+query, then reseeded local state (including every `DecimalField`/
+`DecimalInput`, which only seeds its own displayed text once on mount,
+never resyncing on a later prop change) from several *other* queries via
+a `useEffect` - and those other queries can resolve a render or two
+after the gate opens, so the form mounts once with zeroed data and never
+updates.
+
+- **Item labour/pricing fields wiping on save-and-return**:
+  `PriceBookItem.tsx` (desktop) and `items/[id].tsx` (mobile) gated on
+  `item` alone while `itemCrew`/`itemMaterials` resolved separately.
+  Fixed by splitting each screen into an outer data-fetching component
+  (now gated on all three) and an inner form component, keyed on the
+  item id, that lazily initializes local state straight from props on
+  its own first render - no reseed effect, no race.
+- **Variation modal wiping/bleeding labour rates**: same race one level
+  down - `openEditVariation` opened the modal *before* awaiting the
+  variation's crew/materials fetch. Worse on mobile specifically: React
+  Native's `<Modal>` never unmounts its children when hidden, so without
+  a key every `DecimalInput` stayed the exact same mounted instance
+  across different variations, which is what made editing one variation
+  show another's stale value. Fixed by fetching and setting every field
+  before opening the modal, plus a `variationSessionKey` bumped on every
+  open and used to key the fields component, forcing a fresh mount each
+  time.
+- **Category list always showing \$0.00 for itemized items**:
+  `PriceBookCategory.tsx` (desktop) and `categories/[id].tsx` (mobile)
+  computed each tile's price with the legacy-only formula regardless of
+  `pricing_model`. Fixed to branch the same way `PriceBookItem.tsx`'s own
+  preview already did.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
+
+## 72. Leak Check Checklist (new Job Tool + public share page)
+
+New job tool for a residential plumbing leak inspection, mirroring
+`job_templates`/`line_item_bundles` and `job_measurements` respectively:
+
+- **`leak_check_templates`** (+ `_template_categories`/`_template_items`):
+  admin-managed, tenant-wide read, a library of named starting-point
+  checklists (categories are themselves part of the template, not a
+  fixed hardcoded set).
+- **`job_leak_checks`** (+ `_categories`/`_items`/`_item_files`): one per
+  inspection run on a job, seeded by copying a chosen template's
+  categories/items onto the job and then freely customised from there -
+  add/remove a fixture row, mark a result, add a category on the fly.
+  `item_type` distinguishes the water meter test (start/end reading +
+  wait time, with a live "meter moved - likely leak" readout) from every
+  other fixture row (pass/fail/na + notes + a photo uploader), one table
+  rather than two, same convention `price_book_items` uses for legacy vs
+  itemized pricing. RLS mirrors `job_measurements` exactly (admin or the
+  job's assigned technician).
+
+Desktop gets **Settings > Leak Check Templates** (list + detail editor,
+categories/items saved as one batch - appropriate for an admin sitting
+down to build a reusable list) and a new **Leak Check** tool in the Job
+Tools tab (unlike the admin editor, this is progressive - every tick,
+note, added fixture or category saves immediately as its own mutation,
+matching how a technician actually works through a real checklist).
+Mobile ports the same job tool offline-capable via PowerSync (the one
+tool besides Measure Roof that needs to work with no signal) - writes go
+through `powersync.execute` against the local SQLite replica and upload
+via PowerSync's own CRUD queue when back online; template lists sync
+tenant-wide the same way so starting a new leak check works offline too.
+Both platforms use `ThemedPhotoAttachments` for each item's photos
+(`addLeakCheckItemPhoto`, same queued-upload shape as job/task photos).
+
+**Public share page**: same access-token pattern as quote/invoice
+approval. `generate_leak_check_share_link` mints a token on demand;
+`get_leak_check_for_share` is a `SECURITY DEFINER` RPC that re-validates
+it and returns the full checklist as `jsonb`. Photos need an extra step -
+the `job-files` bucket is private and Postgres can't call Storage's
+signing endpoint - so a new `leak-check-share` Edge Function signs the
+returned paths server-side (only paths the RPC itself already vetted for
+that token). The page itself is a new static file,
+`supabase/static/leak-check-share.html`, deployed the same way
+`approval-page.html` already is. "Share" buttons on both platforms are
+gated on `VITE_LEAK_CHECK_SHARE_PAGE_URL` /
+`EXPO_PUBLIC_LEAK_CHECK_SHARE_PAGE_URL` (documented in both `.env.example`
+files), with a clear error if unset rather than a broken link.
+
+Also fixed along the way: `LeakCheckTemplateDetail.tsx`'s save mutation
+was inserting `leak_check_template_categories`/`_items` with no
+`tenant_id`, hitting the RLS policy rather than a plain not-null error.
+
+### Deploy
+
+Same pattern as `approve`/`approval-page.html` - see section "Shorter
+tokens"/the approval-page notes earlier in this file for the exact
+static-hosting steps, applied to `leak-check-share`/
+`leak-check-share.html` instead:
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy leak-check-share --no-verify-jwt
+# Upload supabase/static/leak-check-share.html to the same static host
+# as approval-page.html, then set/confirm:
+#   VITE_LEAK_CHECK_SHARE_PAGE_URL (apps/desktop/.env + Vercel dashboard)
+#   EXPO_PUBLIC_LEAK_CHECK_SHARE_PAGE_URL (apps/mobile/.env)
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
+
+## 73. Fine Print templates (quotes/invoices)
+
+Same shape as `job_templates`/`channel_message_templates`: admin-managed,
+tenant-wide read, name + body, no children. Picking one copies its
+current body onto a new `fine_print_text` column on quotes/invoices - a
+frozen snapshot, not a live FK (deliberately no
+`fine_print_template_id` anywhere), same "detached copy" pattern
+`job_templates` itself uses for new jobs. Editing a template later never
+changes an already-created quote/invoice; once copied, `fine_print_text`
+is a plain editable text field like the existing `notes` column,
+including staying editable post-acceptance.
+
+**Desktop**: Settings > Fine Print Templates (flat list + single-modal
+create/edit, same shape as `SmsTemplates.tsx`). `QuoteDetail.tsx`/
+`InvoiceDetail.tsx` get a Fine Print field next to Notes - a dropdown
+copies a template's body in as a starting point, then it's freely
+editable and saved as part of the normal Save flow. Rendered in both PDF
+builders right after Notes, same section-heading treatment.
+**Mobile**: same field/picker shape (no desktop-mirroring management
+screen - template management stays desktop-only, consistent with every
+other admin-managed template list in this app), rendered in `pdf.ts`
+right after Notes. **Public approval page**:
+`get_quote_for_approval`/`get_invoice_for_approval` now return
+`fine_print_text` alongside `notes`, and `approval-page.html` renders it
+in its own "Fine Print" section right after Notes.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
+
+## 74. Manual review requests, mobile job status badge, email templates on job cards, client first/last name, mobile file uploads
+
+Five-part batch, all from one round of live-testing feedback on the Job
+Card experience:
+
+- **Google Review requests are manual-only on both platforms**: removed
+  the auto-prompt that fired when a job entered a closed lifecycle stage
+  (desktop's `window.confirm`, mobile's `Alert.alert`), replaced with an
+  explicit manual send action - a button on desktop's Job Detail page,
+  and a "Send Review Request" option alongside On The Way/SMS/Email in
+  mobile's job message chooser. Mobile's separate key-return prompt
+  (Real Estate & Strata key tracking) is untouched - it shares the same
+  "job just entered a closed stage" moment but is a different feature.
+- **Mobile job status badge**: mobile's My Schedule list had no visible
+  stage indicator at all, unlike desktop's Jobs table. Added the same
+  colored pill (stage color border/text, stage name) to each row.
+- **Email templates on job cards**: mobile's job-card email composer had
+  no `templates` prop wired up, unlike desktop's `JobDetail.tsx` which
+  already feeds it every active email `communication_template` as a
+  starting point (any trigger, not scoped to one automation). Mobile now
+  does the same query and passes it through - email gets the same "pick
+  a template or write from scratch" experience SMS already had (added
+  the session before this one, replacing a job card's "Write a custom
+  SMS" button, which used to just open the device's native messaging app
+  instead of going through the tenant's own configured number/templates
+  at all).
+- **Client first_name/last_name split**: `clients.name` was the only
+  field for a client's (or a company client's primary contact's) name,
+  so `{client_first_name}` in a template could only ever split it on
+  whitespace at render time - wrong for anyone whose name isn't a plain
+  two-word string, which is what made Google Review requests address
+  clients by a sometimes-mangled "first name". Added `first_name`/
+  `last_name` columns plus a `clients_sync_full_name` DB trigger that
+  keeps `name` as their merge whenever a write sets them, and
+  best-effort splits `name` into them whenever a write only sets `name`
+  (every pre-existing row, backfilled in this migration, plus the
+  handful of quick-create-a-client-from-one-text-field flows off
+  Inbox/Channels messages, left alone on a new `quickCreateClientSchema`
+  rather than being made to collect two fields for no real benefit). The
+  Clients tab's Add/Edit forms on both platforms now collect First/Last
+  Name instead of one Name field, computing `name` client-side too
+  (`joinClientName`) so an offline mobile edit shows the right name
+  immediately rather than waiting on next sync. `{client_first_name}`
+  resolution (`packages/shared/src/placeholders.ts` and its duplicated
+  Deno copy in `process-scheduled-comms`) now prefers the real
+  `first_name` over the whitespace-split fallback.
+- **Any file type on a mobile job card**: `ThemedPhotoAttachments` (the
+  live Job Diary/Task detail/Leak Check photo grid) only ever offered
+  Camera/Choose Photos and rendered every row as an `<Image>`, even
+  though `job_files`/`task_files`/`leak_check_item_files` have always
+  stored `mime_type`/`file_name` generically with no image-only
+  restriction at the storage or DB layer - this was the only thing
+  stopping a PDF or other document being attached to a job on mobile
+  (desktop's `JobDetail.tsx` already supported it). Added an "Attach
+  File" picker (`expo-document-picker`, already a dependency - no new
+  native module, so this ships as a plain OTA update) and a non-image
+  row now renders as a name+icon tile that opens via the OS's own viewer
+  on tap. Task detail and Leak Check Checklist get real file support for
+  free from this same component fix, since they already selected
+  `file_name`/`mime_type` in their own queries.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy process-scheduled-comms --no-verify-jwt
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
