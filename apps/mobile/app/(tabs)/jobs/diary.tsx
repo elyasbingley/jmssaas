@@ -18,15 +18,18 @@ import { useState } from "react";
 interface JobFileWithLocalUri {
   id: string;
   local_uri: string | null;
+  file_name: string | null;
+  mime_type: string | null;
   upload_state: number | null;
 }
 
 // The consolidated Job Card notes/photos/files entry point ("Diary" in the
 // spec) - a job_files row IS what's rendered as a photo elsewhere in this
 // app (see the [id] screen's own former Photos section), so "photos and
-// files" here is one PhotoAttachments grid against that same table, not
-// two separate lists - there's no separate document/PDF upload flow in
-// this app yet to make a genuinely distinct "files" list from.
+// files" here is one ThemedPhotoAttachments grid against that same table,
+// not two separate lists. That component now also handles any file type
+// (PDF, Word doc, etc.) via its own "Attach File" picker, same table/
+// storage, just a non-image mime_type.
 export default function JobDiaryScreen() {
   const { jobCardId } = useLocalSearchParams<{ jobCardId: string }>();
   const router = useRouter();
@@ -37,7 +40,7 @@ export default function JobDiaryScreen() {
   const job = jobRows[0];
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, a.local_uri, a.state AS upload_state
+    `SELECT jf.id, jf.file_name, jf.mime_type, a.local_uri, a.state AS upload_state
        FROM job_files jf
        LEFT JOIN attachments a ON a.id = jf.id
       WHERE jf.job_card_id = ?

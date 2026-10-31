@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Alert, FlatList, Image, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Image, Linking, Pressable, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AttachmentState } from "@powersync/common";
 import { MultiCaptureCamera, type CapturedPhoto } from "../MultiCaptureCamera";
@@ -16,6 +18,16 @@ export interface ThemedPhotoAttachmentItem {
   // Optional/nullable so a caller that hasn't added that column yet just
   // never shows the pending badge, rather than erroring.
   upload_state?: number | null;
+  // Both optional/nullable for the same reason as upload_state - a caller
+  // that hasn't added these to its own query just always gets the "assume
+  // image" fallback below, same as every row rendered before file support
+  // existed here.
+  file_name?: string | null;
+  mime_type?: string | null;
+}
+
+function isImageMime(mimeType: string | null | undefined): boolean {
+  return !mimeType || mimeType.startsWith("image/");
 }
 
 interface UploadInput {
@@ -30,12 +42,16 @@ interface ThemedPhotoAttachmentsProps {
   onUpload: (photo: UploadInput) => Promise<void>;
 }
 
-// The actual job/task photo upload UI (Job Card Diary, Task detail) - both
-// screens are fully CRT-themed, so this is the component that's really
-// live, not components/PhotoAttachments.tsx (that one has no remaining
-// call sites anywhere in the app - it predates the full CRT retheme and
-// was never deleted, see that file's own header comment for the one
-// generic-file-upload feature it still has that this component doesn't).
+// The actual job/task/leak-check photo+file upload UI (Job Card Diary, Task
+// detail, Leak Check Checklist items) - all CRT-themed, so this is the
+// component that's really live, not components/PhotoAttachments.tsx (that
+// one has no remaining call sites anywhere in the app - it predates the
+// full CRT retheme and was never deleted). Any file type (PDF, Word doc,
+// etc.), not just photos - job_files/task_files/leak_check_item_files have
+// always stored mime_type/file_name generically, this was previously the
+// only thing stopping a PDF getting attached to a job card. Non-image
+// files render as a name+icon tile instead of an (impossible) thumbnail,
+// and open via the OS's own viewer/share sheet on tap.
 export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPhotoAttachmentsProps) {
   const [cameraVisible, setCameraVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -100,7 +116,33 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
     }
   };
 
-  const viewableImages = photos.filter((p) => p.local_uri).map((p) => ({ uri: p.local_uri! }));
+  // Any file type (PDF, Word doc, etc.) - DocumentPicker only returns a
+  // file:// uri, unlike ImagePicker's optional base64 field, so this reads
+  // it back off disk itself before handing it to the same onUpload photos
+  // use.
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+    if (result.canceled) return;
+
+    for (const asset of result.assets) {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        const extension = asset.name.includes(".") ? asset.name.split(".").pop()!.toLowerCase() : "bin";
+        await onUpload({ base64, mimeType: asset.mimeType ?? "application/octet-stream", fileExtension: extension });
+      } catch (e) {
+        console.error("[ThemedPhotoAttachments] Failed to read picked file", e);
+        Alert.alert("Failed to attach file", asset.name);
+      }
+    }
+  };
+
+  const imagePhotos = photos.filter((p) => isImageMime(p.mime_type));
+  const viewableImages = imagePhotos.filter((p) => p.local_uri).map((p) => ({ uri: p.local_uri! }));
+
+  const openFile = (item: ThemedPhotoAttachmentItem) => {
+    if (!item.local_uri) return;
+    Linking.openURL(item.local_uri).catch(() => Alert.alert("Can't open this file", item.file_name ?? ""));
+  };
 
   return (
     <View>
@@ -118,7 +160,41 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
           // silent - a photo could sit "taken but never backed up" forever
           // with no indication anywhere in the app.
           const notYetUploaded = item.upload_state != null && item.upload_state !== AttachmentState.SYNCED;
-          return item.local_uri ? (
+          if (!item.local_uri) {
+            return (
+              <View style={[styles.photo, styles.photoPending]}>
+                <Text style={styles.photoPendingText}>Syncing...</Text>
+              </View>
+            );
+          }
+          if (!isImageMime(item.mime_type)) {
+            return (
+              <Pressable
+                style={[styles.photo, styles.fileTile]}
+                onPress={() => {
+                  if (notYetUploaded) {
+                    Alert.alert(
+                      "Not backed up yet",
+                      "This file hasn't finished uploading to the server, so it won't show up anywhere else yet (including on desktop). Keep the app open with a good connection for a minute to let it finish."
+                    );
+                    return;
+                  }
+                  openFile(item);
+                }}
+              >
+                <Text style={styles.fileIcon}>📄</Text>
+                <Text style={styles.fileName} numberOfLines={2}>
+                  {item.file_name ?? "File"}
+                </Text>
+                {notYetUploaded ? (
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingBadgeText}>⏳</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          }
+          return (
             <Pressable
               onPress={() => {
                 if (notYetUploaded) {
@@ -138,13 +214,9 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
                 </View>
               ) : null}
             </Pressable>
-          ) : (
-            <View style={[styles.photo, styles.photoPending]}>
-              <Text style={styles.photoPendingText}>Syncing...</Text>
-            </View>
           );
         }}
-        ListEmptyComponent={<Text style={styles.empty}>No photos yet.</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>No photos or files yet.</Text>}
       />
       <View style={styles.photoActions}>
         <Pressable style={styles.button} onPress={openCamera}>
@@ -152,6 +224,9 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
         </Pressable>
         <Pressable style={[styles.button, styles.buttonSecondary]} onPress={pickFromLibrary}>
           <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Choose Photos</Text>
+        </Pressable>
+        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={pickDocument}>
+          <Text style={[styles.buttonText, styles.buttonSecondaryText]}>Attach File</Text>
         </Pressable>
       </View>
       {uploading ? <Text style={styles.uploadingText}>Uploading...</Text> : null}
@@ -172,6 +247,9 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     photo: { width: 96, height: 96, borderRadius: 3, marginRight: 8, backgroundColor: tokens.background, borderWidth: 1, borderColor: tokens.border },
     photoPending: { alignItems: "center" as const, justifyContent: "center" as const },
     photoPendingText: { fontSize: font.label, color: tokens.textMuted, fontFamily: fontFamily.mobileFontFamily },
+    fileTile: { alignItems: "center" as const, justifyContent: "center" as const, padding: 6, gap: 4 },
+    fileIcon: { fontSize: 24 },
+    fileName: { fontSize: font.label - 1, color: tokens.textPrimary, textAlign: "center" as const, fontFamily: fontFamily.mobileFontFamily },
     pendingBadge: {
       position: "absolute" as const,
       top: 4,
