@@ -57,6 +57,7 @@ import { useIsOnline } from "../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { supabase } from "../../../lib/supabase";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
+import { startChannelConversation } from "../../../lib/channels";
 import { formatClientAddress } from "../../../lib/format";
 import { getErrorMessage } from "../../../lib/errors";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
@@ -76,6 +77,7 @@ import { JobActionsBar } from "../../../components/theme/JobActionsBar";
 import { JobActionsSheet } from "../../../components/theme/JobActionsSheet";
 import { MultiCaptureCamera } from "../../../components/MultiCaptureCamera";
 import { EmailComposeModal } from "../../../components/EmailComposeModal";
+import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { MeasureRoofTool } from "../../../components/MeasureRoofTool";
 import { MembershipStatusCard } from "../../../components/MembershipStatusCard";
 import { LinearMeasurerTool } from "../../../components/LinearMeasurerTool";
@@ -440,6 +442,11 @@ export default function JobDetailScreen() {
     contactEmails: (clientContacts ?? []).map((c) => c.email),
   });
 
+  const [jobSmsModalVisible, setJobSmsModalVisible] = useState(false);
+  const jobSmsPhoneOptions = (clientContacts ?? [])
+    .filter((c) => c.phone)
+    .map((c) => ({ label: c.name, phone: c.phone as string }));
+
   const handleSendJobEmail = async (payload: { to: string; cc: string; bcc: string; subject: string; body: string; attachments: EmailAttachment[] }) => {
     if (!profile || !job) throw new Error("Not signed in");
     if (!isOnline) throw new Error("Sending an email needs an internet connection.");
@@ -466,6 +473,27 @@ export default function JobDetailScreen() {
     if (insertError) throw insertError;
     const wasSent = await triggerImmediateDispatch(row.id);
     Alert.alert(wasSent ? "Sent" : "Queued", wasSent ? "The email has been sent." : "The email is queued and will go out shortly.");
+  };
+
+  // Same Channels/Twilio send path as QuoteDetail/InvoiceDetail's own
+  // handleSendSms - goes out immediately through this tenant's configured
+  // SMS number via the channel-send-message Edge Function (and starts/
+  // continues a Channels conversation thread with the client), not the
+  // device's own native SMS/WhatsApp app the way "Write a custom SMS" used
+  // to (Linking.openURL("sms:...")). That was the one message type on this
+  // screen not actually going through the app - On The Way/Review Request
+  // already use the scheduled_communications dispatcher and email already
+  // uses this same live-send shape via EmailComposeModal.
+  const handleSendJobSms = async (payload: { phone: string; body: string }) => {
+    if (!isOnline) throw new Error("Sending an SMS needs an internet connection.");
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: job?.client_id ?? undefined,
+      contactName: client?.name,
+    });
+    Alert.alert("Sent", "The SMS has been sent.");
   };
 
   const handleKeyPickedUp = async () => {
@@ -1725,12 +1753,12 @@ export default function JobDetailScreen() {
           setMessageChoiceChannel(null);
           if (channel === "email") {
             setJobEmailModalVisible(true);
-          } else if (channel === "sms" && client?.phone) {
-            Linking.openURL(`sms:${client.phone.replace(/\s+/g, "")}`).catch(() => {});
+          } else if (channel === "sms") {
+            setJobSmsModalVisible(true);
           }
         }}
       >
-        <Text style={styles.buttonText}>{messageChoiceChannel === "sms" ? "Write a custom SMS" : "Write a custom email"}</Text>
+        <Text style={styles.buttonText}>{messageChoiceChannel === "sms" ? "Send SMS" : "Write a custom email"}</Text>
       </Pressable>
       <Pressable onPress={() => setMessageChoiceChannel(null)} style={{ marginTop: 10, alignSelf: "center" }}>
         <Text style={styles.link}>Cancel</Text>
@@ -1952,6 +1980,18 @@ export default function JobDetailScreen() {
       recipientOptions={jobRecipientOptions}
       onSend={handleSendJobEmail}
       sendLabel="Send email"
+    />
+
+    <SendSmsModal
+      visible={jobSmsModalVisible}
+      onClose={() => setJobSmsModalVisible(false)}
+      title={`SMS - ${job.title}`}
+      defaultPhone={client?.phone ?? ""}
+      phoneOptions={jobSmsPhoneOptions}
+      defaultBody=""
+      isAdmin={isAdmin}
+      onSend={handleSendJobSms}
+      sendLabel="Send SMS"
     />
 
     <ThemedModal visible={createReportModalVisible} onClose={() => setCreateReportModalVisible(false)}>
