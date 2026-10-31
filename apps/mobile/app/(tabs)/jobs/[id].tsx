@@ -811,6 +811,24 @@ export default function JobDetailScreen() {
     );
   };
 
+  // Manual only - this used to auto-prompt on entering a closed lifecycle
+  // stage (see handleStageChange above), but that auto-send behaviour was
+  // reworked so both platforms now leave it entirely up to the user to tap
+  // Send, from this same On The Way/SMS/Email chooser.
+  const handleSendReviewRequest = async () => {
+    const result = await queueScheduledCommunication("job_review_request");
+    if (!result.queued) {
+      Alert.alert("Not sent", "This message is turned off in Settings > Automation & Messaging, or has no active template.");
+      return;
+    }
+    Alert.alert(
+      result.sentImmediately ? "Sent" : "Queued",
+      result.sentImmediately
+        ? "The review request has been sent."
+        : "The review request is queued and will send shortly (next sync/cron sweep)."
+    );
+  };
+
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [stagePickerVisible, setStagePickerVisible] = useState(false);
 
@@ -835,28 +853,6 @@ export default function JobDetailScreen() {
       return;
     }
     await powersync.execute("UPDATE job_cards SET lifecycle_stage_id = ? WHERE id = ?", [next?.id ?? null, id]);
-    // Same "just finished" moment the old status picker's completed check
-    // used to catch - now keyed off entering any is_closed stage (not just
-    // one literally named "Completed"), matching the DB triggers' own
-    // schedule_job_completion_summary/schedule_maintenance_reminder logic.
-    if (next?.is_closed && !wasClosed) {
-      Alert.alert("Job completed", "Send an automated review request to the client?", [
-        { text: "Not now", style: "cancel" },
-        {
-          text: "Send",
-          onPress: async () => {
-            const result = await queueScheduledCommunication("job_review_request");
-            if (!result.queued) return;
-            Alert.alert(
-              result.sentImmediately ? "Sent" : "Queued",
-              result.sentImmediately
-                ? "The review request has been sent."
-                : "The review request is queued and will send shortly (next sync/cron sweep)."
-            );
-          },
-        },
-      ]);
-    }
     // Key Tracking Lifecycle step 3 (see Workflow 3 of the Real Estate &
     // Strata spec) - prompt for the key's return the same "just finished"
     // moment the review-request prompt above fires on, only when there's
@@ -1759,6 +1755,15 @@ export default function JobDetailScreen() {
         }}
       >
         <Text style={styles.buttonText}>{messageChoiceChannel === "sms" ? "Send SMS" : "Write a custom email"}</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.button, { marginTop: 10 }]}
+        onPress={() => {
+          setMessageChoiceChannel(null);
+          handleSendReviewRequest();
+        }}
+      >
+        <Text style={styles.buttonText}>Send Review Request</Text>
       </Pressable>
       <Pressable onPress={() => setMessageChoiceChannel(null)} style={{ marginTop: 10, alignSelf: "center" }}>
         <Text style={styles.link}>Cancel</Text>

@@ -655,12 +655,11 @@ export default function JobDetailPage() {
   const [reviewRequestResult, setReviewRequestResult] = useState<string | null>(null);
   const [reviewRequestError, setReviewRequestError] = useState<string | null>(null);
 
-  // Same "just finished" moment mobile's own stage picker prompts on (see
-  // apps/mobile jobs/[id].tsx's handleStageChange) - keyed off entering any
-  // is_closed stage, not one literally named "Completed", matching the DB
-  // triggers' own schedule_job_completion_summary/schedule_maintenance_
-  // reminder logic (see the job_status_lifecycle_consolidation migration).
-  // No {tech_first_name}/{eta_minutes} placeholder rendering needed here
+  // Manual only, by a plain button below - this used to auto-prompt on
+  // entering a closed lifecycle stage (same moment apps/mobile jobs/[id].tsx
+  // used to as well), but that auto-send behaviour is being reworked, so
+  // both platforms now leave it entirely up to the user to tap Send. No
+  // {tech_first_name}/{eta_minutes} placeholder rendering needed here
   // (unlike an On The Way message) - job_review_request has no schedule
   // context, so the template body/subject go through as-is for the
   // dispatcher to resolve the rest of its tokens server-side.
@@ -721,14 +720,7 @@ export default function JobDetailPage() {
   });
 
   const handleStageChange = (nextStageId: string) => {
-    const wasClosed = (stages ?? []).find((s) => s.id === job?.lifecycle_stage_id)?.is_closed ?? false;
-    const willBeClosed = (stages ?? []).find((s) => s.id === nextStageId)?.is_closed ?? false;
     updateJob.mutate({ lifecycle_stage_id: nextStageId || null });
-    if (willBeClosed && !wasClosed) {
-      if (window.confirm("Job marked as done. Send an automated review request to the client?")) {
-        queueReviewRequest.mutate();
-      }
-    }
   };
 
   const { data: linkedReports } = useQuery({
@@ -1341,6 +1333,14 @@ export default function JobDetailPage() {
             </select>
           </div>
         </div>
+        <button
+          onClick={() => queueReviewRequest.mutate()}
+          disabled={queueReviewRequest.isPending}
+          className="mt-3 rounded px-4 py-2 font-semibold"
+          style={{ border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}
+        >
+          {queueReviewRequest.isPending ? "Sending..." : "Send Review Request"}
+        </button>
         {reviewRequestError ? (
           <p className="mt-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             {reviewRequestError}
