@@ -813,6 +813,15 @@ export default function InvoiceDetailPage() {
           {exporting ? "Preparing PDF..." : "Export PDF"}
         </ThemedButton>
       </div>
+      {data.invoice.access_token ? (
+        <p className="mt-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          {data.invoice.token_expires_at && new Date(data.invoice.token_expires_at) < new Date()
+            ? "The approval link has expired - click \"Copy approval link\" above to re-activate it for another 30 days (the \"Due date\" field below is separate - it's just a note on the invoice itself, not the link)."
+            : data.invoice.token_expires_at
+              ? `Approval link active until ${new Date(data.invoice.token_expires_at).toLocaleDateString("en-AU")}.`
+              : null}
+        </p>
+      ) : null}
       {exportError ? (
         <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
           {exportError}
