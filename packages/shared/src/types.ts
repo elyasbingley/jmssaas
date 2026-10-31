@@ -164,9 +164,36 @@ export interface Client {
   // review on Google - there's no way to know that.
   google_review_stars: number | null;
   google_review_recorded_at: string | null;
+  // Added by the client_csv_import migration. import_batch_id is null for
+  // every client created the normal way (only set on a row created via
+  // the Clients page's Import from CSV flow). possible_duplicate_of_
+  // client_id is the review queue itself - set when the import preview's
+  // own client-side matching flagged this row as a likely duplicate of an
+  // existing client; cleared (set back to null, by the reviewer) once
+  // looked at, whether or not anything was actually changed. marketing_
+  // opt_out isn't import-specific - any client can ask to stop getting
+  // marketing texts - checked by the SMS broadcast recipient picker and
+  // set by the inbound-STOP handling in twilio-sms-webhook.
+  import_batch_id: string | null;
+  possible_duplicate_of_client_id: string | null;
+  marketing_opt_out: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// One row per completed CSV import (e.g. a ServiceM8 client export) - see
+// the Clients page's Import from CSV flow and the client_csv_import
+// migration's own comment.
+export interface ClientImportBatch {
+  id: string;
+  tenant_id: string;
+  file_name: string;
+  total_rows: number;
+  imported_count: number;
+  possible_duplicate_count: number;
+  created_by: string | null;
+  created_at: string;
 }
 
 // A client (especially a company client) can have several people you deal

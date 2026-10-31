@@ -5,6 +5,7 @@ import LoginPage from "./pages/Login";
 import DashboardPage from "./pages/Dashboard";
 import DashboardSettingsPage from "./pages/DashboardSettings";
 import ClientsPage from "./pages/Clients";
+import ClientImportPage from "./pages/ClientImport";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
 import JobDetailPage from "./pages/JobDetail";
@@ -114,6 +115,7 @@ export default function App() {
                 <Route path="/invoices/new" element={<InvoiceNewPage />} />
                 <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
                 <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/clients/import" element={<ClientImportPage />} />
                 <Route path="/clients/:id" element={<ClientDetailPage />} />
                 <Route path="/price-book" element={<PriceBookPage />} />
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />

@@ -39,6 +39,18 @@ export default function ClientsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState<string | null>(null);
+  const [reviewOnly, setReviewOnly] = useState(false);
+
+  const possibleDuplicates = (clients ?? []).filter((c) => c.possible_duplicate_of_client_id);
+  const clientById = new Map((clients ?? []).map((c) => [c.id, c]));
+
+  const dismissDuplicate = useMutation({
+    mutationFn: async (clientId: string) => {
+      const { error } = await supabase.from("clients").update({ possible_duplicate_of_client_id: null }).eq("id", clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+  });
 
   const createClient = useMutation({
     mutationFn: async () => {
@@ -74,9 +86,9 @@ export default function ClientsPage() {
     onError: (e) => setFormError(getErrorMessage(e, "Failed to create client")),
   });
 
-  const filteredClients = (clients ?? []).filter((c) =>
-    `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredClients = (clients ?? [])
+    .filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((c) => !reviewOnly || c.possible_duplicate_of_client_id);
 
   return (
     <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
@@ -87,8 +99,31 @@ export default function ClientsPage() {
           </h1>
           <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{clients?.length ?? 0} clients</p>
         </div>
-        <ThemedButton onClick={() => setModalOpen(true)}>+ New client</ThemedButton>
+        <div className="flex items-center gap-3">
+          <Link to="/clients/import">
+            <ThemedButton variant="secondary">Import from CSV</ThemedButton>
+          </Link>
+          <ThemedButton onClick={() => setModalOpen(true)}>+ New client</ThemedButton>
+        </div>
       </div>
+
+      {possibleDuplicates.length > 0 ? (
+        <div
+          className="mb-4 flex items-center justify-between rounded px-4 py-3"
+          style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-accent-glow)", fontSize: "var(--jms-font-body)" }}
+        >
+          <span style={{ color: "var(--jms-text)" }}>
+            ⚠ {possibleDuplicates.length} possible duplicate client{possibleDuplicates.length === 1 ? "" : "s"} to review
+          </span>
+          <button
+            onClick={() => setReviewOnly((v) => !v)}
+            className="font-semibold underline"
+            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+          >
+            {reviewOnly ? "Show all clients" : "Review now"}
+          </button>
+        </div>
+      ) : null}
 
       <input
         type="text"
@@ -118,27 +153,48 @@ export default function ClientsPage() {
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Phone</th>
                 <th className="px-4 py-2 font-semibold">Email</th>
+                <th className="px-4 py-2 font-semibold" />
               </tr>
             </thead>
             <tbody>
-              {filteredClients.map((client) => (
-                <tr key={client.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
-                  <td className="px-4 py-3">
-                    <Link to={`/clients/${client.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
-                      {client.client_type === "company" && client.company_name ? client.company_name : client.name}
-                    </Link>
-                    {client.client_type === "company" ? (
-                      <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Contact: {client.name}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
-                    {client.phone ?? "-"}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
-                    {client.email ?? "-"}
-                  </td>
-                </tr>
-              ))}
+              {filteredClients.map((client) => {
+                const duplicateOf = client.possible_duplicate_of_client_id ? clientById.get(client.possible_duplicate_of_client_id) : null;
+                return (
+                  <tr key={client.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                    <td className="px-4 py-3">
+                      <Link to={`/clients/${client.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
+                        {client.client_type === "company" && client.company_name ? client.company_name : client.name}
+                      </Link>
+                      {client.client_type === "company" ? (
+                        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Contact: {client.name}</p>
+                      ) : null}
+                      {client.possible_duplicate_of_client_id ? (
+                        <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+                          ⚠ possible duplicate of {duplicateOf?.name ?? "another client"}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {client.phone ?? "-"}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
+                      {client.email ?? "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {client.possible_duplicate_of_client_id ? (
+                        <button
+                          onClick={() => dismissDuplicate.mutate(client.id)}
+                          disabled={dismissDuplicate.isPending}
+                          className="font-semibold underline"
+                          style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                        >
+                          Not a duplicate
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
