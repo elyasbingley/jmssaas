@@ -101,6 +101,26 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   "application/pdf": "pdf",
 };
 
+// Twilio's own standard opt-out keyword list (case-insensitive, whole
+// message only - a reply that merely contains "stop" elsewhere in a
+// sentence doesn't count, same as how carriers themselves treat it).
+// Handled at the app level rather than relying solely on Twilio's
+// account-level Advanced Opt-Out feature (coverage of that varies by
+// number type/region) - see the sms_broadcasts migration's own comment
+// on why this matters for marketing sends specifically.
+const OPT_OUT_KEYWORDS = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit"]);
+
+function isOptOutMessage(body: string | null): boolean {
+  if (!body) return false;
+  return OPT_OUT_KEYWORDS.has(body.trim().toLowerCase());
+}
+
+async function findClientIdByPhone(admin: ReturnType<typeof createClient>, tenantId: string, phone: string): Promise<string | null> {
+  const { data: clients } = await admin.from("clients").select("id, phone").eq("tenant_id", tenantId).not("phone", "is", null);
+  const matches = (clients ?? []).filter((c) => c.phone && toE164(c.phone) === phone);
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!SUPABASE_SERVICE_ROLE_KEY) return json({ error: "server_error" }, 500);
@@ -139,6 +159,20 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, skipped: "unknown_recipient" });
   }
 
+  // Checked unconditionally, not just on broadcast replies - a client can
+  // text STOP at any point, not only right after a marketing send. The
+  // message still gets stored normally below (direction: inbound) so it's
+  // visible in the Channels thread that this happened, this just also
+  // flags the matching client so the broadcast recipient picker and any
+  // future marketing send exclude them from here on.
+  if (isOptOutMessage(body)) {
+    const optOutClientId = await findClientIdByPhone(admin, tenant.id, from);
+    if (optOutClientId) {
+      const { error: optOutError } = await admin.from("clients").update({ marketing_opt_out: true }).eq("id", optOutClientId);
+      if (optOutError) console.error("[twilio-sms-webhook] Failed to record marketing opt-out", optOutError);
+    }
+  }
+
   const { data: existingConversation, error: fetchConvoError } = await admin
     .from("channel_conversations")
     .select("id, unread_count")
@@ -165,9 +199,7 @@ Deno.serve(async (req: Request) => {
     // First message from this number - try to auto-link an existing
     // client by phone, normalising both sides (clients.phone is free text,
     // never validated as E.164 anywhere in the app today).
-    const { data: clients } = await admin.from("clients").select("id, phone").eq("tenant_id", tenant.id).not("phone", "is", null);
-    const matches = (clients ?? []).filter((c) => c.phone && toE164(c.phone) === from);
-    const clientId = matches.length === 1 ? matches[0]!.id : null;
+    const clientId = await findClientIdByPhone(admin, tenant.id, from);
 
     const { data: newConversation, error: insertConvoError } = await admin
       .from("channel_conversations")

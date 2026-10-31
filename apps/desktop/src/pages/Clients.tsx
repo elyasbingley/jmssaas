@@ -100,6 +100,9 @@ export default function ClientsPage() {
           <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{clients?.length ?? 0} clients</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link to="/sms-broadcast">
+            <ThemedButton variant="secondary">📢 SMS Broadcast</ThemedButton>
+          </Link>
           <Link to="/clients/import">
             <ThemedButton variant="secondary">Import from CSV</ThemedButton>
           </Link>

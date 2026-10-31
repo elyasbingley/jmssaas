@@ -26,6 +26,7 @@ import AutomationSettingsPage from "./pages/AutomationSettings";
 import SmsTemplatesPage from "./pages/SmsTemplates";
 import WhatsappTemplatesPage from "./pages/WhatsappTemplates";
 import WhatsappBroadcastPage from "./pages/WhatsappBroadcast";
+import SmsBroadcastPage from "./pages/SmsBroadcast";
 import JobSetupPage from "./pages/JobSetup";
 import JobTemplatesPage from "./pages/JobTemplates";
 import BundlesPage from "./pages/Bundles";
@@ -91,6 +92,7 @@ export default function App() {
                   <Route path=":id" element={<ChannelConversationDetailPage />} />
                 </Route>
                 <Route path="/whatsapp-broadcast" element={<WhatsappBroadcastPage />} />
+                <Route path="/sms-broadcast" element={<SmsBroadcastPage />} />
                 <Route path="/knowledge" element={<KnowledgeBasePage />} />
                 <Route path="/knowledge/categories/:id" element={<KnowledgeCategoryPage />} />
                 <Route path="/knowledge/articles/:id" element={<KnowledgeArticlePage />} />
