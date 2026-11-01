@@ -9837,3 +9837,30 @@ npx vercel --prod
 cd apps\mobile
 npx eas-cli update --channel preview --platform android
 ```
+
+## 76. Desktop: SMS button on the Job Card
+
+Desktop's Job Detail page had an "Email" button (free-form job email) but
+no SMS equivalent, even though mobile's job card already had one, and
+desktop's own QuoteDetail/InvoiceDetail pages already had working SMS
+buttons. Added an "SMS" button next to Email that opens the same
+`SendSmsModal` those pages use (fixed-recipient mode, this job's client,
+with their other contacts as tap-to-fill alternates) and sends through
+the same Channels/Twilio path (`startChannelConversation`) - it starts or
+continues a Channels conversation thread with the client, same as every
+other SMS send in the app, rather than going through
+`scheduled_communications` (so it won't show up in this job's own
+Communication Log, which is scoped to that table - check the Channels
+inbox for the thread instead). Added a `tenant` fetch to this page (it
+had none before) so `{company_name}` etc resolve correctly when
+inserting a saved template.
+
+No schema or Edge Function changes - this only wires up send paths that
+already existed for quotes/invoices/mobile.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```

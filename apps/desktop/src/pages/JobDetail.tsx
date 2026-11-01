@@ -46,6 +46,8 @@ import {
   type Task,
   type TaskQuadrant,
   type TaskStatus,
+  type Tenant,
+  type PlaceholderContext,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { QuadrantBadge } from "../components/tasks/QuadrantBadge";
@@ -54,6 +56,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { queueAndSendEmail } from "../lib/send-email";
+import { startChannelConversation } from "../lib/channels";
 import { formatClientAddress } from "../lib/format";
 import { uploadJobPhoto } from "../lib/uploads";
 import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
@@ -64,6 +67,7 @@ import { ThemedPanel } from "../components/theme/ThemedPanel";
 import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { CommunicationLog } from "../components/CommunicationLog";
 import { EmailComposeModal, type EmailTemplateOption } from "../components/EmailComposeModal";
+import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsModal";
 import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
 import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
 import { AssetsSection } from "../components/AssetsSection";
@@ -92,6 +96,15 @@ async function fetchJob(id: string): Promise<JobCard> {
   const { data, error } = await supabase.from("job_cards").select("*").eq("id", id).single();
   if (error) throw error;
   return data as JobCard;
+}
+
+// Only for SMS template placeholder rendering ({company_name} etc, same
+// as QuoteDetail/InvoiceDetail's own SMS compose) - nothing else on this
+// page needed tenant data before now.
+async function fetchTenant(tenantId: string): Promise<Tenant> {
+  const { data, error } = await supabase.from("tenants").select("*").eq("id", tenantId).single();
+  if (error) throw error;
+  return data as Tenant;
 }
 
 async function fetchClient(clientId: string): Promise<Client> {
@@ -361,6 +374,11 @@ export default function JobDetailPage() {
   const queryClient = useQueryClient();
 
   const { data: job } = useQuery({ queryKey: ["job", id], queryFn: () => fetchJob(id!), enabled: !!id });
+  const { data: tenant } = useQuery({
+    queryKey: ["tenant", profile?.tenant_id],
+    queryFn: () => fetchTenant(profile!.tenant_id),
+    enabled: !!profile,
+  });
   const { data: client } = useQuery({
     queryKey: ["client", job?.client_id],
     queryFn: () => fetchClient(job!.client_id),
@@ -1005,6 +1023,30 @@ export default function JobDetailPage() {
     setTimeout(() => setJobEmailResult(null), 5000);
   };
 
+  // Free-form job card SMS - same Channels/Twilio send path as
+  // QuoteDetail/InvoiceDetail's own "Send via SMS" (startChannelConversation,
+  // not scheduled_communications), so it starts/continues a Channels
+  // conversation thread with the client rather than appearing in this job's
+  // own Communication Log (that log is scheduled_communications-only - see
+  // CommunicationLog.tsx). Mirrors mobile's job card SMS button, which
+  // already went through this same path.
+  const [jobSmsModalOpen, setJobSmsModalOpen] = useState(false);
+  const [jobSmsError, setJobSmsError] = useState<string | null>(null);
+  const [jobSmsResult, setJobSmsResult] = useState<string | null>(null);
+
+  const handleSendJobSms = async (payload: { phone: string; body: string; clientId?: string; contactName?: string }) => {
+    await startChannelConversation({
+      channelType: "sms",
+      toPhone: payload.phone,
+      body: payload.body,
+      clientId: payload.clientId,
+      contactName: payload.contactName,
+    });
+    setJobSmsError(null);
+    setJobSmsResult("SMS sent.");
+    setTimeout(() => setJobSmsResult(null), 5000);
+  };
+
   if (!job) {
     return (
       <div className="p-8" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)", fontFamily: "var(--jms-font)" }}>
@@ -1020,6 +1062,24 @@ export default function JobDetailPage() {
     contactEmails: (clientContacts ?? []).map((c) => c.email),
     freeText: [job.description, ...(notes ?? []).map((n) => n.body)],
   });
+  const jobSmsPhoneOptions: PhoneOption[] = (clientContacts ?? [])
+    .filter((c) => !!c.phone)
+    .map((c) => ({ label: `${c.name} (${c.phone})`, value: c.phone as string }));
+  const jobSmsRenderContext: PlaceholderContext = {
+    company: tenant
+      ? {
+          name: tenant.name,
+          phone: tenant.phone,
+          email: tenant.email,
+          bank_account_name: tenant.bank_account_name,
+          bank_bsb: tenant.bank_bsb,
+          bank_account_number: tenant.bank_account_number,
+          google_review_link: tenant.google_review_link,
+        }
+      : undefined,
+    client: client ? { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email } : undefined,
+    job: { number: job.number, title: job.title, site_address: address },
+  };
 
   // Per-job costing breakdown - same math as JobCosting.tsx's cross-job
   // report, just scoped to this one job instead of every job at once. A
@@ -1103,6 +1163,13 @@ export default function JobDetailPage() {
             >
               Email
             </button>
+            <button
+              onClick={() => setJobSmsModalOpen(true)}
+              className="rounded px-3 py-1.5 font-semibold"
+              style={{ border: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+            >
+              SMS
+            </button>
           </div>
         </div>
         {job.description ? (
@@ -1118,6 +1185,16 @@ export default function JobDetailPage() {
         {jobEmailResult ? (
           <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
             {jobEmailResult}
+          </p>
+        ) : null}
+        {jobSmsError ? (
+          <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {jobSmsError}
+          </p>
+        ) : null}
+        {jobSmsResult ? (
+          <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+            {jobSmsResult}
           </p>
         ) : null}
 
@@ -2254,6 +2331,21 @@ export default function JobDetailPage() {
         templates={emailTemplates}
         onSend={handleSendJobEmail}
         sendLabel="Send email"
+      />
+
+      <SendSmsModal
+        open={jobSmsModalOpen}
+        onClose={() => setJobSmsModalOpen(false)}
+        title={`SMS - ${job.title}`}
+        mode="fixed"
+        fixedPhone={client?.phone ?? ""}
+        fixedClientId={client?.id}
+        fixedContactName={client?.name}
+        fixedPhoneOptions={jobSmsPhoneOptions}
+        defaultBody=""
+        renderContextBase={jobSmsRenderContext}
+        onSend={handleSendJobSms}
+        sendLabel="Send SMS"
       />
     </div>
   );
