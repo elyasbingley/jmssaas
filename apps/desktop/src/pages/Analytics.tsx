@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   averageLabourCostPerHourCents,
+  calculateCostOfOperations,
   calculateLabour,
+  calculateOperatingExpenses,
   formatCentsAsAud,
   lineItemLabourCostCents,
   lineItemMaterialCostCents,
@@ -15,6 +17,7 @@ import {
   type LabourCostEntry,
   type LineItemCrewInput,
   type LineItemMaterialInput,
+  type OperatingExpense,
   type QuoteLineItem,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -112,6 +115,11 @@ async function fetchLabourCostEntries(): Promise<LabourCostEntry[]> {
   if (error) throw error;
   return data as LabourCostEntry[];
 }
+async function fetchOperatingExpenses(): Promise<OperatingExpense[]> {
+  const { data, error } = await supabase.from("operating_expenses").select("*");
+  if (error) throw error;
+  return data as OperatingExpense[];
+}
 function groupById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -196,6 +204,58 @@ function monthsBetween(from: string, to: string): string[] {
   while (cursor <= end) {
     months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
     cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}
+
+// ISO-ish week (Monday-Sunday) bucketing for the Cost of Ops Coverage
+// section below - same "slice to a string key, compare as strings" shape
+// as monthKey/monthLabel/monthsBetween above, just at week granularity.
+// Deliberately never round-trips through toISOString() for the output
+// key - that converts to UTC, which rolls a local midnight back a whole
+// day for any positive UTC offset (all of Australia, year-round). Reads
+// the Date's own local getFullYear/getMonth/getDate instead, since this
+// is plain local-calendar-day arithmetic throughout, never a real instant.
+function toDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function mondayOf(dateStr: string): string {
+  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00`);
+  const day = d.getDay(); // 0 = Sunday
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toDateKey(d);
+}
+function weekKey(dateStr: string): string {
+  return mondayOf(dateStr);
+}
+function weekLabel(key: string): string {
+  const start = new Date(`${key}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) => d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+  return `${fmt(start)} - ${fmt(end)}`;
+}
+// Last `count` Monday-Sunday weeks, oldest first, ending with the week
+// containing today.
+function recentWeeks(count: number): string[] {
+  const todayKey = mondayOf(toDateKey(new Date()));
+  const weeks: string[] = [];
+  const cursor = new Date(`${todayKey}T00:00:00`);
+  for (let i = 0; i < count; i++) {
+    weeks.unshift(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() - 7);
+  }
+  return weeks;
+}
+// Last `count` calendar months, oldest first, ending with the current one.
+function recentMonths(count: number): string[] {
+  const now = new Date();
+  const months: string[] = [];
+  const cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  for (let i = 0; i < count; i++) {
+    months.unshift(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+    cursor.setMonth(cursor.getMonth() - 1);
   }
   return months;
 }
@@ -302,6 +362,7 @@ export default function AnalyticsPage() {
   });
   const { data: costOfOpsSettings } = useQuery({ queryKey: ["analytics-cost-of-ops-settings"], queryFn: fetchCostOfOpsSettings });
   const { data: labourCostEntries } = useQuery({ queryKey: ["analytics-labour-cost-entries"], queryFn: fetchLabourCostEntries });
+  const { data: operatingExpenses } = useQuery({ queryKey: ["analytics-operating-expenses"], queryFn: fetchOperatingExpenses });
 
   // Tenant's own true labour cost ($/hr, from Cost of Ops' Labour roster),
   // not whatever rate a legacy line was priced at - same reasoning as Job
@@ -313,6 +374,20 @@ export default function AnalyticsPage() {
     return averageLabourCostPerHourCents(calculateLabour(labourCostEntries, costOfOpsSettings));
   }, [costOfOpsSettings, labourCostEntries]);
 
+  // Same weekly/monthly target the Cost of Ops page itself shows
+  // (labour roster cost + operating expenses, the literal cash the
+  // business needs this week/month) - "Raw", not efficiency-adjusted:
+  // the adjusted figures exist for pricing decisions ("what to charge per
+  // hour given realistic efficiency"), not for "how much cash is actually
+  // needed", which is just the real wage/overhead total regardless of how
+  // efficiently it gets billed.
+  const costOfOperations = useMemo(() => {
+    if (!costOfOpsSettings || !labourCostEntries || !operatingExpenses) return null;
+    const opex = calculateOperatingExpenses(operatingExpenses, costOfOpsSettings);
+    const labour = calculateLabour(labourCostEntries, costOfOpsSettings);
+    return calculateCostOfOperations(opex, labour, costOfOpsSettings);
+  }, [costOfOpsSettings, labourCostEntries, operatingExpenses]);
+
   const isLoading =
     !jobCards ||
     !quotes ||
@@ -322,7 +397,8 @@ export default function AnalyticsPage() {
     !quoteLineItemCrew ||
     !quoteLineItemMaterials ||
     !invoiceLineItemCrew ||
-    !invoiceLineItemMaterials;
+    !invoiceLineItemMaterials ||
+    !operatingExpenses;
 
   const [preset, setPreset] = useState<DatePreset>("this_quarter");
   const [customFrom, setCustomFrom] = useState(() => presetRange("this_quarter").from);
@@ -367,6 +443,62 @@ export default function AnalyticsPage() {
     }
     return map;
   }, [invoiceLineItems, invoiceLineItemCrew, invoiceLineItemMaterials]);
+
+  // --- Cost of Ops Coverage: has labour recovered from paid invoices this
+  // week/month met the business's own Cost of Ops target? Independent of
+  // the date-range picker above (always "now", not whatever range is
+  // selected) - this answers "are we on track right now", not "how did a
+  // chosen period look".
+  const [cooViewMode, setCooViewMode] = useState<"weekly" | "monthly">("weekly");
+
+  // Only the labour-cost portion of each paid invoice's line items - never
+  // materials, subcontractor cost, profit margin, or GST, per the explicit
+  // ask: that's the slice of what a client paid that actually corresponds
+  // to covering the business's own running costs (wages + overhead, same
+  // "labour cost + operating expenses" the Cost of Ops page itself totals
+  // as weeklyCooRawCents/monthlyCooRawCents). Reuses lineItemLabourCostCents
+  // and trueLabourRateCents exactly as Job Profitability below already
+  // does, so a legacy line is costed the same way in both places.
+  const cooLabourRecoveredByPeriod = useMemo(() => {
+    const keyFn = cooViewMode === "weekly" ? weekKey : monthKey;
+    const totals = new Map<string, number>();
+    for (const inv of invoices ?? []) {
+      const paidAt = inv.paid_at;
+      if (inv.status !== "paid" || !paidAt) continue;
+      const key = keyFn(paidAt);
+      const items = invoiceLineItemsByInvoice.get(inv.id) ?? [];
+      const labourCents = items.reduce((sum, item) => sum + lineItemLabourCostCents(item, trueLabourRateCents), 0);
+      totals.set(key, (totals.get(key) ?? 0) + labourCents);
+    }
+    return totals;
+  }, [invoices, invoiceLineItemsByInvoice, trueLabourRateCents, cooViewMode]);
+
+  const cooPeriods = useMemo(() => {
+    const keys = cooViewMode === "weekly" ? recentWeeks(8) : recentMonths(6);
+    const targetCents = cooViewMode === "weekly" ? costOfOperations?.weeklyCooRawCents ?? 0 : costOfOperations?.monthlyCooRawCents ?? 0;
+    return keys.map((key) => {
+      const recoveredCents = cooLabourRecoveredByPeriod.get(key) ?? 0;
+      return {
+        key,
+        label: cooViewMode === "weekly" ? weekLabel(key) : monthLabel(key),
+        targetCents,
+        recoveredCents,
+        differenceCents: recoveredCents - targetCents,
+      };
+    });
+  }, [cooViewMode, cooLabourRecoveredByPeriod, costOfOperations]);
+
+  const currentCooPeriod = cooPeriods[cooPeriods.length - 1];
+
+  const exportCooCsv = () => {
+    downloadCsv(
+      `cost-of-ops-coverage-${cooViewMode}.csv`,
+      "Period,Target ($),Labour Recovered ($),Difference ($)",
+      cooPeriods.map(
+        (p) => `${p.label},${(p.targetCents / 100).toFixed(2)},${(p.recoveredCents / 100).toFixed(2)},${(p.differenceCents / 100).toFixed(2)}`
+      )
+    );
+  };
 
   // --- Revenue invoiced / collected KPIs, current period vs prior period ---
   function revenueInvoicedCents(from: string, to: string): number {
@@ -767,6 +899,123 @@ export default function AnalyticsPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Cost of Ops Coverage
+                </h2>
+                <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                  Labour cost recovered from paid invoices (never materials, profit, or GST) against the weekly/monthly target set in
+                  Settings &gt; Cost of Ops.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCooViewMode("weekly")}
+                  className="rounded-md border px-3 py-1.5 font-semibold"
+                  style={
+                    cooViewMode === "weekly"
+                      ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                      : { borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                  }
+                >
+                  Weekly
+                </button>
+                <button
+                  onClick={() => setCooViewMode("monthly")}
+                  className="rounded-md border px-3 py-1.5 font-semibold"
+                  style={
+                    cooViewMode === "monthly"
+                      ? { backgroundColor: "var(--jms-accent-glow)", borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
+                      : { borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
+                  }
+                >
+                  Monthly
+                </button>
+                <button
+                  onClick={exportCooCsv}
+                  disabled={cooPeriods.length === 0}
+                  className="rounded-md px-3 py-1.5 font-semibold disabled:opacity-60"
+                  style={{ border: "1px solid var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                >
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            {!costOfOperations ? (
+              <p className="py-6 text-center" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+                Set up{" "}
+                <Link to="/settings/cost-of-ops" style={{ color: "var(--jms-accent)" }}>
+                  Settings &gt; Cost of Ops
+                </Link>{" "}
+                first (operating expenses + labour roster) to see this.
+              </p>
+            ) : (
+              <>
+                {currentCooPeriod ? (
+                  <div
+                    className="mb-4 rounded-lg p-4"
+                    style={{
+                      border: `1px solid ${currentCooPeriod.differenceCents >= 0 ? "var(--jms-accent)" : "var(--jms-danger)"}`,
+                      backgroundColor: "var(--jms-bg)",
+                    }}
+                  >
+                    <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                      {cooViewMode === "weekly" ? "This Week" : "This Month"} ({currentCooPeriod.label})
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-baseline gap-6">
+                      <div>
+                        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Target</p>
+                        <p className="text-xl font-bold" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(currentCooPeriod.targetCents)}
+                        </p>
+                      </div>
+                      <div>
+                        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>Labour Recovered</p>
+                        <p className="text-xl font-bold" style={{ color: "var(--jms-text)" }}>
+                          {formatCentsAsAud(currentCooPeriod.recoveredCents)}
+                        </p>
+                      </div>
+                    </div>
+                    <p
+                      className="mt-3 text-lg font-bold"
+                      style={{ color: currentCooPeriod.differenceCents >= 0 ? "var(--jms-accent)" : "var(--jms-danger)" }}
+                    >
+                      {currentCooPeriod.differenceCents >= 0
+                        ? `${formatCentsAsAud(currentCooPeriod.differenceCents)} over target`
+                        : `${formatCentsAsAud(-currentCooPeriod.differenceCents)} short of target`}
+                    </p>
+                  </div>
+                ) : null}
+
+                <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+                  <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                    <tr>
+                      <th className="py-2 font-semibold">{cooViewMode === "weekly" ? "Week" : "Month"}</th>
+                      <th className="py-2 text-right font-semibold">Target</th>
+                      <th className="py-2 text-right font-semibold">Recovered</th>
+                      <th className="py-2 text-right font-semibold">Over / Short</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cooPeriods.map((p) => (
+                      <tr key={p.key} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text)" }}>
+                        <td className="py-2">{p.label}</td>
+                        <td className="py-2 text-right">{formatCentsAsAud(p.targetCents)}</td>
+                        <td className="py-2 text-right">{formatCentsAsAud(p.recoveredCents)}</td>
+                        <td className="py-2 text-right font-semibold" style={{ color: p.differenceCents >= 0 ? "var(--jms-accent)" : "var(--jms-danger)" }}>
+                          {p.differenceCents >= 0 ? `+${formatCentsAsAud(p.differenceCents)}` : `-${formatCentsAsAud(-p.differenceCents)}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </div>
 
