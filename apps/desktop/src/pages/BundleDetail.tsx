@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
+  computeItemizedLinePricing,
   computeLineItemUnitPriceCents,
   createLineItemBundleItemSchema,
   formatCentsAsAud,
   type LineItemBundle,
   type LineItemBundleItem,
+  type LineItemCrewInput,
+  type LineItemMaterialInput,
   type PriceBookItem,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
@@ -20,9 +23,15 @@ function parseNumber(text: string): number {
   return parseFloat(text) || 0;
 }
 
-type BundleItemRow = LineItemBundleItem & {
-  price_book_items: Pick<PriceBookItem, "description" | "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent"> | null;
-};
+// Full price_book_items(*) rather than a hand-picked legacy-only column
+// list - this page used to only ever select labour_rate_cents/labour_
+// hours/material_cost_cents/markup_percent, so a bundle item linked to an
+// itemized catalogue item (crew/materials breakdown, price_book_itemized_
+// pricing migration) always priced at $0 here, even though AddLineItemBar
+// (which actually applies a bundle to a quote/invoice) already costs it
+// correctly - this page's own display/edit preview just never got the
+// same fix.
+type BundleItemRow = LineItemBundleItem & { price_book_items: PriceBookItem | null };
 
 async function fetchBundle(id: string): Promise<LineItemBundle> {
   const { data, error } = await supabase.from("line_item_bundles").select("*").eq("id", id).single();
@@ -33,7 +42,7 @@ async function fetchBundle(id: string): Promise<LineItemBundle> {
 async function fetchBundleItems(bundleId: string): Promise<BundleItemRow[]> {
   const { data, error } = await supabase
     .from("line_item_bundle_items")
-    .select("*, price_book_items(description, labour_rate_cents, labour_hours, material_cost_cents, markup_percent)")
+    .select("*, price_book_items(*)")
     .eq("bundle_id", bundleId)
     .order("sort_order")
     .order("created_at");
@@ -41,15 +50,89 @@ async function fetchBundleItems(bundleId: string): Promise<BundleItemRow[]> {
   return data as unknown as BundleItemRow[];
 }
 
-function resolvedBreakdown(row: BundleItemRow) {
+// A catalogue item's crew/materials aren't embedded in its own row -
+// separate child tables (same split AddLineItemBar.tsx already fetches
+// from for the exact same reason). Only fetched for items that are
+// actually itemized.
+async function fetchPriceBookItemChildren(itemId: string): Promise<{ crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }> {
+  const [{ data: crew }, { data: materials }] = await Promise.all([
+    supabase.from("price_book_item_crew").select("*").eq("price_book_item_id", itemId).order("sort_order"),
+    supabase.from("price_book_item_materials").select("*").eq("price_book_item_id", itemId).order("sort_order"),
+  ]);
+  return { crew: (crew ?? []) as LineItemCrewInput[], materials: (materials ?? []) as LineItemMaterialInput[] };
+}
+
+// A single breakdown shape covering both pricing models - legacy fields
+// always present (0 when irrelevant), itemized fields only meaningful
+// when pricing_model is "itemized". Mirrors AddLineItemBar's
+// itemizedFieldsFrom output shape so the two pages compute price
+// identically for the same catalogue item.
+interface ResolvedBreakdown {
+  description: string;
+  labour_rate_cents: number;
+  labour_hours: number;
+  material_cost_cents: number;
+  markup_percent: number;
+  pricing_model?: "legacy" | "itemized";
+  quantity?: number;
+  labour_cost_rate_cents?: number;
+  labour_charge_out_rate_cents?: number;
+  crew?: LineItemCrewInput[];
+  materials?: LineItemMaterialInput[];
+  material_margin_percent?: number;
+  subcontractor_margin_percent?: number;
+  waste_percent?: number;
+  contingency_percent?: number;
+  tip_fees_cents?: number;
+  equipment_hire_cents?: number;
+  travel_cost_cents?: number;
+  is_subcontracted?: boolean;
+  subcontractor_cost_cents?: number;
+}
+
+function priceBookBreakdown(
+  item: PriceBookItem,
+  children: { crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }
+): ResolvedBreakdown {
+  const base: ResolvedBreakdown = {
+    description: item.description,
+    labour_rate_cents: item.labour_rate_cents,
+    labour_hours: item.labour_hours,
+    material_cost_cents: item.material_cost_cents,
+    markup_percent: item.markup_percent,
+  };
+  if (item.pricing_model !== "itemized") return base;
+  return {
+    ...base,
+    pricing_model: "itemized",
+    quantity: item.quantity ?? 1,
+    labour_cost_rate_cents: item.labour_cost_rate_cents ?? undefined,
+    labour_charge_out_rate_cents: item.labour_charge_out_rate_cents ?? undefined,
+    crew: children.crew,
+    materials: children.materials,
+    material_margin_percent: item.material_margin_percent ?? undefined,
+    subcontractor_margin_percent: item.subcontractor_margin_percent ?? undefined,
+    waste_percent: item.waste_percent ?? undefined,
+    contingency_percent: item.contingency_percent ?? undefined,
+    tip_fees_cents: item.tip_fees_cents ?? undefined,
+    equipment_hire_cents: item.equipment_hire_cents ?? undefined,
+    travel_cost_cents: item.travel_cost_cents ?? undefined,
+    is_subcontracted: item.is_subcontracted ?? false,
+    subcontractor_cost_cents: item.subcontractor_cost_cents ?? 0,
+  };
+}
+
+function unitPriceCentsFor(breakdown: ResolvedBreakdown): number {
+  if (breakdown.pricing_model === "itemized") {
+    return computeItemizedLinePricing({ ...breakdown, quantity: breakdown.quantity ?? 1 }).unitPriceCents;
+  }
+  return computeLineItemUnitPriceCents(breakdown);
+}
+
+function resolvedBreakdown(row: BundleItemRow, childrenByPriceBookItemId: Map<string, { crew: LineItemCrewInput[]; materials: LineItemMaterialInput[] }>): ResolvedBreakdown {
   if (row.price_book_items) {
-    return {
-      description: row.price_book_items.description,
-      labour_rate_cents: row.price_book_items.labour_rate_cents,
-      labour_hours: row.price_book_items.labour_hours,
-      material_cost_cents: row.price_book_items.material_cost_cents,
-      markup_percent: row.price_book_items.markup_percent,
-    };
+    const children = childrenByPriceBookItemId.get(row.price_book_items.id) ?? { crew: [], materials: [] };
+    return priceBookBreakdown(row.price_book_items, children);
   }
   return {
     description: row.description ?? "",
@@ -60,13 +143,11 @@ function resolvedBreakdown(row: BundleItemRow) {
   };
 }
 
-type PriceBookBreakdown = Pick<PriceBookItem, "labour_rate_cents" | "labour_hours" | "material_cost_cents" | "markup_percent">;
-
 const emptyItemForm = {
   mode: "custom" as "custom" | "price_book",
   priceBookItemId: "",
   priceBookItemDescription: "",
-  priceBookItemBreakdown: null as PriceBookBreakdown | null,
+  priceBookItemBreakdown: null as ResolvedBreakdown | null,
   description: "",
   labourRate: "0",
   labourHours: "0",
@@ -82,6 +163,22 @@ export default function BundleDetailPage() {
 
   const { data: bundle } = useQuery({ queryKey: ["line-item-bundle", id], queryFn: () => fetchBundle(id!), enabled: !!id });
   const { data: items } = useQuery({ queryKey: ["line-item-bundle-items", id], queryFn: () => fetchBundleItems(id!), enabled: !!id });
+
+  // Crew/materials for every itemized catalogue item this bundle actually
+  // references - fetched once per bundle load rather than per row, keyed
+  // by price_book_item_id so both the list display and the edit-item
+  // preview below can share it.
+  const itemizedPriceBookItemIds = (items ?? [])
+    .map((row) => row.price_book_items)
+    .filter((pb): pb is PriceBookItem => !!pb && pb.pricing_model === "itemized")
+    .map((pb) => pb.id);
+  const uniqueItemizedIds = [...new Set(itemizedPriceBookItemIds)];
+  const { data: priceBookChildrenEntries } = useQuery({
+    queryKey: ["line-item-bundle-price-book-children", uniqueItemizedIds.join(",")],
+    queryFn: async () => Promise.all(uniqueItemizedIds.map(async (itemId) => [itemId, await fetchPriceBookItemChildren(itemId)] as const)),
+    enabled: uniqueItemizedIds.length > 0,
+  });
+  const childrenByPriceBookItemId = new Map(priceBookChildrenEntries ?? []);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["line-item-bundle-items", id] });
@@ -149,12 +246,7 @@ export default function BundleDetailPage() {
       priceBookItemId: row.price_book_item_id ?? "",
       priceBookItemDescription: row.price_book_items?.description ?? "",
       priceBookItemBreakdown: row.price_book_items
-        ? {
-            labour_rate_cents: row.price_book_items.labour_rate_cents,
-            labour_hours: row.price_book_items.labour_hours,
-            material_cost_cents: row.price_book_items.material_cost_cents,
-            markup_percent: row.price_book_items.markup_percent,
-          }
+        ? priceBookBreakdown(row.price_book_items, childrenByPriceBookItemId.get(row.price_book_items.id) ?? { crew: [], materials: [] })
         : null,
       description: row.description ?? "",
       labourRate: String(row.labour_rate_cents / 100),
@@ -172,7 +264,7 @@ export default function BundleDetailPage() {
   const previewCents =
     itemForm.mode === "price_book"
       ? itemForm.priceBookItemBreakdown
-        ? computeLineItemUnitPriceCents(itemForm.priceBookItemBreakdown)
+        ? unitPriceCentsFor(itemForm.priceBookItemBreakdown)
         : null
       : computeLineItemUnitPriceCents({
           labour_rate_cents: Math.round(parseNumber(itemForm.labourRate) * 100),
@@ -266,8 +358,8 @@ export default function BundleDetailPage() {
           </p>
         ) : (
           items.map((row) => {
-            const breakdown = resolvedBreakdown(row);
-            const unitPriceCents = computeLineItemUnitPriceCents(breakdown);
+            const breakdown = resolvedBreakdown(row, childrenByPriceBookItemId);
+            const unitPriceCents = unitPriceCentsFor(breakdown);
             return (
               <button
                 key={row.id}
@@ -380,19 +472,15 @@ export default function BundleDetailPage() {
                     {pbResults.map((pb) => (
                       <button
                         key={pb.id}
-                        onClick={() =>
+                        onClick={async () => {
+                          const children = pb.pricing_model === "itemized" ? await fetchPriceBookItemChildren(pb.id) : { crew: [], materials: [] };
                           setItemForm({
                             ...itemForm,
                             priceBookItemId: pb.id,
                             priceBookItemDescription: pb.description,
-                            priceBookItemBreakdown: {
-                              labour_rate_cents: pb.labour_rate_cents,
-                              labour_hours: pb.labour_hours,
-                              material_cost_cents: pb.material_cost_cents,
-                              markup_percent: pb.markup_percent,
-                            },
-                          })
-                        }
+                            priceBookItemBreakdown: priceBookBreakdown(pb, children),
+                          });
+                        }}
                         className="jms-nav-link block w-full truncate px-3 py-2 text-left last:border-0"
                         style={{ borderBottom: "1px solid var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
                       >
