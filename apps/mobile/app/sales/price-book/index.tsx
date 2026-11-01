@@ -3,7 +3,7 @@ import { ImageBackground, Pressable, ScrollView, Text, View } from "react-native
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createPriceBookCategorySchema, type PriceBookCategory } from "@jmssaas/shared";
+import { createPriceBookCategorySchema, type PriceBookCategory, type PriceBookSettings, type PriceBookSortMode } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { useIsOnline } from "../../../lib/connectivity";
 import { useRefetchOnFocus, useSupabaseFetch } from "../../../lib/use-supabase-fetch";
@@ -35,6 +35,18 @@ export default function PriceBookScreen() {
     return (data ?? []) as PriceBookCategory[];
   }, [isOnline]);
   useRefetchOnFocus(refetch);
+
+  // Desktop (Settings > Price Book) is where the sort mode itself and
+  // custom reordering get managed - this just needs to display in the
+  // same order, including the alphabetical override.
+  const { data: settings } = useSupabaseFetch<PriceBookSettings | null>(async () => {
+    const { data, error } = await supabase.from("price_book_settings").select("*").maybeSingle();
+    if (error) throw error;
+    return (data as PriceBookSettings | null) ?? null;
+  }, [isOnline]);
+  const sortMode: PriceBookSortMode = settings?.category_sort_mode ?? "custom";
+  const sortedCategories =
+    sortMode === "alphabetical" ? [...(categories ?? [])].sort((a, b) => a.name.localeCompare(b.name)) : categories ?? [];
 
   const [modalVisible, setModalVisible] = useState(false);
   const [name, setName] = useState("");
@@ -90,7 +102,7 @@ export default function PriceBookScreen() {
         ) : (
           <ScrollView style={styles.container} contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
             <View style={styles.grid}>
-              {(categories ?? []).map((category) => (
+              {sortedCategories.map((category) => (
                 <Pressable key={category.id} style={styles.tile} onPress={() => router.push(`/sales/price-book/categories/${category.id}`)}>
                   {category.image_url ? (
                     <ImageBackground source={{ uri: category.image_url }} style={styles.tileImageBg}>
@@ -111,7 +123,7 @@ export default function PriceBookScreen() {
                 </Pressable>
               ))}
             </View>
-            {(categories ?? []).length === 0 ? <Text style={styles.empty}>No categories yet.</Text> : null}
+            {sortedCategories.length === 0 ? <Text style={styles.empty}>No categories yet.</Text> : null}
           </ScrollView>
         )}
       </SafeAreaView>

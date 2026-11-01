@@ -9804,3 +9804,36 @@ npx vercel --prod
 cd apps\mobile
 npx eas-cli update --channel preview --platform android
 ```
+
+## 75. Price Book category sort order: custom (reorderable) or alphabetical
+
+`price_book_categories` already had a `sort_order` column, but nothing in
+the UI ever let you edit it - new categories just got appended, and there
+was no alphabetical option at all. Added a per-tenant toggle
+(`price_book_settings.category_sort_mode`, `'custom' | 'alphabetical'`,
+defaults to `'custom'` - a missing row is also treated as `'custom'` since
+existing tenants don't get one backfilled) on the Price Book page
+(Price Book > Custom order / A-Z, next to "+ New category"):
+
+- **A-Z**: categories always display alphabetically by name; `sort_order`
+  is ignored (and left untouched underneath, so switching back to Custom
+  restores whatever order was there before).
+- **Custom order**: a "Reorder" button opens a list with up/down arrows
+  per category. Moving one re-numbers every category's `sort_order` to its
+  new index (rather than just swapping the two moved rows), which also
+  normalizes any pre-existing duplicate/gappy values the first time
+  anyone reorders.
+
+Mobile's Price Book screen reads the same `category_sort_mode` and
+displays in the matching order - reordering itself stays desktop/admin
+-only, same as creating categories.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```

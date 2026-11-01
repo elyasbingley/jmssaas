@@ -309,6 +309,14 @@ export const createPriceBookCategorySchema = z.object({
 });
 export type CreatePriceBookCategoryInput = z.infer<typeof createPriceBookCategorySchema>;
 
+export const priceBookSortModeSchema = z.enum(["custom", "alphabetical"]);
+export type PriceBookSortMode = z.infer<typeof priceBookSortModeSchema>;
+
+export const upsertPriceBookSettingsSchema = z.object({
+  category_sort_mode: priceBookSortModeSchema,
+});
+export type UpsertPriceBookSettingsInput = z.infer<typeof upsertPriceBookSettingsSchema>;
+
 // The full itemized cost-rate/charge-rate/margin split, shared by both
 // price book schemas below - same fields as lineItemSchema's own itemized
 // additions (see that schema's comment), minus the quote/invoice-only

@@ -957,6 +957,15 @@ export interface PriceBookCategory {
   updated_at: string;
 }
 
+// One row per tenant (may not exist yet - treat a missing row as "custom").
+export interface PriceBookSettings {
+  id: string;
+  tenant_id: string;
+  category_sort_mode: "custom" | "alphabetical";
+  created_at: string;
+  updated_at: string;
+}
+
 // The template a quote/invoice line item gets created from, not a line item
 // itself - no quantity or gst_applicable, those only apply once something's
 // actually added to a specific quote/invoice.
