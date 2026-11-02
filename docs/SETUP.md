@@ -9864,3 +9864,49 @@ already existed for quotes/invoices/mobile.
 git pull origin main
 npx vercel --prod
 ```
+
+## 77. New {site_street_address} token, and SMS Templates' token picker no longer offers tokens that can never resolve there
+
+Two related placeholder-token fixes, found from the Settings > SMS
+Templates page:
+
+- **No street-only address token**: `{site_address}`/`{property_address}`
+  were always the full formatted address (street, suburb, state,
+  postcode joined together) - there was no way to get just the street
+  line. Added `{site_street_address}` (just `address_line1`, no
+  suburb/state/postcode) alongside `{site_address}` everywhere a job
+  context is built: `packages/shared/src/placeholders.ts`,
+  `process-scheduled-comms`'s own Deno copy of the same renderer, and
+  the desktop Job Card's SMS button (added last session).
+- **`{property_address}` (and `{pm_first_name}`, every referral/report/PO/
+  subcontractor/membership/NTE/schedule token) never resolved from the
+  Settings > SMS Templates editor or SendSmsModal's own inline "+ New
+  template" panel**, because those are generic, reusable
+  `channel_message_templates` rows used ad-hoc from Channels' "New
+  message" and the Quote/Invoice/Job detail pages' own SMS buttons - none
+  of which ever build a `property`/`referralPartner`/`report`/
+  `purchaseOrder`/`subcontractor`/`membership`/`nte`/`schedule` context
+  (those are only ever populated by the automated per-trigger dispatcher
+  for that one trigger's own email/SMS). Inserting one of those tokens
+  into a generic SMS template always rendered as the literal
+  `{property_address}` text, with no error or indication why. Added a new
+  `GENERIC_MESSAGE_PLACEHOLDER_TOKENS` export (company/client/job/quote/
+  invoice tokens only - the ones that actually can resolve from at least
+  one of this editor's own send contexts) and switched SmsTemplates.tsx,
+  SendSmsModal.tsx, and mobile's channels/templates.tsx to it.
+  Automation & Messaging Settings' own per-trigger template editor (and
+  the Referral Workflows tab) are untouched - they still use the full
+  `ALL_PLACEHOLDER_TOKENS` list, since that editor genuinely does have
+  the full context available for whichever one trigger is being edited.
+
+No schema changes.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase functions deploy process-scheduled-comms --no-verify-jwt
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```

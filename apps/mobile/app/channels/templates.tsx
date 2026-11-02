@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ALL_PLACEHOLDER_TOKENS, createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
+import { GENERIC_MESSAGE_PLACEHOLDER_TOKENS, createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -219,7 +219,7 @@ export default function ChannelMessageTemplatesScreen() {
 
         <Text style={styles.fieldLabel}>Insert tag</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tokenScroll}>
-          {ALL_PLACEHOLDER_TOKENS.map((token) => (
+          {GENERIC_MESSAGE_PLACEHOLDER_TOKENS.map((token) => (
             <Pressable key={token} style={styles.tokenChip} onPress={() => insertToken(token)}>
               <Text style={styles.tokenChipText}>{`{${token}}`}</Text>
             </Pressable>

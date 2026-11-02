@@ -142,7 +142,7 @@ interface PlaceholderContext {
     due_date: string | null;
     payment_link: string | null;
   };
-  job?: { number: string | null; title: string; site_address: string | null };
+  job?: { number: string | null; title: string; site_address: string | null; site_street_address: string | null };
   schedule?: {
     tech_first_name: string | null;
     booking_date: string | null;
@@ -205,6 +205,7 @@ function buildPlaceholderTokens(context: PlaceholderContext): Record<string, str
     tokens.job_number = context.job.number ?? "";
     tokens.job_title = context.job.title;
     tokens.site_address = context.job.site_address ?? "";
+    tokens.site_street_address = context.job.site_street_address ?? "";
   }
   if (context.schedule) {
     tokens.tech_first_name = context.schedule.tech_first_name ?? "";
@@ -448,12 +449,17 @@ async function buildEntityContext(
     const { data: client } = await admin.from("clients").select("*").eq("id", job.client_id).single();
     if (client) context.client = { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email };
     let siteAddress: string | null = null;
+    let streetAddress: string | null = null;
     if (job.site_id) {
       const { data: site } = await admin.from("client_sites").select("*").eq("id", job.site_id).single();
-      if (site) siteAddress = formatAddress(site);
+      if (site) {
+        siteAddress = formatAddress(site);
+        streetAddress = site.address_line1 ?? null;
+      }
     }
     if (!siteAddress && client) siteAddress = formatAddress(client);
-    context.job = { number: job.number, title: job.title, site_address: siteAddress };
+    if (!streetAddress && client) streetAddress = client.address_line1 ?? null;
+    context.job = { number: job.number, title: job.title, site_address: siteAddress, site_street_address: streetAddress };
 
     // {tech_first_name}/{booking_date}/{booking_start_time} for the auto-
     // scheduled job_prep_checklist/job_completion_summary templates - the
@@ -584,7 +590,8 @@ async function buildEntityContext(
     if (job) {
       const { data: client } = await admin.from("clients").select("*").eq("id", job.client_id).maybeSingle();
       const siteAddress = client ? formatAddress(client) : null;
-      context.job = { number: job.number, title: job.title, site_address: siteAddress };
+      const streetAddress = client?.address_line1 ?? null;
+      context.job = { number: job.number, title: job.title, site_address: siteAddress, site_street_address: streetAddress };
     }
 
     let contactFirstName = "";

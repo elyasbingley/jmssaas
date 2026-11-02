@@ -42,6 +42,12 @@ export interface PlaceholderJobContext {
   number: string | null;
   title: string;
   site_address: string | null;
+  // Street line only (address_line1, no suburb/state/postcode) - for a
+  // message that already says who/where contextually and just needs "123
+  // Smith St" rather than the full formatted address site_address gives.
+  // Optional since not every job-context caller builds this (older ones
+  // predate it) - renders as "" rather than breaking those.
+  site_street_address?: string | null;
 }
 
 export interface PlaceholderQuoteContext {
@@ -193,6 +199,7 @@ export function buildPlaceholderTokens(context: PlaceholderContext): Record<stri
     tokens.job_number = context.job.number ?? "";
     tokens.job_title = context.job.title;
     tokens.site_address = context.job.site_address ?? "";
+    tokens.site_street_address = context.job.site_street_address ?? "";
   }
 
   if (context.quote) {
@@ -298,6 +305,7 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "job_number",
   "job_title",
   "site_address",
+  "site_street_address",
   "quote_number",
   "quote_total",
   "quote_issue_date",
@@ -340,6 +348,50 @@ export const ALL_PLACEHOLDER_TOKENS = [
   "membership_discount_percent",
   "membership_renewal_date",
   "membership_benefit_type",
+  "company_name",
+  "company_phone",
+  "company_email",
+  "bank_account_name",
+  "bank_bsb",
+  "bank_account_number",
+  "google_review_link",
+] as const;
+
+// Subset of ALL_PLACEHOLDER_TOKENS offered by the generic, reusable SMS
+// template editors (Settings > SMS Templates, and SendSmsModal's own
+// inline "+ New template" panel) - these channel_message_templates rows
+// get inserted ad-hoc from Channels' "New message", and from the
+// Quote/Invoice/Job detail pages' own "Send via SMS"/"SMS" buttons, none
+// of which ever build a schedule/nte/property/referralPartner/report/
+// purchaseOrder/subcontractor/membership context (those are only ever
+// populated by the automated per-trigger dispatcher - see
+// process-scheduled-comms - for that one trigger's own email/SMS, edited
+// via Automation & Messaging Settings' template editor instead, which
+// still uses the full ALL_PLACEHOLDER_TOKENS list). Offering those tokens
+// here was misleading: inserted into a generic template, they could never
+// resolve and would always render as the literal "{property_address}" -
+// unlike job/quote/invoice tokens, which do resolve from at least one of
+// this editor's own real send contexts.
+export const GENERIC_MESSAGE_PLACEHOLDER_TOKENS = [
+  "client_full_name",
+  "client_first_name",
+  "client_phone",
+  "client_email",
+  "job_number",
+  "job_title",
+  "site_address",
+  "site_street_address",
+  "quote_number",
+  "quote_total",
+  "quote_issue_date",
+  "quote_expiry_date",
+  "quote_approval_link",
+  "quote_accept_link",
+  "quote_decline_link",
+  "invoice_number",
+  "invoice_total",
+  "invoice_due_date",
+  "invoice_payment_link",
   "company_name",
   "company_phone",
   "company_email",

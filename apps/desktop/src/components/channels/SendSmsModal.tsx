@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Client, ChannelMessageTemplate, PlaceholderContext } from "@jmssaas/shared";
-import { ALL_PLACEHOLDER_TOKENS, renderTemplate } from "@jmssaas/shared";
+import { GENERIC_MESSAGE_PLACEHOLDER_TOKENS, renderTemplate } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
@@ -482,7 +482,7 @@ export function SendSmsModal({
                   onChange={(e) => setTemplateDraft({ ...templateDraft, name: e.target.value })}
                 />
                 <div className="mb-2 flex flex-wrap gap-1">
-                  {ALL_PLACEHOLDER_TOKENS.map((token) => (
+                  {GENERIC_MESSAGE_PLACEHOLDER_TOKENS.map((token) => (
                     <button
                       key={token}
                       onClick={() => insertTokenIntoDraft(token)}

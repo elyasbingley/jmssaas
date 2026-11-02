@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ALL_PLACEHOLDER_TOKENS, createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
+import { GENERIC_MESSAGE_PLACEHOLDER_TOKENS, createChannelMessageTemplateSchema, updateChannelMessageTemplateSchema, type ChannelMessageTemplate } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -227,7 +227,7 @@ export default function SmsTemplatesPage() {
             <ThemedFormField label="Template name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
 
             <div className="mb-2 flex flex-wrap gap-1">
-              {ALL_PLACEHOLDER_TOKENS.map((token) => (
+              {GENERIC_MESSAGE_PLACEHOLDER_TOKENS.map((token) => (
                 <button
                   key={token}
                   onClick={() => insertToken(token)}

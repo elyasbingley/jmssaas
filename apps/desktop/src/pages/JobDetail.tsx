@@ -1057,6 +1057,7 @@ export default function JobDetailPage() {
 
   const jobSite = (clientSites ?? []).find((s) => s.id === job.site_id) ?? null;
   const address = jobSite ? formatSiteAddress(jobSite) : client ? formatClientAddress(client) : null;
+  const streetAddress = jobSite ? jobSite.address_line1 : (client?.address_line1 ?? null);
   const jobRecipientOptions = collectRecipientEmails({
     clientEmail: client?.email,
     contactEmails: (clientContacts ?? []).map((c) => c.email),
@@ -1078,7 +1079,7 @@ export default function JobDetailPage() {
         }
       : undefined,
     client: client ? { name: client.name, first_name: client.first_name, phone: client.phone, email: client.email } : undefined,
-    job: { number: job.number, title: job.title, site_address: address },
+    job: { number: job.number, title: job.title, site_address: address, site_street_address: streetAddress },
   };
 
   // Per-job costing breakdown - same math as JobCosting.tsx's cross-job
