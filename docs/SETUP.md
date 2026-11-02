@@ -5588,8 +5588,8 @@ same live project values apps/desktop already uses (see docs/SETUP.md's
 earlier Supabase/PowerSync setup sections for where to find them).
 
 ```powershell
-npx eas login
-npx eas build --profile preview --platform android
+npx eas-cli login
+npx eas-cli build --profile preview --platform android
 ```
 This builds in Expo's cloud (no local Android Studio needed) - takes a
 few minutes, then prints a QR code and a download link. Scan it (or open
@@ -5605,7 +5605,7 @@ the JS bundle), so it is **not enough** to have it in local `.env` -
 `eas build` runs on Expo's servers, which never see your local file.
 Register it as an EAS secret once:
 ```powershell
-npx eas env:create --name GOOGLE_MAPS_API_KEY_ANDROID --value "your-key" --visibility sensitive --environment preview
+npx eas-cli env:create --name GOOGLE_MAPS_API_KEY_ANDROID --value "your-key" --visibility sensitive --environment preview
 ```
 (create an API key first at console.cloud.google.com/google/maps-apis,
 enable "Maps SDK for Android", restrict it to package name
@@ -5669,7 +5669,7 @@ PowerSync generates) and redeploy desktop:
 git pull origin main
 npx vercel --prod
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -5720,7 +5720,7 @@ No migration - `invoices.bill_to_landlord` already exists in Postgres
 git pull origin main
 npx vercel --prod
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -5775,7 +5775,7 @@ change) and redeploy desktop:
 git pull origin main
 npx vercel --prod
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 Also re-upload `powersync/sync-rules.yaml` via the PowerSync dashboard
 (Instance > Sync Rules) - it changed in this pass (added `client_contacts`)
@@ -5837,7 +5837,7 @@ build, a JS-only redeploy isn't enough:
 git pull origin main
 cd apps/mobile
 pnpm install
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -5896,7 +5896,7 @@ covers this:
 git pull origin main
 npx vercel --prod
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -5939,7 +5939,7 @@ action from any caller with a valid session token.
 ```powershell
 git pull origin main
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -5989,7 +5989,7 @@ already work for any caller with a valid session token.
 ```powershell
 git pull origin main
 cd apps/mobile
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -6068,7 +6068,7 @@ table.
 git pull origin main
 cd apps/mobile
 pnpm install
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -6177,7 +6177,7 @@ table - no `schema.ts` or `sync-rules.yaml` changes, and no new migration
 git pull origin main
 cd apps/mobile
 pnpm install
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -6276,7 +6276,7 @@ made dropping its own analytics dashboards.
 git pull origin main
 cd apps/mobile
 pnpm install
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -6366,7 +6366,7 @@ quotes were never a PowerSync table to begin with.
 git pull origin main
 cd apps/mobile
 pnpm install
-npx eas build --profile preview --platform android
+npx eas-cli build --profile preview --platform android
 ```
 
 ### Test it
@@ -9385,12 +9385,12 @@ whoever owns the EAS account:
    download the JSON file.
 3. From `apps/mobile`:
    ```powershell
-   npx eas credentials
+   npx eas-cli credentials
    ```
    Select **Android** -> **Push Notifications: Manage your FCM API Key**
    -> **Set up a FCM v1 service account key** -> upload the JSON file
    from step 2. (If this is the very first Android credential set up for
-   this project, run `npx eas build:configure -p android` first - EAS
+   this project, run `npx eas-cli build:configure -p android` first - EAS
    can't manage push credentials for a project with no Android build
    configured yet.)
 4. Deploy the new/changed Edge Functions and push the migration:
@@ -9407,7 +9407,7 @@ whoever owns the EAS account:
    not something an OTA (`eas update`) can deliver:
    ```powershell
    cd apps\mobile
-   npx eas build --profile preview --platform android
+   npx eas-cli build --profile preview --platform android
    ```
 6. **Push notifications don't work in Expo Go** on this SDK, and need a
    real device (an emulator/simulator has no push capability) - test
