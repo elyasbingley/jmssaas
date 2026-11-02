@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -217,7 +217,8 @@ export function EmailComposeModal({
             <Text style={styles.closeText}>Close</Text>
           </Pressable>
         </View>
-        <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <KeyboardAvoidingView style={styles.body} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           {templates && templates.length > 0 ? (
             <View style={styles.fieldSpacing}>
               <Text style={styles.fieldLabel}>Template</Text>
@@ -324,6 +325,7 @@ export function EmailComposeModal({
             <Text style={styles.sendButtonText}>{sending ? "Sending..." : (sendLabel ?? "Send")}</Text>
           </Pressable>
         </ScrollView>
+        </KeyboardAvoidingView>
       </View>
 
       {templates ? (

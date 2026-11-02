@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import type { ChannelMessageTemplate } from "@jmssaas/shared";
@@ -102,6 +102,7 @@ export function SendSmsModal({ visible, onClose, title, defaultPhone, phoneOptio
             <Text style={styles.closeText}>Close</Text>
           </Pressable>
         </View>
+        <KeyboardAvoidingView style={styles.body} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <ThemedFormField label="Phone number" placeholder="0491 570 156" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
           {phoneOptions && phoneOptions.length > 0 ? (
@@ -141,6 +142,7 @@ export function SendSmsModal({ visible, onClose, title, defaultPhone, phoneOptio
             <Text style={styles.sendButtonText}>{sending ? "Sending..." : (sendLabel ?? "Send")}</Text>
           </Pressable>
         </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
 
       <ThemedPickerModal

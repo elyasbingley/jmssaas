@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Image, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -1227,7 +1227,8 @@ export default function JobDetailScreen() {
     <>
     <StatusBar style="light" />
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
       <View style={styles.section}>
         <View style={styles.titleRow}>
           <Pressable onPress={() => router.back()} hitSlop={8}>
@@ -1712,6 +1713,7 @@ export default function JobDetailScreen() {
         </>
       ) : null}
     </ScrollView>
+    </KeyboardAvoidingView>
 
     {activeTab === "details" || !isAdmin ? (
       <JobActionsBar quickActions={quickActions} onAction={runJobAction} onMore={() => setActionsSheetVisible(true)} />

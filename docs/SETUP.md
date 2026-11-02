@@ -9910,3 +9910,51 @@ npx vercel --prod
 cd apps\mobile
 npx eas-cli update --channel preview --platform android
 ```
+
+## 78. Mobile: keyboard covering input on several screens, and a tap-eaten-by-keyboard-dismiss bug that made new contacts "disappear"
+
+Two related reports: adding a second contact on a Job Card (or the Client
+Card) seemed to silently do nothing, and the keyboard kept covering what
+was being typed while messaging clients from the app.
+
+- **Job Card's inline "Add contact"/"Add a task" fields had no keyboard
+  handling at all** - unlike every other form on this same screen (Quick
+  Note, On The Way, NTE, Edit Job, WorkDrive link, Real Estate Assignment,
+  Create Report, Assign Subcontractor), which all already go through
+  `ThemedModal` (`KeyboardAvoidingView` + `keyboardShouldPersistTaps=
+  "handled"`), these two sat directly in the page's own bare `ScrollView`.
+  A `ScrollView` with no `keyboardShouldPersistTaps` swallows the first
+  tap on a button to dismiss the keyboard instead of firing its `onPress`
+  - so tapping "Add contact" while the keyboard was still open (the
+  normal case, right after typing the name) never actually created the
+  contact at all. It looked exactly like "I never made it" because,
+  functionally, it never was. Wrapped the page's main `ScrollView` in a
+  `KeyboardAvoidingView` and added `keyboardShouldPersistTaps="handled"`
+  to it - fixes the swallowed tap and lets the keyboard correctly push
+  the focused field into view instead of covering it, for every inline
+  field on this page, not just these two. Client Detail's own "New
+  Contact" flow already used `ThemedModal` (so it wasn't actually
+  swallowing taps), but got the same `keyboardShouldPersistTaps="handled"`
+  added to its job-list `FlatList` defensively.
+- **Three "texting" screens had zero keyboard handling**: the Channels
+  conversation screen (the actual SMS/WhatsApp chat thread -
+  `apps/mobile/app/channels/[id].tsx`) and both `SendSmsModal.tsx` and
+  `EmailComposeModal.tsx` (shared by Quote/Invoice/Job's own Send via
+  SMS/Email buttons) never wrapped their input+send area in a
+  `KeyboardAvoidingView`, the one thing `ThemedModal`/`CenteredModal`
+  already got right (see those components' own comments - this exact bug
+  was fixed there once already, just never applied to these three). All
+  three now wrap their compose area the same way.
+
+No schema changes, no new dependency - same `KeyboardAvoidingView`/
+`keyboardShouldPersistTaps` pattern already established elsewhere in this
+app, just applied to the places that had been missed.
+
+### Deploy
+
+```powershell
+git pull origin main
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+npx eas-cli update --channel preview --platform ios
+```

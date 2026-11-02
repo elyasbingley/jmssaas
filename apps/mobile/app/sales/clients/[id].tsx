@@ -377,6 +377,7 @@ export default function ClientDetailScreen() {
         <FlatList
           data={jobCards}
           keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => (
             <Pressable style={styles.row} onPress={() => router.push(`/jobs/${item.id}`)}>
               <View style={{ flex: 1 }}>

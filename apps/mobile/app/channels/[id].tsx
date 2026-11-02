@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, Text, TextInput, View, type TextStyle } from "react-native";
+import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View, type TextStyle } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -298,8 +298,8 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>
           {CHANNEL_ICONS[conversation.channel_type]} {title}
         </Text>
@@ -395,7 +395,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
           <Text style={styles.notConnected}>Sending isn't available on {CHANNEL_LABELS[conversation.channel_type]} yet - see Settings.</Text>
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
