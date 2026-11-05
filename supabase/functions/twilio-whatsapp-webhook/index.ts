@@ -54,6 +54,19 @@ function stripWhatsappPrefix(value: string): string {
   return value.startsWith(WHATSAPP_PREFIX) ? value.slice(WHATSAPP_PREFIX.length) : value;
 }
 
+// Same opt-out handling as twilio-sms-webhook's own identical constant/
+// helper - a WhatsApp "STOP" reply has to suppress future WhatsApp
+// broadcasts the same way an SMS one already suppresses SMS broadcasts
+// (both read the same clients.marketing_opt_out flag). This webhook never
+// set it before, so a client who replied STOP here kept being broadcast
+// to regardless.
+const OPT_OUT_KEYWORDS = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit"]);
+
+function isOptOutMessage(body: string | null): boolean {
+  if (!body) return false;
+  return OPT_OUT_KEYWORDS.has(body.trim().toLowerCase());
+}
+
 // Deliberate duplicate of packages/shared/src/channels.ts's toE164 - see
 // twilio-sms-webhook's own comment on why (Edge Functions are self-
 // contained, can't import another function's code).
@@ -148,6 +161,19 @@ Deno.serve(async (req: Request) => {
   }
   if (!tenant) {
     return json({ ok: true, skipped: "unknown_recipient" });
+  }
+
+  // Checked unconditionally, not just on broadcast replies - see
+  // twilio-sms-webhook's own identical comment. The message still gets
+  // stored normally below (direction: inbound) so it's visible in the
+  // Channels thread, this just also flags the matching client.
+  if (isOptOutMessage(body)) {
+    const { data: optOutClients } = await admin.from("clients").select("id, phone").eq("tenant_id", tenant.id).not("phone", "is", null);
+    const optOutMatches = (optOutClients ?? []).filter((c) => c.phone && toE164(c.phone) === from);
+    if (optOutMatches.length === 1) {
+      const { error: optOutError } = await admin.from("clients").update({ marketing_opt_out: true }).eq("id", optOutMatches[0]!.id);
+      if (optOutError) console.error("[twilio-whatsapp-webhook] Failed to record marketing opt-out", optOutError);
+    }
   }
 
   const { data: existingConversation, error: fetchConvoError } = await admin

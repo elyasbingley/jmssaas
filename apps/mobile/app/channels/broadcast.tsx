@@ -57,11 +57,11 @@ export default function WhatsappBroadcastScreen() {
     return data as WhatsappTemplate[];
   }, [isOnline]);
 
-  const { data: clients } = useSupabaseFetch<Pick<Client, "id" | "name" | "company_name" | "phone">[]>(async () => {
+  const { data: clients } = useSupabaseFetch<Pick<Client, "id" | "name" | "company_name" | "phone" | "marketing_opt_out">[]>(async () => {
     if (!isOnline) return [];
-    const { data, error } = await supabase.from("clients").select("id, name, company_name, phone").order("name");
+    const { data, error } = await supabase.from("clients").select("id, name, company_name, phone, marketing_opt_out").order("name");
     if (error) throw error;
-    return data as Pick<Client, "id" | "name" | "company_name" | "phone">[];
+    return data as Pick<Client, "id" | "name" | "company_name" | "phone" | "marketing_opt_out">[];
   }, [isOnline]);
 
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -75,8 +75,12 @@ export default function WhatsappBroadcastScreen() {
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<{ sent: number; failed: number } | null>(null);
 
-  const filteredClients = (clients ?? []).filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(clientSearch.trim().toLowerCase()));
-  const selectedClients = (clients ?? []).filter((c) => selectedClientIds.has(c.id));
+  // Same opt-out exclusion desktop's WhatsappBroadcast.tsx already has -
+  // a client who replied STOP must never be reachable from a broadcast.
+  // This screen was missing it entirely until now.
+  const eligibleClients = (clients ?? []).filter((c) => !c.marketing_opt_out);
+  const filteredClients = eligibleClients.filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(clientSearch.trim().toLowerCase()));
+  const selectedClients = eligibleClients.filter((c) => selectedClientIds.has(c.id));
   const recipientsWithPhone = selectedClients.filter((c) => !!c.phone);
 
   const toggleClient = (id: string) => {
@@ -223,6 +227,12 @@ export default function WhatsappBroadcastScreen() {
           ) : null}
 
           <Text style={styles.sectionTitle}>Recipients ({recipientsWithPhone.length} selected)</Text>
+          {(clients ?? []).length - eligibleClients.length > 0 ? (
+            <Text style={styles.mutedNote}>
+              {(clients ?? []).length - eligibleClients.length} client{(clients ?? []).length - eligibleClients.length === 1 ? "" : "s"} opted out of
+              marketing texts - not shown here.
+            </Text>
+          ) : null}
           <TextInput
             style={styles.textInput}
             value={clientSearch}
@@ -275,6 +285,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
       ...mono,
     },
     empty: { textAlign: "center" as const, color: tokens.textMuted, padding: 16, ...mono },
+    mutedNote: { color: tokens.textMuted, fontSize: font.label, marginBottom: 6, ...mono },
     templateRow: { borderWidth: 1, borderColor: tokens.border, backgroundColor: tokens.surface, borderRadius: 4, padding: 10, marginBottom: 8 },
     templateRowActive: { borderColor: tokens.accent, backgroundColor: tokens.accentGlow },
     templateRowTitle: { fontWeight: "700" as const, color: tokens.textPrimary, fontSize: font.body - 1, ...mono },

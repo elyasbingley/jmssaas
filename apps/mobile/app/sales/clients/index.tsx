@@ -118,6 +118,7 @@ export default function ClientsScreen() {
             <Pressable style={styles.row} onPress={() => router.push(`/sales/clients/${item.id}`)}>
               <Text style={styles.rowTitle}>{item.name}</Text>
               {item.phone ? <Text style={styles.rowSubtitle}>{item.phone}</Text> : null}
+              {item.marketing_opt_out ? <Text style={styles.optedOutBadge}>Opted out</Text> : null}
             </Pressable>
           )}
           ListEmptyComponent={<Text style={styles.empty}>No clients yet. Add your first one below.</Text>}
@@ -195,6 +196,20 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     row: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: tokens.border },
     rowTitle: { fontSize: font.body, fontWeight: "600" as const, color: tokens.textPrimary, ...mono },
     rowSubtitle: { color: tokens.textMuted, marginTop: 2, fontSize: font.label, ...mono },
+    optedOutBadge: {
+      marginTop: 4,
+      alignSelf: "flex-start" as const,
+      color: tokens.danger,
+      borderWidth: 1,
+      borderColor: tokens.danger,
+      borderRadius: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      fontSize: font.label - 1,
+      fontWeight: "700" as const,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
     empty: { textAlign: "center" as const, color: tokens.textMuted, ...mono },
     emptyContainer: { flex: 1, justifyContent: "center" as const, padding: 24 },
     modalTitle: {

@@ -14,18 +14,40 @@ import {
   type Client,
   type ClientContact,
   type ClientSite,
+  type ClientTag,
   type ClientType,
   type JobCard,
   type JobLifecycleStage,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
+import { supabase } from "../../../lib/supabase";
+import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
 import { formatClientAddress } from "../../../lib/format";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { ThemedModal } from "../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunicationLog";
+import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { MembershipStatusCard } from "../../../components/MembershipStatusCard";
+
+interface ClientTagAssignmentRow {
+  id: string;
+  tag_id: string;
+  client_tags: ClientTag;
+}
+
+async function fetchAllTags(): Promise<ClientTag[]> {
+  const { data, error } = await supabase.from("client_tags").select("*").order("name");
+  if (error) throw error;
+  return data as ClientTag[];
+}
+
+async function fetchClientTagAssignments(clientId: string): Promise<ClientTagAssignmentRow[]> {
+  const { data, error } = await supabase.from("client_tag_assignments").select("id, tag_id, client_tags(*)").eq("client_id", clientId);
+  if (error) throw error;
+  return data as unknown as ClientTagAssignmentRow[];
+}
 
 export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,6 +73,35 @@ export default function ClientDetailScreen() {
     "SELECT * FROM client_sites WHERE client_id = ? ORDER BY is_primary DESC, label",
     [id]
   );
+
+  // --- Tags (plain Supabase, not PowerSync - see the client_tags
+  // migration's own comment on why this list stays online-only) ---
+  const { data: allTags } = useSupabaseFetch<ClientTag[]>(fetchAllTags, []);
+  const { data: tagAssignments, refetch: refetchTagAssignments } = useSupabaseFetch<ClientTagAssignmentRow[]>(
+    () => fetchClientTagAssignments(id!),
+    [id]
+  );
+  const [tagPickerVisible, setTagPickerVisible] = useState(false);
+  const assignedTagIds = new Set((tagAssignments ?? []).map((a) => a.tag_id));
+  const unassignedTags = (allTags ?? []).filter((t) => !assignedTagIds.has(t.id));
+
+  const assignTag = async (tagId: string) => {
+    if (!profile || !id) return;
+    const { error } = await supabase.from("client_tag_assignments").insert({ tenant_id: profile.tenant_id, client_id: id, tag_id: tagId });
+    if (!error) {
+      refetchTagAssignments();
+      setTagPickerVisible(false);
+    }
+  };
+
+  const removeTag = async (assignmentId: string) => {
+    const { error } = await supabase.from("client_tag_assignments").delete().eq("id", assignmentId);
+    if (!error) refetchTagAssignments();
+  };
+
+  // --- Marketing opt-out (Spam Act 2003) - read-only here, admin-only
+  // edit happens on desktop's Client Detail page (see that page's own
+  // comment on why this stays its own protected flag, not a tag) ---
 
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState("");
@@ -409,6 +460,27 @@ export default function ClientDetailScreen() {
                 {client.email ? <Text style={styles.clientMeta}>{client.email}</Text> : null}
                 {address ? <Text style={styles.clientMeta}>{address}</Text> : null}
                 {client.notes ? <Text style={styles.clientNotes}>{client.notes}</Text> : null}
+                {client.marketing_opt_out ? <Text style={styles.optedOutBadge}>Opted out of SMS/WhatsApp marketing</Text> : null}
+              </View>
+
+              <View style={styles.subSection}>
+                <View style={styles.subSectionHeader}>
+                  <Text style={styles.sectionTitle}>Tags</Text>
+                  <Pressable onPress={() => setTagPickerVisible(true)}>
+                    <Text style={styles.link}>+ Tag</Text>
+                  </Pressable>
+                </View>
+                {(tagAssignments ?? []).length === 0 ? (
+                  <Text style={styles.emptySmall}>No tags on this client.</Text>
+                ) : (
+                  <View style={styles.tagRow}>
+                    {(tagAssignments ?? []).map((a) => (
+                      <Pressable key={a.id} style={[styles.tagPill, { borderColor: a.client_tags.color ?? styles.tagPill.borderColor }]} onPress={() => removeTag(a.id)}>
+                        <Text style={[styles.tagPillText, a.client_tags.color ? { color: a.client_tags.color } : null]}>{a.client_tags.name} ✕</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
               </View>
 
               <View style={styles.subSection}>
@@ -654,6 +726,16 @@ export default function ClientDetailScreen() {
           </View>
         </View>
       </ThemedModal>
+
+      <ThemedPickerModal
+        visible={tagPickerVisible}
+        title="Add a tag"
+        items={unassignedTags}
+        getKey={(t) => t.id}
+        getLabel={(t) => t.name}
+        onSelect={(t) => assignTag(t.id)}
+        onClose={() => setTagPickerVisible(false)}
+      />
     </>
   );
 }
@@ -689,6 +771,23 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     clientName: { fontSize: font.title, fontWeight: "700" as const, color: tokens.accent, letterSpacing: 1, ...mono },
     clientMeta: { color: tokens.textMuted, fontSize: font.body - 1, ...mono },
     clientNotes: { marginTop: 8, color: tokens.textPrimary, fontSize: font.body - 1, ...mono },
+    optedOutBadge: {
+      marginTop: 8,
+      alignSelf: "flex-start" as const,
+      color: tokens.danger,
+      borderWidth: 1,
+      borderColor: tokens.danger,
+      borderRadius: 3,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      fontSize: font.label,
+      fontWeight: "700" as const,
+      textTransform: "uppercase" as const,
+      ...mono,
+    },
+    tagRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, paddingVertical: 4 },
+    tagPill: { flexDirection: "row" as const, alignItems: "center" as const, borderWidth: 1, borderColor: tokens.border, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+    tagPillText: { color: tokens.textPrimary, fontSize: font.label, fontWeight: "600" as const, ...mono },
     sectionTitle: {
       paddingHorizontal: 16,
       paddingTop: 16,

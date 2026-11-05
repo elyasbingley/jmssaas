@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import type { Client, WhatsappTemplate } from "@jmssaas/shared";
+import type { Client, ClientTag, WhatsappTemplate } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -35,10 +35,27 @@ async function fetchActiveTemplates(): Promise<WhatsappTemplate[]> {
   return data as WhatsappTemplate[];
 }
 
-async function fetchClients(): Promise<Pick<Client, "id" | "name" | "company_name" | "phone">[]> {
-  const { data, error } = await supabase.from("clients").select("id, name, company_name, phone").order("name");
+async function fetchClients(): Promise<Pick<Client, "id" | "name" | "company_name" | "phone" | "marketing_opt_out">[]> {
+  const { data, error } = await supabase.from("clients").select("id, name, company_name, phone, marketing_opt_out").order("name");
   if (error) throw error;
-  return data as Pick<Client, "id" | "name" | "company_name" | "phone">[];
+  return data as Pick<Client, "id" | "name" | "company_name" | "phone" | "marketing_opt_out">[];
+}
+
+async function fetchAllTags(): Promise<ClientTag[]> {
+  const { data, error } = await supabase.from("client_tags").select("*").order("name");
+  if (error) throw error;
+  return data as ClientTag[];
+}
+
+interface ClientTagAssignmentRow {
+  client_id: string;
+  tag_id: string;
+}
+
+async function fetchAllTagAssignments(): Promise<ClientTagAssignmentRow[]> {
+  const { data, error } = await supabase.from("client_tag_assignments").select("client_id, tag_id");
+  if (error) throw error;
+  return data as ClientTagAssignmentRow[];
 }
 
 async function fetchBroadcasts(): Promise<BroadcastRow[]> {
@@ -85,6 +102,8 @@ export default function WhatsappBroadcastPage() {
 
   const { data: templates } = useQuery({ queryKey: ["whatsapp-templates-active"], queryFn: fetchActiveTemplates });
   const { data: clients } = useQuery({ queryKey: ["clients-for-broadcast"], queryFn: fetchClients });
+  const { data: allTags } = useQuery({ queryKey: ["client-tags"], queryFn: fetchAllTags });
+  const { data: tagAssignments } = useQuery({ queryKey: ["client-tag-assignments-all"], queryFn: fetchAllTagAssignments });
   const { data: broadcasts, isLoading: broadcastsLoading } = useQuery({ queryKey: ["whatsapp-broadcasts"], queryFn: fetchBroadcasts });
 
   const [templateId, setTemplateId] = useState("");
@@ -96,14 +115,23 @@ export default function WhatsappBroadcastPage() {
   const [variableFixedValues, setVariableFixedValues] = useState<Record<number, string>>({});
 
   const [clientSearch, setClientSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState<{ sent: number; failed: number } | null>(null);
 
-  const filteredClients = (clients ?? []).filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(clientSearch.trim().toLowerCase()));
-  const selectedClients = (clients ?? []).filter((c) => selectedClientIds.has(c.id));
+  const clientIdsWithTag = new Set((tagAssignments ?? []).filter((a) => a.tag_id === tagFilter).map((a) => a.client_id));
+
+  // Same opt-out exclusion SmsBroadcast.tsx already has - a client who
+  // replied STOP must never be reachable from any broadcast, SMS or
+  // WhatsApp (this page was missing it entirely until now).
+  const eligibleClients = (clients ?? []).filter((c) => !c.marketing_opt_out);
+  const filteredClients = eligibleClients
+    .filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(clientSearch.trim().toLowerCase()))
+    .filter((c) => !tagFilter || clientIdsWithTag.has(c.id));
+  const selectedClients = eligibleClients.filter((c) => selectedClientIds.has(c.id));
   const recipientsWithPhone = selectedClients.filter((c) => !!c.phone);
   const recipientsMissingPhone = selectedClients.filter((c) => !c.phone);
 
@@ -296,14 +324,36 @@ export default function WhatsappBroadcastPage() {
                 Select all shown
               </button>
             </div>
-            <input
-              type="text"
-              placeholder="Search clients..."
-              value={clientSearch}
-              onChange={(e) => setClientSearch(e.target.value)}
-              className="mb-2 w-full rounded border px-3 py-2 focus:outline-none"
-              style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
-            />
+            <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              {(clients ?? []).length - eligibleClients.length > 0
+                ? `${(clients ?? []).length - eligibleClients.length} client${(clients ?? []).length - eligibleClients.length === 1 ? "" : "s"} opted out of marketing texts - not shown here.`
+                : ""}
+            </p>
+            <div className="mb-2 flex gap-2">
+              <input
+                type="text"
+                placeholder="Search clients..."
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                className="w-full rounded border px-3 py-2 focus:outline-none"
+                style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+              />
+              {allTags && allTags.length > 0 ? (
+                <select
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className="rounded border px-3 py-2 focus:outline-none"
+                  style={{ backgroundColor: "var(--jms-bg)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+                >
+                  <option value="">All tags</option>
+                  {allTags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
             <div className="max-h-64 overflow-y-auto rounded border" style={{ borderColor: "var(--jms-border)" }}>
               {filteredClients.slice(0, 200).map((c) => (
                 <label key={c.id} className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid var(--jms-border)" }}>

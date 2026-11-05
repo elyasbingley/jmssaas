@@ -9958,3 +9958,76 @@ cd apps\mobile
 npx eas-cli update --channel preview --platform android
 npx eas-cli update --channel preview --platform ios
 ```
+
+## 79. Client Tags, plus a WhatsApp opt-out gap
+
+Two related client-list features/fixes, from wanting a visible way to
+track "opted out of marketing" clients and a general ask for
+customisable client tags.
+
+### Client Tags (new)
+
+Admin-managed, freeform labels a client can carry (`client_tags` +
+`client_tag_assignments` - tenant-wide read, admin-only tag *definition*
+writes, any signed-in user can apply/remove an *existing* tag on a
+client, same "lower stakes than defining the list" shape client_contacts
+already uses). Online-only, not PowerSync-synced - same reasoning as
+notifications/push_tokens and the SMS/WhatsApp template tables.
+
+- **Settings > Client Tags** (new page/tile) - create/edit/delete tags
+  (name + optional hex colour), same shape as Job Setup's Service
+  Categories.
+- **Client Detail** (desktop + mobile) - a Tags section: pills for
+  assigned tags (tap/click the ✕ to remove), "+ Tag" opens a picker of
+  every tag not yet applied. Mobile can apply/remove existing tags but
+  not create new ones - that stays desktop/Settings only.
+- **Clients list** (desktop) - tag pills per row, plus a tag filter
+  dropdown next to the search box.
+- **SMS/WhatsApp Broadcast** (desktop) - a tag filter next to the
+  recipient search, so "text everyone tagged X" is a couple of clicks.
+
+Deliberately **not** how `clients.marketing_opt_out` (the Spam Act 2003
+flag) is modelled - a tag is freely rename/delete-able, which would make
+it a fragile place to hang an actual compliance guarantee. That flag
+stays its own thing; see below.
+
+### Opted-out visibility + a real WhatsApp bug fix
+
+`clients.marketing_opt_out` already existed and already excluded someone
+from SMS broadcasts (set automatically by `twilio-sms-webhook` on an
+inbound STOP/UNSUBSCRIBE/etc. reply) - it just wasn't visible anywhere in
+the UI, which is what prompted this whole pass.
+
+- **Visible everywhere now**: a red "Opted out of SMS/WhatsApp
+  marketing" badge on Client Detail (desktop + mobile, read widely) and
+  a small "Opted out" tag on the Clients list (both platforms). Desktop's
+  Client Detail also gets an admin-only manual toggle, for a client who
+  opts out by phone/email instead of texting STOP.
+- **Real bug found while wiring this up: WhatsApp Broadcast (desktop
+  `WhatsappBroadcast.tsx` and mobile `channels/broadcast.tsx`) never
+  checked `marketing_opt_out` at all** - a client who'd replied STOP to
+  an SMS broadcast could still be WhatsApp-broadcast to. Both now exclude
+  opted-out clients exactly like SMS Broadcast already did, with the same
+  "N clients opted out - not shown here" note.
+- **`twilio-whatsapp-webhook` never set the opt-out flag in the first
+  place** - only the SMS webhook watched for STOP/UNSUBSCRIBE/etc.
+  replies. Added the identical keyword check there too, so a WhatsApp
+  "STOP" reply now suppresses future broadcasts the same way an SMS one
+  already does.
+- Added `marketing_opt_out` to the PowerSync schema's local `clients`
+  table (read-only from mobile - editing stays desktop-only) - it was
+  never synced down before, so mobile had no way to even display it.
+  `select *` in sync-rules.yaml already covers it; no dashboard redeploy
+  needed.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy twilio-whatsapp-webhook --no-verify-jwt
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+npx eas-cli update --channel preview --platform ios
+```

@@ -182,6 +182,26 @@ export interface Client {
   updated_at: string;
 }
 
+// Admin-managed, freeform labels a client can carry ("Landlord",
+// "VIP", "Roof only"...) - distinct from clients.marketing_opt_out
+// above, which is its own protected flag, not a tag (see the
+// client_tags migration's own comment on why that's deliberate).
+export interface ClientTag {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color: string | null;
+  created_at: string;
+}
+
+export interface ClientTagAssignment {
+  id: string;
+  tenant_id: string;
+  client_id: string;
+  tag_id: string;
+  created_at: string;
+}
+
 // One row per completed CSV import (e.g. a ServiceM8 client export) - see
 // the Clients page's Import from CSV flow and the client_csv_import
 // migration's own comment.

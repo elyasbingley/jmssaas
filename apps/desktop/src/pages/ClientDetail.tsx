@@ -10,6 +10,7 @@ import {
   type Client,
   type ClientContact,
   type ClientSite,
+  type ClientTag,
   type JobCard,
   type JobLifecycleStage,
 } from "@jmssaas/shared";
@@ -88,10 +89,31 @@ function formatSiteAddress(site: Pick<ClientSite, "address_line1" | "address_lin
     .join(", ");
 }
 
+async function fetchAllTags(): Promise<ClientTag[]> {
+  const { data, error } = await supabase.from("client_tags").select("*").order("name");
+  if (error) throw error;
+  return data as ClientTag[];
+}
+
+interface ClientTagAssignmentRow {
+  id: string;
+  tag_id: string;
+  client_tags: ClientTag;
+}
+
+async function fetchClientTagAssignments(clientId: string): Promise<ClientTagAssignmentRow[]> {
+  const { data, error } = await supabase
+    .from("client_tag_assignments")
+    .select("id, tag_id, client_tags(*)")
+    .eq("client_id", clientId);
+  if (error) throw error;
+  return data as unknown as ClientTagAssignmentRow[];
+}
+
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: client } = useQuery({
@@ -109,6 +131,53 @@ export default function ClientDetailPage() {
   const { data: contacts } = useQuery({ queryKey: ["client-contacts", id], queryFn: () => fetchClientContacts(id!), enabled: !!id });
   const { data: sites } = useQuery({ queryKey: ["client-sites", id], queryFn: () => fetchClientSites(id!), enabled: !!id });
   const { data: isActiveMember } = useQuery({ queryKey: ["client-is-active-member", id], queryFn: () => fetchIsActiveMember(id!), enabled: !!id });
+  const { data: allTags } = useQuery({ queryKey: ["client-tags"], queryFn: fetchAllTags });
+  const { data: tagAssignments } = useQuery({
+    queryKey: ["client-tag-assignments", id],
+    queryFn: () => fetchClientTagAssignments(id!),
+    enabled: !!id,
+  });
+
+  // --- Tags ---
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const assignedTagIds = new Set((tagAssignments ?? []).map((a) => a.tag_id));
+  const unassignedTags = (allTags ?? []).filter((t) => !assignedTagIds.has(t.id));
+
+  const assignTag = useMutation({
+    mutationFn: async (tagId: string) => {
+      if (!profile || !id) return;
+      const { error } = await supabase.from("client_tag_assignments").insert({ tenant_id: profile.tenant_id, client_id: id, tag_id: tagId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-tag-assignments", id] });
+      setTagPickerOpen(false);
+    },
+  });
+
+  const removeTag = useMutation({
+    mutationFn: async (assignmentId: string) => {
+      const { error } = await supabase.from("client_tag_assignments").delete().eq("id", assignmentId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-tag-assignments", id] }),
+  });
+
+  // --- Marketing opt-out (Spam Act 2003) ---
+  // Not a tag - see the client_tags migration's own comment on why this
+  // stays its own protected flag. Admin-only to flip, same as every other
+  // sensitive client-level toggle on this page.
+  const toggleOptOut = useMutation({
+    mutationFn: async (nextValue: boolean) => {
+      if (!id) return;
+      const { error } = await supabase.from("clients").update({ marketing_opt_out: nextValue }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client", id] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
 
   // Manual tick - no public API to detect an actual Google review being
   // left, so this is purely office-driven (see the Google Reviews module's
@@ -478,6 +547,86 @@ export default function ClientDetailPage() {
                 Mark as left a Google review
               </button>
             )}
+          </div>
+
+          {client.marketing_opt_out ? (
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                className="rounded px-2 py-1 font-semibold uppercase tracking-wide"
+                style={{ border: "1px solid var(--jms-danger)", color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+              >
+                Opted out of SMS/WhatsApp marketing
+              </span>
+              {isAdmin ? (
+                <button
+                  onClick={() => toggleOptOut.mutate(false)}
+                  className="font-semibold hover:underline"
+                  style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                >
+                  Undo
+                </button>
+              ) : null}
+            </div>
+          ) : isAdmin ? (
+            <button
+              onClick={() => {
+                if (window.confirm("Mark this client as opted out of SMS/WhatsApp marketing? They'll be excluded from every future broadcast.")) {
+                  toggleOptOut.mutate(true);
+                }
+              }}
+              className="mt-3 font-semibold hover:underline"
+              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
+              Mark as opted out of marketing
+            </button>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {(tagAssignments ?? []).map((a) => (
+              <span
+                key={a.id}
+                className="flex items-center gap-1 rounded-full px-2 py-1 font-semibold"
+                style={{ border: `1px solid ${a.client_tags.color ?? "var(--jms-border)"}`, color: a.client_tags.color ?? "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+              >
+                {a.client_tags.name}
+                <button onClick={() => removeTag.mutate(a.id)} aria-label={`Remove ${a.client_tags.name} tag`} style={{ color: "var(--jms-text-muted)" }}>
+                  &times;
+                </button>
+              </span>
+            ))}
+            <div className="relative">
+              <button
+                onClick={() => setTagPickerOpen((v) => !v)}
+                className="rounded-full border px-2 py-1 font-semibold hover:underline"
+                style={{ borderColor: "var(--jms-border)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+              >
+                + Tag
+              </button>
+              {tagPickerOpen ? (
+                <div
+                  className="absolute left-0 top-full z-10 mt-1 w-48 overflow-hidden rounded"
+                  style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+                >
+                  {unassignedTags.length === 0 ? (
+                    <p className="px-3 py-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                      {(allTags ?? []).length === 0 ? "No tags yet - create one in Settings." : "All tags already applied."}
+                    </p>
+                  ) : (
+                    unassignedTags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        onClick={() => assignTag.mutate(tag.id)}
+                        className="jms-nav-link flex w-full items-center gap-2 px-3 py-2 text-left"
+                        style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}
+                      >
+                        <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: tag.color ?? "var(--jms-border)" }} />
+                        {tag.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
         <button onClick={openEdit} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>

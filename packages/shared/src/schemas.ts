@@ -69,6 +69,12 @@ export const createClientSiteSchema = z.object({
 });
 export type CreateClientSiteInput = z.infer<typeof createClientSiteSchema>;
 
+export const createClientTagSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  color: z.string().optional(),
+});
+export type CreateClientTagInput = z.infer<typeof createClientTagSchema>;
+
 export const jobStatusSchema = z.enum(["new", "scheduled", "in_progress", "completed", "invoiced"]);
 
 export const createJobCardSchema = z.object({

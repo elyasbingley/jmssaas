@@ -43,6 +43,13 @@ const clients = new Table(
     // joinClientName so an offline edit shows the right name immediately.
     first_name: column.text,
     last_name: column.text,
+    // Read-only from mobile (set server-side by twilio-sms-webhook/
+    // twilio-whatsapp-webhook on an inbound STOP, or edited from desktop's
+    // Client Detail page) - synced here just so the opted-out badge can
+    // show on a client's card without a separate online fetch. select *
+    // in sync-rules.yaml already covers this column, no dashboard redeploy
+    // needed for it to start flowing through.
+    marketing_opt_out: column.integer,
   },
   { indexes: { tenant: ["tenant_id"] } }
 );

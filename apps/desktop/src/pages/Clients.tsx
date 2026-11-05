@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { createClientSchema, joinClientName, type Client } from "@jmssaas/shared";
+import { createClientSchema, joinClientName, type Client, type ClientTag } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -13,6 +13,26 @@ async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
   if (error) throw error;
   return data as Client[];
+}
+
+async function fetchAllTags(): Promise<ClientTag[]> {
+  const { data, error } = await supabase.from("client_tags").select("*").order("name");
+  if (error) throw error;
+  return data as ClientTag[];
+}
+
+interface ClientTagAssignmentRow {
+  client_id: string;
+  client_tags: ClientTag;
+}
+
+// Every assignment, tenant-wide - cheap (one small join, no per-row
+// query) and lets both the row pills and the filter dropdown share the
+// same fetch.
+async function fetchAllTagAssignments(): Promise<ClientTagAssignmentRow[]> {
+  const { data, error } = await supabase.from("client_tag_assignments").select("client_id, client_tags(*)");
+  if (error) throw error;
+  return data as unknown as ClientTagAssignmentRow[];
 }
 
 const emptyForm = {
@@ -34,12 +54,22 @@ export default function ClientsPage() {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
   const { data: clients, isLoading } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
+  const { data: allTags } = useQuery({ queryKey: ["client-tags"], queryFn: fetchAllTags });
+  const { data: tagAssignments } = useQuery({ queryKey: ["client-tag-assignments-all"], queryFn: fetchAllTagAssignments });
 
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string>("");
+
+  const tagsByClientId = new Map<string, ClientTag[]>();
+  for (const a of tagAssignments ?? []) {
+    const existing = tagsByClientId.get(a.client_id) ?? [];
+    existing.push(a.client_tags);
+    tagsByClientId.set(a.client_id, existing);
+  }
 
   const possibleDuplicates = (clients ?? []).filter((c) => c.possible_duplicate_of_client_id);
   const clientById = new Map((clients ?? []).map((c) => [c.id, c]));
@@ -88,7 +118,8 @@ export default function ClientsPage() {
 
   const filteredClients = (clients ?? [])
     .filter((c) => `${c.company_name ?? ""} ${c.name}`.toLowerCase().includes(search.toLowerCase()))
-    .filter((c) => !reviewOnly || c.possible_duplicate_of_client_id);
+    .filter((c) => !reviewOnly || c.possible_duplicate_of_client_id)
+    .filter((c) => !tagFilter || (tagsByClientId.get(c.id) ?? []).some((t) => t.id === tagFilter));
 
   return (
     <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
@@ -128,14 +159,31 @@ export default function ClientsPage() {
         </div>
       ) : null}
 
-      <input
-        type="text"
-        placeholder="Search clients..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full max-w-sm rounded border px-3 py-2 focus:outline-none"
-        style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
-      />
+      <div className="mb-4 flex gap-3">
+        <input
+          type="text"
+          placeholder="Search clients..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full max-w-sm rounded border px-3 py-2 focus:outline-none"
+          style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+        />
+        {allTags && allTags.length > 0 ? (
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className="rounded border px-3 py-2 focus:outline-none"
+            style={{ backgroundColor: "var(--jms-surface)", borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+          >
+            <option value="">All tags</option>
+            {allTags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
 
       <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
         {isLoading ? (
@@ -162,6 +210,7 @@ export default function ClientsPage() {
             <tbody>
               {filteredClients.map((client) => {
                 const duplicateOf = client.possible_duplicate_of_client_id ? clientById.get(client.possible_duplicate_of_client_id) : null;
+                const tags = tagsByClientId.get(client.id) ?? [];
                 return (
                   <tr key={client.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                     <td className="px-4 py-3">
@@ -175,6 +224,27 @@ export default function ClientsPage() {
                         <p style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
                           ⚠ possible duplicate of {duplicateOf?.name ?? "another client"}
                         </p>
+                      ) : null}
+                      {client.marketing_opt_out || tags.length > 0 ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {client.marketing_opt_out ? (
+                            <span
+                              className="rounded px-1.5 py-0.5 font-semibold uppercase"
+                              style={{ border: "1px solid var(--jms-danger)", color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                            >
+                              Opted out
+                            </span>
+                          ) : null}
+                          {tags.map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="rounded-full px-1.5 py-0.5 font-semibold"
+                              style={{ border: `1px solid ${tag.color ?? "var(--jms-border)"}`, color: tag.color ?? "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+                            >
+                              {tag.name}
+                            </span>
+                          ))}
+                        </div>
                       ) : null}
                     </td>
                     <td className="px-4 py-3" style={{ color: "var(--jms-text-muted)" }}>
