@@ -236,6 +236,35 @@ function DirectoryTab() {
     onError: (e) => setAgencyError(getErrorMessage(e, agencyEditId ? "Failed to save agency" : "Failed to create agency")),
   });
 
+  // Cascades to this agency's own property_managers/properties (see the
+  // real_estate_strata migration's FK definitions) - jobs/invoices already
+  // linked to it keep their history, just lose the agency reference
+  // (agency_id ->  on delete set null), so nothing billing-related
+  // disappears.
+  const deleteAgency = useMutation({
+    mutationFn: async (agency: Agency) => {
+      const { error } = await supabase.from("agencies").delete().eq("id", agency.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agencies"] });
+      queryClient.invalidateQueries({ queryKey: ["property-managers"] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+    },
+  });
+
+  const handleDeleteAgency = (agency: Agency) => {
+    const pmCount = pmsByAgency(agency.id).length;
+    const propertyCount = (properties ?? []).filter((p) => p.agency_id === agency.id).length;
+    const warning =
+      pmCount > 0 || propertyCount > 0
+        ? ` This also removes its ${pmCount} property manager${pmCount === 1 ? "" : "s"} and ${propertyCount} managed propert${propertyCount === 1 ? "y" : "ies"}.`
+        : "";
+    if (window.confirm(`Delete "${agency.name}"?${warning} Jobs/invoices already linked to it keep their history.`)) {
+      deleteAgency.mutate(agency);
+    }
+  };
+
   // --- Add / Edit Property Manager ---
   const [pmModalOpen, setPmModalOpen] = useState(false);
   const [pmEditId, setPmEditId] = useState<string | null>(null);
@@ -439,6 +468,14 @@ function DirectoryTab() {
                       style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
                     >
                       Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAgency(agency)}
+                      disabled={deleteAgency.isPending}
+                      className="font-semibold hover:underline"
+                      style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

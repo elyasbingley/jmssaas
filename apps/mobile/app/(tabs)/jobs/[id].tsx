@@ -183,21 +183,26 @@ export default function JobDetailScreen() {
     }
     if (!profile) return;
 
-    await powersync.execute(
-      `INSERT INTO client_contacts (id, tenant_id, client_id, name, role, email, phone, is_primary, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuidv4(),
-        profile.tenant_id,
-        result.data.client_id,
-        result.data.name,
-        result.data.role || null,
-        result.data.email || null,
-        result.data.phone || null,
-        0,
-        new Date().toISOString(),
-      ]
-    );
+    try {
+      await powersync.execute(
+        `INSERT INTO client_contacts (id, tenant_id, client_id, name, role, email, phone, is_primary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuidv4(),
+          profile.tenant_id,
+          result.data.client_id,
+          result.data.name,
+          result.data.role || null,
+          result.data.email || null,
+          result.data.phone || null,
+          0,
+          new Date().toISOString(),
+        ]
+      );
+    } catch (e) {
+      setContactError(getErrorMessage(e, "Failed to add contact"));
+      return;
+    }
     setContactName("");
     setContactRole("");
     setContactPhone("");
@@ -206,7 +211,11 @@ export default function JobDetailScreen() {
   };
 
   const handleRemoveContact = async (contactId: string) => {
-    await powersync.execute("DELETE FROM client_contacts WHERE id = ?", [contactId]);
+    try {
+      await powersync.execute("DELETE FROM client_contacts WHERE id = ?", [contactId]);
+    } catch (e) {
+      setContactError(getErrorMessage(e, "Failed to remove contact"));
+    }
   };
 
   // Calendar events are also online-only (docs/SETUP.md); job_card_id has
@@ -1107,11 +1116,16 @@ export default function JobDetailScreen() {
     if (!profile) return;
 
     const now = new Date().toISOString();
-    await powersync.execute(
-      `INSERT INTO tasks (id, tenant_id, job_card_id, title, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'todo', ?, ?, ?)`,
-      [uuidv4(), profile.tenant_id, id, result.data.title, profile.id, now, now]
-    );
+    try {
+      await powersync.execute(
+        `INSERT INTO tasks (id, tenant_id, job_card_id, title, status, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'todo', ?, ?, ?)`,
+        [uuidv4(), profile.tenant_id, id, result.data.title, profile.id, now, now]
+      );
+    } catch (e) {
+      setTaskError(getErrorMessage(e, "Failed to add task"));
+      return;
+    }
     setTaskTitle("");
     setTaskError(null);
   };

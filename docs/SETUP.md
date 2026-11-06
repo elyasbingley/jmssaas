@@ -10031,3 +10031,43 @@ cd apps\mobile
 npx eas-cli update --channel preview --platform android
 npx eas-cli update --channel preview --platform ios
 ```
+
+## 80. Delete agencies, and silent failures on the mobile Client Card
+
+Two small fixes:
+
+- **Delete a Real Estate/Strata agency** (desktop Real Estate & Strata >
+  Directory) - the `agencies` table already had an admin-only delete RLS
+  policy from day one (and FK cascades: deleting an agency already
+  cascade-deletes its own property managers/properties, and sets any
+  linked job's `agency_id` to null without touching the job itself) - the
+  UI just never exposed a Delete button. Added one next to Edit, with a
+  confirm that spells out exactly what else goes with it (PM/property
+  counts) since those do cascade.
+- **Mobile Client Card: every local write (new job, edit client, add/
+  edit/delete a contact, add/edit/delete an address) had no error
+  handling at all** - every `powersync.execute` call was a bare
+  `await` with nothing catching a rejection. If any of them ever threw
+  (a constraint violation, a schema mismatch, anything), the promise
+  just rejected silently - no error shown, the modal didn't close, and
+  from the user's side it looked exactly like "I tried to make a job and
+  it just didn't happen, no explanation." This was reported for job
+  creation specifically, but the identical gap existed on every write
+  path in this file, so all of them now wrap their `powersync.execute`
+  call in try/catch and surface the real error through that section's
+  existing error text (same one validation errors already use). Carried
+  the same fix to the Job Card screen's own inline "Add contact"/"Add
+  task" handlers, since they're the other half of the original "contacts
+  disappearing" report and had the exact same gap.
+
+No schema or server-side changes for either fix.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+npx eas-cli update --channel preview --platform ios
+```

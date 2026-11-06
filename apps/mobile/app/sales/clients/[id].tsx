@@ -22,6 +22,7 @@ import {
 import { useAuth } from "../../../lib/auth-context";
 import { supabase } from "../../../lib/supabase";
 import { useSupabaseFetch } from "../../../lib/use-supabase-fetch";
+import { getErrorMessage } from "../../../lib/errors";
 import { formatClientAddress } from "../../../lib/format";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
 import { ThemedModal } from "../../../components/theme/ThemedModal";
@@ -118,11 +119,16 @@ export default function ClientDetailScreen() {
 
     const jobId = uuidv4();
     const now = new Date().toISOString();
-    await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [jobId, profile.tenant_id, id, result.data.title, result.data.description || null, profile.id, now, now]
-    );
+    try {
+      await powersync.execute(
+        `INSERT INTO job_cards (id, tenant_id, client_id, title, description, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [jobId, profile.tenant_id, id, result.data.title, result.data.description || null, profile.id, now, now]
+      );
+    } catch (e) {
+      setFormError(getErrorMessage(e, "Failed to create job"));
+      return;
+    }
 
     setTitle("");
     setDescription("");
@@ -185,29 +191,34 @@ export default function ClientDetailScreen() {
       return;
     }
 
-    await powersync.execute(
-      `UPDATE clients
-          SET client_type = ?, company_name = ?, first_name = ?, last_name = ?, name = ?, phone = ?, email = ?, address_line1 = ?, address_line2 = ?,
-              suburb = ?, state = ?, postcode = ?, notes = ?, updated_at = ?
-        WHERE id = ?`,
-      [
-        result.data.client_type,
-        result.data.company_name || null,
-        result.data.first_name,
-        result.data.last_name || null,
-        joinClientName(result.data.first_name, result.data.last_name),
-        result.data.phone || null,
-        result.data.email || null,
-        result.data.address_line1 || null,
-        result.data.address_line2 || null,
-        result.data.suburb || null,
-        result.data.state || null,
-        result.data.postcode || null,
-        result.data.notes || null,
-        new Date().toISOString(),
-        id,
-      ]
-    );
+    try {
+      await powersync.execute(
+        `UPDATE clients
+            SET client_type = ?, company_name = ?, first_name = ?, last_name = ?, name = ?, phone = ?, email = ?, address_line1 = ?, address_line2 = ?,
+                suburb = ?, state = ?, postcode = ?, notes = ?, updated_at = ?
+          WHERE id = ?`,
+        [
+          result.data.client_type,
+          result.data.company_name || null,
+          result.data.first_name,
+          result.data.last_name || null,
+          joinClientName(result.data.first_name, result.data.last_name),
+          result.data.phone || null,
+          result.data.email || null,
+          result.data.address_line1 || null,
+          result.data.address_line2 || null,
+          result.data.suburb || null,
+          result.data.state || null,
+          result.data.postcode || null,
+          result.data.notes || null,
+          new Date().toISOString(),
+          id,
+        ]
+      );
+    } catch (e) {
+      setEditError(getErrorMessage(e, "Failed to save client"));
+      return;
+    }
 
     setEditModalVisible(false);
   };
@@ -259,34 +270,44 @@ export default function ClientDetailScreen() {
     }
     if (!profile) return;
 
-    if (editingContact) {
-      await powersync.execute(
-        "UPDATE client_contacts SET name = ?, role = ?, email = ?, phone = ?, is_primary = ? WHERE id = ?",
-        [result.data.name, result.data.role || null, result.data.email || null, result.data.phone || null, result.data.is_primary ? 1 : 0, editingContact.id]
-      );
-    } else {
-      await powersync.execute(
-        `INSERT INTO client_contacts (id, tenant_id, client_id, name, role, email, phone, is_primary, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          uuidv4(),
-          profile.tenant_id,
-          result.data.client_id,
-          result.data.name,
-          result.data.role || null,
-          result.data.email || null,
-          result.data.phone || null,
-          result.data.is_primary ? 1 : 0,
-          new Date().toISOString(),
-        ]
-      );
+    try {
+      if (editingContact) {
+        await powersync.execute(
+          "UPDATE client_contacts SET name = ?, role = ?, email = ?, phone = ?, is_primary = ? WHERE id = ?",
+          [result.data.name, result.data.role || null, result.data.email || null, result.data.phone || null, result.data.is_primary ? 1 : 0, editingContact.id]
+        );
+      } else {
+        await powersync.execute(
+          `INSERT INTO client_contacts (id, tenant_id, client_id, name, role, email, phone, is_primary, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuidv4(),
+            profile.tenant_id,
+            result.data.client_id,
+            result.data.name,
+            result.data.role || null,
+            result.data.email || null,
+            result.data.phone || null,
+            result.data.is_primary ? 1 : 0,
+            new Date().toISOString(),
+          ]
+        );
+      }
+    } catch (e) {
+      setContactError(getErrorMessage(e, "Failed to save contact"));
+      return;
     }
     setContactModalVisible(false);
   };
 
   const handleDeleteContact = async () => {
     if (!editingContact) return;
-    await powersync.execute("DELETE FROM client_contacts WHERE id = ?", [editingContact.id]);
+    try {
+      await powersync.execute("DELETE FROM client_contacts WHERE id = ?", [editingContact.id]);
+    } catch (e) {
+      setContactError(getErrorMessage(e, "Failed to delete contact"));
+      return;
+    }
     setContactModalVisible(false);
   };
 
@@ -349,48 +370,58 @@ export default function ClientDetailScreen() {
     }
     if (!profile) return;
 
-    if (editingSite) {
-      await powersync.execute(
-        `UPDATE client_sites SET label = ?, address_line1 = ?, address_line2 = ?, suburb = ?, state = ?,
-           postcode = ?, is_primary = ?, notes = ? WHERE id = ?`,
-        [
-          result.data.label || null,
-          result.data.address_line1,
-          result.data.address_line2 || null,
-          result.data.suburb,
-          result.data.state,
-          result.data.postcode,
-          result.data.is_primary ? 1 : 0,
-          result.data.notes || null,
-          editingSite.id,
-        ]
-      );
-    } else {
-      await powersync.execute(
-        `INSERT INTO client_sites (id, tenant_id, client_id, label, address_line1, address_line2, suburb, state, postcode, is_primary, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          uuidv4(),
-          profile.tenant_id,
-          result.data.client_id,
-          result.data.label || null,
-          result.data.address_line1,
-          result.data.address_line2 || null,
-          result.data.suburb,
-          result.data.state,
-          result.data.postcode,
-          result.data.is_primary ? 1 : 0,
-          result.data.notes || null,
-          new Date().toISOString(),
-        ]
-      );
+    try {
+      if (editingSite) {
+        await powersync.execute(
+          `UPDATE client_sites SET label = ?, address_line1 = ?, address_line2 = ?, suburb = ?, state = ?,
+             postcode = ?, is_primary = ?, notes = ? WHERE id = ?`,
+          [
+            result.data.label || null,
+            result.data.address_line1,
+            result.data.address_line2 || null,
+            result.data.suburb,
+            result.data.state,
+            result.data.postcode,
+            result.data.is_primary ? 1 : 0,
+            result.data.notes || null,
+            editingSite.id,
+          ]
+        );
+      } else {
+        await powersync.execute(
+          `INSERT INTO client_sites (id, tenant_id, client_id, label, address_line1, address_line2, suburb, state, postcode, is_primary, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuidv4(),
+            profile.tenant_id,
+            result.data.client_id,
+            result.data.label || null,
+            result.data.address_line1,
+            result.data.address_line2 || null,
+            result.data.suburb,
+            result.data.state,
+            result.data.postcode,
+            result.data.is_primary ? 1 : 0,
+            result.data.notes || null,
+            new Date().toISOString(),
+          ]
+        );
+      }
+    } catch (e) {
+      setSiteError(getErrorMessage(e, "Failed to save address"));
+      return;
     }
     setSiteModalVisible(false);
   };
 
   const handleDeleteSite = async () => {
     if (!editingSite) return;
-    await powersync.execute("DELETE FROM client_sites WHERE id = ?", [editingSite.id]);
+    try {
+      await powersync.execute("DELETE FROM client_sites WHERE id = ?", [editingSite.id]);
+    } catch (e) {
+      setSiteError(getErrorMessage(e, "Failed to delete address"));
+      return;
+    }
     setSiteModalVisible(false);
   };
 
