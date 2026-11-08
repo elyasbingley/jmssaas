@@ -10121,3 +10121,99 @@ cd apps\mobile
 npx eas-cli update --channel preview --platform android
 npx eas-cli update --channel preview --platform ios
 ```
+
+## 82. Quote/invoice PDF redesign: orphaned totals, illegible logo, browser print-dialog header/footer, charcoal + yellow branding
+
+Reported: a 3-5 item quote's grand total would land alone on page 2 after
+everything else fit on page 1; the logo read as illegible garbled text at
+its tiny render size; exported quote PDFs carried a stray line of text at
+the very top and bottom of the page; and the generic grey/green look
+didn't match the business's yellow branding or build buyer confidence.
+
+Root causes, one per symptom:
+
+- **Orphaned total.** `quote-invoice-pdf-bytes.ts`'s pagination
+  (`Cursor.ensureSpace`) only ever checked whether the *next* chunk being
+  drawn would fit - the totals, the signature block, and (new in this
+  redesign) the trust badges were each `ensureSpace`-d independently. A
+  table that filled most of page 1 could leave just enough room for the
+  totals' first `ensureSpace` check to pass, then run out of room
+  mid-block.
+- **Illegible logo.** Not a corrupted string anywhere in the code - the
+  uploaded logo graphic has its own wordmark baked into the image
+  pixels, and at the 40mm x 20mm (desktop) / 220px x 90px (old HTML path)
+  render size that wordmark blurs into something misreadable. The
+  tenant's name/ABN/license/email were always rendered separately as
+  live text nearby and were always correct.
+- **Browser print-dialog header/footer.** The "Export PDF" button opened
+  the quote's HTML in a new tab and called `window.print()`
+  (`print.ts`'s `exportPdf`) - Chrome's own "Headers and footers" print
+  setting stamps the document title/URL and page number/date onto the
+  output, and that's a browser preference, not something a page's own
+  CSS/JS can suppress.
+
+Fixes, in `apps/desktop/src/lib/quote-invoice-pdf-bytes.ts` (now the
+canonical PDF path for both the "Export PDF" button and the emailed
+attachment - see below) and `apps/mobile/lib/pdf.ts`:
+
+- The totals card, trust badges, and signature/approval block are now
+  measured up front and covered by a **single** `ensureSpace` call before
+  any of them are drawn, so they either all fit together on the current
+  page or all move to the next one - never split.
+- The logo is now sized and treated purely as a mark/icon (not relied on
+  for legibility); the tenant's name/ABN/license/email remain the
+  legible, separately-rendered text they always were.
+- `QuoteDetail.tsx`/`InvoiceDetail.tsx`'s "Export PDF" buttons now
+  download the jsPDF-generated `Blob` directly (`downloadBlob` in
+  `quote-invoice-pdf-bytes.ts`) instead of opening a print dialog - no
+  print dialog means no browser-stamped header/footer, ever. The old
+  browser-print-dialog HTML path (`quote-invoice-pdf.ts`) is deleted; it
+  had no other callers.
+- New charcoal + yellow look for quotes (invoices keep their existing
+  green accent): charcoal for structure (header rule, table header,
+  totals card border, body text) signals trust/competence on a document
+  asking someone to pay; yellow is used *only* as a sparing accent (the
+  grand total row, the trust badges) rather than a broad fill, which
+  would read as caution-tape rather than premium.
+- Bill To now splits into two columns when the quote/invoice has a site
+  set: Bill To (company clients show `company_name` with an "Attn:
+  {contact name}" line, using the existing `company_name`/`name` split -
+  no schema change) alongside Site/Property Address (the job's own
+  address, from `client_sites`) - previously the site silently replaced
+  the bill-to address instead of sitting next to it.
+- A tinted "Job Summary" box now shows the quote's own `notes` field
+  prominently right after Bill To (reusing the existing field, not a new
+  column) - quotes no longer also repeat it as a plain "Notes" section
+  further down.
+- Line items table: dropped the leading `#` column, column widths are now
+  60% / 10% / 15% / 15% (Item & Description / Qty / Rate / Amount), and
+  each item's description renders its first line as a bold title with
+  the rest as normal body text below it (still just the one
+  `description` field - split on the first newline, which is how these
+  are actually entered).
+- A three-badge trust banner ("Licensed & Insured" using the tenant's own
+  `license_number`, "Photo Report Included", "Quality Guarantee") sits
+  above the totals on quotes. The license badge deliberately doesn't
+  state a specific insured dollar figure, since that's not a persisted
+  tenant field and hardcoding one would silently go stale if it changed.
+- A quote with no captured signature yet now ends with a clear "Approve
+  This Quote" instruction + blank signature/date lines instead of
+  silently rendering nothing where a signature would otherwise go; an
+  already-accepted quote still shows the captured signature as before.
+- Increased the gap between the table header bar / each row's separator
+  line and the next item's bold title (desktop: 3mm -> 5.5mm after the
+  separator line, 6mm -> 9mm after the header bar) - the previous gap put
+  a bold title's glyphs almost touching the line above it.
+
+No schema or server-side changes - this is a client-rendering redesign
+only, on both desktop and mobile.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+npx eas-cli update --channel preview --platform ios
+```

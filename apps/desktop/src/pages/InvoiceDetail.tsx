@@ -24,9 +24,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
 import { startChannelConversation } from "../lib/channels";
-import { buildInvoicePdfHtml } from "../lib/quote-invoice-pdf";
-import { blobToDataUrl, buildInvoicePdfBytes } from "../lib/quote-invoice-pdf-bytes";
-import { exportPdf } from "../lib/print";
+import { blobToDataUrl, buildInvoicePdfBytes, downloadBlob } from "../lib/quote-invoice-pdf-bytes";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
@@ -634,7 +632,11 @@ export default function InvoiceDetailPage() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const handleExportPdf = () => {
+  // Downloads the jsPDF-generated Blob directly rather than opening the
+  // browser's print dialog - that dialog stamps its own "Headers and
+  // footers" (title/URL, page number/date) onto the output with no way to
+  // suppress it from the page itself.
+  const handleExportPdf = async () => {
     if (!data || !tenant || !data.invoice.clients) return;
     if (agencyComplianceError) {
       setExportError(agencyComplianceError);
@@ -653,8 +655,8 @@ export default function InvoiceDetailPage() {
               ownerLandlordEmail: property?.owner_landlord_email ?? null,
             }
           : undefined;
-      const html = buildInvoicePdfHtml({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
-      exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
+      const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
+      downloadBlob(pdfBlob, `Invoice ${data.invoice.invoice_number}.pdf`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
     } finally {

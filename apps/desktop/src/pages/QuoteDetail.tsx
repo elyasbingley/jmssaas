@@ -25,9 +25,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
 import { startChannelConversation } from "../lib/channels";
-import { buildQuotePdfHtml } from "../lib/quote-invoice-pdf";
-import { blobToDataUrl, buildQuotePdfBytes } from "../lib/quote-invoice-pdf-bytes";
-import { exportPdf } from "../lib/print";
+import { blobToDataUrl, buildQuotePdfBytes, downloadBlob } from "../lib/quote-invoice-pdf-bytes";
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
@@ -568,18 +566,20 @@ export default function QuoteDetailPage() {
 
   // Same on-device-generation approach as apps/mobile's own Export PDF
   // button (see docs/SETUP.md's Phase 5 known-gaps note for why this isn't
-  // a server-side/Edge Function render) - just the browser's print dialog
-  // instead of expo-print's native share sheet, since there's no
-  // equivalent here. Uses the persisted line items, not the in-progress
-  // edits in `lineItems` state, so exporting always reflects what's
-  // actually saved.
-  const handleExportPdf = () => {
+  // a server-side/Edge Function render). Downloads the jsPDF-generated
+  // Blob directly rather than opening the browser's print dialog - that
+  // dialog stamps its own "Headers and footers" (title/URL, page number/
+  // date) onto the output with no way to suppress it from the page, which
+  // is exactly the stray text at the top/bottom of exported quotes. Uses
+  // the persisted line items, not the in-progress edits in `lineItems`
+  // state, so exporting always reflects what's actually saved.
+  const handleExportPdf = async () => {
     if (!data || !tenant || !data.quote.clients) return;
     setExporting(true);
     setExportError(null);
     try {
-      const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
-      exportPdf(html, `Quote ${data.quote.quote_number}`);
+      const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
+      downloadBlob(pdfBlob, `Quote ${data.quote.quote_number}.pdf`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
     } finally {

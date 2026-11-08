@@ -93,28 +93,42 @@ const BASE_STYLES = `
   .date-row { margin-bottom: 3px; font-size: 11px; }
   .date-label { color: #6b7280; margin-right: 8px; }
   .date-value { font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-bottom: 20px; }
   th { text-align: left; font-size: 11px; color: #fff; padding: 8px; }
   th.num, td.num { text-align: right; }
   /* Without this, expo-print's PDF renderer will split a tall row (a long
      wrapped description, an image) across a page boundary, leaving the
      border-bottom line drawn straight through the middle of the text. */
   tr { break-inside: avoid; page-break-inside: avoid; }
-  td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; vertical-align: top; }
+  td { padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; vertical-align: top; word-wrap: break-word; }
   td.desc { white-space: pre-wrap; }
+  .item-title { font-weight: 700; }
   tr.excluded-item td { color: #9ca3af; }
   tr.bundle-heading td { background: #f9fafb; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
   .optional-tag { color: #7e22ce; font-size: 10px; font-weight: 700; }
   .item-image { max-width: 140px; max-height: 90px; border-radius: 4px; display: block; margin-top: 6px; }
-  .totals { width: 260px; margin-left: auto; margin-bottom: 28px; }
-  .totals-row { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 12px; }
-  .totals-row.total { border-top: 2px solid #111827; font-weight: 700; font-size: 14px; padding-top: 8px; margin-top: 4px; }
+  /* break-inside/page-break-inside here is the same orphan-prevention
+     trick as the table rows above - without it, expo-print can split this
+     box so the grand total lands alone at the top of a new page while
+     "Sub Total"/"GST" stay behind on the previous one. */
+  .totals { width: 260px; margin-left: auto; margin-bottom: 28px; border: 1px solid #1f2937; border-radius: 3px; padding: 6px 0; break-inside: avoid; page-break-inside: avoid; }
+  .totals-row { display: flex; justify-content: space-between; padding: 4px 12px; font-size: 12px; }
+  .totals-row.total { font-weight: 700; font-size: 14px; padding-top: 8px; padding-bottom: 8px; margin-top: 4px; border-top: 1px solid #1f2937; }
+  .totals-row.total.highlight { background: #fac715; color: #5c4402; border-top: none; margin-top: 0; }
   .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin: 20px 0 6px; }
   .section-body { font-size: 11px; color: #374151; line-height: 1.6; white-space: pre-wrap; }
   .bank-details { display: flex; gap: 24px; }
   .bank-detail { font-size: 11px; }
   .bank-detail-label { color: #6b7280; }
   .bank-detail-value { font-weight: 700; }
+  .accent-rule { border: none; border-top: 2px solid #fac715; margin: 12px 0 0; }
+  .job-summary { background: #f3f4f6; border: 1px solid #1f2937; border-radius: 3px; padding: 10px 14px; margin: 8px 0 20px; break-inside: avoid; page-break-inside: avoid; }
+  .job-summary-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin: 0 0 4px; }
+  .job-summary-body { font-size: 11px; color: #111827; line-height: 1.5; white-space: pre-wrap; margin: 0; }
+  .approval-block { break-inside: avoid; page-break-inside: avoid; margin-top: 8px; }
+  .approval-instruction { font-size: 11px; color: #6b7280; margin: 4px 0 20px; }
+  .signature-line { display: flex; gap: 40px; margin-bottom: 4px; }
+  .signature-line span { display: block; width: 180px; border-top: 1px solid #6b7280; padding-top: 4px; font-size: 10px; color: #6b7280; }
 `;
 
 function renderCompanyBlock(tenant: Tenant): string {
@@ -161,6 +175,61 @@ function renderHeader(docType: "quote" | "invoice", docNumber: string, balanceDu
       </div>
     </div>
     ${renderCompanyBlock(tenant)}
+    ${docType === "quote" ? `<hr class="accent-rule" />` : ""}
+  `;
+}
+
+// A short, optional highlight box summarizing the job in plain terms for a
+// property owner/landlord who may not read the itemized table closely -
+// backed by the quote's own `notes` field (the one free-text field meant
+// to travel with the document) rather than a new column, same convention
+// as apps/desktop/src/lib/quote-invoice-pdf-bytes.ts's renderJobSummary.
+function renderJobSummary(notes: string | null): string {
+  if (!notes) return "";
+  return `
+    <div class="job-summary">
+      <p class="job-summary-label">Job Summary</p>
+      <p class="job-summary-body">${escapeHtml(notes)}</p>
+    </div>
+  `;
+}
+
+// Same three badges as the desktop PDF path - license number is a real,
+// persisted tenant field; the other two are generic trust-building copy,
+// not tenant-specific claims (see that file's own comment on why a
+// specific insured dollar figure isn't hardcoded here).
+function renderTrustBadges(tenant: Tenant): string {
+  const badges = [
+    { title: "Licensed & Insured", body: tenant.license_number ? `Lic #${escapeHtml(tenant.license_number)} - fully insured` : "Fully licensed & insured" },
+    { title: "Photo Report Included", body: "Before &amp; after completion photos provided" },
+    { title: "Quality Guarantee", body: "Workmanship &amp; materials backed by warranty" },
+  ];
+  return `
+    <div style="display: flex; gap: 8px; margin: 4px 0 20px;">
+      ${badges
+        .map(
+          (b) => `
+        <div style="flex: 1; background: #fef9dc; border: 1px solid #fac715; border-radius: 3px; padding: 8px 6px; text-align: center;">
+          <div style="font-size: 9px; font-weight: 700; color: #5c4402;">${b.title}</div>
+          <div style="font-size: 7.5px; color: #6b7280; margin-top: 2px;">${b.body}</div>
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+// A quote that hasn't been accepted yet has no signature to show - this
+// renders the acceptance instruction + a blank sign-here line instead, so
+// an exported/shared quote always ends with a clear call to action.
+function renderApprovalBlock(): string {
+  return `
+    <div class="approval-block">
+      <div class="section-title" style="margin-top: 0;">Approve This Quote</div>
+      <p class="approval-instruction">To approve, reply to this email or sign below:</p>
+      <div class="signature-line"><span>Signature</span><span>Date</span></div>
+    </div>
   `;
 }
 
@@ -200,22 +269,32 @@ function renderBillTo(
   `;
 }
 
+// A line item's description's first line is treated as a bold title (e.g.
+// "RIDGE CAPPING RE-POINTING") with the rest as normal body text below it -
+// there's no separate title column on the schema, so this splits on the
+// first newline, same convention as the desktop PDF path.
+function renderDescription(description: string): string {
+  const parts = (description || "-").split("\n").filter((l) => l.trim().length > 0);
+  if (parts.length === 0) return `<span class="item-title">-</span>`;
+  const [title, ...body] = parts;
+  return `<span class="item-title">${escapeHtml(title)}</span>${body.length > 0 ? `<br/>${escapeHtml(body.join(" "))}` : ""}`;
+}
+
 function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormInput[]): string {
   const accent = ACCENT[docType];
   let lastBundleName: string | null = null;
   const rows = lineItems
-    .map((item, index) => {
+    .map((item) => {
       const excluded = !!item.is_optional && !item.is_included;
       const heading =
         item.bundle_name && item.bundle_name !== lastBundleName
-          ? `<tr class="bundle-heading"><td colspan="5">${escapeHtml(item.bundle_name)}</td></tr>`
+          ? `<tr class="bundle-heading"><td colspan="4">${escapeHtml(item.bundle_name)}</td></tr>`
           : "";
       lastBundleName = item.bundle_name || null;
       return `
       ${heading}
       <tr class="${excluded ? "excluded-item" : ""}">
-        <td>${index + 1}</td>
-        <td class="desc">${escapeHtml(item.description)}
+        <td class="desc">${renderDescription(item.description)}
           ${item.warranty_text ? `<br/><span style="color:#6b7280;font-size:10px;">${escapeHtml(item.warranty_text)}</span>` : ""}
           ${item.is_optional ? `<br/><span class="optional-tag">${excluded ? "Optional - not selected" : "Optional - included"}</span>` : ""}
           ${item.waived_amount_cents > 0 ? `<br/><span style="color:#1d4ed8;font-size:10px;font-weight:700;">Waived - Membership</span>` : ""}
@@ -223,7 +302,7 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
         </td>
         <td class="num">${item.quantity}${item.unit ? ` ${escapeHtml(item.unit)}` : ""}</td>
         <td class="num">${formatCentsPlain(item.unit_price_cents)}</td>
-        <td class="num">${excluded ? "-" : formatCentsPlain(lineItemSubtotalCents(item))}</td>
+        <td class="num" style="font-weight: 700;">${excluded ? "-" : formatCentsPlain(lineItemSubtotalCents(item))}</td>
       </tr>`;
     })
     .join("");
@@ -231,11 +310,10 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
     <table>
       <thead>
         <tr style="background: ${accent};">
-          <th style="width: 32px;">#</th>
-          <th>Item &amp; Description</th>
-          <th class="num" style="width: 60px;">Qty</th>
-          <th class="num" style="width: 90px;">Rate</th>
-          <th class="num" style="width: 90px;">Amount</th>
+          <th style="width: 60%;">Item &amp; Description</th>
+          <th class="num" style="width: 10%;">Qty</th>
+          <th class="num" style="width: 15%;">Rate</th>
+          <th class="num" style="width: 15%;">Amount</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -243,18 +321,24 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
   `;
 }
 
-function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0): string {
+// highlightGrandTotal (quotes only) picks out the grand total in yellow,
+// the one sparing use of the brand accent on an otherwise charcoal/white
+// card - everywhere else yellow would read as "caution tape" rather than
+// drawing the eye to the number that matters, same reasoning as the
+// desktop PDF path's own totals card.
+function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0, highlightGrandTotal = false): string {
   const totals = calculateDocumentTotals(lineItems);
+  const grandTotalLabel = balanceDueCents !== null ? "Total" : "Grand Total";
   return `
     <div class="totals">
       <div class="totals-row"><span>Sub Total</span><span>${formatCentsPlain(totals.subtotal_cents)}</span></div>
-      <div class="totals-row"><span>GST</span><span>${formatCentsPlain(totals.gst_cents)}</span></div>
+      <div class="totals-row"><span>GST (10%)</span><span>${formatCentsPlain(totals.gst_cents)}</span></div>
       ${
         membershipDiscountCents > 0
           ? `<div class="totals-row"><span>Membership discount</span><span>-${formatCentsPlain(membershipDiscountCents)}</span></div>`
           : ""
       }
-      <div class="totals-row total"><span>Total</span><span>${formatCentsPlain(totals.total_cents - membershipDiscountCents)}</span></div>
+      <div class="totals-row total${highlightGrandTotal ? " highlight" : ""}"><span>${grandTotalLabel}</span><span>${formatCentsPlain(totals.total_cents - membershipDiscountCents)}</span></div>
       ${
         balanceDueCents !== null
           ? `<div class="totals-row total"><span>Balance Due</span><span>${formatCentsAsAud(balanceDueCents)}</span></div>`
@@ -292,6 +376,18 @@ function renderBankDetails(tenant: Tenant): string {
   `;
 }
 
+function renderAcceptedSignature(quote: Quote): string {
+  if (!quote.accepted_signature_svg) return "";
+  const label = [quote.accepted_by_name, quote.accepted_at ? formatDate(quote.accepted_at.slice(0, 10)) : null].filter(Boolean).join(" - ");
+  return `
+    <div class="approval-block">
+      <div class="section-title" style="margin-top: 0;">Accepted</div>
+      <img src="${escapeHtml(quote.accepted_signature_svg)}" style="max-width: 200px; max-height: 90px; display: block; margin-bottom: 4px;" />
+      ${label ? `<p class="section-body" style="margin: 0;">${escapeHtml(label)}</p>` : ""}
+    </div>
+  `;
+}
+
 export function buildQuotePdfHtml(params: {
   tenant: Tenant;
   quote: Quote;
@@ -299,6 +395,7 @@ export function buildQuotePdfHtml(params: {
   lineItems: LineItemFormInput[];
 }): string {
   const { tenant, quote, client, lineItems } = params;
+  const isAccepted = quote.approval_status === "accepted" && !!quote.accepted_signature_svg;
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -317,9 +414,11 @@ export function buildQuotePdfHtml(params: {
       </div>
     </div>
 
+    ${renderJobSummary(quote.notes)}
     ${renderItemsTable("quote", lineItems)}
-    ${renderTotals(lineItems, null, quote.membership_discount_cents)}
-    ${renderNotes(quote.notes)}
+    ${renderTrustBadges(tenant)}
+    ${renderTotals(lineItems, null, quote.membership_discount_cents, true)}
+    ${isAccepted ? renderAcceptedSignature(quote) : renderApprovalBlock()}
     ${renderFinePrint(quote.fine_print_text)}
   </body>
 </html>`;
