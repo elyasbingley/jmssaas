@@ -349,7 +349,10 @@ const COL_RATE_WIDTH = CONTENT_WIDTH * 0.15;
 const COL_DESC_X = MARGIN;
 const COL_QTY_X = MARGIN + COL_DESC_WIDTH + COL_QTY_WIDTH;
 const COL_RATE_X = COL_QTY_X + COL_RATE_WIDTH;
-const COL_AMOUNT_X = PAGE_WIDTH - MARGIN;
+// Inset 2mm from the true right edge, same as COL_DESC_X's own "+2" on the
+// left - without it, "Amount" (and every row's dollar figure) sits with
+// its rightmost pixel flush against the header bar/page edge.
+const COL_AMOUNT_X = PAGE_WIDTH - MARGIN - 2;
 const DESC_WRAP_WIDTH = COL_DESC_WIDTH - 2;
 
 // A line item's description's first line is treated as a bold title (e.g.
