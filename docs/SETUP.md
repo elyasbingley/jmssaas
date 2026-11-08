@@ -10217,3 +10217,60 @@ cd apps\mobile
 npx eas-cli update --channel preview --platform android
 npx eas-cli update --channel preview --platform ios
 ```
+
+## 83. Approval page redesign to match the quote/invoice PDF redesign, plus a dropped payment_status/stripe_checkout_url regression fix
+
+The public, client-facing approval page (`supabase/static/approval-page.html`
+- the link a client actually opens to accept/decline, separate from the
+desktop/mobile PDF) still looked like the old generic layout after
+section 82's redesign. Brought it in line: charcoal + yellow branding
+for quotes (invoices keep their green accent), a two-column Bill To /
+Site-Property-Address layout, a tinted Job Summary box (the quote's own
+`notes`), a 3-badge trust banner, a bordered totals card with the grand
+total highlighted in yellow on quotes, and a 60/10/15/15 (then
+rebalanced to ~54/8/19/19 after a Playwright screenshot showed dollar
+figures wrapping onto two lines on a phone-width viewport - `Qty`
+genuinely needs less room than `Rate`/`Amount`) line-items table with
+each item's first description line bold.
+
+Needed new data the page didn't have before, so
+`supabase/migrations/20261108000100_approval_page_redesign_fields.sql`
+extends `get_quote_for_approval`/`get_invoice_for_approval`'s returned
+jsonb with: the tenant's ABN/license number/email/website/business
+address (for the header - previously only the tenant name showed), the
+client's `company_name`/`client_type` (so a company client shows as
+"Aspire Property Agents" / "Attn: Sam" instead of just the contact's own
+name), the job's site (via the existing `site_id` -> `client_sites`,
+for the new Site/Property Address column), and each line item's `unit`
+(for the same "1 job"/"3 each" suffix the PDF paths already show).
+
+Also restores `payment_status`/`stripe_checkout_url` on
+`get_invoice_for_approval` - added by an older migration
+(`approval_page_stripe_field`), then silently dropped by a later
+`create or replace function` that redefined the whole function from an
+earlier copy without carrying those two fields forward (Postgres has no
+column-add equivalent for a plpgsql function's return shape, so every
+migration touching this function redefines it in full - whoever wrote
+the later one just didn't have the stripe-field version open). Without
+`payment_status`, the page's own "this invoice has already been paid"
+check could never fire on initial load - a client reopening a paid
+invoice's link would see the Pay Now button again until they clicked it
+and hit the `already_paid` error from that secondary path instead.
+
+No change to the `approve` Edge Function - it already just passes the
+RPC's jsonb straight through, so the new fields reach the page with no
+further wiring.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+```
+
+Then re-publish `supabase/static/approval-page.html` to whichever
+external static host you're using (Cloudflare Pages/Netlify/GitHub
+Pages/etc - see section "Quote/invoice digital acceptance" further up
+for why this isn't Supabase Storage or an Edge Function). If that host
+is Git-connected to this repo, pushing to `main` already redeploys it
+automatically and there's nothing further to do here.
