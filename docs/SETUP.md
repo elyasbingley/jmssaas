@@ -10071,3 +10071,53 @@ cd apps\mobile
 npx eas-cli update --channel preview --platform android
 npx eas-cli update --channel preview --platform ios
 ```
+
+## 81. Mobile: pages opening blank for several seconds before filling in
+
+Reported as "I open something - quotes, Company Settings, anything -
+it's blank, then ~10 seconds later it fills in." Desktop never does
+this; happens on mobile regardless of which network it's on (wifi or
+cellular), which rules out a slow connection and points at something
+mobile-specific that's independent of the network's own speed.
+
+Root cause: `apps/mobile/lib/supabase.ts` set `autoRefreshToken: true`
+but never wired up the `AppState` listener Supabase's own docs say a
+React Native app needs (supabase.com/docs - "Session management with
+React Native"). `autoRefreshToken`'s refresh timer runs on the JS
+thread, which Android/iOS freezes while the app is backgrounded - and a
+technician's phone gets backgrounded constantly (locking the screen, a
+call coming in, switching to Maps, anything). Without the listener,
+nothing refreshes the access token while backgrounded, so reopening the
+app after any such gap can mean the token's already expired by the time
+you tap into a quote.
+
+What actually caused the delay: the first request to fire after
+resuming - whichever screen happens to be open - is the one that
+discovers the stale token, fails, triggers a refresh, then retries. That
+whole fail-refresh-retry round trip (plus retry backoff) stacks on top
+of normal request latency, and on a mobile connection (higher RTT than
+wifi/desktop to begin with) it adds up to several seconds. It looked
+like "quotes is slow" or "settings is slow" only because those happened
+to be the first thing opened after a background gap - any screen would
+have eaten the same cost.
+
+Fixed by calling `supabase.auth.startAutoRefresh()`/`stopAutoRefresh()`
+from an `AppState` listener in `lib/supabase.ts` - `startAutoRefresh()`
+runs an immediate check-and-refresh-if-needed the moment it's called
+(confirmed in `@supabase/auth-js`'s own `_startAutoRefresh`), so the
+token gets refreshed proactively the instant the app comes back to the
+foreground, before any screen's own queries even run - instead of
+reactively, the first time some query happens to hit the stale token.
+
+No schema or server-side changes - this is a pure client-side fix in the
+mobile app only (desktop already behaves correctly here, since a browser
+tab's JS timers aren't frozen the same way).
+
+### Deploy
+
+```powershell
+git pull origin main
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+npx eas-cli update --channel preview --platform ios
+```
