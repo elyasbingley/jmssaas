@@ -10274,3 +10274,42 @@ Pages/etc - see section "Quote/invoice digital acceptance" further up
 for why this isn't Supabase Storage or an Edge Function). If that host
 is Git-connected to this repo, pushing to `main` already redeploys it
 automatically and there's nothing further to do here.
+
+## 84. Desktop: no way to edit a client's saved address (client_sites)
+
+Reported: the Clients module's "Addresses" section (a client's
+`client_sites` rows - distinct per-job site addresses, separate from the
+client's own primary address) only had "+ Add address" and "Remove" -
+no "Edit". A typo in a saved site address, or its label/primary flag,
+could only be fixed by deleting the row and re-adding it from scratch
+(losing whatever `job_cards`/quotes/invoices already reference that
+`site_id` pointing at a now-different row, since delete-then-recreate
+gets a new id).
+
+Root cause: `ClientDetail.tsx`'s `saveSite` mutation only ever called
+`.insert(...)` - there was no update path, and no "Edit" button to
+reach one. The client_contacts section right next to it already had
+the edit pattern (`editingContactId` + a conditional insert/update) -
+sites just never got the same treatment when they were added.
+Mobile's equivalent screen (`apps/mobile/app/sales/clients/[id].tsx`)
+already had this - tapping a site row opens the same add/edit form via
+its own `openEditSite` - so this was a desktop-only gap.
+
+Fixed by mirroring the contacts pattern: `editingSiteId` state, a new
+`openEditSite(site)` that pre-fills the form and opens the existing
+modal, `saveSite` now does `.update(...).eq("id", editingSiteId)` when
+editing instead of always inserting, and an "Edit" button sits next to
+"Remove" on each address row. The modal's title/button label switch
+between "Add address"/"Edit address" and "Save"/"Save changes" based on
+whether `editingSiteId` is set.
+
+No schema or RLS change - `client_sites` already allowed admin updates
+(same policy insert/delete already used), this was purely a missing UI
+path.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```

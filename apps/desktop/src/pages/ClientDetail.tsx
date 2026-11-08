@@ -357,6 +357,7 @@ export default function ClientDetailPage() {
 
   // --- Addresses (client sites) ---
   const [siteModalOpen, setSiteModalOpen] = useState(false);
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
   const [siteForm, setSiteForm] = useState({
     label: "",
     address_line1: "",
@@ -369,14 +370,35 @@ export default function ClientDetailPage() {
   });
   const [siteError, setSiteError] = useState<string | null>(null);
 
+  const openAddSite = () => {
+    setEditingSiteId(null);
+    setSiteForm({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "", is_primary: false, notes: "" });
+    setSiteError(null);
+    setSiteModalOpen(true);
+  };
+
+  const openEditSite = (site: ClientSite) => {
+    setEditingSiteId(site.id);
+    setSiteForm({
+      label: site.label ?? "",
+      address_line1: site.address_line1,
+      address_line2: site.address_line2 ?? "",
+      suburb: site.suburb,
+      state: site.state,
+      postcode: site.postcode,
+      is_primary: site.is_primary,
+      notes: site.notes ?? "",
+    });
+    setSiteError(null);
+    setSiteModalOpen(true);
+  };
+
   const saveSite = useMutation({
     mutationFn: async () => {
       const result = createClientSiteSchema.safeParse({ ...siteForm, client_id: id });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid address");
       if (!profile) throw new Error("Not signed in");
-      const { error } = await supabase.from("client_sites").insert({
-        tenant_id: profile.tenant_id,
-        client_id: id,
+      const payload = {
         label: result.data.label || null,
         address_line1: result.data.address_line1,
         address_line2: result.data.address_line2 || null,
@@ -385,12 +407,19 @@ export default function ClientDetailPage() {
         postcode: result.data.postcode,
         is_primary: result.data.is_primary,
         notes: result.data.notes || null,
-      });
-      if (error) throw error;
+      };
+      if (editingSiteId) {
+        const { error } = await supabase.from("client_sites").update(payload).eq("id", editingSiteId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("client_sites").insert({ tenant_id: profile.tenant_id, client_id: id, ...payload });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-sites", id] });
       setSiteModalOpen(false);
+      setEditingSiteId(null);
       setSiteForm({ label: "", address_line1: "", address_line2: "", suburb: "", state: "", postcode: "", is_primary: false, notes: "" });
       setSiteError(null);
     },
@@ -691,7 +720,7 @@ export default function ClientDetailPage() {
             <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
               Addresses
             </h2>
-            <button onClick={() => setSiteModalOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+            <button onClick={openAddSite} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
               + Add address
             </button>
           </div>
@@ -720,9 +749,14 @@ export default function ClientDetailPage() {
                     </p>
                     <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>{formatSiteAddress(site)}</p>
                   </div>
-                  <button onClick={() => deleteSite.mutate(site.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
-                    Remove
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button onClick={() => openEditSite(site)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
+                      Edit
+                    </button>
+                    <button onClick={() => deleteSite.mutate(site.id)} className="font-semibold hover:underline" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }}>
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -962,7 +996,14 @@ export default function ClientDetailPage() {
         </div>
       </ThemedModal>
 
-      <ThemedModal open={siteModalOpen} onClose={() => setSiteModalOpen(false)} title="Add address">
+      <ThemedModal
+        open={siteModalOpen}
+        onClose={() => {
+          setSiteModalOpen(false);
+          setEditingSiteId(null);
+        }}
+        title={editingSiteId ? "Edit address" : "Add address"}
+      >
         <ThemedFormField
           label="Label (optional)"
           value={siteForm.label}
@@ -1002,11 +1043,18 @@ export default function ClientDetailPage() {
           </p>
         ) : null}
         <div className="flex justify-end gap-3">
-          <button onClick={() => setSiteModalOpen(false)} className="px-4 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          <button
+            onClick={() => {
+              setSiteModalOpen(false);
+              setEditingSiteId(null);
+            }}
+            className="px-4 py-2 font-semibold"
+            style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
+          >
             Cancel
           </button>
           <ThemedButton onClick={() => saveSite.mutate()} disabled={saveSite.isPending}>
-            {saveSite.isPending ? "Saving..." : "Save"}
+            {saveSite.isPending ? "Saving..." : editingSiteId ? "Save changes" : "Save"}
           </ThemedButton>
         </div>
       </ThemedModal>
