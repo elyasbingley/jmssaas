@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   categoryForEvent,
@@ -12,7 +12,17 @@ import {
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
-import { addDays, addMonths, formatEventTimeRange, isSameDay, monthGridDays, startOfMonth, startOfWeek } from "../lib/datetime";
+import {
+  addDays,
+  addMonths,
+  formatEventTimeRange,
+  isSameDay,
+  minutesFromDayStart,
+  monthGridDays,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "../lib/datetime";
 import { pushCalendarEventDelete, pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 import { CalendarEventPopover } from "../components/CalendarEventPopover";
 import { CalendarEventEditor, type CalendarEventSavePayload } from "../components/CalendarEventEditor";
@@ -96,6 +106,90 @@ async function fetchCategoryColors(tenantId: string): Promise<CalendarCategoryCo
   return (data.calendar_category_colors as CalendarCategoryColors) ?? DEFAULT_CALENDAR_CATEGORY_COLORS;
 }
 
+// --- Day/Week hour-grid (Google-Calendar-shaped layout, JMS styling) ---
+
+const HOUR_HEIGHT = 48; // px per hour
+const TIME_COL_WIDTH = 52; // px, the left-hand hour-label gutter
+const MIN_BLOCK_HEIGHT = 16; // px - keeps a very short event's title legible
+const GRID_HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+function formatHourLabel(hour: number): string {
+  if (hour === 0) return "";
+  if (hour === 12) return "12 PM";
+  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
+}
+
+interface GridBlock {
+  event: CalendarEventRow;
+  top: number;
+  height: number;
+  column: number;
+  totalColumns: number;
+}
+
+// Clips every timed (non-all_day) event to this single day's [00:00, 24:00)
+// window and lays overlapping ones out in side-by-side columns, greedy-
+// packed (first column whose last-placed event has already ended). This is
+// also what correctly renders an overnight event (e.g. "Bed 10pm-7am") as
+// a block in BOTH days it touches - the previous implementation bucketed
+// an event into a single day by its start_at alone, so an overnight event
+// never showed up the next morning at all.
+function layoutDayColumn(day: Date, allEvents: CalendarEventRow[]): GridBlock[] {
+  const dayStart = startOfDay(day);
+  const dayEnd = addDays(dayStart, 1);
+
+  const clipped: { event: CalendarEventRow; startMin: number; endMin: number; column: number }[] = [];
+  for (const event of allEvents) {
+    if (event.all_day) continue;
+    const eventStart = new Date(event.start_at);
+    const eventEnd = new Date(event.end_at);
+    if (eventEnd <= dayStart || eventStart >= dayEnd) continue;
+    const clippedStart = eventStart < dayStart ? dayStart : eventStart;
+    const clippedEnd = eventEnd > dayEnd ? dayEnd : eventEnd;
+    const startMin = minutesFromDayStart(dayStart, clippedStart);
+    clipped.push({ event, startMin, endMin: Math.max(minutesFromDayStart(dayStart, clippedEnd), startMin + 15), column: -1 });
+  }
+  clipped.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+
+  const results: GridBlock[] = [];
+  let columnEnds: number[] = [];
+  let cluster: typeof clipped = [];
+  let clusterMaxEnd = -Infinity;
+
+  const flushCluster = () => {
+    const totalColumns = columnEnds.length;
+    for (const item of cluster) {
+      results.push({
+        event: item.event,
+        top: (item.startMin / 60) * HOUR_HEIGHT,
+        height: Math.max(((item.endMin - item.startMin) / 60) * HOUR_HEIGHT, MIN_BLOCK_HEIGHT),
+        column: item.column,
+        totalColumns,
+      });
+    }
+    cluster = [];
+    columnEnds = [];
+    clusterMaxEnd = -Infinity;
+  };
+
+  for (const item of clipped) {
+    if (item.startMin >= clusterMaxEnd) flushCluster();
+    let placed = columnEnds.findIndex((end) => end <= item.startMin);
+    if (placed === -1) {
+      placed = columnEnds.length;
+      columnEnds.push(item.endMin);
+    } else {
+      columnEnds[placed] = item.endMin;
+    }
+    item.column = placed;
+    cluster.push(item);
+    clusterMaxEnd = Math.max(clusterMaxEnd, item.endMin);
+  }
+  flushCluster();
+
+  return results;
+}
+
 export default function CalendarPage() {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
@@ -113,6 +207,30 @@ export default function CalendarPage() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [anchor, setAnchor] = useState(new Date());
+
+  // Live "now" line, Google-Calendar-style - re-ticks every minute rather
+  // than once on mount, so leaving the tab open doesn't leave it visibly
+  // stale.
+  const [liveNow, setLiveNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setLiveNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-scrolls the hour grid to a sensible start position whenever Day/
+  // Week becomes active or the visible range changes - about 2 hours
+  // before "now" if today's in view, otherwise a fixed 7am (matches
+  // Google Calendar's own default landing scroll position).
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (viewMode !== "day" && viewMode !== "week") return;
+    const showingToday = viewMode === "day" ? isSameDay(anchor, liveNow) : true;
+    const scrollToHour = showingToday ? Math.max(0, liveNow.getHours() - 2) : 7;
+    gridScrollRef.current?.scrollTo({ top: scrollToHour * HOUR_HEIGHT });
+    // Deliberately excludes liveNow - this should only re-run when the
+    // *view* changes, not every minute the clock ticks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, anchor]);
 
   const [popover, setPopover] = useState<{ event: CalendarEventRow; anchorRect: DOMRect } | null>(null);
   const [editor, setEditor] = useState<{ mode: "new" | "edit"; event?: CalendarEventRow; initialDate?: Date } | null>(null);
@@ -443,65 +561,148 @@ export default function CalendarPage() {
     </button>
   );
 
-  const renderEventRow = (event: CalendarEventRow) => (
-    <button
-      key={event.id}
-      onClick={(e) => openPopover(event, e)}
-      style={{ backgroundColor: colorFor(event) }}
-      className="mb-1 block w-full rounded px-2 py-2 text-left opacity-90 last:mb-0 hover:opacity-100"
-    >
-      <p className="text-xs font-semibold text-white/80">{formatEventTimeRange(event.start_at, event.end_at, event.all_day)}</p>
-      <p className="text-sm font-medium text-white">{event.title}</p>
-    </button>
-  );
+  // Approximates the clicked slot to the nearest 15 minutes and opens
+  // "new event" prefilled there - same click-an-empty-slot affordance
+  // Google Calendar's own grid has.
+  const handleGridSlotClick = (day: Date, e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetMinutes = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
+    const snapped = Math.max(0, Math.min(23 * 60 + 45, Math.round(offsetMinutes / 15) * 15));
+    openNewEvent(new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(snapped / 60), snapped % 60));
+  };
 
-  const renderDayView = () => {
-    const dayEvents = eventsOn(anchor);
+  // Shared by Day (a single-column grid) and Week (seven columns) - the
+  // actual Google-Calendar-shaped layout: a sticky day-header row, an
+  // optional all-day banner, then a scrollable 24-hour grid with each
+  // timed event absolutely positioned/sized by its clipped start/end (see
+  // layoutDayColumn) and a live "now" line on today's column.
+  const renderTimeGrid = (days: Date[]) => {
+    const allDayByDay = days.map((day) => eventsOn(day).filter((e) => e.all_day));
+    const hasAllDay = allDayByDay.some((d) => d.length > 0);
+
     return (
-      <div className="p-4">
-        <h2 className="mb-3 text-base font-bold" style={{ color: "var(--jms-text)" }}>
-          {anchor.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        </h2>
-        {dayEvents.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--jms-text-muted)" }}>
-            No events.
-          </p>
-        ) : (
-          dayEvents.map(renderEventRow)
-        )}
+      <div className="flex h-full flex-col">
+        <div className="flex flex-shrink-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+          <div style={{ width: TIME_COL_WIDTH }} className="flex-shrink-0" />
+          {days.map((day) => {
+            const today = isSameDay(day, liveNow);
+            return (
+              <button
+                key={day.toDateString()}
+                onClick={() => openDay(day)}
+                className="flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2"
+                style={{ borderLeft: "1px solid var(--jms-border)" }}
+              >
+                <span
+                  className="text-[11px] font-semibold uppercase tracking-wide"
+                  style={{ color: today ? "var(--jms-accent)" : "var(--jms-text-muted)" }}
+                >
+                  {day.toLocaleDateString("en-AU", { weekday: "short" })}
+                </span>
+                <span
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
+                  style={{ backgroundColor: today ? "var(--jms-accent)" : "transparent", color: today ? "var(--jms-bg)" : "var(--jms-text)" }}
+                >
+                  {day.getDate()}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {hasAllDay ? (
+          <div className="flex flex-shrink-0 py-1" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+            <div style={{ width: TIME_COL_WIDTH }} className="flex-shrink-0" />
+            {days.map((day, i) => (
+              <div key={day.toDateString()} className="flex min-w-0 flex-1 flex-col gap-0.5 px-1" style={{ borderLeft: "1px solid var(--jms-border)" }}>
+                {(allDayByDay[i] ?? []).map((e) => renderEventChip(e, true))}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative flex" style={{ height: 24 * HOUR_HEIGHT }}>
+            <div style={{ width: TIME_COL_WIDTH }} className="relative flex-shrink-0">
+              {GRID_HOURS.map((hour) => (
+                <span
+                  key={hour}
+                  className="absolute right-1.5 text-[10px]"
+                  style={{ top: hour * HOUR_HEIGHT - 6, color: "var(--jms-text-muted)" }}
+                >
+                  {formatHourLabel(hour)}
+                </span>
+              ))}
+            </div>
+            {days.map((day) => {
+              const blocks = layoutDayColumn(day, events ?? []);
+              const today = isSameDay(day, liveNow);
+              return (
+                <div
+                  key={day.toDateString()}
+                  onClick={(e) => handleGridSlotClick(day, e)}
+                  className="relative min-w-0 flex-1 cursor-pointer"
+                  style={{ borderLeft: "1px solid var(--jms-border)" }}
+                >
+                  {GRID_HOURS.map((hour) => (
+                    <div key={hour} style={{ position: "absolute", top: hour * HOUR_HEIGHT, left: 0, right: 0, borderTop: "1px solid var(--jms-border)" }} />
+                  ))}
+                  {blocks.map(({ event, top, height, column, totalColumns }) => (
+                    <button
+                      key={event.id}
+                      onClick={(e) => openPopover(event, e)}
+                      className="absolute overflow-hidden rounded text-left text-[11px] font-medium text-white opacity-90 hover:z-10 hover:opacity-100"
+                      style={{
+                        top,
+                        height,
+                        left: `${(column / totalColumns) * 100}%`,
+                        width: `${100 / totalColumns}%`,
+                        backgroundColor: colorFor(event),
+                        boxSizing: "border-box",
+                        padding: "1px 4px",
+                        border: "1px solid var(--jms-bg)",
+                      }}
+                    >
+                      <span className="block truncate font-semibold">{event.title}</span>
+                      {height >= 32 ? (
+                        <span className="block truncate opacity-80">{formatEventTimeRange(event.start_at, event.end_at, false)}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                  {today ? (
+                    <div
+                      className="pointer-events-none absolute left-0 right-0 z-20"
+                      style={{ top: (minutesFromDayStart(startOfDay(day), liveNow) / 60) * HOUR_HEIGHT }}
+                    >
+                      <div style={{ height: 2, backgroundColor: "var(--jms-danger)" }} />
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: -4,
+                          top: -3,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 9999,
+                          backgroundColor: "var(--jms-danger)",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   };
 
+  const renderDayView = () => renderTimeGrid([anchor]);
+
   const renderWeekView = () => {
     const weekStart = startOfWeek(anchor);
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-    return (
-      <div className="grid grid-cols-7 gap-3 p-4">
-        {days.map((day) => {
-          const dayEvents = eventsOn(day);
-          return (
-            <div key={day.toDateString()} className="rounded-lg p-2 text-left" style={{ border: "1px solid var(--jms-border)" }}>
-              <button onClick={() => openDay(day)} className="mb-1 block w-full text-left">
-                <p
-                  className="text-xs font-bold"
-                  style={{ color: isSameDay(day, new Date()) ? "var(--jms-accent)" : "var(--jms-text-muted)" }}
-                >
-                  {day.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
-                </p>
-              </button>
-              {dayEvents.length === 0 ? (
-                <p className="text-xs" style={{ color: "var(--jms-text-muted)" }}>
-                  No events
-                </p>
-              ) : (
-                <div className="flex flex-col gap-0.5">{dayEvents.map((e) => renderEventChip(e, true))}</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
+    return renderTimeGrid(days);
   };
 
   const renderMonthView = () => {
@@ -609,7 +810,7 @@ export default function CalendarPage() {
 
   return (
     <div
-      className={`flex h-full flex-col p-8 ${viewMode === "month" ? "" : "overflow-y-auto"}`}
+      className={`flex h-full flex-col p-8 ${viewMode === "year" ? "overflow-y-auto" : "min-h-0"}`}
       style={{ fontFamily: "var(--jms-font)" }}
     >
       <div className="mb-4 flex flex-shrink-0 items-center justify-between">
@@ -659,7 +860,7 @@ export default function CalendarPage() {
       ) : null}
 
       <div
-        className={`rounded-lg ${viewMode === "month" ? "min-h-0 flex-1 overflow-hidden" : "flex-shrink-0"}`}
+        className={`rounded-lg ${viewMode === "year" ? "flex-shrink-0" : "min-h-0 flex-1 overflow-hidden"}`}
         style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
       >
         {isLoading ? (

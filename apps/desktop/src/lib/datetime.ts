@@ -18,6 +18,19 @@ export function formatEventTimeRange(startIso: string, endIso: string, allDay: b
 
 // --- Calendar grid helpers, for the Day/Week/Month/Year views ---
 
+export function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// Minutes between `dayStart` (any local midnight) and `d` - deliberately
+// not "minutes since midnight of `d` itself", since the whole point is to
+// position/size an event clipped to someone else's day boundary (an
+// overnight event's tail end, clipped to end at the NEXT day's midnight,
+// needs to read as 1440, not 0).
+export function minutesFromDayStart(dayStart: Date, d: Date): number {
+  return (d.getTime() - dayStart.getTime()) / 60_000;
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }

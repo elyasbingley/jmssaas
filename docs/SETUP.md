@@ -10527,3 +10527,71 @@ npx supabase functions deploy approve --no-verify-jwt
 cd apps\mobile
 npx eas-cli update --channel preview --platform android
 ```
+
+## 89. Desktop Calendar: Day/Week rebuilt as an hour grid (Google-Calendar-shaped, JMS styling)
+
+Day and Week were a plain list of stacked colored pills per day - no
+sense of time-of-day, no proportional sizing, and an overnight event
+(e.g. a synced "Bed 10pm - 7am" Google personal event) only ever showed
+up on whichever day its `start_at` fell on, never on the morning it
+actually ran into. Rebuilt both as a real hour grid: a left-hand time
+gutter (12 AM-11 PM), day columns (7 for Week, 1 for Day - both share
+the same `renderTimeGrid(days)`), a separate all-day banner row for
+`all_day` events, each timed event absolutely positioned/sized by its
+start/end time, overlapping events split into side-by-side columns, and
+a live red "now" line on today's column. Category colors
+(`colorFor`/`categoryForEvent`) and the click-to-open-popover/edit flow
+are unchanged - this is a layout rebuild, not a new color scheme (per
+the request: "look like Google Calendar's UI but with jms colouring and
+style").
+
+**The overnight-event bug is fixed by how a day's events are now
+chosen, not just how they're drawn**: `layoutDayColumn(day, events)`
+clips every event against that single day's `[00:00, 24:00)` window
+(`eventEnd <= dayStart || eventStart >= dayEnd` to skip, else clip the
+rendered start/end to the boundary) - so a "Bed 10pm - 7am" event now
+correctly draws as a tall block on BOTH days it touches (the 10pm-
+midnight tail on the day it starts, the midnight-7am head on the day it
+ends), matching Google Calendar's own behavior, instead of the old
+`eventsByDay` bucket-by-`start_at`-only Map (still used unchanged by
+Month/Year, which weren't part of this ask and don't have this bug the
+same way - a month cell's pill list isn't claiming to show exact
+timing).
+
+Overlap layout (`layoutDayColumn`'s column-packing) is a standard greedy
+algorithm - sort by start time, cluster mutually-overlapping events
+(tracked via a running max-end-time), within a cluster place each event
+in the first column whose last-placed event has already ended, else
+open a new column; the whole cluster then shares `totalColumns` evenly.
+Verified correct with a standalone unit test (extracted into a throwaway
+script, not committed) before wiring it into the component: an
+overnight event splits across both days with the right top/height on
+each, two simultaneous events get 2 even side-by-side columns, two
+sequential non-overlapping events each stay full-width, and `all_day`
+events are excluded from the timed grid entirely (they only ever go in
+the banner row). The actual grid markup/CSS was also checked by hand
+against a static mockup built from the real `--jms-*` theme variable
+values (green accent preset) and `DEFAULT_CALENDAR_CATEGORY_COLORS`,
+screenshotted with Playwright, before touching the real component - this
+sandbox has no authenticated path to the live app itself (no Supabase
+login), so this was the closest thing to the "open it in a browser"
+check this kind of UI change would otherwise get.
+
+Clicking an empty slot in the grid now also opens "+ New event" pre-
+filled at that time (snapped to the nearest 15 minutes) - the same
+affordance Google Calendar's own grid has, not present before since
+there was no time-grid to click into. The grid auto-scrolls to a
+sensible starting position (2 hours before "now" if today's in view,
+otherwise 7am) whenever Day/Week becomes active, same as Google
+Calendar's own default landing scroll.
+
+No schema or server-side change - purely `apps/desktop/src/pages/
+Calendar.tsx` and two new small helpers in `apps/desktop/src/lib/
+datetime.ts` (`startOfDay`, `minutesFromDayStart`).
+
+### Deploy
+
+```powershell
+git pull origin main
+npx vercel --prod
+```
