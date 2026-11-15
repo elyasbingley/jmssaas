@@ -10313,3 +10313,67 @@ path.
 git pull origin main
 npx vercel --prod
 ```
+
+## 85. Mobile push still not arriving after FCM v1 setup - missing `google-services.json`
+
+Section 68's "One-time setup: Android push credentials (FCM v1)" covered
+uploading a Firebase service account key to EAS, but that key is only
+half of what Android push actually needs - and the missing half wasn't
+documented at all, so it was never done.
+
+**The two credentials are different things, used by different parties**:
+the FCM v1 **service account key** (uploaded via `eas credentials` ->
+Google Service Account) is what *Expo's push servers* use to authenticate
+to Firebase when relaying a push to a device. Completely separately, the
+**app itself**, running on the phone, needs its own `google-services.json`
+file bundled into the native build so the on-device Firebase Messaging
+SDK can initialize at all and produce a push token in the first place -
+`getExpoPushTokenAsync()` can't succeed without it, regardless of how
+correctly the service account key is set up.
+
+**Confirmed via `adb logcat` on a real device** (no other way to see
+this - the failure is silent/swallowed everywhere else, which is why
+`push_tokens` just stayed empty with no error visible anywhere in the
+app or Supabase):
+```
+[use-push-notifications] Registration failed { [Error: Unable to get
+Firebase Messaging instance. Did you configure `googleServicesFile`
+path in app config? ... Default FirebaseApp is not initialized in this
+process au.bingley.jmssaas. Make sure to call
+FirebaseApp.initializeApp(Context) first.] code: 'E_REGISTRATION_FAILED' }
+```
+
+**Fixed**: `app.config.js`'s `android` block now sets
+`googleServicesFile: "./google-services.json"`. That file is a one-time
+manual download, not something to commit (same convention as `.env` -
+added to `apps/mobile/.gitignore`):
+
+1. [Firebase Console](https://console.firebase.google.com/) -> your
+   project -> Project Settings -> **General** tab -> under "Your apps",
+   find the Android app registered with package name `au.bingley.jmssaas`
+   (not any other package name accidentally registered under the same
+   project - see the FCM v1 section above for why that has to match
+   exactly).
+2. Click **google-services.json** to download it.
+3. Save it as `apps/mobile/google-services.json` (exactly that filename,
+   that location).
+4. Rebuild - this is a native config change, so, same as any
+   `expo-notifications`-related change, only a fresh `eas build` picks it
+   up, not `eas update`:
+   ```powershell
+   cd apps\mobile
+   npx eas-cli build --profile preview --platform android
+   ```
+5. Install the new build on a real physical device (not Expo Go, not an
+   emulator) and test per section 68's "Test it" steps.
+
+No server-side change - this is purely a missing native Android config
+file, caught during real-device testing of section 68's own feature.
+
+### Deploy
+
+```powershell
+git pull origin main
+cd apps\mobile
+npx eas-cli build --profile preview --platform android
+```

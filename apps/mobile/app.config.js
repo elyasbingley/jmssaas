@@ -44,6 +44,19 @@ module.exports = {
     },
     android: {
       package: "au.bingley.jmssaas",
+      // Required for push notifications to work at all - without it, the
+      // native Firebase Messaging SDK has nothing to initialize against on
+      // the device, and getExpoPushTokenAsync() throws "Default FirebaseApp
+      // is not initialized" before a token is ever requested (confirmed via
+      // adb logcat - this is a different credential than the FCM v1 service
+      // account key uploaded to EAS, which Expo's push servers use to send
+      // to FCM, not what the device itself needs to register). Download this
+      // file from Firebase Console -> Project Settings -> General -> Your
+      // apps -> the au.bingley.jmssaas Android app -> google-services.json,
+      // and place it at apps/mobile/google-services.json (gitignored, not
+      // committed - same convention as .env). See docs/SETUP.md's
+      // "Notifications" section.
+      googleServicesFile: "./google-services.json",
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/android-icon-foreground.png",
