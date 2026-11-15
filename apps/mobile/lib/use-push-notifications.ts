@@ -60,19 +60,13 @@ async function registerPushToken(tenantId: string, profileId: string): Promise<v
   const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
   const platform = Platform.OS === "ios" ? "ios" : "android";
 
-  // TEMPORARY diagnostic for the 42501 RLS failure - compares what this
-  // call is about to send against what the client's own current session
-  // actually resolves to, right before the request fires. Remove once the
-  // 42501 is root-caused.
-  const { data: sessionCheck } = await supabase.auth.getSession();
-  console.log("[use-push-notifications] DEBUG", {
-    sending_tenant_id: tenantId,
-    sending_profile_id: profileId,
-    session_user_id: sessionCheck.session?.user.id,
-    session_exists: !!sessionCheck.session,
-    access_token_present: !!sessionCheck.session?.access_token,
-  });
-
+  // Upserting by token (onConflict: "token") compiles to INSERT ... ON
+  // CONFLICT (token) DO UPDATE - Postgres needs a SELECT policy on this
+  // table to arbitrate that conflict check under RLS (see the
+  // push_tokens_select_policy migration's own comment for the full
+  // diagnosis - this failed with a bare "RLS policy violation" for
+  // months with no select policy at all, even though the insert policy
+  // and the row data were both completely correct).
   const { error } = await supabase
     .from("push_tokens")
     .upsert({ tenant_id: tenantId, profile_id: profileId, token, platform }, { onConflict: "token" });

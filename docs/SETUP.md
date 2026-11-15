@@ -10377,3 +10377,63 @@ git pull origin main
 cd apps\mobile
 npx eas-cli build --profile preview --platform android
 ```
+
+## 86. Push token registration still failing after section 85's fix - missing SELECT policy on push_tokens
+
+With `google-services.json` in place, `getExpoPushTokenAsync()` started
+succeeding, but every attempt to save the resulting token still failed:
+`push_tokens` stayed empty, Postgres Logs showed `42501: new row
+violates row-level security policy for table "push_tokens"` on every
+single try.
+
+**Ruled out everything the error message points at, one at a time,
+confirmed live against the real project rather than assumed**: the
+client was sending the exact right `tenant_id`/`profile_id` (verified
+with a temporary diagnostic log - `profile_id` matched the session's own
+user id exactly, with a live access token present); the row in
+`profiles` had a valid non-null `tenant_id` matching `auth.uid()`; the
+`push_tokens: insert own` policy's `with_check` text, read straight from
+`pg_policies`, was exactly `(profile_id = auth.uid()) AND (tenant_id =
+current_tenant_id())`; and simulating that exact user's JWT directly in
+SQL (`set_config('request.jwt.claims', ...)` + `set local role
+authenticated`) showed `current_tenant_id()` correctly resolving to
+their real tenant. Every individual piece was correct, and it still
+failed - which is what pointed at something structural rather than a
+data/config mistake.
+
+**Root cause, found by reading the actual query PostgREST generates**
+(API Logs showed the real SQL): `use-push-notifications.ts` upserts by
+token - `.upsert({...}, { onConflict: "token" })` - which Postgres
+compiles to `INSERT ... ON CONFLICT ("token") DO UPDATE ...`. To
+arbitrate that `ON CONFLICT` clause (deciding whether a row with this
+token already exists), Postgres needs the executing role to have
+**SELECT** visibility into the table under RLS - this is documented
+Postgres behavior, not a bug in the INSERT policy itself. The original
+notifications migration deliberately added no SELECT policy at all
+("nothing reads this table back client-side"), which is true for the
+*app*, but Postgres itself still needs it internally for `ON CONFLICT`
+to work - so every upsert failed this way regardless of how correct the
+row data and the INSERT policy were.
+
+**Fixed** in `20261115000100_push_tokens_select_policy.sql`: adds
+`push_tokens: select own` (`using (profile_id = auth.uid())`), scoped
+the same way as the existing update/delete policies - a device can only
+see its own previously-registered token rows, which is harmless to
+expose and doesn't change `send-notification`'s own access at all
+(service-role already bypasses RLS entirely). Also removed the
+temporary diagnostic `console.log` added to `use-push-notifications.ts`
+while tracking this down.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
+
+No native rebuild needed this time - only the migration and a plain JS
+change (removing the diagnostic log), so an OTA update is enough once
+the earlier `google-services.json` build from section 85 is already
+installed.

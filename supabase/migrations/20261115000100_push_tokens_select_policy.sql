@@ -1,0 +1,21 @@
+-- Fixes "new row violates row-level security policy for table
+-- push_tokens" on every single push token registration attempt - the
+-- original notifications migration deliberately left push_tokens with no
+-- SELECT policy ("nothing reads this table back client-side"), but
+-- apps/mobile/lib/use-push-notifications.ts upserts by token
+-- (`.upsert(..., { onConflict: "token" })`), which Postgres compiles to
+-- `INSERT ... ON CONFLICT (token) DO UPDATE`. To arbitrate that ON
+-- CONFLICT clause - deciding whether a conflicting row already exists -
+-- Postgres needs SELECT-policy visibility into the table under RLS; with
+-- none at all, every upsert fails this way regardless of how correct the
+-- INSERT policy and the row data are (confirmed by hand: the exact same
+-- profile_id/tenant_id pair that Postgres itself resolves them to was
+-- sent in the failing request, and the INSERT policy passed when
+-- simulated directly - the only thing missing was this SELECT policy).
+--
+-- Scoped to a user's own rows, same as the existing update/delete
+-- policies - harmless to expose (a device just sees its own previously-
+-- registered push token rows), and doesn't change send-notification's own
+-- access at all (service-role bypasses RLS entirely already).
+create policy "push_tokens: select own" on public.push_tokens
+  for select using (profile_id = auth.uid());
