@@ -48,6 +48,44 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, content-type",
 };
 
+const SEND_NOTIFICATION_URL = `${SUPABASE_URL}/functions/v1/send-notification`;
+
+// Best-effort, same pattern as the inbound-message webhooks' own
+// notifyNewMessage - "quote acceptances" was on section 68's own
+// originally-scoped notification roadmap but never wired up. Looked up
+// separately here via the admin client, rather than returned from the
+// accept_*_by_token RPCs, to avoid touching those RPCs' return shape -
+// the approval page itself only ever reads `data.error` from a
+// successful accept, nothing else, so this stays fully additive.
+async function notifyDocumentAccepted(docType: DocType, token: string, acceptedByName: string): Promise<void> {
+  if (docType !== "quote" && docType !== "invoice") return;
+  if (!SUPABASE_SERVICE_ROLE_KEY) return;
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const table = docType === "quote" ? "quotes" : "invoices";
+  const numberColumn = docType === "quote" ? "quote_number" : "invoice_number";
+  const { data: doc } = await admin.from(table).select(`id, tenant_id, ${numberColumn}, clients(name)`).eq("access_token", token).maybeSingle();
+  if (!doc) return;
+  const docNumber = (doc as Record<string, unknown>)[numberColumn];
+  const clientName = (doc as any).clients?.name as string | undefined;
+  const label = docType === "quote" ? "Quote" : "Invoice";
+  try {
+    const res = await fetch(SEND_NOTIFICATION_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: doc.tenant_id,
+        type: `${docType}_accepted`,
+        title: `${label} accepted`,
+        body: `${acceptedByName || clientName || "A client"} accepted ${label} #${docNumber}`,
+        data: { [`${docType}_id`]: doc.id },
+      }),
+    });
+    if (!res.ok) console.error("[approve] send-notification call failed", res.status, await res.text());
+  } catch (e) {
+    console.error("[approve] send-notification call threw", e);
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -178,6 +216,7 @@ Deno.serve(async (req: Request) => {
       }
       const { data, error } = await supabase.rpc(`accept_${rpcPrefix}_by_token`, rpcParams);
       if (error) return json({ error: "server_error" }, 500);
+      if (!data?.error) await notifyDocumentAccepted(rpcPrefix, token, name ?? "");
       return json(data);
     }
     if (action === "decline") {

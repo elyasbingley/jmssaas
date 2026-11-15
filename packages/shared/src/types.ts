@@ -2449,18 +2449,26 @@ export interface NoteAttachment {
 // Supabase-direct/polled rather than PowerSync-synced.
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "channel_message" | "inbox_message";
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "invoice_accepted";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
-// NotificationType as the rest of the roadmap (quote_accepted, task_due,
-// job_booking_reminder, stale_job) gets built.
+// NotificationType as the rest of the roadmap (task_due, job_booking_
+// reminder, stale_job) gets built.
 export interface ChannelMessageNotificationData {
   conversation_id: string;
 }
 
 export interface InboxMessageNotificationData {
   message_id: string;
+}
+
+export interface QuoteAcceptedNotificationData {
+  quote_id: string;
+}
+
+export interface InvoiceAcceptedNotificationData {
+  invoice_id: string;
 }
 
 interface NotificationBase {
@@ -2475,7 +2483,9 @@ interface NotificationBase {
 
 export type Notification =
   | (NotificationBase & { type: "channel_message"; data: ChannelMessageNotificationData })
-  | (NotificationBase & { type: "inbox_message"; data: InboxMessageNotificationData });
+  | (NotificationBase & { type: "inbox_message"; data: InboxMessageNotificationData })
+  | (NotificationBase & { type: "quote_accepted"; data: QuoteAcceptedNotificationData })
+  | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData });
 
 export interface PushToken {
   id: string;

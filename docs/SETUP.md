@@ -10479,3 +10479,51 @@ npx supabase functions deploy resend-inbound-webhook --no-verify-jwt
 cd apps\mobile
 npx eas-cli update --channel preview --platform android
 ```
+
+## 88. Push notifications for a client accepting a quote/invoice online
+
+Another one off section 68's original roadmap: "quote acceptances".
+`supabase/functions/approve/index.ts` (the public approval page's JSON
+API) now calls `send-notification` right after a successful
+`accept_quote_by_token`/`accept_invoice_by_token`, same best-effort
+pattern as every other notification call site in this app.
+
+The accept RPCs themselves only ever returned `{ ok: true }` (or an
+`{ error }`) - no quote/invoice id, number, tenant, or client name to
+build a notification from, and changing their return shape felt like
+unnecessary risk to SQL that's already relied on elsewhere (see sections
+83/86 for two different bugs this session already found from a later
+migration silently changing a function's returned/applied shape).
+Instead, `notifyDocumentAccepted` does its own lookup via the admin
+client, keyed by the same `token` the request already has, to fetch
+`id`/`tenant_id`/the number column/the client's name - entirely
+additive, the RPCs and the approval page's own handling of a successful
+accept are both untouched.
+
+Title is "Quote accepted"/"Invoice accepted"; body is
+`{accepted_by_name or the client's name on file} accepted {Quote/
+Invoice} #{number}`. New `quote_accepted`/`invoice_accepted`
+notification types, same discriminated-union extension as section 87's
+`inbox_message` - `packages/shared/src/types.ts` gained
+`QuoteAcceptedNotificationData`/`InvoiceAcceptedNotificationData`
+(`{quote_id}`/`{invoice_id}`), and the mobile Notifications tab routes a
+tap on either straight to `/sales/quotes/{id}` or
+`/sales/invoices/{id}`.
+
+**Deliberately only "accepted", not "declined"** - not asked for, and
+easy to add the same way later if wanted (the same lookup, a `decline_
+*_by_token` call site instead of `accept_*_by_token`, and a third/fourth
+notification type).
+
+No schema change, no migration - `notifications.type`/`data` take any
+text/jsonb value, so this is purely the Edge Function plus the two
+TypeScript call sites.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase functions deploy approve --no-verify-jwt
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```
