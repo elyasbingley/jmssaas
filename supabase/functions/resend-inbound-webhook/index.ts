@@ -41,6 +41,31 @@ const RESEND_INBOUND_WEBHOOK_SECRET = Deno.env.get("RESEND_INBOUND_WEBHOOK_SECRE
 // (process-scheduled-comms) - project secrets are shared across all Edge
 // Functions, so no new `supabase secrets set` is needed for this.
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const SEND_NOTIFICATION_URL = `${SUPABASE_URL}/functions/v1/send-notification`;
+
+// Same pattern as twilio-sms-webhook/twilio-whatsapp-webhook/facebook-
+// messenger-webhook's own notifyNewMessage - notifies every profile in
+// the tenant (no "assigned to me" concept for an inbound email either).
+// Best-effort: a failure here is logged, never fails the webhook over a
+// notification problem once the email itself is already safely stored.
+async function notifyNewInboxMessage(tenantId: string, messageId: string, fromDisplay: string, subject: string | null): Promise<void> {
+  try {
+    const res = await fetch(SEND_NOTIFICATION_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        type: "inbox_message",
+        title: "New email",
+        body: subject ? `${fromDisplay}: ${subject}` : fromDisplay,
+        data: { message_id: messageId },
+      }),
+    });
+    if (!res.ok) console.error("[resend-inbound-webhook] send-notification call failed", res.status, await res.text());
+  } catch (e) {
+    console.error("[resend-inbound-webhook] send-notification call threw", e);
+  }
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -301,6 +326,8 @@ Deno.serve(async (req: Request) => {
     console.error("[resend-inbound-webhook] Failed to insert message", messageError);
     return json({ error: "server_error" }, 500);
   }
+
+  await notifyNewInboxMessage(tenant.id, message.id, email.fromName ?? email.fromEmail, email.subject);
 
   for (const attachment of email.attachments) {
     const content = full?.attachmentContentById[attachment.id];

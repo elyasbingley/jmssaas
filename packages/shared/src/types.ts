@@ -2449,7 +2449,7 @@ export interface NoteAttachment {
 // Supabase-direct/polled rather than PowerSync-synced.
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "channel_message";
+export type NotificationType = "channel_message" | "inbox_message";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2459,17 +2459,23 @@ export interface ChannelMessageNotificationData {
   conversation_id: string;
 }
 
-export interface Notification {
+export interface InboxMessageNotificationData {
+  message_id: string;
+}
+
+interface NotificationBase {
   id: string;
   tenant_id: string;
   profile_id: string;
-  type: NotificationType;
   title: string;
   body: string;
-  data: ChannelMessageNotificationData;
   read_at: string | null;
   created_at: string;
 }
+
+export type Notification =
+  | (NotificationBase & { type: "channel_message"; data: ChannelMessageNotificationData })
+  | (NotificationBase & { type: "inbox_message"; data: InboxMessageNotificationData });
 
 export interface PushToken {
   id: string;

@@ -10437,3 +10437,45 @@ No native rebuild needed this time - only the migration and a plain JS
 change (removing the diagnostic log), so an OTA update is enough once
 the earlier `google-services.json` build from section 85 is already
 installed.
+
+## 87. Push notifications for new inbound emails (Inbox)
+
+Now that push notifications actually work end-to-end (sections 68/85/86),
+wired up the one channel that was never connected to them: Inbox
+(`resend-inbound-webhook` - a tenant's own generated email address,
+receiving a client's email as an `inbox_messages` row). Section 68's
+intro originally scoped this in as "Channels messages/emails" together,
+but only the Channels half (SMS/WhatsApp/Messenger) ever actually called
+`send-notification` - Inbox's own webhook never did.
+
+Same pattern as the three Channels webhooks' own `notifyNewMessage`:
+`resend-inbound-webhook` now calls `send-notification` right after
+successfully storing the inbound email (best-effort - a notification
+failure never fails the webhook response Resend is waiting on, same as
+every other notification call site). Title is a plain "New email";
+body is `{sender}: {subject}` when there's a subject, just the sender
+otherwise.
+
+New `inbox_message` notification type added alongside the existing
+`channel_message` one - `packages/shared/src/types.ts`'s `Notification`
+is now a real discriminated union on `type` (it was a single fixed
+`data` shape before, since only one type existed; the file's own
+comment already said to extend it this way for each new type). The
+mobile Notifications tab's tap-routing
+(`app/(tabs)/notifications/index.tsx`) sends an `inbox_message`
+notification to `/inbox/{message_id}` - the existing Inbox detail
+screen, same as `channel_message` already routes to `/channels/
+{conversation_id}`.
+
+No schema change - `notifications.type`/`data` are plain
+text/jsonb columns with no check constraint, so a new type needed no
+migration, just the Edge Function and the two TypeScript call sites.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase functions deploy resend-inbound-webhook --no-verify-jwt
+cd apps\mobile
+npx eas-cli update --channel preview --platform android
+```

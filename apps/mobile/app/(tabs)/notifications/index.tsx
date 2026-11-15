@@ -15,6 +15,7 @@ import { Panel } from "../../../components/theme/Panel";
 // ask), this is what routes on from here to the actual thing.
 function routeForNotification(n: Notification): string | null {
   if (n.type === "channel_message") return `/channels/${n.data.conversation_id}`;
+  if (n.type === "inbox_message") return `/inbox/${n.data.message_id}`;
   return null;
 }
 
