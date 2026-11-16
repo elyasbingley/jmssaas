@@ -10954,3 +10954,116 @@ reason and the Price Book link end to end. Mobile was typechecked only.
   ex-GST line totals.
 - The FY target is one number for the current financial year; it isn't
   stored per year.
+
+## 92. Timesheets
+
+Time is recorded on phones and reviewed on desktop.
+
+### What gets recorded
+
+- A **shift**: clock on to clock off (`timesheet_shifts`).
+- **Activities** inside it (`timesheet_activities`): time on a job, travel,
+  break, admin/yard.
+- **Paid hours** are the shift less its breaks. Shift time with no activity
+  running is "not logged to anything" - still paid, just unattributed.
+- One GPS reading is saved at each tap (clock on/off, start/stop), when the
+  phone allows it. There is no tracking in between.
+
+### Mobile
+
+- **Home screen** has a Timesheet card: Clock on / Clock off, and Travel,
+  Break, Admin/yard buttons.
+- **Job screen** has "Start time on this job". Starting it clocks the
+  person on if they weren't and ends whatever else was running.
+- **More > My Timesheet** shows the person's own week (paid, on jobs,
+  breaks), lets them fix a time, add a shift or activity they missed, or
+  delete a mistake.
+- All of it is written to the phone's local database first
+  (`apps/mobile/lib/use-timesheet.ts`), so it works with no signal and
+  uploads later. Each device only syncs its own user's entries
+  (`own_timesheets` in `powersync/sync-rules.yaml`).
+- Only one shift and one activity run at a time. The rules for what each
+  button writes are `timerWrites` in `packages/shared/src/timesheets.ts`.
+
+### Desktop (Analytics > Timesheets)
+
+- **Activity Timesheet**: hours by activity type and by job, and every
+  entry, with Edit.
+- **All Timesheets**: every shift with paid hours, flags (over 12 hours,
+  overlapping, edited, entered manually, no location) and map links, with
+  Edit, Add shift and Add activity.
+- **Weekly Timesheets**: paid hours per person per Monday-Sunday week, and
+  Approve / Reopen. CSV export for payroll.
+- **Weekly Timesheets Graph**: hours per week, split into on-jobs and
+  other paid time.
+- **Jobs > Profitability** gains Planned hrs, Actual hrs and Actual labour
+  per job. Actual hours are costed at each person's rate from Settings >
+  Cost of Ops > Labour (link the roster row to the user), or the blended
+  rate for anyone not on the roster. The margin columns are unchanged.
+
+### Approval and the lock
+
+An admin approves one person's week once it has finished and nothing in
+it is still running. An approved week is locked until reopened. Weeks are
+Monday-Sunday in Sydney time on the server.
+
+### Why the database never rejects a phone's entry
+
+`apps/mobile/lib/connector.ts` retries a failed upload forever, so a
+single write the server refuses would stop every later change on that
+phone from syncing. The timesheet tables are therefore built so a phone's
+write always succeeds:
+
+- No constraints on times and no "one open shift" rule. Impossible or
+  overlapping times are flagged by the reports instead.
+- Activities aren't children of a shift; they belong to one by
+  overlapping it in time.
+- A change to an entry in an approved week is **skipped, not rejected**
+  (`timesheet_entry_guard`): the phone then syncs back to what the server
+  kept. The desktop editor checks the row actually changed and says so if
+  it didn't.
+- A brand new entry arriving late into an approved week (a phone that was
+  offline for days) is kept, and the approval is removed so the week shows
+  as needing sign-off again.
+- `edited_at` / `edited_by` are stamped by that trigger when a recorded
+  time is changed afterwards. Stopping a running timer is not an edit.
+
+### Deploying
+
+1. `npx supabase db push` (migration `20261116000400_timesheets.sql`).
+2. **PowerSync dashboard > Sync Rules**: paste the updated
+   `powersync/sync-rules.yaml` and deploy. Without this, phones record
+   time locally but it never reaches the server.
+3. If your PowerSync publication lists tables individually rather than
+   `FOR ALL TABLES`, the migration adds the three new tables to it.
+4. Desktop deploys from `main` as usual.
+5. Phones need a new build, since the local database schema changed:
+   `cd apps/mobile && npx eas-cli build --profile preview --platform android`,
+   then install the new `.apk` (section 42).
+
+### How this was verified
+
+- Database: 23 checks on a local Postgres with every migration applied -
+  own-entries-only access, admin access, another company seeing nothing,
+  approval rules, the lock skipping without error, late inserts reopening
+  a week, edit stamping.
+- Calculations: 10 unit tests (`packages/shared/test/timesheets.test.mjs`).
+- Desktop: all four reports and Profitability in a headless browser with
+  row-level security on - weekly hours against direct SQL, approve, lock,
+  edit, add, delete, reopen, and job costing at the roster rate.
+- **Mobile was typechecked only.** It can't be run from a cloud session,
+  and Expo's documentation site wasn't reachable, so the location and
+  offline-database calls were checked against the installed packages'
+  own type definitions instead. Nothing on the phone has been tapped.
+
+### Known gaps
+
+- A shift counts on the day it started; one running past midnight isn't
+  split.
+- No reminder or automatic clock-off for a forgotten shift. It is flagged
+  on the Home card, in My Timesheet and in All Timesheets.
+- No overtime calculation - weekly totals only.
+- Timers are mobile only; desktop can add and correct entries but has no
+  clock-on button.
+- If a job is deleted, time logged on it is kept but shows as "Deleted
+  job".

@@ -54,6 +54,7 @@ import {
 } from "./pages/analytics/RevenueReports";
 import { FeedbackByMonthPage, FeedbackRecentPage, LeadSourcesPage } from "./pages/analytics/FeedbackLeadsReports";
 import { CostOfOpsCoveragePage, JobProfitabilityPage } from "./pages/analytics/ProfitabilityReports";
+import { ActivityTimesheetPage, AllTimesheetsPage, WeeklyTimesheetsGraphPage, WeeklyTimesheetsPage } from "./pages/analytics/TimesheetReports";
 import TasksPage from "./pages/Tasks";
 import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
@@ -156,6 +157,10 @@ export default function App() {
                   <Route path="feedback/month" element={<FeedbackByMonthPage />} />
                   <Route path="feedback/recent" element={<FeedbackRecentPage />} />
                   <Route path="leads" element={<LeadSourcesPage />} />
+                  <Route path="timesheets/activity" element={<ActivityTimesheetPage />} />
+                  <Route path="timesheets/all" element={<AllTimesheetsPage />} />
+                  <Route path="timesheets/weekly" element={<WeeklyTimesheetsPage />} />
+                  <Route path="timesheets/graph" element={<WeeklyTimesheetsGraphPage />} />
                   <Route path="*" element={<Navigate to="/analytics" replace />} />
                 </Route>
                 <Route path="/inventory" element={<InventoryPage />} />

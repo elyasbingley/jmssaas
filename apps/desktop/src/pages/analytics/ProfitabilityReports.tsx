@@ -7,7 +7,9 @@ import {
   calculateLabour,
   calculateOperatingExpenses,
   formatCentsAsAud,
+  jobActuals,
   lineItemLabourCostCents,
+  lineItemLabourHours,
   lineItemMaterialCostCents,
   lineItemSubcontractorCostCents,
   type Client,
@@ -19,6 +21,7 @@ import {
   type LineItemMaterialInput,
   type OperatingExpense,
   type QuoteLineItem,
+  type TimesheetActivity,
 } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { fetchAllRows, useAnalytics } from "./data";
@@ -69,7 +72,7 @@ function groupById<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
 }
 
 async function fetchCostingRows() {
-  const [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, quoteCrew, quoteMaterials, invoiceCrew, invoiceMaterials, costOfOpsSettings, labourCostEntries, operatingExpenses] =
+  const [jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, quoteCrew, quoteMaterials, invoiceCrew, invoiceMaterials, costOfOpsSettings, labourCostEntries, operatingExpenses, timesheetActivities] =
     await Promise.all([
       fetchAllRows<JobCardRow>("job_cards", "*, clients(*)"),
       fetchAllRows<QuoteRow>("quotes", "id, job_card_id, quote_number, status, total_cents, issue_date"),
@@ -83,8 +86,9 @@ async function fetchCostingRows() {
       fetchCostOfOpsSettings(),
       fetchAllRows<LabourCostEntry>("labour_cost_entries", "*"),
       fetchAllRows<OperatingExpense>("operating_expenses", "*"),
+      fetchAllRows<TimesheetActivity>("timesheet_activities", "*", (query) => query.eq("activity_type", "job")),
     ]);
-  return { jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, quoteCrew, quoteMaterials, invoiceCrew, invoiceMaterials, costOfOpsSettings, labourCostEntries, operatingExpenses };
+  return { jobCards, quotes, invoices, quoteLineItems, invoiceLineItems, quoteCrew, quoteMaterials, invoiceCrew, invoiceMaterials, costOfOpsSettings, labourCostEntries, operatingExpenses, timesheetActivities };
 }
 
 function useCostingData() {
@@ -149,7 +153,22 @@ function useCostingData() {
     return map;
   }, [invoiceLineItems, invoiceLineItemCrew, invoiceLineItemMaterials]);
 
-  return { jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, costOfOperations, isLoading: !data, error };
+  // Time actually logged against each job (every 'job' timesheet activity,
+  // not just this timeframe's - a job's hours belong to the job), costed
+  // at each person's own hourly cost from the Cost of Ops labour roster.
+  // Someone who isn't on the roster is costed at the blended rate.
+  const timesheetActivities = data?.timesheetActivities;
+  const actualsByJob = useMemo(() => {
+    const rates = new Map<string, number>();
+    if (costOfOpsSettings && labourCostEntries) {
+      for (const result of calculateLabour(labourCostEntries, costOfOpsSettings).entries) {
+        if (result.entry.profile_id && result.costPerHourCents > 0) rates.set(result.entry.profile_id, result.costPerHourCents);
+      }
+    }
+    return jobActuals(timesheetActivities ?? [], rates, trueLabourRateCents, new Date().toISOString());
+  }, [timesheetActivities, costOfOpsSettings, labourCostEntries, trueLabourRateCents]);
+
+  return { jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, costOfOperations, actualsByJob, isLoading: !data, error };
 }
 
 function LoadState({ error }: { error: unknown }) {
@@ -248,6 +267,10 @@ interface JobProfitRow {
   chargedCents: number;
   marginCents: number;
   marginPercent: number;
+  // Labour hours the job was priced on, and what the timesheets say it took.
+  plannedHours: number;
+  actualMinutes: number;
+  actualLabourCents: number;
 }
 
 export function CostOfOpsCoveragePage() {
@@ -429,7 +452,7 @@ export function CostOfOpsCoveragePage() {
 
 export function JobProfitabilityPage() {
   const { range, compare: prevRange } = useAnalytics();
-  const { jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, isLoading, error } = useCostingData();
+  const { jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, actualsByJob, isLoading, error } = useCostingData();
   const [jobSearch, setJobSearch] = useState("");
   const [jobSortKey, setJobSortKey] = useState<"margin_percent" | "margin" | "charged" | "job_number">("margin_percent");
   const [jobPageSize, setJobPageSize] = useState(30);
@@ -470,10 +493,29 @@ export function JobProfitabilityPage() {
       const marginCents = chargedCents - (labourCents + materialCents + subcontractorCents);
       const marginPercent = chargedCents > 0 ? (marginCents / chargedCents) * 100 : 0;
 
-      result.push({ job, labourCents, materialCents, subcontractorCents, chargedCents, marginCents, marginPercent });
+      // Planned hours come from one document, not both: the invoice(s) if
+      // the job has been invoiced, otherwise the quote(s). Summing both
+      // (as the cost columns do, see the note above) would double the
+      // plan for any quote that became an invoice.
+      const planItems = jobInvoices.length > 0 ? jobInvoices.flatMap((inv) => invoiceLineItemsByInvoice.get(inv.id) ?? []) : jobQuotes.flatMap((q) => quoteLineItemsByQuote.get(q.id) ?? []);
+      const plannedHours = planItems.reduce((sum, item) => sum + lineItemLabourHours(item), 0);
+      const actual = actualsByJob.get(job.id);
+
+      result.push({
+        job,
+        labourCents,
+        materialCents,
+        subcontractorCents,
+        chargedCents,
+        marginCents,
+        marginPercent,
+        plannedHours,
+        actualMinutes: actual?.minutes ?? 0,
+        actualLabourCents: actual?.costCents ?? 0,
+      });
     }
     return result;
-  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, range.from, range.to]);
+  }, [jobCards, quotes, invoices, quoteLineItemsByQuote, invoiceLineItemsByInvoice, trueLabourRateCents, actualsByJob, range.from, range.to]);
 
   const filteredJobRows = jobProfitRows.filter((r) => {
     const q = jobSearch.trim().toLowerCase();
@@ -540,12 +582,12 @@ export function JobProfitabilityPage() {
   const exportJobProfitCsv = () => {
     downloadCsv(
       `job-profitability-${range.from}-to-${range.to}.csv`,
-      "Job Number,Job Title,Client,Labour ($),Material ($),Subcontractor ($),Charged ($),Margin ($),Margin (%)",
+      "Job Number,Job Title,Client,Labour ($),Material ($),Subcontractor ($),Charged ($),Margin ($),Margin (%),Planned hrs,Actual hrs,Actual labour ($)",
       sortedJobRows.map(
         (r) =>
           `${csvCell(r.job.number ?? "Pending")},${csvCell(r.job.title)},${csvCell(r.job.clients?.name ?? "Unknown")},${(
             r.labourCents / 100
-          ).toFixed(2)},${(r.materialCents / 100).toFixed(2)},${(r.subcontractorCents / 100).toFixed(2)},${(r.chargedCents / 100).toFixed(2)},${(r.marginCents / 100).toFixed(2)},${r.marginPercent.toFixed(1)}`
+          ).toFixed(2)},${(r.materialCents / 100).toFixed(2)},${(r.subcontractorCents / 100).toFixed(2)},${(r.chargedCents / 100).toFixed(2)},${(r.marginCents / 100).toFixed(2)},${r.marginPercent.toFixed(1)},${r.plannedHours.toFixed(2)},${(r.actualMinutes / 60).toFixed(2)},${(r.actualLabourCents / 100).toFixed(2)}`
       )
     );
   };
@@ -612,7 +654,7 @@ export function JobProfitabilityPage() {
             No jobs with a linked quote or invoice in this range.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg" style={{ border: "1px solid var(--jms-border)" }}>
+          <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--jms-border)" }}>
             <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
               <thead className="uppercase" style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
                 <tr>
@@ -624,6 +666,9 @@ export function JobProfitabilityPage() {
                   <th className="px-4 py-2 text-right font-semibold">Charged</th>
                   <th className="px-4 py-2 text-right font-semibold">Margin</th>
                   <th className="px-4 py-2 text-right font-semibold">Margin %</th>
+                  <th className="px-4 py-2 text-right font-semibold">Planned hrs</th>
+                  <th className="px-4 py-2 text-right font-semibold">Actual hrs</th>
+                  <th className="px-4 py-2 text-right font-semibold">Actual labour</th>
                 </tr>
               </thead>
               <tbody>
@@ -654,6 +699,18 @@ export function JobProfitabilityPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-semibold" style={{ color: row.marginPercent < 0 ? "var(--jms-danger)" : "var(--jms-text)" }}>
                       {row.marginPercent.toFixed(1)}%
+                    </td>
+                    <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                      {row.plannedHours > 0 ? row.plannedHours.toFixed(1) : "-"}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right"
+                      style={{ color: row.actualMinutes > 0 && row.plannedHours > 0 && row.actualMinutes / 60 > row.plannedHours ? "var(--jms-danger)" : "var(--jms-text)" }}
+                    >
+                      {row.actualMinutes > 0 ? (row.actualMinutes / 60).toFixed(1) : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>
+                      {row.actualMinutes > 0 ? formatCentsAsAud(row.actualLabourCents) : "-"}
                     </td>
                   </tr>
                 ))}
@@ -714,7 +771,7 @@ export function JobProfitabilityPage() {
           {trueLabourRateCents > 0
             ? `A legacy (non-itemised) line is costed at ${formatCentsAsAud(trueLabourRateCents)}/hr (the blended true cost from Settings > Cost of Ops > Labour), not whatever rate it was priced at.`
             : "A legacy (non-itemised) line is costed at its own quoted rate - set up a roster in Settings > Cost of Ops > Labour to cost it against your real labour cost instead."}{" "}
-          An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above.
+          An itemised line is always costed from its own crew/labour cost rate and materials, regardless of the above. Planned hrs is the labour the job was priced on (its invoice, or its quote if not yet invoiced). Actual hrs is all time logged against the job on timesheets, shown in red when it ran over the plan, and Actual labour costs those hours at each person's rate from the labour roster (the blended rate for anyone not on it). The margin columns still use the planned labour cost, not the actual.
         </p>
       </div>
     </>

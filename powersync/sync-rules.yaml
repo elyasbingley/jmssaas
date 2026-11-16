@@ -239,3 +239,15 @@ bucket_definitions:
       - select * from tasks where assigned_to = bucket.user_id
       - select * from task_notes where assigned_to = bucket.user_id
       - select * from task_files where assigned_to = bucket.user_id
+
+  # Timesheets (timesheets migration): each person's own shifts, activities
+  # and week approvals, admins included - time is recorded on the phone and
+  # reviewed on desktop (Analytics > Timesheets), so no device needs anyone
+  # else's entries. Approvals are synced so the app can show a week as
+  # locked without being online.
+  own_timesheets:
+    parameters: select request.user_id() as user_id
+    data:
+      - select * from timesheet_shifts where profile_id = bucket.user_id
+      - select * from timesheet_activities where profile_id = bucket.user_id
+      - select * from timesheet_week_approvals where profile_id = bucket.user_id

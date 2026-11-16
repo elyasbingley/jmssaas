@@ -74,6 +74,7 @@ import { QuadrantBadge } from "../../../components/theme/QuadrantBadge";
 import { QuadrantToggleRow } from "../../../components/theme/QuadrantToggleRow";
 import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunicationLog";
 import { JobActionsBar } from "../../../components/theme/JobActionsBar";
+import { JobTimerButton } from "../../../components/JobTimerButton";
 import { JobActionsSheet } from "../../../components/theme/JobActionsSheet";
 import { MultiCaptureCamera } from "../../../components/MultiCaptureCamera";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
@@ -1260,6 +1261,8 @@ export default function JobDetailScreen() {
             <Text style={styles.clientCardName}>{client.name}</Text>
           </Pressable>
         ) : null}
+        <JobTimerButton jobCardId={job.id} />
+
         {client && formatClientAddress(client) ? (
           <Pressable style={styles.clientCard} onPress={() => openInMaps(formatClientAddress(client) as string)}>
             <Text style={styles.clientCardName}>📍 {formatClientAddress(client)}</Text>

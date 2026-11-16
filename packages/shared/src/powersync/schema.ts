@@ -769,6 +769,48 @@ const note_attachments = new Table(
   { indexes: { tenant: ["tenant_id"], note: ["note_id"] } }
 );
 
+// Timesheets (see the timesheets migration). Synced per person - a device
+// only ever holds its own user's entries (the own_timesheets bucket), since
+// the mobile app is where time is recorded, not where it is reviewed.
+// Written offline: clock on/off and start/stop taps must work with no
+// signal. edited_at/edited_by are stamped server-side and only read here.
+const timesheetEntryColumns = {
+  tenant_id: column.text,
+  profile_id: column.text,
+  started_at: column.text,
+  ended_at: column.text,
+  start_latitude: column.real,
+  start_longitude: column.real,
+  start_accuracy_m: column.real,
+  end_latitude: column.real,
+  end_longitude: column.real,
+  end_accuracy_m: column.real,
+  source: column.text,
+  note: column.text,
+  edited_at: column.text,
+  edited_by: column.text,
+  created_at: column.text,
+  updated_at: column.text,
+};
+
+const timesheet_shifts = new Table(timesheetEntryColumns, { indexes: { profile_started: ["profile_id", "started_at"] } });
+
+const timesheet_activities = new Table(
+  { ...timesheetEntryColumns, activity_type: column.text, job_card_id: column.text },
+  { indexes: { profile_started: ["profile_id", "started_at"], job: ["job_card_id"] } }
+);
+
+const timesheet_week_approvals = new Table(
+  {
+    tenant_id: column.text,
+    profile_id: column.text,
+    week_start: column.text,
+    approved_by: column.text,
+    approved_at: column.text,
+  },
+  { indexes: { profile_week: ["profile_id", "week_start"] } }
+);
+
 // Tracks local download/upload state for job_files/task_files attachments
 // (photos). See lib/attachments.ts in apps/mobile for the queue that drives
 // this - one AttachmentTable is shared by both, since PowerSync's queue is
@@ -811,6 +853,9 @@ export const AppSchema = new Schema({
   note_properties,
   note_templates,
   note_attachments,
+  timesheet_shifts,
+  timesheet_activities,
+  timesheet_week_approvals,
   attachments,
 });
 

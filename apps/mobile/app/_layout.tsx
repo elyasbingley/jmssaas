@@ -77,6 +77,7 @@ function RootNavigator() {
       <Stack.Screen name="dashboard-settings" options={{ headerShown: false }} />
       <Stack.Screen name="schedule" options={{ headerShown: false }} />
       <Stack.Screen name="team" options={{ headerShown: false }} />
+      <Stack.Screen name="timesheet" options={{ headerShown: false }} />
       <Stack.Screen name="job-setup" options={{ headerShown: false }} />
       <Stack.Screen name="inventory-setup" options={{ headerShown: false }} />
       <Stack.Screen name="automation-settings" options={{ headerShown: false }} />

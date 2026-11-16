@@ -25,6 +25,7 @@ const MODULES: MenuItem[] = [
   { href: "/automation-settings", label: "Automation & Messaging", adminOnly: true },
   { href: "/reports", label: "Forms & Certificates", adminOnly: true },
   { href: "/team", label: "Team/Staff", adminOnly: true },
+  { href: "/timesheet", label: "My Timesheet" },
   { href: "/sales/inventory", label: "Inventory" },
   { href: "/sales/price-book", label: "Price Book" },
   { href: "/sales/clients", label: "Clients" },

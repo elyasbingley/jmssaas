@@ -55,6 +55,15 @@ const NAV: { heading: string | null; items: NavItem[] }[] = [
       { to: "/analytics/feedback/recent", label: "Recent", usesRange: false },
     ],
   },
+  {
+    heading: "Timesheets",
+    items: [
+      { to: "/analytics/timesheets/activity", label: "Activity Timesheet", usesRange: true },
+      { to: "/analytics/timesheets/all", label: "All Timesheets", usesRange: true },
+      { to: "/analytics/timesheets/weekly", label: "Weekly Timesheets", usesRange: true },
+      { to: "/analytics/timesheets/graph", label: "Weekly Timesheets Graph", usesRange: true },
+    ],
+  },
   { heading: "Leads", items: [{ to: "/analytics/leads", label: "Lead Sources", usesRange: true }] },
 ];
 

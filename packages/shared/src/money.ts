@@ -214,6 +214,18 @@ export function lineItemLabourCostCents(item: CostableLineItem, trueLabourRateCe
   return Math.round(item.quantity * rate * item.labour_hours);
 }
 
+// Labour hours a line was priced on, on the same basis as
+// lineItemLabourCostCents above: an itemized line's crew hours (or its
+// single labour_hours figure) are for the whole line; a legacy line's
+// labour_hours is per unit.
+export function lineItemLabourHours(item: Pick<LineItemInput, "quantity" | "pricing_model" | "labour_hours" | "crew">): number {
+  if (item.pricing_model === "itemized") {
+    const crew = item.crew ?? [];
+    return crew.length > 0 ? crew.reduce((sum, c) => sum + Number(c.hours), 0) : Number(item.labour_hours);
+  }
+  return Number(item.quantity) * Number(item.labour_hours);
+}
+
 export function lineItemMaterialCostCents(item: CostableLineItem): number {
   if (item.pricing_model === "itemized") return computeItemizedLinePricing(item).materialCostCents;
   return Math.round(item.quantity * item.material_cost_cents);

@@ -2535,3 +2535,59 @@ export interface PushToken {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Timesheets (see the timesheets migration)
+// ---------------------------------------------------------------------------
+
+export type TimesheetActivityType = "job" | "travel" | "break" | "admin";
+
+export const TIMESHEET_ACTIVITY_TYPES: TimesheetActivityType[] = ["job", "travel", "break", "admin"];
+
+export const TIMESHEET_ACTIVITY_LABELS: Record<TimesheetActivityType, string> = {
+  job: "Job",
+  travel: "Travel",
+  break: "Break",
+  admin: "Admin / yard",
+};
+
+export type TimesheetSource = "timer" | "manual";
+
+interface TimesheetEntryBase {
+  id: string;
+  tenant_id: string;
+  profile_id: string;
+  started_at: string;
+  // Null while the timer is still running.
+  ended_at: string | null;
+  start_latitude: number | null;
+  start_longitude: number | null;
+  start_accuracy_m: number | null;
+  end_latitude: number | null;
+  end_longitude: number | null;
+  end_accuracy_m: number | null;
+  source: TimesheetSource;
+  note: string | null;
+  // Stamped by the database when a recorded time is changed afterwards.
+  edited_at: string | null;
+  edited_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimesheetShift extends TimesheetEntryBase {}
+
+export interface TimesheetActivity extends TimesheetEntryBase {
+  activity_type: TimesheetActivityType;
+  job_card_id: string | null;
+}
+
+export interface TimesheetWeekApproval {
+  id: string;
+  tenant_id: string;
+  profile_id: string;
+  // The Monday the approved week starts on.
+  week_start: string;
+  approved_by: string | null;
+  approved_at: string;
+}

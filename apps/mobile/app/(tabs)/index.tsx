@@ -18,6 +18,7 @@ import { useRefetchOnFocus, useSupabaseFetch } from "../../lib/use-supabase-fetc
 import { supabase } from "../../lib/supabase";
 import { addDays, isSameDay } from "../../lib/datetime";
 import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
+import { TimesheetCard } from "../../components/TimesheetCard";
 
 // Home tab of the new Home/Jobs/Notifications/More tab bar. Only Calendar
 // and Tasks stay as tiles here - Sales (superseded by the Jobs tab) and
@@ -142,6 +143,8 @@ export default function HomeScreen() {
               <Text style={styles.channelsButtonText}>💬</Text>
             </Pressable>
           </View>
+
+          <TimesheetCard />
 
           {anyWidgetOn ? (
             !isOnline ? (

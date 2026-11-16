@@ -6,7 +6,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "TZ=Australia/Sydney node --experimental-strip-types --no-warnings --test test/*.test.mjs"
+    "test": "TZ=Australia/Sydney node --experimental-strip-types --no-warnings --import ./test/register.mjs --test test/*.test.mjs"
   },
   "dependencies": {
     "@powersync/common": "^1.57.2",
