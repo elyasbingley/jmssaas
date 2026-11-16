@@ -10787,13 +10787,17 @@ works.
   `job_cards` row (and separate "Enquiry" lead) for every single ring,
   even repeat calls from the same number minutes apart, spamming the
   Jobs list. Now a new call only creates a new lead if that client has
-  no existing missed-call `job_cards` row still sitting at `status =
-  'new'` (the default every job is created with); a repeat call while
-  one's still open instead appends a "Called again at ..." note to the
-  existing job's description. Once staff actions that job (schedule it,
-  mark in progress/completed/invoiced - anything that moves `status` off
-  `new`), the next missed call starts a fresh lead again, since by then
-  it's reasonably a new enquiry. The conversation/SMS auto-reply/
+  no existing missed-call `job_cards` row still sitting at the tenant's
+  first-position lifecycle stage (the one every new job defaults to); a
+  repeat call while one's still open instead appends a "Called again at
+  ..." note to the existing job's description. Once staff moves that job
+  to any later stage, the next missed call starts a fresh lead again,
+  since by then it's reasonably a new enquiry. **The first version of
+  this check filtered on `job_cards.status = 'new'`, a column the
+  job_status_lifecycle_consolidation migration had already dropped - the
+  query errored, the error was swallowed, and every call still created
+  its own job. Fixed to compare `lifecycle_stage_id` instead, and both
+  lookups now log their error.** The conversation/SMS auto-reply/
   notification still happen on every call regardless - only the
   `job_cards` row is deduplicated.
 - **Friends/family calling also don't get a lead** - raised after the

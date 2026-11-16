@@ -150,27 +150,40 @@ async function findOrCreateMissedCallLeadSource(admin: ReturnType<typeof createC
 // 2-3 times in a row) used to each insert their own job_cards row, spamming
 // the Jobs list with duplicate "Missed call" leads for one real enquiry.
 // Now: only create a new lead if this client doesn't already have one
-// still sitting untouched (status 'new', the default every job_card is
-// created with) - once staff actions it (schedule/complete/invoice/etc,
-// anything that moves status off 'new'), the next missed call starts a
-// fresh lead again. A repeat call while one's still open just appends a
-// note to the existing job instead of creating a sibling.
+// still sitting untouched - "untouched" meaning still at the tenant's
+// first-position lifecycle stage, the one default_job_lifecycle_stage
+// puts every new job in (job_cards.status no longer exists - see the
+// job_status_lifecycle_consolidation migration). Once staff moves it to
+// any later stage, the next missed call starts a fresh lead again. A
+// repeat call while one's still open just appends a note to the existing
+// job instead of creating a sibling.
 async function findOpenMissedCallJob(
   admin: ReturnType<typeof createClient>,
   tenantId: string,
   clientId: string,
   leadSourceId: string
 ): Promise<{ id: string; description: string | null } | null> {
-  const { data } = await admin
+  const { data: firstStage, error: stageError } = await admin
+    .from("job_lifecycle_stages")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (stageError) console.error("[twilio-voice-webhook] Failed to look up first lifecycle stage", stageError);
+  if (!firstStage) return null;
+
+  const { data, error } = await admin
     .from("job_cards")
     .select("id, description")
     .eq("tenant_id", tenantId)
     .eq("client_id", clientId)
     .eq("lead_source_id", leadSourceId)
-    .eq("status", "new")
+    .eq("lifecycle_stage_id", firstStage.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) console.error("[twilio-voice-webhook] Failed to look up open missed-call lead", error);
   return data ?? null;
 }
 
