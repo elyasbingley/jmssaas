@@ -234,7 +234,9 @@ bucket_definitions:
       - select * from notes where tenant_id = bucket.tenant_id and visibility = 'tenant' and is_deleted = false
       - select * from note_links where tenant_id = bucket.tenant_id
       - select * from note_tags where tenant_id = bucket.tenant_id
-      - select * from note_tag_assignments where tenant_id = bucket.tenant_id
+      # note_tag_assignments has no id column (its key is note_id + tag_id),
+      # and PowerSync needs every synced row to have one - so build it.
+      - select note_id || '.' || tag_id as id, tenant_id, note_id, tag_id from note_tag_assignments where tenant_id = bucket.tenant_id
       - select * from note_properties where tenant_id = bucket.tenant_id
       - select * from note_templates where tenant_id = bucket.tenant_id
       - select * from note_attachments where tenant_id = bucket.tenant_id
