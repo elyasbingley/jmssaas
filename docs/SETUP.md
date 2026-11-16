@@ -10782,12 +10782,20 @@ works.
   (`transcribe="true"` on `<Record>`), deliberately left off for now -
   Twilio's built-in transcription quality is mixed, worth revisiting
   with a dedicated service if it matters later.
-- **Every missed call logs its own lead**, including a repeat caller
-  calling multiple times without leaving a message - this was asked for
-  literally ("log each missed call as a lead"), not deduplicated by
-  caller. Easy to change (skip the `job_cards` insert if one already
-  exists for that client within some recent window) if this turns out
-  noisy in practice.
+- **Missed-call leads are deduplicated per client while one's still
+  open** - fixed after the first live test produced a separate
+  `job_cards` row (and separate "Enquiry" lead) for every single ring,
+  even repeat calls from the same number minutes apart, spamming the
+  Jobs list. Now a new call only creates a new lead if that client has
+  no existing missed-call `job_cards` row still sitting at `status =
+  'new'` (the default every job is created with); a repeat call while
+  one's still open instead appends a "Called again at ..." note to the
+  existing job's description. Once staff actions that job (schedule it,
+  mark in progress/completed/invoiced - anything that moves `status` off
+  `new`), the next missed call starts a fresh lead again, since by then
+  it's reasonably a new enquiry. The conversation/SMS auto-reply/
+  notification still happen on every call regardless - only the
+  `job_cards` row is deduplicated.
 - **No reply-from-within-the-thread** for a `missed_call` conversation -
   `channel-send-message` only sends for `sms`/`whatsapp`/`messenger`
   channel types, so an admin wanting to text this caller again does it

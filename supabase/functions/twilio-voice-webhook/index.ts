@@ -146,6 +146,34 @@ async function findOrCreateMissedCallLeadSource(admin: ReturnType<typeof createC
   return created.id;
 }
 
+// Repeat missed calls from the same number (common - a client calling back
+// 2-3 times in a row) used to each insert their own job_cards row, spamming
+// the Jobs list with duplicate "Missed call" leads for one real enquiry.
+// Now: only create a new lead if this client doesn't already have one
+// still sitting untouched (status 'new', the default every job_card is
+// created with) - once staff actions it (schedule/complete/invoice/etc,
+// anything that moves status off 'new'), the next missed call starts a
+// fresh lead again. A repeat call while one's still open just appends a
+// note to the existing job instead of creating a sibling.
+async function findOpenMissedCallJob(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  clientId: string,
+  leadSourceId: string
+): Promise<{ id: string; description: string | null } | null> {
+  const { data } = await admin
+    .from("job_cards")
+    .select("id, description")
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId)
+    .eq("lead_source_id", leadSourceId)
+    .eq("status", "new")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
 async function findOrCreateConversation(
   admin: ReturnType<typeof createClient>,
   tenantId: string,
@@ -190,15 +218,25 @@ async function handleIncomingCall(admin: ReturnType<typeof createClient>, params
   try {
     const clientId = await findOrCreateClient(admin, tenant.id, from);
     const leadSourceId = await findOrCreateMissedCallLeadSource(admin, tenant.id);
+    const nowDisplay = new Date().toLocaleString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-    const { error: jobError } = await admin.from("job_cards").insert({
-      tenant_id: tenant.id,
-      client_id: clientId,
-      title: `Missed call - ${new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
-      description: `Missed call from ${from}. Auto text-back sent; check Channels for any voicemail left.`,
-      lead_source_id: leadSourceId,
-    });
-    if (jobError) console.error("[twilio-voice-webhook] Failed to log missed-call lead", jobError);
+    const openJob = await findOpenMissedCallJob(admin, tenant.id, clientId, leadSourceId);
+    if (openJob) {
+      const { error: touchError } = await admin
+        .from("job_cards")
+        .update({ description: `${(openJob.description ?? "").trim()}\nCalled again at ${nowDisplay}.`.trim() })
+        .eq("id", openJob.id);
+      if (touchError) console.error("[twilio-voice-webhook] Failed to update existing missed-call lead", touchError);
+    } else {
+      const { error: jobError } = await admin.from("job_cards").insert({
+        tenant_id: tenant.id,
+        client_id: clientId,
+        title: `Missed call - ${new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
+        description: `Missed call from ${from}. Auto text-back sent; check Channels for any voicemail left.`,
+        lead_source_id: leadSourceId,
+      });
+      if (jobError) console.error("[twilio-voice-webhook] Failed to log missed-call lead", jobError);
+    }
 
     const conversation = await findOrCreateConversation(admin, tenant.id, from, clientId);
 
