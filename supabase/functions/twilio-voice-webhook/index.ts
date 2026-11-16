@@ -206,7 +206,7 @@ async function handleIncomingCall(admin: ReturnType<typeof createClient>, params
 
   const { data: tenant, error: tenantError } = await admin
     .from("tenants")
-    .select("id, name, sms_phone_number, voicemail_greeting_url, missed_call_reply_template")
+    .select("id, name, sms_phone_number, voicemail_greeting_url, missed_call_reply_template, missed_call_excluded_numbers")
     .eq("sms_phone_number", to)
     .maybeSingle();
   if (tenantError) {
@@ -215,27 +215,35 @@ async function handleIncomingCall(admin: ReturnType<typeof createClient>, params
   }
   if (!tenant) return xml("<Response><Reject/></Response>");
 
+  const isExcluded = (tenant.missed_call_excluded_numbers ?? []).includes(from);
+
   try {
     const clientId = await findOrCreateClient(admin, tenant.id, from);
-    const leadSourceId = await findOrCreateMissedCallLeadSource(admin, tenant.id);
-    const nowDisplay = new Date().toLocaleString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-    const openJob = await findOpenMissedCallJob(admin, tenant.id, clientId, leadSourceId);
-    if (openJob) {
-      const { error: touchError } = await admin
-        .from("job_cards")
-        .update({ description: `${(openJob.description ?? "").trim()}\nCalled again at ${nowDisplay}.`.trim() })
-        .eq("id", openJob.id);
-      if (touchError) console.error("[twilio-voice-webhook] Failed to update existing missed-call lead", touchError);
-    } else {
-      const { error: jobError } = await admin.from("job_cards").insert({
-        tenant_id: tenant.id,
-        client_id: clientId,
-        title: `Missed call - ${new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
-        description: `Missed call from ${from}. Auto text-back sent; check Channels for any voicemail left.`,
-        lead_source_id: leadSourceId,
-      });
-      if (jobError) console.error("[twilio-voice-webhook] Failed to log missed-call lead", jobError);
+    // Friends/family on the exclude list still get the voicemail saved
+    // and the auto-text sent below, same as anyone else - just no
+    // client+job_cards lead created for them.
+    if (!isExcluded) {
+      const leadSourceId = await findOrCreateMissedCallLeadSource(admin, tenant.id);
+      const nowDisplay = new Date().toLocaleString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+      const openJob = await findOpenMissedCallJob(admin, tenant.id, clientId, leadSourceId);
+      if (openJob) {
+        const { error: touchError } = await admin
+          .from("job_cards")
+          .update({ description: `${(openJob.description ?? "").trim()}\nCalled again at ${nowDisplay}.`.trim() })
+          .eq("id", openJob.id);
+        if (touchError) console.error("[twilio-voice-webhook] Failed to update existing missed-call lead", touchError);
+      } else {
+        const { error: jobError } = await admin.from("job_cards").insert({
+          tenant_id: tenant.id,
+          client_id: clientId,
+          title: `Missed call - ${new Date().toLocaleDateString("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
+          description: `Missed call from ${from}. Auto text-back sent; check Channels for any voicemail left.`,
+          lead_source_id: leadSourceId,
+        });
+        if (jobError) console.error("[twilio-voice-webhook] Failed to log missed-call lead", jobError);
+      }
     }
 
     const conversation = await findOrCreateConversation(admin, tenant.id, from, clientId);

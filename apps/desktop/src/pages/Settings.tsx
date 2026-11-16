@@ -113,6 +113,7 @@ export default function SettingsPage() {
   const [whatsappSaved, setWhatsappSaved] = useState(false);
   const [voicemailGreetingUrlInput, setVoicemailGreetingUrlInput] = useState("");
   const [missedCallReplyInput, setMissedCallReplyInput] = useState("");
+  const [missedCallExcludedInput, setMissedCallExcludedInput] = useState("");
   const [missedCallError, setMissedCallError] = useState<string | null>(null);
   const [missedCallSaved, setMissedCallSaved] = useState(false);
 
@@ -123,6 +124,7 @@ export default function SettingsPage() {
       setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
       setVoicemailGreetingUrlInput(tenant.voicemail_greeting_url ?? "");
       setMissedCallReplyInput(tenant.missed_call_reply_template);
+      setMissedCallExcludedInput((tenant.missed_call_excluded_numbers ?? []).join("\n"));
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -447,11 +449,16 @@ export default function SettingsPage() {
       const result = updateMissedCallSettingsSchema.safeParse({
         voicemail_greeting_url: voicemailGreetingUrlInput,
         missed_call_reply_template: missedCallReplyInput,
+        missed_call_excluded_numbers: missedCallExcludedInput,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid value");
       const { error } = await supabase
         .from("tenants")
-        .update({ voicemail_greeting_url: result.data.voicemail_greeting_url, missed_call_reply_template: result.data.missed_call_reply_template })
+        .update({
+          voicemail_greeting_url: result.data.voicemail_greeting_url,
+          missed_call_reply_template: result.data.missed_call_reply_template,
+          missed_call_excluded_numbers: result.data.missed_call_excluded_numbers,
+        })
         .eq("id", profile.tenant_id);
       if (error) throw error;
     },
@@ -753,6 +760,27 @@ export default function SettingsPage() {
           value={missedCallReplyInput}
           onChange={(e) => setMissedCallReplyInput(e.target.value)}
           rows={3}
+          className="mb-3 w-full rounded-md border px-3 py-2 focus:outline-none"
+          style={{
+            backgroundColor: "var(--jms-bg)",
+            borderColor: "var(--jms-border)",
+            color: "var(--jms-text)",
+            fontFamily: "var(--jms-font)",
+            fontSize: "var(--jms-font-body)",
+          }}
+        />
+        <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
+          Numbers to skip (friends/family)
+        </label>
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          One per line. A missed call from one of these still rings through, still gets its voicemail saved to
+          Channels, and still gets the auto-text above - it just won't create a client or job card.
+        </p>
+        <textarea
+          value={missedCallExcludedInput}
+          onChange={(e) => setMissedCallExcludedInput(e.target.value)}
+          rows={3}
+          placeholder={"0412 345 678\n0498 765 432"}
           className="mb-3 w-full rounded-md border px-3 py-2 focus:outline-none"
           style={{
             backgroundColor: "var(--jms-bg)",

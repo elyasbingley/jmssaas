@@ -89,6 +89,11 @@ export interface Tenant {
   // gets texted back something.
   voicemail_greeting_url: string | null;
   missed_call_reply_template: string;
+  // Numbers (E.164) excluded from the job_cards/client-lead treatment on a
+  // missed call - friends/family, not potential customers. The call still
+  // rings through, the voicemail still gets saved to Channels, and the
+  // auto-text still sends either way; only the job_cards insert is skipped.
+  missed_call_excluded_numbers: string[];
   // How many days out a task's due_date has to be before the Eisenhower
   // Matrix suggests (never silently applies) is_urgent - see the
   // eisenhower_matrix migration.

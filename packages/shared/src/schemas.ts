@@ -1241,6 +1241,27 @@ export const updateMissedCallSettingsSchema = z.object({
     .nullable()
     .or(z.literal("").transform(() => null)),
   missed_call_reply_template: z.string().trim().min(1, "Enter the message to text a caller back"),
+  // Friends/family who shouldn't get a client+job_cards lead created just
+  // for calling - one number per line/comma, normalised the same way as
+  // every other phone field here. Empty lines are dropped silently; a
+  // genuinely malformed entry still blocks save so a typo doesn't silently
+  // fail to exclude anyone.
+  missed_call_excluded_numbers: z.string().transform((val, ctx) => {
+    const lines = val
+      .split(/[\n,]+/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const normalized: string[] = [];
+    for (const line of lines) {
+      const n = toE164(line);
+      if (!n) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"${line}" isn't a valid phone number` });
+        return z.NEVER;
+      }
+      normalized.push(n);
+    }
+    return normalized;
+  }),
 });
 export type UpdateMissedCallSettingsInput = z.infer<typeof updateMissedCallSettingsSchema>;
 

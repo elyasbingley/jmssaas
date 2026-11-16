@@ -10796,6 +10796,25 @@ works.
   it's reasonably a new enquiry. The conversation/SMS auto-reply/
   notification still happen on every call regardless - only the
   `job_cards` row is deduplicated.
+- **Friends/family calling also don't get a lead** - raised after the
+  dedup fix above still left every *first-time* caller (not just repeat
+  customers) creating a client + job_cards row, including personal
+  calls with nothing to do with the business. There's no way for the
+  webhook to tell "a friend" from "a new customer" automatically, so
+  this adds `tenants.missed_call_excluded_numbers` (`text[]`), edited
+  from Settings' Missed-Call Text-Back card as a one-number-per-line
+  textarea (normalised through the same `toE164` every other phone
+  field here uses - see `updateMissedCallSettingsSchema`). A call from a
+  number on that list still rings through, still gets its voicemail
+  recorded and saved to Channels, and still gets the auto-text reply
+  (by the admin's own choice - the alternative of silently skipping the
+  SMS too was considered and rejected, since the caller shouldn't be
+  left wondering if the call went through at all); only the
+  `job_cards`/lead-source lookup and insert are skipped for that one
+  call. The exclude check happens after `findOrCreateClient` - a client
+  record still exists for an excluded number (needed for the
+  `channel_conversations.client_id` FK the Channels thread hangs off),
+  it just never gets a job.
 - **No reply-from-within-the-thread** for a `missed_call` conversation -
   `channel-send-message` only sends for `sms`/`whatsapp`/`messenger`
   channel types, so an admin wanting to text this caller again does it
