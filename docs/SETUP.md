@@ -10595,3 +10595,205 @@ datetime.ts` (`startOfDay`, `minutesFromDayStart`).
 git pull origin main
 npx vercel --prod
 ```
+
+## 90. Missed-call text-back
+
+A client's own mobile forwards an unanswered call (carrier-side
+conditional/"no answer" forwarding - not something this app or Twilio
+can set) to the tenant's existing SMS Twilio number. A new Voice webhook
+on that number answers it, plays the tenant's own greeting (or a plain
+spoken fallback), lets the caller leave a voicemail, texts the caller
+back immediately either way, and logs the call as a lead - same
+"a phone number is one external contact" model Channels already uses
+for SMS/WhatsApp, not a new concept bolted on.
+
+### Architecture
+
+- **New `twilio-voice-webhook` Edge Function** (`supabase/functions/
+  twilio-voice-webhook/index.ts`) is the number's Voice webhook. One URL,
+  two requests told apart by whether `RecordingUrl` is present:
+  1. The call itself (no `RecordingUrl` yet) - in order: find-or-create a
+     `clients` row by caller phone (named after their own number - a
+     phone call alone never gives a real name, renamed by whoever
+     follows up once they know who it was), find-or-create a "Missed
+     call" `lead_sources` row, insert a new `job_cards` row tagged with
+     it (**this is "logged as a lead"** - this app doesn't have a
+     separate leads table; a `job_cards` row *is* the pipeline entry
+     point, same as every other lead source), find-or-create a
+     `channel_conversations` row (`channel_type: 'missed_call'` - its own
+     type, not reusing `'sms'`, so this thread and a real SMS
+     conversation with the same number never get mixed up), record an
+     inbound "📞 Missed call" message, text the caller back via Twilio's
+     Messages API (same call `channel-send-message` makes, inlined here -
+     Edge Functions can't import another function's code) and record
+     that as an outbound message too, push a notification (reusing the
+     existing `channel_message` notification type/routing - a missed-
+     call thread already *is* one, so no new mobile notification type
+     was needed), then responds with TwiML: play the greeting, then
+     record.
+  2. Twilio's own recording-complete callback (`action` on the `<Record>`
+     verb points back at this same URL) - downloads the recording
+     (Twilio Basic Auth, same as the SMS webhook's own MMS media
+     download), uploads it to the existing `channel-media` bucket, and
+     **updates** the same message row from step 1 (matched by
+     `external_message_id = CallSid`, not a new insert) so one call
+     always means one thread entry, whether or not a message was
+     actually left.
+- **`channel_type` enum gained `'missed_call'`** (`channel_conversations`/
+  `ChannelType`/`ChannelTypeOrEmail` - desktop and mobile Channels both
+  show it with a 📞 icon/"Missed Call" label and filter chip, same as
+  every other channel). A missed-call thread shows up in the **Channels**
+  tab, not the separate Inbox tab - Inbox is email-specific
+  (`inbox_messages.from_email` is `not null`), so a phone-based
+  conversation genuinely belongs in Channels' existing per-phone-number
+  conversation model instead, not forced into a table shaped for email.
+- **New tenant columns**: `voicemail_greeting_url` (an mp3/wav URL Twilio
+  fetches itself with no auth - null falls back to a plain `<Say>`
+  greeting using the tenant's name) and `missed_call_reply_template`
+  (the exact SMS text sent back, seeded with the message given for this
+  feature - both editable in **Company Settings -> 📞 Missed-Call
+  Text-Back**, same card pattern as the SMS/WhatsApp number fields right
+  above it).
+- **No new Twilio credential** - reuses the existing `sms_phone_number`/
+  `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` already set up for SMS. The
+  Voice webhook is just a second webhook URL on the *same* number.
+
+### One-time setup: Twilio Console
+
+1. [Twilio Console](https://console.twilio.com) -> **Phone Numbers ->
+   Manage -> Active numbers** -> your existing SMS number. Confirm it
+   shows a **Voice** capability badge (a phone-handset icon) alongside
+   SMS - almost every AU local number bought with SMS capability already
+   has this; if it genuinely doesn't, buy a new number with both
+   capabilities instead and update `sms_phone_number` in Company
+   Settings to it.
+2. On that same number's page, scroll to **Voice Configuration** ->
+   "A call comes in" -> **Webhook**, HTTP **POST**, pointed at:
+   `https://<project-ref>.supabase.co/functions/v1/twilio-voice-webhook`
+   **This exact URL matters**, same as every other Twilio webhook in
+   this app - it's hashed into Twilio's signature, so a typo (trailing
+   slash, http instead of https) makes every call fail signature
+   verification.
+3. Save.
+
+### Deploy
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy twilio-voice-webhook --no-verify-jwt
+npx vercel --prod
+```
+
+If you record your own voicemail greeting later: upload the mp3/wav
+somewhere it's reachable with no login (Supabase Storage's own public
+URL for a file in a public bucket works fine), paste that URL into
+Company Settings -> 📞 Missed-Call Text-Back -> "Voicemail greeting",
+Save. No redeploy needed - the webhook reads it fresh from `tenants` on
+every call.
+
+### Carrier setup: conditional ("no answer") call forwarding on 0490 903 057
+
+This is a setting on your **phone/carrier**, not something Twilio or
+this app can configure - it has to be done from the handset itself (or
+your carrier's app). It's a standard GSM network feature, identical
+across Telstra/Optus/Vodafone/TPG and every other AU carrier, so the
+exact same code works regardless of which you're on or whether it's an
+iPhone or Android (this is a network-level setting, not a phone-OS
+one).
+
+**To turn it on**, open the Phone app's dialer and dial exactly (replace
+`<TWILIO_NUMBER>` with your Twilio number in plain digits, no spaces,
+e.g. `61491570156` for `+61 491 570 156` - or `0491570156` also works on
+most networks), then press Call:
+
+```
+**61*<TWILIO_NUMBER>#
+```
+
+That forwards a call to your mobile **only when you don't answer**
+(unlike `**21*...#`, which forwards *every* call immediately and would
+mean you never see a call come through at all - don't use that one).
+The default no-answer delay is carrier-set (usually ~20-25 seconds,
+several rings) - if you want to control it exactly, append a ring-time
+in seconds (5-30, in steps of 5):
+
+```
+**61*<TWILIO_NUMBER>*11*20#
+```
+
+**To check it's set correctly** (shows a confirmation popup with the
+number and ring time): dial `*#61#` and press Call.
+
+**To turn it off** (if anything goes wrong, or before testing changes):
+dial `##61#` and press Call.
+
+If dialing codes feels error-prone, every major AU carrier also exposes
+the identical setting through their own app under a name like "Call
+forwarding"/"Call management" (My Telstra, My Optus, My Vodafone) - same
+effect, your choice.
+
+### Test it before going live
+
+Don't wire up carrier forwarding first. Test the webhook directly
+against your Twilio number, then only turn on forwarding once that
+works.
+
+1. **Deploy** per the steps above and confirm the Voice webhook URL is
+   saved in the Twilio Console.
+2. **Call your Twilio number directly** from any phone (not your
+   0490 903 057 mobile yet - just dial the Twilio number itself). You
+   should hear the greeting, then a beep. Say a short test message,
+   then hang up (or stay silent and let it time out after 5 seconds).
+3. **Check Supabase straight away** (don't wait):
+   - **Table Editor -> `job_cards`** - a new row titled "Missed call -
+     {today's date}", `lead_source_id` pointing at a "Missed call" row
+     in `lead_sources`.
+   - **Table Editor -> `clients`** - a new row named after your test
+     phone's own number (or an existing match if you called from a
+     number already in there).
+   - **Your own phone** (the one you called FROM) - the text-back SMS
+     should arrive within a few seconds.
+   - **Desktop app -> Channels -> 📞 Missed Call filter** - the new
+     thread, showing the missed-call marker and your auto-reply.
+   - Wait ~10-20 seconds more, then refresh that Channels thread - your
+     recorded voicemail should appear as a playable attachment (Twilio's
+     recording-complete callback lands slightly after the call ends, not
+     instantly).
+4. **If anything didn't show up**, check Supabase Dashboard -> Edge
+   Functions -> `twilio-voice-webhook` -> Logs for that call's
+   timestamp - every request is logged unconditionally for exactly this
+   reason (see the function's own comment).
+5. **Only once step 3 is fully confirmed working**, set up the carrier
+   forwarding code above on 0490 903 057.
+6. **Test end-to-end**: from a different phone, call 0490 903 057 and
+   deliberately don't answer it (let it ring through). Confirm the same
+   checklist as step 3 happens automatically, with no action on your
+   part other than not picking up.
+7. If step 6 doesn't forward at all, dial `*#61#` on 0490 903 057 to
+   confirm the setting actually registered (some carriers reject the
+   dial code silently if typed slightly wrong) - re-dial the `**61*...#`
+   code if it shows nothing set.
+
+### Known gaps
+
+- **No voicemail transcription** - the recording is stored and playable
+  from Channels, not transcribed to text. Twilio supports this
+  (`transcribe="true"` on `<Record>`), deliberately left off for now -
+  Twilio's built-in transcription quality is mixed, worth revisiting
+  with a dedicated service if it matters later.
+- **Every missed call logs its own lead**, including a repeat caller
+  calling multiple times without leaving a message - this was asked for
+  literally ("log each missed call as a lead"), not deduplicated by
+  caller. Easy to change (skip the `job_cards` insert if one already
+  exists for that client within some recent window) if this turns out
+  noisy in practice.
+- **No reply-from-within-the-thread** for a `missed_call` conversation -
+  `channel-send-message` only sends for `sms`/`whatsapp`/`messenger`
+  channel types, so an admin wanting to text this caller again does it
+  from a real SMS conversation (which the app will happily start fresh,
+  same number), not by typing into the missed-call thread itself.
+- **Settings UI is desktop-only** - mobile's Channels screen shows
+  missed-call threads fine (icon/label/filter), but there's no mobile
+  screen to edit the greeting URL/reply text, same as several other
+  admin-only settings in this app.

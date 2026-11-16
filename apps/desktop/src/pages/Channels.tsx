@@ -42,6 +42,7 @@ const CHANNEL_ICONS: Record<ChannelTypeOrEmail, string> = {
   whatsapp: "🟢",
   messenger: "🔵",
   instagram: "📷",
+  missed_call: "📞",
 };
 const CHANNEL_LABELS: Record<ChannelTypeOrEmail, string> = {
   email: "Email",
@@ -49,6 +50,7 @@ const CHANNEL_LABELS: Record<ChannelTypeOrEmail, string> = {
   whatsapp: "WhatsApp",
   messenger: "Messenger",
   instagram: "Instagram",
+  missed_call: "Missed Call",
 };
 
 async function fetchConversations(): Promise<(ChannelConversation & { clients: { name: string } | null })[]> {
@@ -201,7 +203,7 @@ export default function ChannelsPage() {
           >
             📢 Broadcast
           </Link>
-          {(["all", "sms", "whatsapp", "messenger", "instagram", "email"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
+          {(["all", "sms", "whatsapp", "messenger", "instagram", "email", "missed_call"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
             <button
               key={f}
               onClick={() => setChannelFilter(f)}

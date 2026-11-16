@@ -1230,6 +1230,20 @@ export const updateWhatsappPhoneNumberSchema = z.object({
 });
 export type UpdateWhatsappPhoneNumberInput = z.infer<typeof updateWhatsappPhoneNumberSchema>;
 
+// Missed-call text-back settings - voicemail_greeting_url is optional
+// (empty clears it back to the text-to-speech fallback), reply template
+// is required (every missed call always texts back something).
+export const updateMissedCallSettingsSchema = z.object({
+  voicemail_greeting_url: z
+    .string()
+    .trim()
+    .url("Enter a valid URL, e.g. https://example.com/greeting.mp3")
+    .nullable()
+    .or(z.literal("").transform(() => null)),
+  missed_call_reply_template: z.string().trim().min(1, "Enter the message to text a caller back"),
+});
+export type UpdateMissedCallSettingsInput = z.infer<typeof updateMissedCallSettingsSchema>;
+
 export const sendChannelMessageSchema = z.object({
   conversation_id: z.string().uuid(),
   body: z.string().min(1, "Message can't be empty"),

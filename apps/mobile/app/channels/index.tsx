@@ -27,8 +27,8 @@ interface UnifiedRow {
   unread: boolean;
 }
 
-const CHANNEL_ICONS: Record<ChannelTypeOrEmail, string> = { email: "✉️", sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
-const CHANNEL_LABELS: Record<ChannelTypeOrEmail, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
+const CHANNEL_ICONS: Record<ChannelTypeOrEmail, string> = { email: "✉️", sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷", missed_call: "📞" };
+const CHANNEL_LABELS: Record<ChannelTypeOrEmail, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram", missed_call: "Missed Call" };
 
 async function fetchConversations(): Promise<(ChannelConversation & { clients: { name: string } | null })[]> {
   const { data, error } = await supabase.from("channel_conversations").select("*, clients(name)").order("last_message_at", { ascending: false });
@@ -147,7 +147,7 @@ export default function ChannelsScreen() {
             <Text style={styles.subtitle}>Every conversation with a client, in one place.</Text>
 
             <View style={styles.filterBar}>
-              {(["all", "sms", "whatsapp", "messenger", "instagram", "email"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
+              {(["all", "sms", "whatsapp", "messenger", "instagram", "email", "missed_call"] as (ChannelTypeOrEmail | "all")[]).map((f) => (
                 <Pressable key={f} style={[styles.filterChip, channelFilter === f && styles.filterChipActive]} onPress={() => setChannelFilter(f)}>
                   <Text style={[styles.filterChipText, channelFilter === f && styles.filterChipTextActive]}>
                     {f === "all" ? "All" : `${CHANNEL_ICONS[f]} ${CHANNEL_LABELS[f]}`}

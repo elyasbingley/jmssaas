@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   updateCompanySettingsSchema,
+  updateMissedCallSettingsSchema,
   updateSmsPhoneNumberSchema,
   updateWhatsappPhoneNumberSchema,
   DEFAULT_CALENDAR_CATEGORY_COLORS,
@@ -110,12 +111,18 @@ export default function SettingsPage() {
   const [whatsappPhoneNumberInput, setWhatsappPhoneNumberInput] = useState("");
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [whatsappSaved, setWhatsappSaved] = useState(false);
+  const [voicemailGreetingUrlInput, setVoicemailGreetingUrlInput] = useState("");
+  const [missedCallReplyInput, setMissedCallReplyInput] = useState("");
+  const [missedCallError, setMissedCallError] = useState<string | null>(null);
+  const [missedCallSaved, setMissedCallSaved] = useState(false);
 
   useEffect(() => {
     if (tenant) {
       setName(tenant.name);
       setSmsPhoneNumberInput(tenant.sms_phone_number ?? "");
       setWhatsappPhoneNumberInput(tenant.whatsapp_phone_number ?? "");
+      setVoicemailGreetingUrlInput(tenant.voicemail_greeting_url ?? "");
+      setMissedCallReplyInput(tenant.missed_call_reply_template);
       setAbn(tenant.abn ?? "");
       setEmail(tenant.email ?? "");
       setPhone(tenant.phone ?? "");
@@ -434,6 +441,29 @@ export default function SettingsPage() {
     onError: (e) => setWhatsappError(getErrorMessage(e, "Failed to save phone number")),
   });
 
+  const saveMissedCallSettings = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const result = updateMissedCallSettingsSchema.safeParse({
+        voicemail_greeting_url: voicemailGreetingUrlInput,
+        missed_call_reply_template: missedCallReplyInput,
+      });
+      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid value");
+      const { error } = await supabase
+        .from("tenants")
+        .update({ voicemail_greeting_url: result.data.voicemail_greeting_url, missed_call_reply_template: result.data.missed_call_reply_template })
+        .eq("id", profile.tenant_id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateTenant();
+      setMissedCallError(null);
+      setMissedCallSaved(true);
+      setTimeout(() => setMissedCallSaved(false), 3000);
+    },
+    onError: (e) => setMissedCallError(getErrorMessage(e, "Failed to save missed-call settings")),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const result = updateCompanySettingsSchema.safeParse({
@@ -675,6 +705,71 @@ export default function SettingsPage() {
         {whatsappError ? (
           <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
             {whatsappError}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mb-3 rounded-md p-4" style={{ border: "1px solid var(--jms-border)" }}>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}>
+            📞 Missed-Call Text-Back
+          </p>
+          {tenant?.sms_phone_number ? (
+            <ThemedBadge label="Ready" color="var(--jms-accent)" />
+          ) : (
+            <ThemedBadge label="Needs an SMS number first" color="var(--jms-text-muted)" />
+          )}
+        </div>
+        <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          Uses the SMS number above - a call that your carrier forwards here when you don't answer gets greeted,
+          can leave a voicemail (saved to Channels), and the caller is texted back immediately. See docs/SETUP.md's
+          Missed-call text-back section for the carrier forwarding code and Twilio setup.
+        </p>
+        <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
+          Voicemail greeting (optional)
+        </label>
+        <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          A public URL to an mp3/wav of your own recorded greeting. Left blank, callers hear a plain spoken
+          greeting instead.
+        </p>
+        <input
+          type="url"
+          value={voicemailGreetingUrlInput}
+          onChange={(e) => setVoicemailGreetingUrlInput(e.target.value)}
+          placeholder="https://example.com/greeting.mp3"
+          className="mb-3 w-full rounded-md border px-3 py-2 focus:outline-none"
+          style={{
+            backgroundColor: "var(--jms-bg)",
+            borderColor: "var(--jms-border)",
+            color: "var(--jms-text)",
+            fontFamily: "var(--jms-font)",
+            fontSize: "var(--jms-font-body)",
+          }}
+        />
+        <label className="mb-1 block font-semibold" style={{ color: "var(--jms-text)", fontSize: "var(--jms-font-label)" }}>
+          Text sent back to a caller after a missed call
+        </label>
+        <textarea
+          value={missedCallReplyInput}
+          onChange={(e) => setMissedCallReplyInput(e.target.value)}
+          rows={3}
+          className="mb-3 w-full rounded-md border px-3 py-2 focus:outline-none"
+          style={{
+            backgroundColor: "var(--jms-bg)",
+            borderColor: "var(--jms-border)",
+            color: "var(--jms-text)",
+            fontFamily: "var(--jms-font)",
+            fontSize: "var(--jms-font-body)",
+          }}
+        />
+        <div className="flex items-center gap-3">
+          <ThemedButton onClick={() => saveMissedCallSettings.mutate()} disabled={saveMissedCallSettings.isPending}>
+            {saveMissedCallSettings.isPending ? "Saving..." : missedCallSaved ? "Saved!" : "Save"}
+          </ThemedButton>
+        </div>
+        {missedCallError ? (
+          <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            {missedCallError}
           </p>
         ) : null}
       </div>

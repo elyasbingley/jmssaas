@@ -81,6 +81,14 @@ export interface Tenant {
   // channels_whatsapp migration's own comment on why this is a separate
   // column from sms_phone_number rather than reused.
   whatsapp_phone_number: string | null;
+  // Missed-call text-back - see the missed_call_textback migration's own
+  // comment. voicemail_greeting_url is null until an admin uploads/links
+  // one (Twilio fetches it with no auth, so it has to already be
+  // publicly reachable); missed_call_reply_template always has a value
+  // (seeded with a sensible default), since every missed call always
+  // gets texted back something.
+  voicemail_greeting_url: string | null;
+  missed_call_reply_template: string;
   // How many days out a task's due_date has to be before the Eisenhower
   // Matrix suggests (never silently applies) is_urgent - see the
   // eisenhower_matrix migration.
@@ -2212,7 +2220,7 @@ export interface InboxAttachment {
 // the toE164 phone helper.
 // ---------------------------------------------------------------------------
 
-export type ChannelType = "sms" | "whatsapp" | "messenger" | "instagram";
+export type ChannelType = "sms" | "whatsapp" | "messenger" | "instagram" | "missed_call";
 export type ChannelConnectionStatus = "not_connected" | "connected";
 export type ChannelMessageDirection = "inbound" | "outbound";
 // "queued"/"sending" were added alongside "read"/"undelivered" by the
