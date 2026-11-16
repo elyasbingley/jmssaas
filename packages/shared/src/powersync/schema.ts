@@ -386,6 +386,29 @@ const task_files = new Table(
 // keyed by attachment id, not by which parent table it belongs to.
 const attachments = new AttachmentTable();
 
+// Local-only log of queued writes the server permanently rejected and the
+// upload connector therefore discarded (see uploadData in
+// apps/mobile/lib/connector.ts). Never synced in either direction: there is
+// no Postgres table or sync rule behind it, and localOnly tables produce no
+// upload-queue entries of their own. `data` is the discarded write's column
+// values as JSON, kept so the lost text can still be read back off the
+// device; `acknowledged_at` is set once the user has dismissed the in-app
+// notice for that row.
+const rejected_uploads = new Table(
+  {
+    user_id: column.text,
+    table_name: column.text,
+    op: column.text,
+    row_id: column.text,
+    data: column.text,
+    error_code: column.text,
+    error_message: column.text,
+    created_at: column.text,
+    acknowledged_at: column.text,
+  },
+  { localOnly: true }
+);
+
 export const AppSchema = new Schema({
   profiles,
   clients,
@@ -409,6 +432,7 @@ export const AppSchema = new Schema({
   communication_templates,
   scheduled_communications,
   attachments,
+  rejected_uploads,
 });
 
 export type Database = (typeof AppSchema)["types"];

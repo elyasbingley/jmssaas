@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { PowerSyncContext } from "@powersync/react";
 import { powersync } from "../lib/powersync";
 import { AuthProvider, useAuth } from "../lib/auth-context";
+import { RejectedUploadsNotice } from "../components/RejectedUploadsNotice";
 
 export default function RootLayout() {
   return (
@@ -14,6 +15,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <StatusBar style="dark" />
           <RootNavigator />
+          <RejectedUploadsNotice />
         </SafeAreaProvider>
       </AuthProvider>
     </PowerSyncContext.Provider>

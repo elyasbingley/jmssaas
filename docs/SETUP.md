@@ -184,6 +184,34 @@ reachable via the bottom tab bar.
 
 ## Known gaps / next steps
 
+- **Upload queue no longer blocked by a write the server will never
+  accept**: `uploadData` in `apps/mobile/lib/connector.ts` used to rethrow
+  every error, so one rejected write (e.g. a note added offline to a job an
+  admin deleted before the phone synced) was retried forever and nothing
+  queued behind it ever uploaded. It now treats Postgres class 22, class 23
+  and `42501` as permanent - the same set PowerSync's Supabase demo
+  connector uses - and discards the write so the queue moves on. Everything
+  else (no network, 5xx, expired token) is still rethrown and retried. A
+  `42501` that comes back as HTTP 401, or with no local session, is also
+  retried rather than discarded: that is a request that went out signed-out,
+  not a real denial. Discarded writes are logged with `console.error`
+  (table, op, id, error - not the row's contents), saved to a local-only
+  `rejected_uploads` table (contents included, so lost text can be read back
+  off the device), and shown to the user once in an alert
+  (`components/RejectedUploadsNotice.tsx`). If a local transaction holds
+  several writes, the rejected one and those after it are discarded and
+  earlier ones stay applied; every write in the app today is its own
+  transaction, so this only matters if `writeTransaction` is introduced
+  later. **Verified by type-check and by a Node harness running the real
+  connector and Supabase client against faked HTTP responses; not run on a
+  device or against a real Supabase/PowerSync instance, and the alert and
+  the `rejected_uploads` table have never executed.** Still open: an edit or
+  delete that RLS hides affects zero rows without any error, so it is
+  dropped silently and none of this catches it; there is no screen for
+  reviewing dismissed notices; and photo *file* uploads go through the
+  separate attachment queue (`lib/attachments.ts`), which has no error
+  handler and retries a permanently refused upload every 30 seconds forever
+  (without blocking other photos).
 - **PowerSync connection stuck in a loop after sign-in - fixed**: confirmed
   against a real Android device (once the dev-build fix below let the app
   actually run) - after signing in, the app sat on "Setting up your account"
