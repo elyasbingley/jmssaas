@@ -75,6 +75,7 @@ import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentMod
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { LeadSourceModal } from "../components/LeadSourceModal";
+import { CallbackJobControl } from "../components/CallbackJobControl";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same labels/cycle order as mobile's jobs/[id].tsx and desktop's own
@@ -1286,6 +1287,8 @@ export default function JobDetailPage() {
             {job.lead_source_id ? "Edit" : "+ Add"}
           </button>
         </div>
+
+        <CallbackJobControl jobId={job.id} clientId={job.client_id} callbackOfJobCardId={job.callback_of_job_card_id} />
 
         {job.is_real_estate_job ? (
           <div

@@ -14,6 +14,18 @@ export type QuoteStatus = "draft" | "sent" | "accepted" | "declined" | "expired"
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "void";
 
+export const QUOTE_LOST_REASONS = ["price", "competitor", "timing", "no_response", "scope_changed", "not_needed", "other"] as const;
+export type QuoteLostReason = (typeof QUOTE_LOST_REASONS)[number];
+export const QUOTE_LOST_REASON_LABELS: Record<QuoteLostReason, string> = {
+  price: "Price too high",
+  competitor: "Went with a competitor",
+  timing: "Timing didn't suit",
+  no_response: "No response",
+  scope_changed: "Scope changed",
+  not_needed: "No longer needed",
+  other: "Other",
+};
+
 // Tracks the client's response to the digital approval link, entirely
 // separate from the `status` column above (which is the internal
 // draft/sent/paid/... workflow state an admin can change freely at any
@@ -94,6 +106,9 @@ export interface Tenant {
   // rings through, the voicemail still gets saved to Channels, and the
   // auto-text still sends either way; only the job_cards insert is skipped.
   missed_call_excluded_numbers: string[];
+  // Financial-year (1 July - 30 June) revenue goal, set from Analytics >
+  // Revenue > FY Target. Null until one is set.
+  fy_revenue_target_cents: number | null;
   // How many days out a task's due_date has to be before the Eisenhower
   // Matrix suggests (never silently applies) is_urgent - see the
   // eisenhower_matrix migration.
@@ -315,6 +330,10 @@ export interface JobCard {
   // meaningfully set when this points at a lead source flagged
   // is_referral_source.
   lead_source_id: string | null;
+  // Set when this job is a return visit for an earlier one (see the
+  // analytics_tracking migration) - what First Time Fix Rate counts.
+  // Desktop-only for now, so not in the PowerSync schema.
+  callback_of_job_card_id: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -807,6 +826,9 @@ export interface LineItemInput {
   // Office-only - never sent to the PDF or the public approval page, same
   // treatment as the cost-breakdown fields above.
   internal_notes?: string | null;
+  // The Price Book item this line was added from, if any - kept even if
+  // the description is edited afterwards. Null for a custom line.
+  price_book_item_id?: string | null;
 }
 
 export type LineItemPricingModel = "legacy" | "itemized";
@@ -877,6 +899,10 @@ export interface Quote {
   accepted_signature_svg: string | null;
   declined_at: string | null;
   decline_reason: string | null;
+  // The office's own categorisation of why a quote was lost, picked from
+  // a fixed list so Analytics can count by reason - decline_reason above
+  // is the client's free text from the approval page.
+  lost_reason_category: QuoteLostReason | null;
   referral_partner_id: string | null;
   referral_fee_paid: boolean;
   referral_fee_amount_cents: number | null;

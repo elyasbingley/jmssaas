@@ -40,7 +40,20 @@ import InventorySetupPage from "./pages/InventorySetup";
 import DispatchPage from "./pages/Dispatch";
 import TeamPage from "./pages/Team";
 import JobCostingPage from "./pages/JobCosting";
-import AnalyticsPage from "./pages/Analytics";
+import AnalyticsLayout from "./pages/analytics/AnalyticsLayout";
+import AnalyticsDashboardPage from "./pages/analytics/DashboardPage";
+import { JobsByCategoryPage, JobsByMonthPage, JobsByStatusPage, PriceBookUsagePage, WinLosePage } from "./pages/analytics/JobsReports";
+import {
+  AgedReceivablesPage,
+  FyTargetPage,
+  QuotePipelinePage,
+  RevenueByCategoryPage,
+  RevenueByMonthPage,
+  RevenueBySuburbPage,
+  TopClientsPage,
+} from "./pages/analytics/RevenueReports";
+import { FeedbackByMonthPage, FeedbackRecentPage, LeadSourcesPage } from "./pages/analytics/FeedbackLeadsReports";
+import { CostOfOpsCoveragePage, JobProfitabilityPage } from "./pages/analytics/ProfitabilityReports";
 import TasksPage from "./pages/Tasks";
 import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
@@ -124,7 +137,27 @@ export default function App() {
                 <Route path="/price-book/categories/:id" element={<PriceBookCategoryPage />} />
                 <Route path="/price-book/items/:id" element={<PriceBookItemPage />} />
                 <Route path="/job-costing" element={<JobCostingPage />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/analytics" element={<AnalyticsLayout />}>
+                  <Route index element={<AnalyticsDashboardPage />} />
+                  <Route path="jobs/category" element={<JobsByCategoryPage />} />
+                  <Route path="jobs/status" element={<JobsByStatusPage />} />
+                  <Route path="jobs/month" element={<JobsByMonthPage />} />
+                  <Route path="jobs/win-lose" element={<WinLosePage />} />
+                  <Route path="jobs/price-book" element={<PriceBookUsagePage />} />
+                  <Route path="jobs/profitability" element={<JobProfitabilityPage />} />
+                  <Route path="clients/top" element={<TopClientsPage />} />
+                  <Route path="revenue/category" element={<RevenueByCategoryPage />} />
+                  <Route path="revenue/month" element={<RevenueByMonthPage />} />
+                  <Route path="revenue/suburb" element={<RevenueBySuburbPage />} />
+                  <Route path="revenue/receivables" element={<AgedReceivablesPage />} />
+                  <Route path="revenue/pipeline" element={<QuotePipelinePage />} />
+                  <Route path="revenue/target" element={<FyTargetPage />} />
+                  <Route path="revenue/cost-of-ops" element={<CostOfOpsCoveragePage />} />
+                  <Route path="feedback/month" element={<FeedbackByMonthPage />} />
+                  <Route path="feedback/recent" element={<FeedbackRecentPage />} />
+                  <Route path="leads" element={<LeadSourcesPage />} />
+                  <Route path="*" element={<Navigate to="/analytics" replace />} />
+                </Route>
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/team" element={<TeamPage />} />

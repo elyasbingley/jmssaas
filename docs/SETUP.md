@@ -10828,3 +10828,129 @@ works.
   missed-call threads fine (icon/label/filter), but there's no mobile
   screen to edit the greeting URL/reply text, same as several other
   admin-only settings in this app.
+
+## 91. Analytics rebuild: dashboard, report menu, click-through
+
+`/analytics` used to be one long page (`apps/desktop/src/pages/Analytics.tsx`).
+It is now a section: `pages/analytics/AnalyticsLayout.tsx` with a report
+menu down the side, one timeframe picker, and each report as its own
+route under `/analytics/...`.
+
+### Reports
+
+- **Dashboard** (`/analytics`): Revenue, Jobs Completed, Average Job
+  Value, Quote Win Rate, First Time Fix Rate, Return Customer Rate, Days
+  to Payment, Customer Feedback - each against the comparison period -
+  plus unpaid invoices and quotes awaiting a decision as of today.
+- **Jobs**: By Category, By Status, By Month, Win / Lose Rate (with lost
+  reasons), Price Book Usage, Profitability.
+- **Clients**: Top Clients.
+- **Revenue**: By Category, By Month (calendar months across five
+  years), By Suburb, Aged Receivables, Quote Pipeline, FY Target, Cost of
+  Ops Coverage.
+- **Feedback**: By Month, Recent.
+- **Leads**: Lead Sources.
+
+Profitability and Cost of Ops Coverage are the two reports the old page
+already had, moved across with their maths unchanged
+(`ProfitabilityReports.tsx`).
+
+### Timeframes
+
+Last 7 days, last 28 days (default), last quarter (the previous full
+calendar quarter), this financial year (1 July to today), or a custom
+range. Held in the URL (`?range=fy` / `?from=&to=`) so it carries between
+reports. Compared against: the quarter before for "last quarter", the
+same dates a year earlier for the financial year, otherwise the equally
+long period immediately before. Reports that show the position as of
+today (pipeline, FY target, five-year grid, recent feedback, Cost of Ops)
+grey the picker out.
+
+### Definitions (all in `packages/shared/src/analytics.ts`)
+
+Every report's maths is in that one pure module, unit tested by
+`packages/shared/test/analytics.test.mjs` (`pnpm --filter @jmssaas/shared
+test`), so two reports can't disagree about a term.
+
+- **Revenue**: invoices with status sent, paid or overdue, by issue date,
+  GST-inclusive totals. Drafts and void invoices are excluded - the old
+  page counted drafts. "Collected" is paid invoices by paid date.
+- **Jobs completed**: `job_cards.completed_at` in the range (see below).
+- **Average job value**: revenue on invoices linked to a job, divided by
+  the number of distinct jobs invoiced.
+- **Quote win rate**: accepted as a share of quotes with an outcome
+  (accepted + declined + expired). Pending quotes are shown but not
+  counted - the old page divided by every non-draft quote, which made the
+  rate fall whenever the range was short.
+- **First time fix rate**: of completed jobs that aren't themselves
+  callbacks, the share with no callback job pointing at them.
+- **Return customer rate**: the share of jobs created in the range whose
+  client already had an earlier job. Callbacks don't count either way.
+- **Days to payment**: issue date to paid date, averaged over invoices
+  paid in the range.
+- **Customer feedback**: average of `clients.google_review_stars`
+  recorded in the range. That is still the only feedback the app holds -
+  one rating per client, no comments.
+- **Lead conversion**: a job created in the range converted if it has an
+  accepted quote, an issued invoice, or is completed.
+- **Dates**: timestamps are converted to the browser's local calendar day
+  before bucketing. Slicing the UTC string (what the old page did) puts
+  anything before 10am Sydney time on the previous day, which moves
+  invoices paid on the morning of the 1st into the wrong month.
+
+### New data (`20261116000300_analytics_tracking.sql`)
+
+- `job_cards.completed_at` existed but nothing ever wrote it. A trigger
+  now sets it when a job first enters a closed lifecycle stage and clears
+  it if the job is reopened. Existing closed jobs are backfilled from
+  their earliest issued invoice date, else `updated_at` - an estimate.
+- `job_cards.callback_of_job_card_id`: set from the job page ("Callback
+  for"). Desktop only.
+- `quote_line_items.price_book_item_id` / `invoice_line_items.price_book_item_id`:
+  recorded when a line is added from the Price Book (desktop and mobile
+  `AddLineItemBar`, bundles included) and copied by
+  `convert_quote_to_invoice`. `replace_quote_line_items`,
+  `replace_invoice_line_items` and `convert_quote_to_invoice` are
+  redefined for this - generated from their live definitions with only
+  that column added. Existing lines are backfilled where the description
+  matches exactly one Price Book item (or "Item (Variation)"); edited or
+  ambiguous descriptions stay unlinked, so historical usage is
+  approximate.
+- `quotes.lost_reason_category`: a fixed list picked on a declined or
+  expired quote (desktop quote page). `decline_reason` remains the
+  client's own free text from the approval page.
+- `tenants.fy_revenue_target_cents`: set on Revenue > FY Target.
+
+The backfills run with user triggers disabled on the three tables: the
+accepted-document lock triggers reject any update to an accepted quote's
+or invoice's line items, and the job triggers would bump `updated_at` and
+re-run communication scheduling.
+
+### Reading more than 1000 rows
+
+PostgREST returns at most 1000 rows per request (`max_rows` in
+`supabase/config.toml`, same on the hosted project) with no error.
+`pages/analytics/data.ts`'s `fetchAllRows` pages through every table
+Analytics reads. The old page also filtered line items with
+`.in(<every quote id>)`, which fails once the id list no longer fits in a
+URL; that is gone.
+
+### How this was verified
+
+Not against the live project. Against a local Postgres 16 with every
+migration in this repo applied (Supabase's `auth`/`storage`/`cron`
+schemas stubbed), seeded with a demo tenant: the migration and its
+backfill, including on accepted documents; the three redefined functions;
+all 18 report routes in a headless browser with row-level security
+enforced; eight on-screen figures against direct SQL; click-through, the
+timeframe picker, saving the FY target, the callback link, the lost
+reason and the Price Book link end to end. Mobile was typechecked only.
+
+### Known gaps
+
+- Timesheets are not built - there is no time tracking in the app yet.
+- Callback link and lost reason have no mobile UI.
+- Revenue is GST-inclusive everywhere except Price Book Usage, which uses
+  ex-GST line totals.
+- The FY target is one number for the current financial year; it isn't
+  stored per year.

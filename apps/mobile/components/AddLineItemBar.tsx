@@ -159,6 +159,7 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
             priceBookItem && priceBookItem.pricing_model === "itemized" ? await fetchPriceBookItemChildren(priceBookItem.id) : { crew: [], materials: [] };
           const breakdown = priceBookItem
             ? {
+                price_book_item_id: priceBookItem.id,
                 description: priceBookItem.description,
                 labour_rate_cents: priceBookItem.labour_rate_cents,
                 labour_hours: priceBookItem.labour_hours,
@@ -267,6 +268,7 @@ export function AddLineItemBar({ itemCount, onAdd, onAddMany }: AddLineItemBarPr
           : await fetchPriceBookItemChildren(item.id)
         : { crew: [], materials: [] };
     const source = {
+      price_book_item_id: item.id,
       description: variation ? `${item.description} (${variation.name})` : item.description,
       labour_rate_cents: sourceItem.labour_rate_cents,
       labour_hours: sourceItem.labour_hours,

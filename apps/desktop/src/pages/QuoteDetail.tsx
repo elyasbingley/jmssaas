@@ -17,6 +17,9 @@ import {
   type PlaceholderContext,
   type Quote,
   type QuoteStatus,
+  type QuoteLostReason,
+  QUOTE_LOST_REASONS,
+  QUOTE_LOST_REASON_LABELS,
   type ReferralPartner,
   type Tenant,
 } from "@jmssaas/shared";
@@ -237,6 +240,19 @@ export default function QuoteDetailPage() {
       if (error) throw error;
     },
     onSuccess: invalidate,
+  });
+
+  // Why a declined/expired quote was lost, from a fixed list so Analytics
+  // can count by reason (Jobs > Win / Lose Rate).
+  const setLostReason = useMutation({
+    mutationFn: async (reason: QuoteLostReason | null) => {
+      const { error } = await supabase.from("quotes").update({ lost_reason_category: reason }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
   });
 
   // Same atomic RPC apps/mobile uses (replace_quote_line_items) - deletes +
@@ -686,6 +702,26 @@ export default function QuoteDetailPage() {
         <p className="mt-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
           Reason: {data.quote.decline_reason}
         </p>
+      ) : null}
+      {data.quote.status === "declined" || data.quote.status === "expired" ? (
+        <label className="mt-2 flex items-center gap-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          Lost reason:
+          <select
+            value={data.quote.lost_reason_category ?? ""}
+            onChange={(e) => setLostReason.mutate((e.target.value || null) as QuoteLostReason | null)}
+            disabled={setLostReason.isPending}
+            className="rounded-md px-2 py-1"
+            style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }}
+          >
+            <option value="">Not recorded</option>
+            {QUOTE_LOST_REASONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {QUOTE_LOST_REASON_LABELS[reason]}
+              </option>
+            ))}
+          </select>
+          {setLostReason.isError ? <span style={{ color: "var(--jms-danger)" }}>{getErrorMessage(setLostReason.error, "Failed to save")}</span> : null}
+        </label>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-3">

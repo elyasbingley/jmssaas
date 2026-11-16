@@ -306,6 +306,7 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   travel_cost_cents: z.number().int().nonnegative().optional(),
   warranty_text: z.string().nullable().optional(),
   internal_notes: z.string().nullable().optional(),
+  price_book_item_id: z.string().uuid().nullable().optional(),
 });
 export type LineItemFormInput = z.infer<typeof lineItemSchema>;
 

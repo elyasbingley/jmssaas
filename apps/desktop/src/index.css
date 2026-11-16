@@ -17,3 +17,24 @@
   background-color: var(--jms-accent-glow);
   color: var(--jms-accent);
 }
+
+/* Analytics: anything clickable that opens the records behind a number. */
+.jms-analytics-hit {
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+.jms-analytics-hit:hover,
+.jms-analytics-hit:focus-visible {
+  background-color: color-mix(in srgb, var(--jms-text-muted) 12%, transparent);
+  outline: none;
+}
+.jms-analytics-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.jms-analytics-link:hover,
+.jms-analytics-link:focus-visible {
+  color: var(--jms-accent);
+  outline: none;
+}
