@@ -2,11 +2,13 @@ import { useEffect, useRef } from "react";
 import { Alert } from "react-native";
 import { usePowerSync, useQuery } from "@powersync/react";
 import { useAuth } from "../lib/auth-context";
+import { REJECTED_FILE_UPLOAD_OP } from "../lib/attachment-errors";
 
 interface RejectedUploadRow {
   id: string;
   table_name: string;
   op: string;
+  row_id: string;
   data: string | null;
   error_code: string | null;
   error_message: string | null;
@@ -30,16 +32,40 @@ const TABLE_LABELS: Record<string, string> = {
   task_files: "Task photo",
 };
 
-const OP_LABELS: Record<string, string> = { PUT: "added", PATCH: "edited", DELETE: "deleted" };
+const OP_LABELS: Record<string, string> = {
+  PUT: "added",
+  PATCH: "edited",
+  DELETE: "deleted",
+  // The row may have synced fine - this is the photo file itself, refused by
+  // Supabase Storage (see lib/attachment-errors.ts).
+  [REJECTED_FILE_UPLOAD_OP]: "not uploaded",
+};
 
 // The first recognisable bit of text in the discarded write, so the user can
 // tell which note/task this was and re-enter it.
 const PREVIEW_COLUMNS = ["body", "title", "name", "label", "description", "file_name"];
 
-function preview(data: string | null): string {
-  if (!data) return "";
+// A photo's file name is a UUID, which tells the user nothing - say when it
+// was taken and what it was attached to instead.
+function photoPreview(values: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof values.taken_at === "string") {
+    const takenAt = new Date(values.taken_at);
+    if (!Number.isNaN(takenAt.getTime())) {
+      parts.push(
+        `taken ${takenAt.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`
+      );
+    }
+  }
+  if (typeof values.parent === "string" && values.parent.length > 0) parts.push(`for "${values.parent}"`);
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
+function preview(row: RejectedUploadRow): string {
+  if (!row.data) return "";
   try {
-    const values = JSON.parse(data) as Record<string, unknown>;
+    const values = JSON.parse(row.data) as Record<string, unknown>;
+    if (row.op === REJECTED_FILE_UPLOAD_OP) return photoPreview(values);
     for (const column of PREVIEW_COLUMNS) {
       const value = values[column];
       if (typeof value === "string" && value.trim().length > 0) {
@@ -53,7 +79,22 @@ function preview(data: string | null): string {
   return "";
 }
 
+// error_code here is Supabase Storage's status code, not a Postgres SQLSTATE.
+function photoReason(row: RejectedUploadRow): string {
+  switch (row.error_code) {
+    case "403":
+      return "the job or task it belongs to no longer exists, or your account is no longer allowed to add photos to it";
+    case "413":
+      return "the file is too large";
+    case "415":
+      return "this type of file is not allowed";
+    default:
+      return `the server refused it (${row.error_message ?? row.error_code})`;
+  }
+}
+
 function reason(row: RejectedUploadRow): string {
+  if (row.op === REJECTED_FILE_UPLOAD_OP) return `${photoReason(row)}. Nobody else can see this photo`;
   switch (row.error_code) {
     case "23503":
       return "the record it belongs to no longer exists (it may have been deleted)";
@@ -71,13 +112,15 @@ function reason(row: RejectedUploadRow): string {
 function describe(row: RejectedUploadRow): string {
   const table = TABLE_LABELS[row.table_name] ?? row.table_name;
   const op = OP_LABELS[row.op] ?? row.op;
-  return `- ${table} ${op}${preview(row.data)} - ${reason(row)}.`;
+  return `- ${table} ${op}${preview(row)} - ${reason(row)}.`;
 }
 
 // Tells the user when the upload connector had to discard a change the
-// server will never accept (see uploadData in lib/connector.ts). Without
-// this the change just vanishes from the device at the next sync with no
-// explanation. Renders nothing itself - it raises a native alert, which
+// server will never accept (see uploadData in lib/connector.ts), or when
+// Supabase Storage permanently refused a photo's file (see
+// lib/attachment-errors.ts). Without this the change just vanishes from the
+// device at the next sync with no explanation, and a refused photo keeps
+// showing on this device while nobody else ever receives it. Renders nothing itself - it raises a native alert, which
 // shows over whatever screen or modal is open, and the rows stay
 // unacknowledged in the local `rejected_uploads` table until OK is tapped,
 // so a notice raised while the app was closed or backgrounded appears the
@@ -87,7 +130,7 @@ export function RejectedUploadsNotice() {
   const powersync = usePowerSync();
   // The local database outlives a sign-out, so only show a user their own.
   const { data: rows } = useQuery<RejectedUploadRow>(
-    `SELECT id, table_name, op, data, error_code, error_message
+    `SELECT id, table_name, op, row_id, data, error_code, error_message
        FROM rejected_uploads
       WHERE user_id = ? AND acknowledged_at IS NULL
       ORDER BY created_at, id`,
@@ -99,15 +142,39 @@ export function RejectedUploadsNotice() {
     if (rows.length === 0 || alertOpen.current) return;
     alertOpen.current = true;
 
-    const lines = rows.slice(0, MAX_LINES).map(describe);
-    if (rows.length > MAX_LINES) lines.push(`...and ${rows.length - MAX_LINES} more.`);
+    // A photo is two uploads - its job_files/task_files row and its file -
+    // and when the job it was for has been deleted both are refused. One
+    // line per lost photo: the row's, which says why. (The row usually fails
+    // first, and the file's refusal is then saved already acknowledged, so
+    // this only matters when both are waiting at once.)
+    const rejectedRowIds = new Set(rows.filter((row) => row.op !== REJECTED_FILE_UPLOAD_OP).map((row) => row.row_id));
+    const shown = rows.filter((row) => row.op !== REJECTED_FILE_UPLOAD_OP || !rejectedRowIds.has(row.row_id));
+
+    const lines = shown.slice(0, MAX_LINES).map(describe);
+    if (shown.length > MAX_LINES) lines.push(`...and ${shown.length - MAX_LINES} more.`);
     const ids = rows.map((row) => row.id);
 
+    // A refused photo file is not removed the way a discarded write is: its
+    // row may have synced and it can still show on this device for a while.
+    const onlyPhotoFiles = shown.every((row) => row.op === REJECTED_FILE_UPLOAD_OP);
+    const one = shown.length === 1;
+    const intro = onlyPhotoFiles
+      ? `The server refused ${one ? "this photo" : "these photos"} taken on this device, so ${
+          one ? "it" : "they"
+        } will not sync. Take ${one ? "it" : "them"} again if still needed.`
+      : `The server refused ${one ? "this change" : "these changes"} made on this device, so ${
+          one ? "it has" : "they have"
+        } been removed and will not sync. Re-enter anything that is still needed.`;
+
     Alert.alert(
-      rows.length === 1 ? "A change could not be saved" : `${rows.length} changes could not be saved`,
-      `The server refused ${rows.length === 1 ? "this change" : "these changes"} made on this device, so ${
-        rows.length === 1 ? "it has" : "they have"
-      } been removed and will not sync. Re-enter anything that is still needed.\n\n${lines.join("\n")}`,
+      onlyPhotoFiles
+        ? one
+          ? "A photo could not be uploaded"
+          : `${shown.length} photos could not be uploaded`
+        : one
+          ? "A change could not be saved"
+          : `${shown.length} changes could not be saved`,
+      `${intro}\n\n${lines.join("\n")}`,
       [
         {
           text: "OK",

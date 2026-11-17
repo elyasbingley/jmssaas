@@ -184,6 +184,69 @@ reachable via the bottom tab bar.
 
 ## Known gaps / next steps
 
+- **Photo file uploads that Storage will never accept no longer retry
+  forever**: photo files go through PowerSync's attachment queue, not the
+  row upload queue above. It was built with no `errorHandler`, and without
+  one `@powersync/common` 1.57.2 treats every failure as retryable, so a
+  refused upload (e.g. a job photo taken offline for a job an admin deleted
+  before the phone synced - the bucket's RLS policies require the job to
+  exist) was re-sent every 30 seconds indefinitely and the technician was
+  never told. `apps/mobile/lib/attachment-errors.ts` now supplies the
+  handler:
+  - **How failures are told apart.** Supabase Storage answers every
+    non-500 error with HTTP 400 and puts the real status in the JSON body's
+    `statusCode`, which `@supabase/storage-js` 2.110.7 exposes as
+    `error.statusCode` (`error.status` is the useless 400). An RLS refusal
+    is `statusCode "403"`, message `new row violates row-level security
+    policy`. An expired token is *also* `"403"`, so only the
+    row-level-security message counts as permanent. Permanent: that, `"413"`
+    (too large) and `"415"` (MIME type not allowed). Everything else is
+    retried: no network (a `StorageUnknownError` with no status), 5xx, 429,
+    an expired token, "Bucket not found". An RLS refusal while there is no
+    session is retried too (same sign-out race as the connector).
+  - **What happens to a refused upload.** It is logged, saved to
+    `rejected_uploads` (`op = 'UPLOAD'`, id `attachment-<id>`, `error_code`
+    = Storage's status code) and shown by `RejectedUploadsNotice` as
+    "Job/Task photo not uploaded (taken ..., for "<job>")". If the
+    connector has also rejected that photo's `job_files`/`task_files` row,
+    the two are reported as one line.
+  - **Archiving is not enough on its own.** Returning "don't retry" makes
+    the queue mark the attachment ARCHIVED, but the queue puts an archived,
+    never-synced attachment back into the upload queue whenever the watched
+    `job_files`/`task_files` query next emits and its row is still there.
+    `skipRefusedUploads` (wrapped around `watchFileAttachments` in
+    `lib/powersync.ts`) drops refused uploads from the watched set so the
+    refusal sticks. The local file stays until the queue's archive cache
+    (100 items) evicts it; its path is in `rejected_uploads.data`.
+  - **A refusal that is not real.** The bucket has insert and select
+    policies but no update policy, and uploads use `upsert: true`, so
+    re-sending a file that already arrived (first attempt succeeded, its
+    response was lost) is refused by RLS. `uploadFile` in
+    `lib/attachments.ts` now checks whether the object already exists before
+    passing an RLS refusal on, and treats "already there" as uploaded.
+    Before this change that case also retried forever.
+  - **Downloads.** A 404 is not treated as permanent straight away: a
+    photo's row syncs separately from its file, so another phone routinely
+    sees the row first and gets "Object not found" until the upload
+    finishes. 404s are retried for 24 hours after the device first learns
+    of the photo, then polling stops (no notice - it is not this device's
+    photo). PowerSync still re-tries it once whenever the photo tables
+    change or sync restarts, so a file that turns up late is fetched.
+
+  **Verified by type-check and by a Node harness that runs the app's real
+  `lib/powersync.ts` wiring, the real `@powersync/common` attachment queue
+  on a real SQLite database (`@powersync/node`), the real Supabase client
+  and the real notice component's logic against faked HTTP responses shaped
+  as the Storage server's source renders them. Not run on a device, not run
+  against a real Supabase project (so the exact response bodies, and the
+  no-update-policy behaviour in particular, are read from source rather
+  than observed), and the alert has never been displayed by React Native.**
+  Still open: a photo whose local file has gone missing mid-session is
+  retried until the next app start, when PowerSync archives it without
+  telling anyone; a photo whose upload was refused leaves its
+  `job_files`/`task_files` row behind if the server accepted the row, so
+  other devices show an empty tile for it; and `rejected_uploads` is never
+  pruned.
 - **Upload queue no longer blocked by a write the server will never
   accept**: `uploadData` in `apps/mobile/lib/connector.ts` used to rethrow
   every error, so one rejected write (e.g. a note added offline to a job an
@@ -207,11 +270,9 @@ reachable via the bottom tab bar.
   device or against a real Supabase/PowerSync instance, and the alert and
   the `rejected_uploads` table have never executed.** Still open: an edit or
   delete that RLS hides affects zero rows without any error, so it is
-  dropped silently and none of this catches it; there is no screen for
-  reviewing dismissed notices; and photo *file* uploads go through the
-  separate attachment queue (`lib/attachments.ts`), which has no error
-  handler and retries a permanently refused upload every 30 seconds forever
-  (without blocking other photos).
+  dropped silently and none of this catches it; and there is no screen for
+  reviewing dismissed notices. (Photo *file* uploads, which go through the
+  separate attachment queue, are covered by the next entry.)
 - **PowerSync connection stuck in a loop after sign-in - fixed**: confirmed
   against a real Android device (once the dev-build fix below let the app
   actually run) - after signing in, the app sat on "Setting up your account"

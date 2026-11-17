@@ -11,6 +11,8 @@ import {
 import { AppSchema } from "@jmssaas/shared";
 import { v4 as uuidv4 } from "uuid";
 import { SupabaseConnector } from "./connector";
+import { supabase } from "./supabase";
+import { createAttachmentErrorHandler, skipRefusedUploads } from "./attachment-errors";
 import {
   ExpoLocalStorageAdapter,
   SupabaseRemoteStorageAdapter,
@@ -65,7 +67,13 @@ export const attachmentQueue = new AttachmentQueue({
   db: powersync,
   localStorage: new ExpoLocalStorageAdapter(),
   remoteStorage: new SupabaseRemoteStorageAdapter(),
-  watchAttachments: watchFileAttachments(powersync),
+  watchAttachments: skipRefusedUploads(powersync, watchFileAttachments(powersync)),
+  // Without this the queue retries every failed upload/download forever -
+  // see lib/attachment-errors.ts.
+  errorHandler: createAttachmentErrorHandler({
+    db: powersync,
+    getSignedInUserId: async () => (await supabase.auth.getSession()).data.session?.user.id ?? null,
+  }),
 });
 
 let syncStarted = false;

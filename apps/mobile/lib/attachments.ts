@@ -8,6 +8,7 @@ import type {
   RemoteStorageAdapter,
   WatchedAttachmentItem,
 } from "@powersync/common";
+import { classifyStorageError, isRowLevelSecurityRefusal, remoteObjectKey } from "./attachment-errors";
 import { supabase } from "./supabase";
 
 // PowerSync's attachment queue (@powersync/common, still marked @alpha as of
@@ -27,10 +28,6 @@ import { supabase } from "./supabase";
 
 const ATTACHMENTS_DIR = `${FileSystem.documentDirectory}attachments/`;
 const JOB_FILES_BUCKET = "job-files";
-
-function remoteObjectKey(attachment: Pick<AttachmentRecord, "filename" | "metaData">): string {
-  return attachment.metaData ? `${attachment.metaData}/${attachment.filename}` : attachment.filename;
-}
 
 export function jobFileMetaData(tenantId: string, jobCardId: string): string {
   return `${tenantId}/${jobCardId}`;
@@ -98,12 +95,35 @@ export class ExpoLocalStorageAdapter implements LocalStorageAdapter {
 }
 
 export class SupabaseRemoteStorageAdapter implements RemoteStorageAdapter {
+  // Throws on any failure; lib/attachment-errors.ts then decides whether
+  // the queue retries.
   async uploadFile(fileData: ArrayBuffer, attachment: AttachmentRecord): Promise<void> {
-    const { error } = await supabase.storage.from(JOB_FILES_BUCKET).upload(remoteObjectKey(attachment), fileData, {
+    const bucket = supabase.storage.from(JOB_FILES_BUCKET);
+    const key = remoteObjectKey(attachment);
+    const { error } = await bucket.upload(key, fileData, {
       contentType: attachment.mediaType ?? "application/octet-stream",
       upsert: true,
     });
-    if (error) throw error;
+    if (!error) return;
+
+    // A row-level-security refusal is not always a real one. The bucket has
+    // insert and select policies but no update policy (see the storage
+    // migrations), and `upsert: true` makes the server insert-or-update: the
+    // first upload of a key only needs the insert policy, but re-sending a
+    // key that already exists takes the update path and is refused. That is
+    // exactly what a retry looks like when the first attempt reached the
+    // server but its response was lost on a bad connection. The key holds
+    // this attachment's own UUID, so an object already at it can only be
+    // this file - check before reporting a photo as not saved when it was.
+    if (isRowLevelSecurityRefusal(classifyStorageError(error))) {
+      const { data: existing, error: infoError } = await bucket.info(key);
+      if (existing) return;
+      // Only a definite "not there" confirms the refusal. If the check
+      // itself failed for some other reason, surface that (transient) error
+      // so the upload is retried instead of being written off.
+      if (infoError && classifyStorageError(infoError).kind !== "missing") throw infoError;
+    }
+    throw error;
   }
 
   async downloadFile(attachment: AttachmentRecord): Promise<ArrayBuffer> {
