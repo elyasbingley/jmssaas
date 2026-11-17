@@ -97,14 +97,23 @@ function attachLabel(linkedJobId: string | null, linkedJobNumber: string | null 
   return linkedJobId ? `📎 ${linkedJobNumber ?? "Attached"} · Attach to another job` : "Attach to job";
 }
 
+// Form field seeded from a prop that can arrive after the first render (the
+// email panel's prefills come from an async fetch). Shows the prop until the
+// user edits the field, then keeps what they typed - so late-loading data
+// still fills the form without clobbering any edits.
+function usePrefilledField(prefill: string) {
+  const [edited, setEdited] = useState<string | null>(null);
+  return [edited ?? prefill, setEdited] as const;
+}
+
 function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string; prefillPhone: string; prefillTitle: string; prefillDescription: string }) {
   const { profile } = useAuth();
   const router = useRouter();
   const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
-  const [clientName, setClientName] = useState(props.prefillName);
-  const [jobTitle, setJobTitle] = useState(props.prefillTitle);
-  const [jobDescription, setJobDescription] = useState(props.prefillDescription);
+  const [clientName, setClientName] = usePrefilledField(props.prefillName);
+  const [jobTitle, setJobTitle] = usePrefilledField(props.prefillTitle);
+  const [jobDescription, setJobDescription] = usePrefilledField(props.prefillDescription);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskCreated, setTaskCreated] = useState(false);
