@@ -11067,3 +11067,56 @@ write always succeeds:
   clock-on button.
 - If a job is deleted, time logged on it is kept but shows as "Deleted
   job".
+
+## 93. Deleting a job, and job numbers that move back
+
+- **Delete** on a job's page (desktop, admins only) shows what will go with
+  the job before anything is removed, then deletes it.
+- **Numbering**: a new job now takes the highest existing job number + 1,
+  instead of the next value of a counter that only ever went up. Deleting
+  the newest jobs frees their numbers: with J105, J106 and J107, deleting
+  J106 and J107 makes the next job J106. A number freed in the middle
+  (deleting J103 while J104 exists) is not reused.
+- Quote, invoice and task numbers are unchanged.
+
+Migration `20261117000100_job_delete_and_numbering.sql`:
+
+- `next_job_card_number` replaces the `tenant_counters` lookup inside
+  `assign_job_card_number`. It takes a per-company advisory lock first, so
+  two jobs created at the same moment (a phone syncing while one is made on
+  desktop) queue up and get different numbers.
+- `job_card_delete_preview(id)` returns what is attached, for the
+  confirmation.
+- `delete_job_card(id)` does the deletion in one transaction:
+  - refuses if the job has an invoice, a purchase order, or a quote that has
+    left draft, and names them;
+  - deletes the job's draft quotes and its calendar bookings;
+  - cancels pending automated SMS/emails for the job, those quotes and those
+    bookings (otherwise they would still send, with the job details blank);
+  - deletes the job, which also removes its notes, files, measurements, leak
+    checks, material orders and tasks (existing cascade rules);
+  - keeps timesheet hours (shown as "Deleted job"), linked forms, inbox
+    messages and key logs, unlinked.
+  The desktop then removes the job's files from storage and its bookings
+  from Google Calendar.
+
+Both functions run as the signed-in user, so the existing row-level security
+decides who can delete: admins, in their own company.
+
+### How this was verified
+
+Against a local Postgres with every migration applied: the J105/J106/J107
+example, a middle deletion, eight jobs inserted at once (all distinct
+numbers), blocked deletions, a technician and another company being refused,
+and a job with a draft quote, booking, scheduled messages, notes, files, a
+task and timesheet hours. In a headless browser: deleting from the job page,
+the numbering afterwards, and the blocked case.
+
+### Known gaps
+
+- No delete on mobile, and no bulk delete from the Jobs list.
+- A job with an invoice or a sent quote can't be deleted, and the app has no
+  way to delete those.
+- If a phone has unsynced changes to a job that is deleted on desktop (a
+  note added offline, say), that phone's upload of the change will fail
+  when it reconnects.

@@ -63,6 +63,7 @@ import { pushCalendarEventUpsert } from "../lib/google-calendar-sync";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { ThemedButton } from "../components/theme/ThemedButton";
+import { DeleteJobButton } from "../components/DeleteJobButton";
 import { ThemedPanel } from "../components/theme/ThemedPanel";
 import { ThemedBadge } from "../components/theme/ThemedBadge";
 import { CommunicationLog } from "../components/CommunicationLog";
@@ -1172,6 +1173,7 @@ export default function JobDetailPage() {
             >
               SMS
             </button>
+            {isAdmin ? <DeleteJobButton jobCardId={job.id} /> : null}
           </div>
         </div>
         {job.description ? (
