@@ -12,6 +12,7 @@ export * from "./cost-of-ops";
 export * from "./knowledge";
 export * from "./inbox";
 export * from "./channels";
+export * from "./client-match";
 export * from "./notes";
 export * from "./tasks";
 export * from "./powersync/schema";

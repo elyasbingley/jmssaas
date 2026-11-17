@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  defaultClientForSender,
+  matchingClientIds,
   quickCreateClientSchema,
   splitTextWithLinks,
   type ChannelConversation,
@@ -14,11 +16,12 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { sendChannelMessage, type ChannelMediaAttachment } from "../lib/channels";
 import { uploadChannelMedia } from "../lib/uploads";
-import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
+import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { decodeEmailConversationId } from "./Channels";
 import { AttachToJobDialog } from "../components/AttachToJobDialog";
 import type { AttachSource } from "../lib/attach-to-job";
+import { fetchAllRows } from "../lib/fetch-all-rows";
 
 const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷", missed_call: "📞" };
 const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram", missed_call: "Missed call" };
@@ -87,6 +90,22 @@ async function fetchInboxMessagesFor(email: string): Promise<(InboxMessage & Lin
   return data as (InboxMessage & LinkedJob)[];
 }
 
+// The sender's phone number, for the channels whose external_contact is
+// one (Messenger/Instagram use a page-scoped id instead).
+function senderPhone(conversation: ChannelConversation): string {
+  return conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "missed_call" ? conversation.external_contact : "";
+}
+
+type ClientOption = { id: string; name: string; company_name: string | null };
+
+async function fetchClientOptions(): Promise<ClientOption[]> {
+  const rows = await fetchAllRows<ClientOption>("clients", "id, name, company_name");
+  return rows.sort((a, b) => clientLabel(a).localeCompare(clientLabel(b)));
+}
+function clientLabel(c: ClientOption): string {
+  return c.company_name || c.name;
+}
+
 interface AttachTarget {
   source: AttachSource;
   summary: string;
@@ -114,16 +133,28 @@ function AttachLink({ linkedJobId, linkedJobNumber, onAttach }: { linkedJobId: s
 // InboxMessage.tsx create-job form already covers, just triggered from a
 // different screen and (for a real channel) matching by phone instead of
 // email.
+//
+// The job goes to an existing client when there is one: the conversation's
+// linked client, else a client (or client contact) whose email/phone
+// matches the sender. A new client is only inserted when the user picks
+// "Create a new client", which is the default only for an unknown sender.
 function CreateJobTaskSection(props: {
   prefillName: string;
   prefillEmail: string;
   prefillPhone: string;
   prefillTitle: string;
   prefillDescription: string;
+  // channel_conversations.client_id, for a real conversation.
+  linkedClientId?: string | null;
+  // Called after the job is created when the conversation had no linked
+  // client yet, with the client the job went to (new or existing).
   onClientLinked?: (clientId: string) => void;
 }) {
   const { profile } = useAuth();
   const [open, setOpen] = useState(false);
+  // null until the user picks: the default (linked client, else first
+  // match, else new) applies. "" = create a new client.
+  const [clientChoice, setClientChoice] = useState<string | null>(null);
   const [clientName, setClientName] = useState(props.prefillName);
   const [jobTitle, setJobTitle] = useState(props.prefillTitle);
   const [jobDescription, setJobDescription] = useState(props.prefillDescription);
@@ -132,28 +163,54 @@ function CreateJobTaskSection(props: {
   const [jobCreatedId, setJobCreatedId] = useState<string | null>(null);
   const [taskCreated, setTaskCreated] = useState(false);
 
+  const clients = useQuery({ queryKey: ["clients-for-create-job"], queryFn: fetchClientOptions, enabled: open, staleTime: 30_000 });
+  const matches = useQuery({
+    queryKey: ["create-job-client-match", props.prefillEmail, props.prefillPhone],
+    queryFn: () => matchingClientIds(supabase, props.prefillEmail, props.prefillPhone),
+    enabled: open && !props.linkedClientId,
+  });
+  const matchedIds = matches.data ?? [];
+  // Don't let a job be created against a new client before we know
+  // whether the sender is already one.
+  const checkingMatch = !props.linkedClientId && clientChoice === null && matches.isPending;
+  const selectedClientId = clientChoice ?? defaultClientForSender(props.linkedClientId, matchedIds) ?? "";
+
+  const clientOptions = (() => {
+    const all = clients.data ?? [];
+    const flagged = new Set([...(props.linkedClientId ? [props.linkedClientId] : []), ...matchedIds]);
+    const tag = (c: ClientOption) =>
+      c.id === props.linkedClientId ? " (linked to this conversation)" : matchedIds.includes(c.id) ? " (matches sender)" : "";
+    const ordered = [...all.filter((c) => flagged.has(c.id)), ...all.filter((c) => !flagged.has(c.id))];
+    return ordered.map((c) => ({ value: c.id, label: `${clientLabel(c)}${tag(c)}` }));
+  })();
+
   const createJob = useMutation({
     mutationFn: async () => {
       if (!profile) throw new Error("Not signed in");
-      const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
-      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
-      if (!jobTitle.trim()) throw new Error("Title is required");
-
-      const { data: newClient, error: clientError } = await supabase
-        .from("clients")
-        .insert({ ...result.data, tenant_id: profile.tenant_id, created_by: profile.id })
-        .select("id")
-        .single();
-      if (clientError) throw clientError;
+      let clientId = selectedClientId;
+      if (!clientId) {
+        const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
+        if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
+        if (!jobTitle.trim()) throw new Error("Title is required");
+        const { data: newClient, error: clientError } = await supabase
+          .from("clients")
+          .insert({ ...result.data, tenant_id: profile.tenant_id, created_by: profile.id })
+          .select("id")
+          .single();
+        if (clientError) throw clientError;
+        clientId = newClient.id as string;
+      } else if (!jobTitle.trim()) {
+        throw new Error("Title is required");
+      }
 
       const { data: job, error: jobError } = await supabase
         .from("job_cards")
-        .insert({ tenant_id: profile.tenant_id, client_id: newClient.id, title: jobTitle.trim(), description: jobDescription || null, created_by: profile.id })
+        .insert({ tenant_id: profile.tenant_id, client_id: clientId, title: jobTitle.trim(), description: jobDescription || null, created_by: profile.id })
         .select("id")
         .single();
       if (jobError) throw jobError;
 
-      props.onClientLinked?.(newClient.id);
+      if (!props.linkedClientId) props.onClientLinked?.(clientId);
       return job.id as string;
     },
     onSuccess: (jobId) => setJobCreatedId(jobId),
@@ -210,7 +267,29 @@ function CreateJobTaskSection(props: {
           <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
             Create a job from this conversation
           </h2>
-          <ThemedFormField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+          {checkingMatch ? (
+            <p className="mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+              Checking for an existing client...
+            </p>
+          ) : (
+            <>
+              <ThemedSelectField
+                label="Client"
+                value={selectedClientId}
+                onChange={(v) => setClientChoice(v)}
+                options={clientOptions}
+                placeholder="Create a new client"
+              />
+              <ClientMatchHint
+                selectedClientId={selectedClientId}
+                linkedClientId={props.linkedClientId ?? null}
+                matchedIds={matchedIds}
+                matchError={matches.error}
+                clientsError={clients.error}
+              />
+              {!selectedClientId ? <ThemedFormField label="New client name" value={clientName} onChange={(e) => setClientName(e.target.value)} /> : null}
+            </>
+          )}
           <ThemedFormField label="Job title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
           <ThemedTextAreaField label="Description" rows={4} value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} />
           {error ? (
@@ -222,7 +301,7 @@ function CreateJobTaskSection(props: {
             <button onClick={() => setOpen(false)} className="px-3 py-2 font-semibold" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
               Cancel
             </button>
-            <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending}>
+            <ThemedButton onClick={() => createJob.mutate()} disabled={createJob.isPending || checkingMatch}>
               {createJob.isPending ? "Creating..." : "Create job"}
             </ThemedButton>
           </div>
@@ -239,6 +318,24 @@ function CreateJobTaskSection(props: {
         </p>
       ) : null}
     </div>
+  );
+}
+
+function ClientMatchHint(props: { selectedClientId: string; linkedClientId: string | null; matchedIds: string[]; matchError: unknown; clientsError: unknown }) {
+  const style = { color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)", marginTop: "-0.5rem" } as const;
+  let text: string | null = null;
+  if (props.clientsError) text = getErrorMessage(props.clientsError, "Couldn't load clients");
+  else if (props.matchError) text = `Couldn't check whether this sender is already a client (${getErrorMessage(props.matchError, "unknown error")}). Pick one above if they are.`;
+  else if (props.selectedClientId && props.selectedClientId === props.linkedClientId) text = "The job will be created for the client this conversation is linked to.";
+  else if (props.selectedClientId && props.matchedIds.includes(props.selectedClientId))
+    text = `The job will be created for this existing client - matched by the sender's details${props.matchedIds.length > 1 ? ` (${props.matchedIds.length} clients match)` : ""}.`;
+  else if (props.selectedClientId) text = "The job will be created for this existing client.";
+  else if (props.matchedIds.length > 0) text = "A new client will be created, even though an existing client matches this sender.";
+  else text = "No existing client matches this sender - a new client will be created.";
+  return (
+    <p className="mb-4" style={props.clientsError || props.matchError ? { ...style, color: "var(--jms-danger)" } : style}>
+      {text}
+    </p>
   );
 }
 
@@ -456,7 +553,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
           source={attachTarget.source}
           summary={attachTarget.summary}
           clientId={conversation.client_id}
-          phone={conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "missed_call" ? conversation.external_contact : null}
+          phone={senderPhone(conversation) || null}
           currentJobId={attachTarget.currentJobId}
           onClose={() => setAttachTarget(null)}
         />
@@ -466,11 +563,20 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         <CreateJobTaskSection
           prefillName={conversation.clients?.name || conversation.contact_name || ""}
           prefillEmail=""
-          prefillPhone={conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" ? conversation.external_contact : ""}
+          prefillPhone={senderPhone(conversation)}
           prefillTitle=""
           prefillDescription=""
+          linkedClientId={conversation.client_id}
           onClientLinked={(clientId) => {
-            supabase.from("channel_conversations").update({ client_id: clientId }).eq("id", conversationId).then();
+            supabase
+              .from("channel_conversations")
+              .update({ client_id: clientId })
+              .eq("id", conversationId)
+              .then(({ error }) => {
+                if (error) return;
+                queryClient.invalidateQueries({ queryKey: ["channel-conversation", conversationId] });
+                queryClient.invalidateQueries({ queryKey: ["channel-conversations"] });
+              });
           }}
         />
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toE164 } from "@jmssaas/shared";
+import { matchingClientIds } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
@@ -18,28 +18,6 @@ type JobOption = { id: string; number: string | null; title: string; client_id: 
 async function fetchJobs(): Promise<JobOption[]> {
   const jobs = await fetchAllRows<JobOption>("job_cards", "id, number, title, client_id, created_at, clients(name)");
   return jobs.sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-async function matchingClientIds(email: string | null, phone: string | null): Promise<string[]> {
-  const ids = new Set<string>();
-  if (email) {
-    const [clients, contacts] = await Promise.all([
-      supabase.from("clients").select("id").ilike("email", email),
-      supabase.from("client_contacts").select("client_id").ilike("email", email),
-    ]);
-    for (const row of clients.data ?? []) ids.add(row.id);
-    for (const row of contacts.data ?? []) ids.add(row.client_id);
-  }
-  const wanted = phone ? toE164(phone) : null;
-  if (wanted) {
-    const [clients, contacts] = await Promise.all([
-      fetchAllRows<{ id: string; phone: string | null }>("clients", "id, phone", (q) => q.not("phone", "is", null)),
-      fetchAllRows<{ id: string; client_id: string; phone: string | null }>("client_contacts", "id, client_id, phone", (q) => q.not("phone", "is", null)),
-    ]);
-    for (const row of clients) if (row.phone && toE164(row.phone) === wanted) ids.add(row.id);
-    for (const row of contacts) if (row.phone && toE164(row.phone) === wanted) ids.add(row.client_id);
-  }
-  return [...ids];
 }
 
 const SHOW_LIMIT = 60;
@@ -65,7 +43,7 @@ export function AttachToJobDialog(props: {
   const suggested = useQuery({
     queryKey: ["attach-job-client-match", props.clientId ?? "", props.email ?? "", props.phone ?? ""],
     queryFn: async () => {
-      const ids = await matchingClientIds(props.email ?? null, props.phone ?? null);
+      const ids = await matchingClientIds(supabase, props.email, props.phone);
       if (props.clientId) ids.push(props.clientId);
       return new Set(ids);
     },

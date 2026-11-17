@@ -7,6 +7,8 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import {
+  defaultClientForSender,
+  matchingClientIds,
   quickCreateClientSchema,
   splitTextWithLinks,
   type ChannelConversation,
@@ -26,6 +28,7 @@ import { ThemedButton } from "../../components/theme/ThemedButton";
 import { AttachToJobPicker } from "../../components/AttachToJobPicker";
 import type { AttachSource } from "../../lib/attach-to-job";
 import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
 
 // Mobile port of apps/desktop/src/pages/ChannelConversationDetail.tsx - a
 // plain pushed Stack screen (not a modal/bottom sheet), same as every
@@ -97,11 +100,60 @@ function attachLabel(linkedJobId: string | null, linkedJobNumber: string | null 
   return linkedJobId ? `📎 ${linkedJobNumber ?? "Attached"} · Attach to another job` : "Attach to job";
 }
 
-function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string; prefillPhone: string; prefillTitle: string; prefillDescription: string }) {
+// The sender's phone number, for the channels whose external_contact is
+// one (Messenger/Instagram use a page-scoped id instead).
+function senderPhone(conversation: ChannelConversation): string {
+  return conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "missed_call" ? conversation.external_contact : "";
+}
+
+type ClientOption = { id: string; name: string; company_name: string | null };
+const NEW_CLIENT: ClientOption = { id: "", name: "+ Create a new client", company_name: null };
+
+function clientLabel(c: ClientOption): string {
+  return c.company_name || c.name;
+}
+
+// Every client, paged past PostgREST's silent 1000-row cap.
+async function fetchClientOptions(): Promise<ClientOption[]> {
+  const rows: ClientOption[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("clients").select("id, name, company_name").order("id").range(from, from + 999);
+    if (error) throw error;
+    rows.push(...((data ?? []) as ClientOption[]));
+    if (!data || data.length < 1000) break;
+  }
+  return rows.sort((a, b) => clientLabel(a).localeCompare(clientLabel(b)));
+}
+
+// Mirrors desktop's CreateJobTaskSection: the job goes to an existing
+// client when there is one - the conversation's linked client, else a
+// client (or client contact) whose email/phone matches the sender - and a
+// new client is only inserted when "Create a new client" is chosen, which
+// is the default only for an unknown sender.
+function CreateJobTaskSection(props: {
+  prefillName: string;
+  prefillEmail: string;
+  prefillPhone: string;
+  prefillTitle: string;
+  prefillDescription: string;
+  // channel_conversations.client_id, for a real conversation.
+  linkedClientId?: string | null;
+  // Called after the job is created when the conversation had no linked
+  // client yet, with the client the job went to (new or existing).
+  onClientLinked?: (clientId: string) => void;
+}) {
   const { profile } = useAuth();
   const router = useRouter();
   const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
+  // null until the user picks: the default (linked client, else first
+  // match, else new) applies. "" = create a new client.
+  const [clientChoice, setClientChoice] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [clients, setClients] = useState<ClientOption[] | null>(null);
+  const [matchedIds, setMatchedIds] = useState<string[]>([]);
+  const [checkingMatch, setCheckingMatch] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
   const [clientName, setClientName] = useState(props.prefillName);
   const [jobTitle, setJobTitle] = useState(props.prefillTitle);
   const [jobDescription, setJobDescription] = useState(props.prefillDescription);
@@ -109,29 +161,79 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
   const [error, setError] = useState<string | null>(null);
   const [taskCreated, setTaskCreated] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetchClientOptions()
+      .then((rows) => !cancelled && setClients(rows))
+      .catch((e) => !cancelled && setMatchError(getErrorMessage(e, "Couldn't load clients")));
+    if (!props.linkedClientId) {
+      setCheckingMatch(true);
+      matchingClientIds(supabase, props.prefillEmail, props.prefillPhone)
+        .then((ids) => !cancelled && setMatchedIds(ids))
+        .catch((e) => !cancelled && setMatchError(`Couldn't check whether this sender is already a client (${getErrorMessage(e, "unknown error")}). Pick one if they are.`))
+        .finally(() => !cancelled && setCheckingMatch(false));
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, props.linkedClientId, props.prefillEmail, props.prefillPhone]);
+
+  const selectedClientId = clientChoice ?? defaultClientForSender(props.linkedClientId, matchedIds) ?? "";
+  const selectedClient = clients?.find((c) => c.id === selectedClientId);
+  // Don't let a job be created against a new client before we know
+  // whether the sender is already one.
+  const waitingForMatch = clientChoice === null && checkingMatch;
+
+  const hint = matchError
+    ? matchError
+    : selectedClientId && selectedClientId === props.linkedClientId
+      ? "The job will be created for the client this conversation is linked to."
+      : selectedClientId && matchedIds.includes(selectedClientId)
+        ? `Matched by the sender's details${matchedIds.length > 1 ? ` (${matchedIds.length} clients match)` : ""}.`
+        : selectedClientId
+          ? "The job will be created for this existing client."
+          : matchedIds.length > 0
+            ? "A new client will be created, even though an existing client matches this sender."
+            : "No existing client matches this sender - a new client will be created.";
+
+  const pickerItems = (() => {
+    const all = clients ?? [];
+    const flagged = new Set([...(props.linkedClientId ? [props.linkedClientId] : []), ...matchedIds]);
+    return [NEW_CLIENT, ...all.filter((c) => flagged.has(c.id)), ...all.filter((c) => !flagged.has(c.id))];
+  })();
+  const pickerLabel = (c: ClientOption) =>
+    c.id === "" ? c.name : `${clientLabel(c)}${c.id === props.linkedClientId ? " (linked)" : matchedIds.includes(c.id) ? " (matches sender)" : ""}`;
+
   const createJob = async () => {
     if (!profile) return;
     setBusy(true);
     setError(null);
     try {
-      const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
-      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
-      if (!jobTitle.trim()) throw new Error("Title is required");
-
-      const { data: newClient, error: clientError } = await supabase
-        .from("clients")
-        .insert({ ...result.data, tenant_id: profile.tenant_id, created_by: profile.id })
-        .select("id")
-        .single();
-      if (clientError) throw clientError;
+      let clientId = selectedClientId;
+      if (!clientId) {
+        const result = quickCreateClientSchema.safeParse({ name: clientName, email: props.prefillEmail, phone: props.prefillPhone });
+        if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Enter a name");
+        if (!jobTitle.trim()) throw new Error("Title is required");
+        const { data: newClient, error: clientError } = await supabase
+          .from("clients")
+          .insert({ ...result.data, tenant_id: profile.tenant_id, created_by: profile.id })
+          .select("id")
+          .single();
+        if (clientError) throw clientError;
+        clientId = newClient.id as string;
+      } else if (!jobTitle.trim()) {
+        throw new Error("Title is required");
+      }
 
       const { data: job, error: jobError } = await supabase
         .from("job_cards")
-        .insert({ tenant_id: profile.tenant_id, client_id: newClient.id, title: jobTitle.trim(), description: jobDescription || null, created_by: profile.id })
+        .insert({ tenant_id: profile.tenant_id, client_id: clientId, title: jobTitle.trim(), description: jobDescription || null, created_by: profile.id })
         .select("id")
         .single();
       if (jobError) throw jobError;
 
+      if (!props.linkedClientId) props.onClientLinked?.(clientId);
       router.push(`/jobs/${job.id}`);
     } catch (e) {
       setError(getErrorMessage(e, "Failed to create job"));
@@ -171,7 +273,21 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
         </View>
       ) : (
         <>
-          <ThemedFormField label="Client name" value={clientName} onChangeText={setClientName} />
+          {waitingForMatch ? (
+            <Text style={styles.hint}>Checking for an existing client...</Text>
+          ) : (
+            <>
+              <Text style={styles.fieldLabel}>Client</Text>
+              <Pressable style={styles.clientPicker} onPress={() => setPickerOpen(true)} disabled={!clients}>
+                <Text style={styles.clientPickerText} numberOfLines={1}>
+                  {selectedClientId ? (selectedClient ? clientLabel(selectedClient) : "Loading...") : "Create a new client"}
+                </Text>
+                <Text style={styles.link}>Change</Text>
+              </Pressable>
+              <Text style={matchError ? styles.error : styles.hint}>{hint}</Text>
+              {!selectedClientId ? <ThemedFormField label="New client name" value={clientName} onChangeText={setClientName} /> : null}
+            </>
+          )}
           <ThemedFormField label="Job title" value={jobTitle} onChangeText={setJobTitle} />
           <ThemedFormField label="Description" value={jobDescription} onChangeText={setJobDescription} multiline style={styles.multiline} />
           {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -179,10 +295,19 @@ function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string
             <Pressable onPress={() => setOpen(false)}>
               <Text style={styles.cancelLink}>Cancel</Text>
             </Pressable>
-            <ThemedButton label={busy ? "Creating..." : "Create Job"} onPress={createJob} disabled={busy} />
+            <ThemedButton label={busy ? "Creating..." : "Create Job"} onPress={createJob} disabled={busy || waitingForMatch} />
           </View>
         </>
       )}
+      <ThemedPickerModal
+        visible={pickerOpen}
+        title="Create the job for which client?"
+        items={pickerItems}
+        getKey={(c) => c.id || "new"}
+        getLabel={pickerLabel}
+        onSelect={(c) => setClientChoice(c.id)}
+        onClose={() => setPickerOpen(false)}
+      />
       {taskCreated ? <Text style={styles.success}>Task created.</Text> : null}
       {!open && error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -375,9 +500,19 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         <CreateJobTaskSection
           prefillName={conversation.clients?.name || conversation.contact_name || ""}
           prefillEmail=""
-          prefillPhone={conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" ? conversation.external_contact : ""}
+          prefillPhone={senderPhone(conversation)}
           prefillTitle=""
           prefillDescription=""
+          linkedClientId={conversation.client_id}
+          onClientLinked={(clientId) => {
+            supabase
+              .from("channel_conversations")
+              .update({ client_id: clientId })
+              .eq("id", conversationId)
+              .then(({ error }) => {
+                if (!error) refetch();
+              });
+          }}
         />
       </ScrollView>
 
@@ -563,5 +698,18 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     multiline: { minHeight: 70, textAlignVertical: "top" as const },
     error: { color: tokens.danger, fontSize: font.label, ...mono },
     success: { color: tokens.accent, fontSize: font.label, ...mono },
+    hint: { color: tokens.textMuted, fontSize: font.label, ...mono },
+    fieldLabel: { color: tokens.textMuted, fontSize: font.label, letterSpacing: 1, textTransform: "uppercase" as const, ...mono },
+    clientPicker: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 12,
+      borderWidth: 1,
+      borderColor: tokens.border,
+      borderRadius: 3,
+      padding: 12,
+      backgroundColor: tokens.background,
+    },
+    clientPickerText: { flex: 1, fontSize: font.body, color: tokens.textPrimary, ...mono },
   };
 }
