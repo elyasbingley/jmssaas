@@ -3,7 +3,7 @@ import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
+import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { useIsOnline } from "../../lib/connectivity";
@@ -14,42 +14,11 @@ import { ThemedFormField } from "../../components/theme/ThemedFormField";
 import { ThemedPickerModal } from "../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../components/theme/ThemedButton";
 import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
+import { AttachToJobPicker } from "../../components/AttachToJobPicker";
+import { copyFilesToJob } from "../../lib/attach-to-job";
 
 const ATTACHMENT_BUCKET = "inbox-attachments";
-const JOB_FILES_BUCKET = "job-files";
-
-type JobWithClient = JobCard & { clients: { name: string } | null };
-
-// Same copy-not-reference approach as desktop's InboxMessage.tsx: job_files
-// rows always point into job-files (JobDetail.tsx hardcodes it), so a
-// message's attachments need an actual copy out of the private
-// inbox-attachments bucket, not just a new row pointing at the old path.
-// download()/.arrayBuffer() then upload() is the same round-trip
-// SupabaseRemoteStorageAdapter in lib/attachments.ts uses for job photos.
-async function copyAttachmentsToJob(params: { attachments: InboxAttachment[]; tenantId: string; jobCardId: string; uploadedBy: string }) {
-  for (const attachment of params.attachments) {
-    const { data: blob, error: downloadError } = await supabase.storage.from(ATTACHMENT_BUCKET).download(attachment.storage_path);
-    if (downloadError || !blob) throw downloadError ?? new Error(`Failed to download ${attachment.file_name}`);
-    const bytes = await blob.arrayBuffer();
-
-    const storagePath = `${params.tenantId}/${params.jobCardId}/${crypto.randomUUID()}-${attachment.file_name}`;
-    const { error: uploadError } = await supabase.storage
-      .from(JOB_FILES_BUCKET)
-      .upload(storagePath, bytes, { contentType: attachment.mime_type ?? undefined });
-    if (uploadError) throw uploadError;
-
-    const { error: insertError } = await supabase.from("job_files").insert({
-      tenant_id: params.tenantId,
-      job_card_id: params.jobCardId,
-      storage_path: storagePath,
-      file_name: attachment.file_name,
-      mime_type: attachment.mime_type,
-      size_bytes: attachment.size_bytes,
-      uploaded_by: params.uploadedBy,
-    });
-    if (insertError) throw insertError;
-  }
-}
+type MessageWithJob = InboxMessage & { job_cards: { number: string | null; title: string } | null };
 
 export default function InboxMessageScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,11 +27,11 @@ export default function InboxMessageScreen() {
   const isOnline = useIsOnline();
   const styles = useThemedStyles(createStyles);
 
-  const { data: message, refetch: refetchMessage } = useSupabaseFetch<InboxMessage | null>(async () => {
+  const { data: message, refetch: refetchMessage } = useSupabaseFetch<MessageWithJob | null>(async () => {
     if (!isOnline) return null;
-    const { data, error } = await supabase.from("inbox_messages").select("*").eq("id", id).single();
+    const { data, error } = await supabase.from("inbox_messages").select("*, job_cards(number, title)").eq("id", id).single();
     if (error) throw error;
-    return data as InboxMessage;
+    return data as MessageWithJob;
   }, [isOnline, id]);
   const { data: attachments } = useSupabaseFetch<InboxAttachment[]>(async () => {
     if (!isOnline) return [];
@@ -76,13 +45,6 @@ export default function InboxMessageScreen() {
     if (error) throw error;
     return data as Client[];
   }, [isOnline]);
-  const { data: jobs } = useSupabaseFetch<JobWithClient[]>(async () => {
-    if (!isOnline) return [];
-    const { data, error } = await supabase.from("job_cards").select("*, clients(name)").order("created_at", { ascending: false }).limit(200);
-    if (error) throw error;
-    return data as JobWithClient[];
-  }, [isOnline]);
-
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
@@ -119,23 +81,6 @@ export default function InboxMessageScreen() {
   };
 
   const [jobPickerVisible, setJobPickerVisible] = useState(false);
-  const [attachJob, setAttachJob] = useState<JobWithClient | null>(null);
-
-  const attachToExisting = async () => {
-    if (!profile || !attachJob) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await copyAttachmentsToJob({ attachments: attachments ?? [], tenantId: profile.tenant_id, jobCardId: attachJob.id, uploadedBy: profile.id });
-      const { error } = await supabase.from("inbox_messages").update({ status: "attached", linked_job_id: attachJob.id }).eq("id", id);
-      if (error) throw error;
-      await refetchMessage();
-    } catch (e) {
-      setActionError(getErrorMessage(e, "Failed to attach to job"));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   // Prefilled from the AI-drafted suggestion when one exists (needs_review
   // messages), otherwise from the subject/body - same fallback desktop's
@@ -196,7 +141,7 @@ export default function InboxMessageScreen() {
         .single();
       if (jobError) throw jobError;
 
-      await copyAttachmentsToJob({ attachments: attachments ?? [], tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id });
+      await copyFilesToJob({ bucket: ATTACHMENT_BUCKET, files: attachments ?? [], tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id });
       const { error: updateError } = await supabase.from("inbox_messages").update({ status: "attached", linked_job_id: job.id }).eq("id", id);
       if (updateError) throw updateError;
       router.replace(`/jobs/${job.id}`);
@@ -264,24 +209,34 @@ export default function InboxMessageScreen() {
           ) : null}
 
           {!canAct ? (
-            <Text style={styles.resolvedText}>
-              {message.status === "attached" ? "Attached to a job." : "Dismissed."}
-            </Text>
+            <View style={styles.section}>
+              <Text style={styles.resolvedText}>
+                {message.status === "attached"
+                  ? message.job_cards
+                    ? `Attached to ${message.job_cards.number ?? "job"} - ${message.job_cards.title}.`
+                    : "Attached to a job that has since been deleted."
+                  : "Dismissed."}
+              </Text>
+              {message.status === "attached" && message.linked_job_id ? (
+                <Pressable onPress={() => router.push(`/jobs/${message.linked_job_id}`)}>
+                  <Text style={styles.link}>Open job</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => setJobPickerVisible(true)}>
+                <Text style={styles.link}>{message.status === "attached" ? "Attach to another job" : "Attach to a job"}</Text>
+              </Pressable>
+            </View>
           ) : (
             <>
               {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
-              {attachments && attachments.length > 0 ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Attach to an Existing Job</Text>
-                  <Pressable style={styles.pickerField} onPress={() => setJobPickerVisible(true)}>
-                    <Text style={attachJob ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-                      {attachJob ? `${attachJob.title} - ${attachJob.clients?.name ?? "Unknown client"}` : "Select a job"}
-                    </Text>
-                  </Pressable>
-                  <ThemedButton label={busy ? "Attaching..." : "Attach"} onPress={attachToExisting} disabled={!attachJob || busy} />
-                </View>
-              ) : null}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Attach to an Existing Job</Text>
+                <Text style={styles.resolvedText}>
+                  Adds this email to the job as a note{attachments && attachments.length > 0 ? ", and its attachments to the job's files" : ""}.
+                </Text>
+                <ThemedButton label="Choose job" onPress={() => setJobPickerVisible(true)} />
+              </View>
 
               <View style={styles.section}>
                 <View style={styles.sectionHeaderRow}>
@@ -330,14 +285,13 @@ export default function InboxMessageScreen() {
             </>
           )}
 
-          <ThemedPickerModal
+          <AttachToJobPicker
             visible={jobPickerVisible}
-            title="Select job"
-            items={jobs ?? []}
-            getKey={(j) => j.id}
-            getLabel={(j) => `${j.title} - ${j.clients?.name ?? "Unknown client"}`}
-            onSelect={setAttachJob}
+            source={{ kind: "inbox", messageId: message.id }}
+            email={message.from_email}
+            currentJobId={message.linked_job_id}
             onClose={() => setJobPickerVisible(false)}
+            onAttached={() => void refetchMessage()}
           />
           <ThemedPickerModal
             visible={clientPickerVisible}

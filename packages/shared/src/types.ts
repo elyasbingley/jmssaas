@@ -2315,6 +2315,9 @@ export interface ChannelMessage {
   status: ChannelMessageStatus;
   sent_by: string | null;
   created_at: string;
+  // The job this message was last attached to (attach_messages_to_jobs
+  // migration). Set only by the attach_message_to_job function.
+  linked_job_id: string | null;
 }
 
 // Reusable quick-compose text for Channels' SMS/WhatsApp sends -

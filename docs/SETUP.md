@@ -11120,3 +11120,49 @@ the numbering afterwards, and the blocked case.
 - If a phone has unsynced changes to a job that is deleted on desktop (a
   note added offline, say), that phone's upload of the change will fail
   when it reconnects.
+
+## 94. Attaching emails and messages to an existing job
+
+Any Inbox email, and any message in Channels (email, SMS, WhatsApp,
+Messenger, Instagram, missed call), can be attached to a job that already
+exists, on desktop and on the phone.
+
+- **Inbox email:** "Attach to an existing job" > Choose job. Before this it
+  only appeared when the email had file attachments, and attaching copied
+  only the files.
+- **Channels:** "Attach to job" under every message.
+- **The picker** lists the sender's client's jobs first (matched by the
+  conversation's linked client, or by the sender's email or phone against
+  clients and their contacts), then every other job, newest first, and is
+  searchable by job number, title or client.
+- **What lands on the job:** a job note with who it was from, when, and the
+  text (a missed call's note says it was a missed call; a shared location
+  becomes a map link), plus any attachments, photos or voicemail in the job's
+  files. A note was chosen over a separate "emails" section so it shows
+  everywhere job notes already do, including the phone offline.
+- An attached message shows the job it's on, and can be attached to another
+  job too. Attaching it to the same job twice is refused.
+
+Migration `20261117000200_attach_messages_to_jobs.sql` adds
+`channel_messages.linked_job_id` and `attach_message_to_job`, which builds the
+note from the stored message and records the link in one transaction. It is
+SECURITY DEFINER because `channel_messages` has no client write policy (only
+the Edge Functions write it), so it checks admin and company itself. The apps
+copy files first (`apps/desktop/src/lib/attach-to-job.ts`,
+`apps/mobile/lib/attach-to-job.ts`), then call it.
+
+### How this was verified
+
+Database: every message type, attaching twice, and a technician, another
+company and a signed-out caller being refused, on a local Postgres with every
+migration applied. Desktop: in a headless browser against that database - a
+plain email, an email with two files, an SMS with a photo, the email thread in
+Channels, the suggested-jobs ordering and the notes on the job page. The phone
+screens were typechecked only.
+
+### Known gaps
+
+- If copying a file fails part-way, the files already copied stay on the job
+  and nothing else is recorded; trying again copies them again.
+- "Create job" in Channels still always creates a new client, even when the
+  conversation is already linked to one.

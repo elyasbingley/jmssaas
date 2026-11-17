@@ -23,6 +23,8 @@ import { sendChannelMessage, uploadChannelMedia, decodeEmailConversationId, type
 import { useThemedStyles, type StyleTheme } from "../../lib/use-themed-styles";
 import { ThemedFormField } from "../../components/theme/ThemedFormField";
 import { ThemedButton } from "../../components/theme/ThemedButton";
+import { AttachToJobPicker } from "../../components/AttachToJobPicker";
+import type { AttachSource } from "../../lib/attach-to-job";
 import { ThemedRequiresConnectionNotice } from "../../components/theme/ThemedRequiresConnectionNotice";
 
 // Mobile port of apps/desktop/src/pages/ChannelConversationDetail.tsx - a
@@ -76,15 +78,23 @@ async function fetchConversation(id: string): Promise<ChannelConversation & { cl
   if (error) throw error;
   return data as ChannelConversation & { clients: { id: string; name: string } | null };
 }
-async function fetchMessages(conversationId: string): Promise<ChannelMessage[]> {
-  const { data, error } = await supabase.from("channel_messages").select("*").eq("conversation_id", conversationId).order("created_at");
+type LinkedJob = { job_cards: { number: string | null } | null };
+
+async function fetchMessages(conversationId: string): Promise<(ChannelMessage & LinkedJob)[]> {
+  const { data, error } = await supabase.from("channel_messages").select("*, job_cards(number)").eq("conversation_id", conversationId).order("created_at");
   if (error) throw error;
-  return data as ChannelMessage[];
+  return data as (ChannelMessage & LinkedJob)[];
 }
-async function fetchInboxMessagesFor(email: string): Promise<InboxMessage[]> {
-  const { data, error } = await supabase.from("inbox_messages").select("*").eq("from_email", email).order("received_at", { ascending: false });
+async function fetchInboxMessagesFor(email: string): Promise<(InboxMessage & LinkedJob)[]> {
+  const { data, error } = await supabase.from("inbox_messages").select("*, job_cards(number)").eq("from_email", email).order("received_at", { ascending: false });
   if (error) throw error;
-  return data as InboxMessage[];
+  return data as (InboxMessage & LinkedJob)[];
+}
+
+type AttachTarget = { source: AttachSource; currentJobId: string | null };
+
+function attachLabel(linkedJobId: string | null, linkedJobNumber: string | null | undefined): string {
+  return linkedJobId ? `📎 ${linkedJobNumber ?? "Attached"} · Attach to another job` : "Attach to job";
 }
 
 function CreateJobTaskSection(props: { prefillName: string; prefillEmail: string; prefillPhone: string; prefillTitle: string; prefillDescription: string }) {
@@ -222,6 +232,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
   const [attachment, setAttachment] = useState<ChannelMediaAttachment | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [sending, setSending] = useState(false);
+  const [attachTarget, setAttachTarget] = useState<AttachTarget | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
   const pickAttachment = async () => {
@@ -296,6 +307,16 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
 
   const canSend = conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "messenger";
   const title = conversation.clients?.name || conversation.contact_name || conversation.external_contact;
+  const attachPicker = (
+    <AttachToJobPicker
+      visible={attachTarget !== null}
+      source={attachTarget?.source ?? null}
+      clientId={conversation.client_id}
+      currentJobId={attachTarget?.currentJobId}
+      onClose={() => setAttachTarget(null)}
+      onAttached={() => refetchMessages()}
+    />
+  );
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -344,6 +365,9 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                 {new Date(m.created_at).toLocaleString("en-AU")}
                 {m.direction === "outbound" ? ` · ${deliveryStatusLabel(m.status)}` : ""}
               </Text>
+              <Pressable onPress={() => setAttachTarget({ source: { kind: "channel", messageId: m.id }, currentJobId: m.linked_job_id })} hitSlop={6}>
+                <Text style={styles.attachLink}>{attachLabel(m.linked_job_id, m.job_cards?.number)}</Text>
+              </Pressable>
             </View>
           </View>
         ))}
@@ -395,6 +419,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
           <Text style={styles.notConnected}>Sending isn't available on {CHANNEL_LABELS[conversation.channel_type]} yet - see Settings.</Text>
         )}
       </View>
+      {attachPicker}
     </KeyboardAvoidingView>
   );
 }
@@ -402,8 +427,9 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
 function EmailConversationDetail({ email }: { email: string }) {
   const router = useRouter();
   const styles = useThemedStyles(createStyles);
-  const { data: messages } = useSupabaseFetch(async () => fetchInboxMessagesFor(email), [email]);
+  const { data: messages, refetch } = useSupabaseFetch(async () => fetchInboxMessagesFor(email), [email]);
   const latest = messages?.[0];
+  const [attachTarget, setAttachTarget] = useState<AttachTarget | null>(null);
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
@@ -422,10 +448,21 @@ function EmailConversationDetail({ email }: { email: string }) {
           <Pressable onPress={() => router.push(`/inbox/${m.id}`)}>
             <Text style={styles.link}>Open in Inbox →</Text>
           </Pressable>
+          <Pressable onPress={() => setAttachTarget({ source: { kind: "inbox", messageId: m.id }, currentJobId: m.linked_job_id })} hitSlop={6}>
+            <Text style={styles.link}>{attachLabel(m.linked_job_id, m.job_cards?.number)}</Text>
+          </Pressable>
         </View>
       ))}
 
-      <Text style={styles.notConnected}>Replying, attaching files, and AI-drafted job suggestions all still happen from the Inbox screen.</Text>
+      <Text style={styles.notConnected}>Replying and AI-drafted job suggestions still happen from the Inbox screen.</Text>
+      <AttachToJobPicker
+        visible={attachTarget !== null}
+        source={attachTarget?.source ?? null}
+        email={email}
+        currentJobId={attachTarget?.currentJobId}
+        onClose={() => setAttachTarget(null)}
+        onAttached={() => refetch()}
+      />
 
       <CreateJobTaskSection
         prefillName={latest?.from_name || ""}
@@ -488,6 +525,7 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     bubbleLink: { color: tokens.accent, textDecorationLine: "underline" as const, fontSize: font.body - 1, ...mono },
     bubbleTimeOutbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
     bubbleTimeInbound: { color: tokens.textMuted, fontSize: font.label - 1, marginTop: 4, ...mono },
+    attachLink: { color: tokens.accent, fontSize: font.label - 1, fontWeight: "600" as const, marginTop: 4, ...mono },
     mediaLink: { color: tokens.accent, textDecorationLine: "underline" as const, marginTop: 4, ...mono },
     composer: { borderTopWidth: 1, borderTopColor: tokens.border, padding: 12 },
     composerRow: { flexDirection: "row" as const, gap: 8, alignItems: "flex-end" as const },

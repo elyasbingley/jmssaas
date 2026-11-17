@@ -17,9 +17,11 @@ import { uploadChannelMedia } from "../lib/uploads";
 import { ThemedFormField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { decodeEmailConversationId } from "./Channels";
+import { AttachToJobDialog } from "../components/AttachToJobDialog";
+import type { AttachSource } from "../lib/attach-to-job";
 
-const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷" };
-const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
+const CHANNEL_ICONS: Record<string, string> = { sms: "💬", whatsapp: "🟢", messenger: "🔵", instagram: "📷", missed_call: "📞" };
+const CHANNEL_LABELS: Record<string, string> = { sms: "SMS", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram", missed_call: "Missed call" };
 
 // Renders a message body with any http(s) URLs (splitTextWithLinks, shared
 // with mobile) as clickable links - a bare URL in plain text isn't
@@ -72,15 +74,39 @@ async function fetchConversation(id: string): Promise<ChannelConversation & { cl
   if (error) throw error;
   return data as ChannelConversation & { clients: { id: string; name: string } | null };
 }
-async function fetchMessages(conversationId: string): Promise<ChannelMessage[]> {
-  const { data, error } = await supabase.from("channel_messages").select("*").eq("conversation_id", conversationId).order("created_at");
+type LinkedJob = { job_cards: { number: string | null } | null };
+
+async function fetchMessages(conversationId: string): Promise<(ChannelMessage & LinkedJob)[]> {
+  const { data, error } = await supabase.from("channel_messages").select("*, job_cards(number)").eq("conversation_id", conversationId).order("created_at");
   if (error) throw error;
-  return data as ChannelMessage[];
+  return data as (ChannelMessage & LinkedJob)[];
 }
-async function fetchInboxMessagesFor(email: string): Promise<InboxMessage[]> {
-  const { data, error } = await supabase.from("inbox_messages").select("*").eq("from_email", email).order("received_at", { ascending: false });
+async function fetchInboxMessagesFor(email: string): Promise<(InboxMessage & LinkedJob)[]> {
+  const { data, error } = await supabase.from("inbox_messages").select("*, job_cards(number)").eq("from_email", email).order("received_at", { ascending: false });
   if (error) throw error;
-  return data as InboxMessage[];
+  return data as (InboxMessage & LinkedJob)[];
+}
+
+interface AttachTarget {
+  source: AttachSource;
+  summary: string;
+  currentJobId: string | null;
+}
+
+// "Attach to job" plus, once attached, which job - under every message.
+function AttachLink({ linkedJobId, linkedJobNumber, onAttach }: { linkedJobId: string | null; linkedJobNumber: string | null | undefined; onAttach: () => void }) {
+  return (
+    <span className="flex items-center gap-2">
+      {linkedJobId ? (
+        <Link to={`/jobs/${linkedJobId}`} className="hover:underline" style={{ color: "var(--jms-accent)" }} title="Attached to this job">
+          📎 {linkedJobNumber ?? "job"}
+        </Link>
+      ) : null}
+      <button onClick={onAttach} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
+        {linkedJobId ? "Attach to another job" : "Attach to job"}
+      </button>
+    </span>
+  );
 }
 
 // Shared by both the real-channel and virtual-email panels below - "make
@@ -254,6 +280,7 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
   }, [conversation?.id]);
 
   const { profile } = useAuth();
+  const [attachTarget, setAttachTarget] = useState<AttachTarget | null>(null);
   const [reply, setReply] = useState("");
   const [attachment, setAttachment] = useState<ChannelMediaAttachment | null>(null);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -346,9 +373,22 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
                   </a>
                 ) : null
               )}
-              <p className="mt-1 flex items-center gap-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-                {new Date(m.created_at).toLocaleString("en-AU")}
-                {m.direction === "outbound" ? <DeliveryStatus status={m.status} /> : null}
+              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                <span className="flex items-center gap-1">
+                  {new Date(m.created_at).toLocaleString("en-AU")}
+                  {m.direction === "outbound" ? <DeliveryStatus status={m.status} /> : null}
+                </span>
+                <AttachLink
+                  linkedJobId={m.linked_job_id}
+                  linkedJobNumber={m.job_cards?.number}
+                  onAttach={() =>
+                    setAttachTarget({
+                      source: { kind: "channel", messageId: m.id },
+                      summary: `${title}: ${conversation.channel_type === "missed_call" ? (m.media.length > 0 ? "voicemail" : "missed call") : m.body || (m.media.length > 0 ? m.media.map((x) => x.file_name).join(", ") : "message")}`,
+                      currentJobId: m.linked_job_id,
+                    })
+                  }
+                />
               </p>
             </div>
           </div>
@@ -411,6 +451,17 @@ function RealConversationDetail({ conversationId }: { conversationId: string }) 
         )}
       </div>
 
+      {attachTarget ? (
+        <AttachToJobDialog
+          source={attachTarget.source}
+          summary={attachTarget.summary}
+          clientId={conversation.client_id}
+          phone={conversation.channel_type === "sms" || conversation.channel_type === "whatsapp" || conversation.channel_type === "missed_call" ? conversation.external_contact : null}
+          currentJobId={attachTarget.currentJobId}
+          onClose={() => setAttachTarget(null)}
+        />
+      ) : null}
+
       <div className="p-4" style={{ borderTop: "1px solid var(--jms-border)" }}>
         <CreateJobTaskSection
           prefillName={conversation.clients?.name || conversation.contact_name || ""}
@@ -431,6 +482,7 @@ function EmailConversationDetail({ email }: { email: string }) {
   const navigate = useNavigate();
   const { data: messages } = useQuery({ queryKey: ["inbox-messages-for-email", email], queryFn: () => fetchInboxMessagesFor(email) });
   const latest = messages?.[0];
+  const [attachTarget, setAttachTarget] = useState<AttachTarget | null>(null);
 
   return (
     <div className="flex h-full flex-col" style={{ fontFamily: "var(--jms-font)" }}>
@@ -458,17 +510,33 @@ function EmailConversationDetail({ email }: { email: string }) {
                 {m.body_text}
               </p>
             ) : null}
-            <Link to={`/inbox/${m.id}`} className="mt-2 inline-block font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
-              Open in Inbox &rarr;
-            </Link>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1" style={{ fontSize: "var(--jms-font-body)" }}>
+              <Link to={`/inbox/${m.id}`} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
+                Open in Inbox &rarr;
+              </Link>
+              <AttachLink
+                linkedJobId={m.linked_job_id}
+                linkedJobNumber={m.job_cards?.number}
+                onAttach={() => setAttachTarget({ source: { kind: "inbox", messageId: m.id }, summary: `${m.from_name || m.from_email}: ${m.subject || "(no subject)"}`, currentJobId: m.linked_job_id })}
+              />
+            </div>
           </div>
         ))}
       </div>
 
+      {attachTarget ? (
+        <AttachToJobDialog
+          source={attachTarget.source}
+          summary={attachTarget.summary}
+          email={email}
+          currentJobId={attachTarget.currentJobId}
+          onClose={() => setAttachTarget(null)}
+        />
+      ) : null}
+
       <div className="p-4" style={{ borderTop: "1px solid var(--jms-border)" }}>
         <p className="mb-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
-          Replying, attaching files, and AI-drafted job suggestions all still happen from the Inbox screen - open a
-          message above to use them.
+          Replying and AI-drafted job suggestions still happen from the Inbox screen - open a message above to use them.
         </p>
         <CreateJobTaskSection
           prefillName={latest?.from_name || ""}

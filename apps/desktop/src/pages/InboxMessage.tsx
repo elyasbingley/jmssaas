@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage, type JobCard } from "@jmssaas/shared";
+import { quickCreateClientSchema, type Client, type InboxAttachment, type InboxMessage } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { ThemedFormField, ThemedSelectField, ThemedTextAreaField } from "../components/theme/ThemedFormField";
 import { ThemedButton } from "../components/theme/ThemedButton";
+import { AttachToJobDialog } from "../components/AttachToJobDialog";
+import { copyFilesToJob } from "../lib/attach-to-job";
 
 const ATTACHMENT_BUCKET = "inbox-attachments";
-const JOB_FILES_BUCKET = "job-files";
 
-async function fetchMessage(id: string): Promise<InboxMessage> {
-  const { data, error } = await supabase.from("inbox_messages").select("*").eq("id", id).single();
+type MessageWithJob = InboxMessage & { job_cards: { number: string | null; title: string } | null };
+
+async function fetchMessage(id: string): Promise<MessageWithJob> {
+  const { data, error } = await supabase.from("inbox_messages").select("*, job_cards(number, title)").eq("id", id).single();
   if (error) throw error;
-  return data as InboxMessage;
+  return data as MessageWithJob;
 }
 async function fetchAttachments(messageId: string): Promise<InboxAttachment[]> {
   const { data, error } = await supabase.from("inbox_attachments").select("*").eq("message_id", messageId);
@@ -26,46 +29,6 @@ async function fetchClients(): Promise<Client[]> {
   if (error) throw error;
   return data as Client[];
 }
-async function fetchOpenJobs(): Promise<(JobCard & { clients: { name: string } | null })[]> {
-  const { data, error } = await supabase.from("job_cards").select("*, clients(name)").order("created_at", { ascending: false }).limit(200);
-  if (error) throw error;
-  return data as (JobCard & { clients: { name: string } | null })[];
-}
-
-// Copies every attachment out of the private inbox-attachments bucket into
-// job-files - job_files rows always point into that bucket (JobDetail.tsx
-// hardcodes it, same as the reports_safety_engine migration's own comment
-// on why report-files stays separate), so a message's files need an actual
-// copy, not just a new row pointing at the old path.
-async function copyAttachmentsToJob(params: {
-  attachments: InboxAttachment[];
-  tenantId: string;
-  jobCardId: string;
-  uploadedBy: string;
-}) {
-  for (const attachment of params.attachments) {
-    const { data: blob, error: downloadError } = await supabase.storage.from(ATTACHMENT_BUCKET).download(attachment.storage_path);
-    if (downloadError || !blob) throw downloadError ?? new Error(`Failed to download ${attachment.file_name}`);
-
-    const storagePath = `${params.tenantId}/${params.jobCardId}/${crypto.randomUUID()}-${attachment.file_name}`;
-    const { error: uploadError } = await supabase.storage
-      .from(JOB_FILES_BUCKET)
-      .upload(storagePath, blob, { contentType: attachment.mime_type ?? undefined });
-    if (uploadError) throw uploadError;
-
-    const { error: insertError } = await supabase.from("job_files").insert({
-      tenant_id: params.tenantId,
-      job_card_id: params.jobCardId,
-      storage_path: storagePath,
-      file_name: attachment.file_name,
-      mime_type: attachment.mime_type,
-      size_bytes: attachment.size_bytes,
-      uploaded_by: params.uploadedBy,
-    });
-    if (insertError) throw insertError;
-  }
-}
-
 export default function InboxMessagePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -75,7 +38,6 @@ export default function InboxMessagePage() {
   const { data: message } = useQuery({ queryKey: ["inbox-message", id], queryFn: () => fetchMessage(id!), enabled: !!id });
   const { data: attachments } = useQuery({ queryKey: ["inbox-attachments", id], queryFn: () => fetchAttachments(id!), enabled: !!id });
   const { data: clients } = useQuery({ queryKey: ["clients-for-inbox"], queryFn: fetchClients });
-  const { data: jobs } = useQuery({ queryKey: ["jobs-for-inbox"], queryFn: fetchOpenJobs });
 
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -110,22 +72,7 @@ export default function InboxMessagePage() {
     },
   });
 
-  const [attachJobId, setAttachJobId] = useState("");
-  const [attachError, setAttachError] = useState<string | null>(null);
-
-  const attachToExisting = useMutation({
-    mutationFn: async () => {
-      if (!profile || !message || !attachJobId) throw new Error("Pick a job first");
-      await copyAttachmentsToJob({ attachments: attachments ?? [], tenantId: profile.tenant_id, jobCardId: attachJobId, uploadedBy: profile.id });
-      const { error } = await supabase.from("inbox_messages").update({ status: "attached", linked_job_id: attachJobId }).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      invalidate();
-      setAttachError(null);
-    },
-    onError: (e) => setAttachError(getErrorMessage(e, "Failed to attach to job")),
-  });
+  const [attachOpen, setAttachOpen] = useState(false);
 
   // Prefilled from the AI-drafted suggestion when one exists (needs_review
   // messages), otherwise blank - either way this form is what actually
@@ -181,7 +128,7 @@ export default function InboxMessagePage() {
         .single();
       if (jobError) throw jobError;
 
-      await copyAttachmentsToJob({ attachments: attachments ?? [], tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id });
+      await copyFilesToJob({ bucket: ATTACHMENT_BUCKET, files: attachments ?? [], tenantId: profile.tenant_id, jobCardId: job.id, uploadedBy: profile.id });
       const { error: updateError } = await supabase.from("inbox_messages").update({ status: "attached", linked_job_id: job.id }).eq("id", id);
       if (updateError) throw updateError;
       return job.id as string;
@@ -241,44 +188,50 @@ export default function InboxMessagePage() {
         ) : null}
       </div>
 
+      {attachOpen ? (
+        <AttachToJobDialog
+          source={{ kind: "inbox", messageId: message.id }}
+          summary={`${message.from_name || message.from_email}: ${message.subject || "(no subject)"}`}
+          email={message.from_email}
+          currentJobId={message.linked_job_id}
+          onClose={() => setAttachOpen(false)}
+        />
+      ) : null}
+
       {!canAct ? (
-        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
-          {message.status === "attached" ? (
-            <>
-              Attached to{" "}
-              <Link to={`/jobs/${message.linked_job_id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
-                this job
-              </Link>
-              .
-            </>
-          ) : (
-            "Dismissed."
-          )}
-        </p>
+        <div className="flex flex-wrap items-center gap-3" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
+          <span>
+            {message.status === "attached" && message.linked_job_id ? (
+              <>
+                Attached to{" "}
+                <Link to={`/jobs/${message.linked_job_id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
+                  {message.job_cards ? `${message.job_cards.number ?? "job"} - ${message.job_cards.title}` : "a job"}
+                </Link>
+                .
+              </>
+            ) : message.status === "attached" ? (
+              "Attached to a job that has since been deleted."
+            ) : (
+              "Dismissed."
+            )}
+          </span>
+          <button onClick={() => setAttachOpen(true)} className="font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
+            {message.status === "attached" ? "Attach to another job" : "Attach to a job"}
+          </button>
+        </div>
       ) : (
         <>
-          {attachments && attachments.length > 0 ? (
-            <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
-              <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+            <div>
+              <h2 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
                 Attach to an existing job
               </h2>
-              <ThemedSelectField
-                label="Job"
-                value={attachJobId}
-                onChange={setAttachJobId}
-                options={(jobs ?? []).map((j) => ({ value: j.id, label: `${j.title} - ${j.clients?.name ?? "Unknown client"}` }))}
-                placeholder="Select a job"
-              />
-              {attachError ? (
-                <p className="mb-3" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
-                  {attachError}
-                </p>
-              ) : null}
-              <ThemedButton onClick={() => attachToExisting.mutate()} disabled={!attachJobId || attachToExisting.isPending}>
-                {attachToExisting.isPending ? "Attaching..." : "Attach"}
-              </ThemedButton>
+              <p className="mt-1" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                Adds this email to the job as a note{attachments && attachments.length > 0 ? `, and its ${attachments.length === 1 ? "attachment" : `${attachments.length} attachments`} to the job's files` : ""}.
+              </p>
             </div>
-          ) : null}
+            <ThemedButton onClick={() => setAttachOpen(true)}>Choose job</ThemedButton>
+          </div>
 
           <div className="mb-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
             <div className="mb-3 flex items-center justify-between">

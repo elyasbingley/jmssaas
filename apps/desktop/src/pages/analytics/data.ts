@@ -16,31 +16,9 @@ import {
   type AnalyticsStage,
   type DateRange,
 } from "@jmssaas/shared";
-import { supabase } from "../../lib/supabase";
 
-// PostgREST caps every response at 1000 rows (supabase/config.toml's
-// max_rows, same on the hosted project), silently - a plain select on a
-// table with more just returns the first 1000. Reports that sum five
-// years of invoices can't be allowed to quietly drop the rest, so every
-// Analytics read pages through the whole table. Ordered by id so pages
-// can't overlap or skip.
-const PAGE_SIZE = 1000;
-
-// The query builder's own type is generic over the schema; a filter only
-// ever chains one more call onto it.
-type Filter = (query: any) => any;
-
-export async function fetchAllRows<T>(table: string, columns: string, filter?: Filter): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let query = supabase.from(table).select(columns);
-    if (filter) query = filter(query);
-    const { data, error } = await query.order("id").range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    rows.push(...((data ?? []) as T[]));
-    if (!data || data.length < PAGE_SIZE) return rows;
-  }
-}
+export { fetchAllRows } from "../../lib/fetch-all-rows";
+import { fetchAllRows } from "../../lib/fetch-all-rows";
 
 // Every column Analytics reads, in one place - a misspelt column only
 // fails at runtime, so this list is what gets checked against the schema.
@@ -92,7 +70,8 @@ type QuoteLineRow = Omit<AnalyticsLine, "parent_id"> & { quote_id: string };
 
 // Only lines that came from the Price Book - a custom line has nothing to
 // count against, and they're the bulk of the table.
-const linkedOnly: Filter = (query) => query.not("price_book_item_id", "is", null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const linkedOnly = (query: any) => query.not("price_book_item_id", "is", null);
 
 async function fetchPriceBookLines(): Promise<PriceBookLines> {
   const c = ANALYTICS_COLUMNS;
