@@ -114,6 +114,10 @@ export interface Tenant {
   // registers phones under (made by the stripe-terminal function).
   default_deposit_percent: number;
   stripe_terminal_location_id: string | null;
+  // Xero two-way sync: push invoices automatically once sent, and which
+  // Xero account each payment method lands in.
+  xero_auto_sync: boolean;
+  xero_payment_accounts: XeroPaymentAccounts;
   // How many days out a task's due_date has to be before the Eisenhower
   // Matrix suggests (never silently applies) is_urgent - see the
   // eisenhower_matrix migration.
@@ -1014,9 +1018,20 @@ export interface Invoice {
   // What the cached stripe_checkout_url charges, and when it was made.
   stripe_checkout_amount_cents: number | null;
   stripe_checkout_created_at: string | null;
+  // Xero two-way sync: waiting to be pushed (new, changed or voided here),
+  // when the last push failed, and Xero's own total/status.
+  xero_needs_sync: boolean;
+  xero_sync_failed_at: string | null;
+  xero_total_cents: number | null;
+  xero_status: string | null;
 }
 
-export type PaymentMethod = "tap_to_pay" | "card_online" | "card" | "cash" | "bank_transfer" | "cheque" | "other";
+export type PaymentMethod = "tap_to_pay" | "card_online" | "card" | "cash" | "bank_transfer" | "cheque" | "other" | "xero";
+
+// Settings' Xero account per payment method (xero_two_way_sync migration).
+// "stripe" covers Tap to Pay and online card payments.
+export type XeroPaymentAccountKey = "stripe" | "card" | "cash" | "bank_transfer" | "cheque" | "other";
+export type XeroPaymentAccounts = Partial<Record<XeroPaymentAccountKey, { id: string; name: string }>>;
 
 // One payment received - see the payments migration. Written only through
 // the record_payment / delete_payment RPCs (and the Stripe functions).
@@ -1039,6 +1054,16 @@ export interface Payment {
   stripe_checkout_session_id: string | null;
   recorded_by: string | null;
   created_at: string;
+  // Xero two-way sync: 'xero' = a payment made in Xero and brought in here.
+  source: "app" | "xero";
+  xero_payment_id: string | null;
+  xero_amount_cents: number | null;
+  xero_synced_at: string | null;
+  xero_sync_error: string | null;
+  xero_sync_failed_at: string | null;
+  // Never sent to Xero (came from Xero, or a placeholder for money received
+  // outside the app, or recorded before two-way sync).
+  xero_skip: boolean;
 }
 
 export interface InvoiceLineItem extends LineItemInput {

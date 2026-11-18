@@ -12,6 +12,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   bank_transfer: "Bank transfer",
   cheque: "Cheque",
   other: "Other",
+  xero: "Paid in Xero",
 };
 
 // What can be recorded by hand - card payments through Stripe (online or

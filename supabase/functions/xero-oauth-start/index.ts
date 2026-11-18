@@ -32,7 +32,14 @@ const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/xero-oauth-callback`;
 // Invoices). If a scope ever needs adding back, it must also be turned on
 // for the app in the Xero Developer Portal, not just requested here - see
 // docs/SETUP.md section 35.
-const SCOPES = "offline_access accounting.contacts accounting.invoices";
+//
+// accounting.payments and accounting.settings.read were added for the
+// two-way sync (xero_two_way_sync migration): reading and adding payments,
+// and listing bank accounts for Settings' payment-account pickers. Both
+// must also be ticked for the app in the Xero developer portal, or Xero
+// answers "invalid_scope". XERO_SCOPES overrides the whole list if Xero
+// names them differently for this app.
+const SCOPES = Deno.env.get("XERO_SCOPES") || "offline_access accounting.contacts accounting.invoices accounting.payments accounting.settings.read";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",

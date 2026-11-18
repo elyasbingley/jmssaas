@@ -5173,6 +5173,9 @@ and Invoice actually appear in Xero.
 
 ## 36. Xero integration - Phase 2 (payment read-back: Xero -> app)
 
+> Superseded by section 96 (two-way sync). The webhook below is still used,
+> but now it just starts a sync; the 10-minute schedule works without it.
+
 Closes the loop Phase 1 deliberately left open: a payment recorded
 directly in Xero (not through this app's Stripe flow) now flows back and
 marks the matching invoice paid here too.
@@ -11355,3 +11358,157 @@ There is no card surcharge (surcharging isn't allowed in Australia any more).
   you.
 - Xero gets the invoice as before, but individual part payments aren't sent
   to Xero as Xero payments.
+
+## 96. Xero two-way sync (like ServiceM8)
+
+No more marking invoices paid by hand after reconciling in Xero.
+
+- **Invoices go to Xero automatically** when they're sent to the client (or
+  paid straight from draft), and again if they change before they're paid:
+  lines, totals, dates or client. Voiding one here voids it in Xero. The
+  "Sync to Xero" button still works and sends it straight away. You can turn
+  automatic sending off in Settings (then only the button sends). Older
+  invoices that never went to Xero aren't sent just because something about
+  them changes now. Turning automatic sending back on sends the last 30 days'
+  unsent ones.
+- **Payments taken here go into Xero** against the invoice: Tap to Pay,
+  online card, cash, bank transfer and cheque. Each goes into the Xero account
+  you pick per method in Settings > Company Details > Xero. For card payments
+  through Stripe, pick a Stripe clearing account. Each Stripe payout then
+  matches in Xero's bank reconciliation, with Stripe's fee as its own line. A
+  method with no account chosen isn't sent; the payment shows "Not in Xero:
+  No Xero account chosen...". Deposits go to Xero once their quote has become
+  an invoice that's in Xero.
+- **Payments made in Xero come back here**, part or full, as "Paid in Xero"
+  payments. The invoice turns Paid by itself once they cover it.
+- **Paid in full in Xero without a payment** (a credit note, a write-off)
+  marks it paid here too ("Settled in Xero").
+- **Removing a payment** on either side removes it on the other. The
+  exception is a payment taken here (Tap to Pay, cash...) that someone
+  deletes in Xero: it stays here, because the money was really received, and
+  is marked "Deleted in Xero - not sent to Xero again".
+- **Voided in Xero** voids the invoice here, unless payments are recorded
+  against it here. In that case it's flagged on the invoice for you to check.
+- **Nothing is counted twice:**
+  - Payments that came from Xero are never sent back.
+  - A Xero payment for an invoice that's already fully paid here isn't
+    brought in.
+  - A real Xero payment replaces any "Marked as paid" placeholder.
+- **When it runs:** every 10 minutes, straight after Xero's webhook reports a
+  change (if set up), and when you click **Sync now** in Settings.
+- **Where to see it:**
+  - Each payment on an invoice shows "In Xero", "From Xero", "Waiting to go
+    to Xero" or the problem.
+  - The invoice's Xero box shows Xero's status, and warns if Xero's total
+    differs from ours.
+  - Settings shows the last sync, what's waiting, and any problem.
+- **Payments recorded before this change aren't sent to Xero**, since those
+  invoices were reconciled in Xero by hand.
+
+Also fixed: waived amounts on lines, and the membership discount, weren't
+sent to Xero before. Those invoices had a higher total in Xero than here.
+
+### What you need to do once
+
+1. **Xero developer portal** (developer.xero.com > My Apps > your app >
+   Configuration): tick the scopes **accounting.payments** and
+   **accounting.settings.read**, alongside accounting.invoices and
+   accounting.contacts. If Xero names them differently for your app, set
+   `XERO_SCOPES` to the full list:
+   ```bash
+   npx supabase secrets set XERO_SCOPES="offline_access accounting.contacts accounting.invoices accounting.payments accounting.settings.read"
+   ```
+2. **Database and functions:**
+   ```bash
+   git pull origin main
+   npx supabase db push --remote
+   npx supabase functions deploy xero-sync --no-verify-jwt
+   npx supabase functions deploy xero-webhook --no-verify-jwt
+   npx supabase functions deploy xero-oauth-start
+   ```
+   `xero-sync` is now deployed with `--no-verify-jwt`. It checks the caller
+   itself, because the schedule calls it with the service role key.
+3. **Reconnect Xero:** Settings > Company Details > Xero shows "Reconnect
+   Xero to turn on payment sync". Click it and approve in Xero. Until you
+   do, invoices still sync, and invoices paid in full in Xero still show as
+   paid here, but payments don't go either way.
+4. **Pick the payment accounts** in the same place, then **Save accounts**.
+   It's worth creating a "Stripe Clearing" bank account in Xero first, if
+   you don't have one.
+5. **Schedule the sync every 10 minutes:** in Supabase > SQL Editor, run
+   this with your project ref and service role key (Project Settings > API
+   Keys > Legacy > `service_role`). The `pg_cron` and `pg_net` extensions
+   are already on if the scheduled messages work.
+   ```sql
+   select cron.schedule(
+     'xero-sync',
+     '*/10 * * * *',
+     $$
+     select net.http_post(
+       url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/xero-sync',
+       headers := jsonb_build_object('Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY', 'Content-Type', 'application/json'),
+       body := '{"action":"sweep"}'::jsonb
+     );
+     $$
+   );
+   ```
+6. **Optional, for instant updates:** set up the Xero webhook from section
+   36 (Delivery URL `.../functions/v1/xero-webhook`, `XERO_WEBHOOK_KEY`
+   secret). Without it, changes in Xero show up within 10 minutes.
+
+The first sync looks back 90 days in Xero, so recent invoices you've
+already reconciled in Xero come across without any clicking.
+
+### Where it lives
+
+- Migration `20261119000100_xero_two_way_sync.sql`:
+  - New columns:
+    - `payments`: `source`, the `xero_*` fields and `xero_skip`;
+    - `invoices`: `xero_needs_sync`, `xero_total_cents`, `xero_status`;
+    - `tenants`: `xero_auto_sync`, `xero_payment_accounts`;
+    - `xero_connections`: sync health columns.
+  - The `xero_payment_deletions` queue.
+  - The trigger that flags invoices to push.
+  - Service-only functions to import, remove, settle and void from Xero,
+    plus the one-sync-at-a-time lease.
+- `supabase/functions/xero-sync/`:
+  - `index.ts` decides who's calling;
+  - `sync.ts` does the sync;
+  - `xero-webhook` now just starts a sync.
+- Desktop: `components/XeroSyncSettings.tsx` (in Company Settings), the
+  invoice's Xero box, and the Xero status on each payment.
+
+### How this was verified
+
+- **Database:** checked on a local Postgres with every migration applied:
+  - flagging rules: draft, sent, edited, voided, auto sync off/on, and old
+    invoices left alone;
+  - importing, re-importing and our own payments coming back;
+  - placeholders replaced, nothing counted twice;
+  - deletions both ways, settle, void, the lease and permissions.
+- **Functions:** both ran under Deno against that database and a fake Xero.
+  The run went through the whole loop:
+  1. send an invoice; Xero's total matches, including a waived line and a
+     membership discount;
+  2. cash and Tap to Pay go into the right accounts;
+  3. part and full payments in Xero come in, and the invoice turns paid;
+  4. deleted in Xero, then removed here;
+  5. no account chosen gives a clear message, and it isn't retried every
+     run;
+  6. void and credit-note-paid in Xero, void here, edits re-sent;
+  7. the invoice button, account listing, Sync now and the webhook;
+  8. a connection without the new permissions.
+- **Desktop:** the Settings panel and invoice page were checked in a
+  headless browser.
+- **Not checked:** the exact scope names and API behaviour against a real
+  Xero organisation. Watch the first few syncs (Settings shows any
+  problem).
+
+### Known gaps
+
+- Overpayments and prepayments made in Xero aren't brought in as payments.
+  A credit note that fully pays an invoice is handled ("Settled in Xero").
+- An invoice that has payments in Xero can't be edited there. If you change
+  it here after it's been paid in part, Xero refuses, and the invoice shows
+  the message.
+- Refunds still aren't handled in the app (see section 95).

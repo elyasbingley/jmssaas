@@ -81,3 +81,9 @@ verify_jwt = false
 # has to work unauthenticated for Google's own initial "sync" verification
 # ping sent the moment a channel is created.
 verify_jwt = false
+
+[functions.xero-sync]
+# Called by pg_cron and xero-webhook with the service role key as well as
+# by signed-in users - the function checks the caller itself (see its own
+# comment), so the platform's JWT gateway is off.
+verify_jwt = false

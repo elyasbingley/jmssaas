@@ -18,6 +18,7 @@ import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { ThemedFormField } from "../components/theme/ThemedFormField";
 import { ThemedButton } from "../components/theme/ThemedButton";
+import { XeroSyncSettings, type XeroStatus as XeroSyncStatus } from "../components/XeroSyncSettings";
 import { ThemedBadge } from "../components/theme/ThemedBadge";
 
 const LOGO_BUCKET = "company-logos";
@@ -28,9 +29,7 @@ async function fetchTenant(tenantId: string): Promise<Tenant> {
   return data as Tenant;
 }
 
-interface XeroStatus {
-  connected: boolean;
-  org_name?: string;
+interface XeroStatus extends XeroSyncStatus {
   connected_at?: string;
 }
 
@@ -161,6 +160,21 @@ export default function SettingsPage() {
       setXeroConnectError(searchParams.get("xero_message") || "Failed to connect to Xero");
     } else if (xeroResult === "connected") {
       queryClient.invalidateQueries({ queryKey: ["xero-status"] });
+      // A first sync straight away: it records what this connection is
+      // allowed to do (clearing "Reconnect Xero") and brings in anything
+      // already paid in Xero.
+      (async () => {
+        const { data: session } = await supabase.auth.getSession();
+        const token = session.session?.access_token;
+        if (!token) return;
+        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xero-sync`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync_now" }),
+        }).catch(() => undefined);
+        queryClient.invalidateQueries({ queryKey: ["xero-status"] });
+        queryClient.invalidateQueries({ queryKey: ["xero-accounts"] });
+      })();
     }
     setSearchParams((params) => {
       params.delete("xero");
@@ -984,6 +998,16 @@ export default function SettingsPage() {
             The chart-of-accounts code invoice line items post against in Xero (Save changes above to update this). "200" is Xero's
             default "Sales" code - check Xero's Chart of Accounts if yours differs.
           </p>
+          {tenant && profile ? (
+            <XeroSyncSettings
+              tenantId={profile.tenant_id}
+              status={xeroStatus}
+              autoSync={tenant.xero_auto_sync ?? true}
+              paymentAccounts={tenant.xero_payment_accounts ?? {}}
+              isAdmin={isAdmin}
+              onReconnect={connectXero}
+            />
+          ) : null}
         </div>
       ) : null}
 

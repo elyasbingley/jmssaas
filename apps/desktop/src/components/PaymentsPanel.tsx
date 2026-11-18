@@ -190,6 +190,7 @@ export function PaymentsPanel({ target, onChanged }: { target: Target; onChanged
                   {p.kind === "deposit" ? <span style={labelStyle}> · deposit</span> : null}
                   {p.reference ? <span style={labelStyle}> · {p.reference}</span> : null}
                   {p.notes ? <div style={labelStyle}>{p.notes}</div> : null}
+                  <XeroPaymentStatus payment={p} invoiceInXero={target.kind === "invoice" && !!target.invoice.xero_invoice_id} />
                 </td>
                 <td className="py-1 pr-3 text-right font-semibold">{formatCentsAsAud(p.amount_cents)}</td>
                 <td className="py-1 text-right">
@@ -273,6 +274,22 @@ export function PaymentsPanel({ target, onChanged }: { target: Target; onChanged
       </ThemedModal>
     </div>
   );
+}
+
+// Where a payment stands with Xero (xero_two_way_sync migration). Nothing
+// is shown for payments that were never going to Xero (recorded before
+// two-way sync, placeholders) unless something went wrong.
+function XeroPaymentStatus({ payment, invoiceInXero }: { payment: Payment; invoiceInXero: boolean }) {
+  let text: string | null = null;
+  let color = "var(--jms-text-muted)";
+  if (payment.source === "xero") text = "From Xero";
+  else if (payment.xero_payment_id) text = "In Xero";
+  else if (payment.xero_sync_error) {
+    text = `Not in Xero: ${payment.xero_sync_error}`;
+    color = "var(--jms-danger)";
+  } else if (!payment.xero_skip && invoiceInXero) text = "Waiting to go to Xero";
+  if (!text) return null;
+  return <div style={{ ...labelStyle, color }}>{text}</div>;
 }
 
 // The deposit a quote asks for: none, a % of the total, or a fixed amount.

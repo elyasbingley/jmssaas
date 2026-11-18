@@ -594,9 +594,9 @@ export default function InvoiceDetailPage() {
     onError: (e) => setPaymentLinkError(getErrorMessage(e, "Failed to create payment link")),
   });
 
-  // Xero sync (Phase 1, one-way push - see the xero-sync Edge Function's
-  // own comment). Manual, one invoice at a time - not fired automatically
-  // on status changes yet.
+  // Xero sync - pushes this invoice (and any payments on it) to Xero now.
+  // Invoices also go automatically once sent, and payments both ways, on
+  // the 10-minute sync (see the xero-sync Edge Function).
   const [xeroSyncError, setXeroSyncError] = useState<string | null>(null);
   const syncToXero = useMutation({
     mutationFn: async () => {
@@ -928,6 +928,22 @@ export default function InvoiceDetailPage() {
               Not synced to Xero yet.
             </p>
           )}
+          {data.invoice.xero_status ? (
+            <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              In Xero: {data.invoice.xero_status === "AUTHORISED" ? "awaiting payment" : data.invoice.xero_status.toLowerCase()}
+              {data.invoice.xero_total_cents != null && data.invoice.xero_total_cents !== data.invoice.total_cents ? (
+                <span style={{ color: "var(--jms-danger)" }}>
+                  {" "}
+                  - Xero's total is {formatCentsAsAud(data.invoice.xero_total_cents)}, not {formatCentsAsAud(data.invoice.total_cents)}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+          {data.invoice.xero_needs_sync && !data.invoice.xero_sync_error ? (
+            <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Waiting to go to Xero - happens within 10 minutes, or click below to send it now.
+            </p>
+          ) : null}
           <ThemedButton onClick={() => syncToXero.mutate()} disabled={syncToXero.isPending} style={{ paddingBlock: 6, paddingInline: 12 }}>
             {syncToXero.isPending ? "Syncing..." : data.invoice.xero_synced_at ? "Re-sync to Xero" : "Sync to Xero"}
           </ThemedButton>
