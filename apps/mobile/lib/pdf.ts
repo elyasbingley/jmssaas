@@ -8,6 +8,7 @@ import {
   type LineItemFormInput,
   type LowStockItem,
   type Quote,
+  type QuoteOption,
   type Tenant,
 } from "@jmssaas/shared";
 
@@ -393,19 +394,59 @@ function renderAcceptedSignature(quote: Quote): string {
   `;
 }
 
+// Quote options (quote_options migration): the shared lines, then each
+// option under its own heading with its price; once one's chosen, just
+// that one. Before a choice the totals box lists each option's total.
+function renderOptionSections(lineItems: LineItemFormInput[], options: QuoteOption[], chosen: QuoteOption | null): string {
+  const shared = lineItems.filter((item) => !item.option_id);
+  const shown = chosen ? [chosen] : options;
+  return (
+    (shared.length ? `<div class="option-label">Included in every option</div>${renderItemsTable("quote", shared)}` : "") +
+    shown
+      .map((option) => {
+        const tag = option === chosen ? " &middot; CHOSEN" : option.is_recommended ? " &middot; RECOMMENDED" : "";
+        return `<div class="option-heading"><span>Option ${options.indexOf(option) + 1}: ${escapeHtml(option.name)}${tag}</span><span>${formatCentsAsAud(option.total_cents)}</span></div>
+          ${option.description ? `<div class="option-desc">${escapeHtml(option.description)}</div>` : ""}
+          ${renderItemsTable("quote", lineItems.filter((item) => item.option_id === option.id))}`;
+      })
+      .join("")
+  );
+}
+
+function renderOptionTotals(options: QuoteOption[]): string {
+  return `<div class="totals">
+    <div class="totals-row"><span>Your options (inc GST)</span><span></span></div>
+    ${options
+      .map((o, i) => `<div class="totals-row"><span>${i + 1}. ${escapeHtml(o.name)}${o.is_recommended ? " (recommended)" : ""}</span><span>${formatCentsAsAud(o.total_cents)}</span></div>`)
+      .join("")}
+  </div>`;
+}
+
+const OPTION_STYLES = `
+  .option-label { margin: 14px 0 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #6b7280; }
+  .option-heading { display: flex; justify-content: space-between; margin-top: 16px; padding: 6px 10px; background: #1f2937; color: #fff; font-weight: 700; font-size: 12px; }
+  .option-desc { font-size: 11px; color: #6b7280; margin: 4px 0; }
+`;
+
 export function buildQuotePdfHtml(params: {
   tenant: Tenant;
   quote: Quote;
   client: Client;
   lineItems: LineItemFormInput[];
+  options?: QuoteOption[];
 }): string {
-  const { tenant, quote, client, lineItems } = params;
+  const { tenant, quote, client } = params;
+  const options = [...(params.options ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+  const chosen = options.find((o) => o.id === quote.chosen_option_id) ?? null;
+  const lineItems = options.length
+    ? params.lineItems.filter((item) => !item.option_id || (chosen && item.option_id === chosen.id))
+    : params.lineItems;
   const isAccepted = quote.approval_status === "accepted" && !!quote.accepted_signature_svg;
   return `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <style>${BASE_STYLES}</style>
+    <style>${BASE_STYLES}${OPTION_STYLES}</style>
   </head>
   <body>
     ${renderHeader("quote", quote.quote_number, null, tenant)}
@@ -420,9 +461,13 @@ export function buildQuotePdfHtml(params: {
     </div>
 
     ${renderJobSummary(quote.notes)}
-    ${renderItemsTable("quote", lineItems)}
+    ${options.length ? renderOptionSections(params.lineItems, options, chosen) : renderItemsTable("quote", lineItems)}
     ${renderTrustBadges(tenant)}
-    ${renderTotals(lineItems, null, quote.membership_discount_cents, true)}
+    ${
+      options.length && !chosen
+        ? renderOptionTotals(options)
+        : renderTotals(lineItems, null, chosen ? chosen.membership_discount_cents : quote.membership_discount_cents, true)
+    }
     ${isAccepted ? renderAcceptedSignature(quote) : renderApprovalBlock()}
     ${renderFinePrint(quote.fine_print_text)}
   </body>

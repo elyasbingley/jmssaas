@@ -77,7 +77,8 @@ async function fetchCostingRows() {
       fetchAllRows<JobCardRow>("job_cards", "*, clients(*)"),
       fetchAllRows<QuoteRow>("quotes", "id, job_card_id, quote_number, status, total_cents, issue_date"),
       fetchAllRows<InvoiceRow>("invoices", "id, job_card_id, invoice_number, status, total_cents, issue_date, paid_at"),
-      fetchAllRows<QuoteLineItem>("quote_line_items", "*"),
+      // Only the option each quote counts as (quote options).
+      fetchAllRows<QuoteLineItem>("quote_line_items", "*", (query) => query.eq("in_quote_total", true)),
       fetchAllRows<InvoiceLineItem>("invoice_line_items", "*"),
       fetchAllRows<LineItemCrewInput & { quote_line_item_id: string }>("quote_line_item_crew", "*"),
       fetchAllRows<LineItemMaterialInput & { quote_line_item_id: string }>("quote_line_item_materials", "*"),

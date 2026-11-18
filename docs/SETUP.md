@@ -11512,3 +11512,119 @@ already reconciled in Xero come across without any clicking.
   it here after it's been paid in part, Xero refuses, and the invoice shows
   the message.
 - Refunds still aren't handled in the app (see section 95).
+
+## 97. Quote options (Good / Better / Best) and "quote viewed" alerts
+
+A quote can offer alternatives, such as Repair / Restore / Replace, each with
+its own lines and price. The client picks one on their quote link when they
+accept.
+
+- **Building it (desktop and phone):** on a quote, click **+ Offer options**.
+  This gives you:
+  - **In every option**, a section for lines that apply whichever option the
+    client picks (call-out fee, scaffolding);
+  - a tab per option, with a name, a short description for the client and
+    its own lines.
+
+  Tick **Recommended** on the option you'd steer them to; it gets a badge.
+  **Copy option** duplicates one with its lines, which is handy for "Restore"
+  vs "Restore + new gutters". **Remove option** deletes it. Removing down to
+  one option turns it back into a plain quote. Optional extras work inside
+  options and the shared section, just as before.
+- **The option totals table** at the top shows each option's total,
+  including the shared lines.
+- **What the quote is worth:** until the client chooses, the quote counts as
+  the recommended option (or the first one if none is recommended). That
+  covers the quotes list, the job, Analytics' pipeline and win rate, and the
+  deposit. The quotes list also shows "3 options · from $X". Once an option
+  is chosen, everything follows that option.
+- **The client's quote link:**
+  - the shared lines first, then a card per option: name, Recommended badge,
+    description, its lines and its price;
+  - the recommended option starts selected, and **Choose this option**
+    switches it;
+  - the total, any ticked extras and the accept button ("I accept Option 2:
+    Restore") follow the selection;
+  - a % deposit reads "of the option you choose";
+  - once accepted, the page shows only the option they picked, and the
+    deposit is worked out on that option's price.
+- **Accepted by phone or in person:** click **Client chose this** next to the
+  option. You can't change the option once a client has accepted online,
+  because it's what they signed.
+- **To invoice:** "Convert to invoice" only takes the shared lines and the
+  chosen option's lines. It asks you to record the client's choice first.
+- **PDF:** before a choice it shows every option with a box of option
+  totals; once chosen, just that option and its totals.
+- **Job costing, the job page, Profitability and Price Book Usage** count
+  only the option the quote currently counts as, not every option.
+
+### "Client viewed your quote" alerts
+
+You get a push notification ("Quote viewed - Sam opened Quote #Q123") the
+first time the client opens their quote link. You get another ("came back to
+Quote #Q123 - a good time to follow up") if they return a day or more after
+they last looked. There's never more than one alert a day per quote, and none
+once it's accepted or declined. Tapping it on the phone opens the quote.
+
+Opening the link yourself counts as a view, so it would use up the first
+alert. Check the quote in JMS instead of opening the client's link.
+
+### What you need to do once
+
+```powershell
+git pull origin main
+npx supabase db push
+npx supabase functions deploy approve --no-verify-jwt
+```
+
+On a newer Supabase CLI, use `npx supabase db push --linked` if plain
+`db push` asks which database. Then re-upload the `approval-page-deploy/`
+folder to Netlify, the same as before. Building or recording options on the
+phone needs the next app build: EAS, or `eas update` for this JS-only change.
+Until then, the phone still opens and saves quotes without breaking their
+options.
+
+### Where it lives
+
+- Migration `20261120000100_quote_options.sql`:
+  - the `quote_options` table, `quote_line_items.option_id` and
+    `in_quote_total`;
+  - `quotes.chosen_option_id`, `last_viewed_at` and `last_view_notified_at`;
+  - `refresh_quote_option_totals` and `choose_quote_option`;
+  - `replace_quote_line_items` (new optional `p_options`);
+  - `accept_quote_by_token` (new `p_option_id`);
+  - `convert_quote_to_invoice` (chosen option only);
+  - `get_quote_options_by_token` and `record_quote_view`.
+- Shared helpers: `packages/shared/src/quote-options.ts`, with tests.
+- Desktop: `components/QuoteOptionsEditor.tsx`, plus options in the quote
+  PDF and the quotes list.
+- Phone: `components/QuoteOptionsEditor.tsx`, plus options in the quote PDF.
+- `approve` function: adds the options to the client page and sends the
+  viewed alert.
+- Client page: `supabase/static/approval-page.html`, mirrored in
+  `approval-page-deploy/`.
+
+### How this was verified
+
+- **Database:** on a local Postgres with every migration applied:
+  - option totals (shared lines, extras, membership discount);
+  - recommended, chosen or first as the quote's value;
+  - saving with and without options, and older callers keeping options;
+  - accepting with and without an option;
+  - the office's choice, and invoicing only the chosen option;
+  - which lines count for costing;
+  - view alerts: first view, same-day revisit, return after 2 days, and
+    none after acceptance;
+  - another company and anonymous callers being refused;
+  - plain quotes unchanged.
+- **Client page:** in a headless browser:
+  - option cards, recommended preselected, extras and switching options
+    updating the totals;
+  - accepting Restore with an extra: saved correctly, and the deposit
+    worked out on its price.
+- **Desktop:** in a headless browser:
+  - building three options (rename, describe, recommend, copy);
+  - saving, the totals table and the list's "from" price;
+  - recording the client's choice;
+  - both PDFs, and converting to an invoice.
+- **Phone:** typechecked only.

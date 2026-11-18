@@ -14,6 +14,9 @@ import {
   type EmailAttachment,
   type FinePrintTemplate,
   type LineItemFormInput,
+  orderForSave,
+  type QuoteOption,
+  type QuoteOptionInput,
   type PlaceholderContext,
   type Quote,
   type QuoteStatus,
@@ -29,7 +32,7 @@ import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
 import { startChannelConversation } from "../lib/channels";
 import { blobToDataUrl, buildQuotePdfBytes, downloadBlob } from "../lib/quote-invoice-pdf-bytes";
-import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
+import { QuoteOptionsEditor } from "../components/QuoteOptionsEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { PaymentsPanel, QuoteDepositControl } from "../components/PaymentsPanel";
@@ -93,8 +96,8 @@ type QuoteLineItemRow = LineItemFormInput & {
   quote_line_item_materials?: LineItemFormInput["materials"];
 };
 
-async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineItemFormInput[] }> {
-  const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
+async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineItemFormInput[]; options: QuoteOption[] }> {
+  const [{ data: quote, error: quoteError }, { data: items, error: itemsError }, { data: options, error: optionsError }] = await Promise.all([
     supabase
       .from("quotes")
       .select(
@@ -107,15 +110,17 @@ async function fetchQuote(id: string): Promise<{ quote: QuoteRow; items: LineIte
       .select("*, quote_line_item_crew(*), quote_line_item_materials(*)")
       .eq("quote_id", id)
       .order("sort_order"),
+    supabase.from("quote_options").select("*").eq("quote_id", id).order("sort_order"),
   ]);
   if (quoteError) throw quoteError;
   if (itemsError) throw itemsError;
+  if (optionsError) throw optionsError;
   const mappedItems = ((items ?? []) as QuoteLineItemRow[]).map(({ quote_line_item_crew, quote_line_item_materials, ...item }) => ({
     ...item,
     crew: quote_line_item_crew ?? [],
     materials: quote_line_item_materials ?? [],
   }));
-  return { quote: quote as QuoteRow, items: mappedItems };
+  return { quote: quote as QuoteRow, items: mappedItems, options: (options ?? []) as QuoteOption[] };
 }
 
 async function fetchTenant(tenantId: string): Promise<Tenant> {
@@ -168,7 +173,7 @@ async function fetchFinePrintTemplates(): Promise<FinePrintTemplate[]> {
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({ queryKey: ["quote", id], queryFn: () => fetchQuote(id!), enabled: !!id });
@@ -206,6 +211,7 @@ export default function QuoteDetailPage() {
   const { data: finePrintTemplates } = useQuery({ queryKey: ["fine-print-templates"], queryFn: fetchFinePrintTemplates });
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
+  const [options, setOptions] = useState<QuoteOptionInput[]>([]);
   const [notes, setNotes] = useState("");
   const [finePrintText, setFinePrintText] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
@@ -224,6 +230,9 @@ export default function QuoteDetailPage() {
   useEffect(() => {
     if (data) {
       setLineItems(data.items);
+      setOptions(
+        data.options.map((o) => ({ id: o.id, name: o.name, description: o.description ?? "", is_recommended: o.is_recommended, sort_order: o.sort_order }))
+      );
       setNotes(data.quote.notes ?? "");
       setFinePrintText(data.quote.fine_print_text ?? "");
       setExpiryDate(data.quote.expiry_date ?? "");
@@ -266,7 +275,11 @@ export default function QuoteDetailPage() {
         .eq("id", id);
       if (updateError) throw updateError;
 
-      const { error: rpcError } = await supabase.rpc("replace_quote_line_items", { p_quote_id: id, p_items: lineItems });
+      const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
+        p_quote_id: id,
+        p_items: orderForSave(lineItems, options),
+        p_options: options,
+      });
       if (rpcError) throw rpcError;
     },
     onSuccess: () => {
@@ -276,6 +289,27 @@ export default function QuoteDetailPage() {
       setTimeout(() => setSaved(false), 3000);
     },
     onError: (e) => setSaveError(getErrorMessage(e, "Failed to save")),
+  });
+
+  // The office recording which option the client went with (accepted by
+  // phone/in person). Saves pending edits first so the choice is made
+  // against what's on screen.
+  const chooseOption = useMutation({
+    mutationFn: async (optionId: string | null) => {
+      const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
+        p_quote_id: id,
+        p_items: orderForSave(lineItems, options),
+        p_options: options,
+      });
+      if (rpcError) throw rpcError;
+      const { error } = await supabase.rpc("choose_quote_option", { p_quote_id: id, p_option_id: optionId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      setSaveError(null);
+    },
+    onError: (e) => setSaveError(getErrorMessage(e, "Couldn't record the choice")),
   });
 
   const convert = useMutation({
@@ -296,7 +330,11 @@ export default function QuoteDetailPage() {
         .eq("id", id);
       if (updateError) throw updateError;
       if (!isLocked) {
-        const { error: rpcError } = await supabase.rpc("replace_quote_line_items", { p_quote_id: id, p_items: lineItems });
+        const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
+        p_quote_id: id,
+        p_items: orderForSave(lineItems, options),
+        p_options: options,
+      });
         if (rpcError) throw rpcError;
       }
 
@@ -424,7 +462,7 @@ export default function QuoteDetailPage() {
       // still sends with just the view-online link, same as before this
       // feature existed, rather than blocking the send entirely.
       try {
-        const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
+        const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite, options: data.options });
         const pdfDataUrl = await blobToDataUrl(pdfBlob);
         setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUrl }]);
       } catch {
@@ -595,7 +633,7 @@ export default function QuoteDetailPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite });
+      const pdfBlob = await buildQuotePdfBytes({ tenant, quote: data.quote, client: data.quote.clients, lineItems: data.items, site: currentSite, options: data.options });
       downloadBlob(pdfBlob, `Quote ${data.quote.quote_number}.pdf`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));
@@ -830,16 +868,20 @@ export default function QuoteDetailPage() {
           This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
         </p>
       ) : null}
-      {!isLocked ? (
-        <LineItemEditor
-          items={lineItems}
-          onChange={setLineItems}
-          membershipDiscountCents={data.quote.membership_discount_cents}
-          tenantId={profile?.tenant_id ?? ""}
-        />
-      ) : (
-        <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
-      )}
+      <QuoteOptionsEditor
+        options={options}
+        onOptionsChange={setOptions}
+        lineItems={lineItems}
+        onLineItemsChange={setLineItems}
+        savedOptions={data.options}
+        chosenOptionId={data.quote.chosen_option_id}
+        isLocked={isLocked}
+        canChoose={isAdmin && data.quote.approval_status !== "accepted" && data.quote.approval_status !== "declined"}
+        onChoose={(optionId) => chooseOption.mutate(optionId)}
+        choosing={chooseOption.isPending}
+        membershipDiscountCents={data.quote.membership_discount_cents}
+        tenantId={profile?.tenant_id ?? ""}
+      />
 
       <div className="mt-4">
         <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
@@ -920,7 +962,9 @@ export default function QuoteDetailPage() {
 
       <ThemedModal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert to invoice">
         <p className="mb-4 text-2xl font-extrabold" style={{ color: "var(--jms-text)" }}>
-          {formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents - data.quote.membership_discount_cents)}
+          {formatCentsAsAud(
+            data.options.length ? data.quote.total_cents : calculateDocumentTotals(lineItems).total_cents - data.quote.membership_discount_cents
+          )}
         </p>
         <div className="mb-4">
           <label className="mb-1 block font-semibold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>

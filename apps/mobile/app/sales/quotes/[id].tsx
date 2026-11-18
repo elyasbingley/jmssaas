@@ -14,6 +14,9 @@ import {
   type EmailAttachment,
   type FinePrintTemplate,
   type LineItemFormInput,
+  orderForSave,
+  type QuoteOption,
+  type QuoteOptionInput,
   type Quote,
   type QuoteStatus,
   type ReferralPartner,
@@ -36,7 +39,7 @@ import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { PaymentSummaryCard } from "../../../components/PaymentSummaryCard";
 import { SendSmsModal } from "../../../components/theme/SendSmsModal";
-import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
+import { QuoteOptionsEditor } from "../../../components/QuoteOptionsEditor";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
 import { startChannelConversation } from "../../../lib/channels";
 import { partnerDisplayName } from "../../b2b-referrals/index";
@@ -82,7 +85,7 @@ export default function QuoteDetailScreen() {
   const styles = useThemedStyles(createStyles);
 
   const { data, loading, error, refetch } = useSupabaseFetch(async () => {
-    const [{ data: quote, error: quoteError }, { data: items, error: itemsError }] = await Promise.all([
+    const [{ data: quote, error: quoteError }, { data: items, error: itemsError }, { data: options, error: optionsError }] = await Promise.all([
       supabase
         .from("quotes")
         .select("*, clients(*), job_cards!quotes_job_card_id_fkey(title)")
@@ -98,9 +101,11 @@ export default function QuoteDetailScreen() {
         .select("*, quote_line_item_crew(*), quote_line_item_materials(*)")
         .eq("quote_id", id)
         .order("sort_order"),
+      supabase.from("quote_options").select("*").eq("quote_id", id).order("sort_order"),
     ]);
     if (quoteError) throw quoteError;
     if (itemsError) throw itemsError;
+    if (optionsError) throw optionsError;
     const mappedItems = (
       (items ?? []) as (LineItemFormInput & {
         quote_line_item_crew?: LineItemFormInput["crew"];
@@ -111,7 +116,7 @@ export default function QuoteDetailScreen() {
       crew: quote_line_item_crew ?? [],
       materials: quote_line_item_materials ?? [],
     }));
-    return { quote: quote as QuoteRow, items: mappedItems };
+    return { quote: quote as QuoteRow, items: mappedItems, options: (options ?? []) as QuoteOption[] };
   }, [id, isOnline]);
 
   const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
@@ -157,6 +162,7 @@ export default function QuoteDetailScreen() {
   const [finePrintPickerVisible, setFinePrintPickerVisible] = useState(false);
 
   const [lineItems, setLineItems] = useState<LineItemFormInput[]>([]);
+  const [options, setOptions] = useState<QuoteOptionInput[]>([]);
   const [notes, setNotes] = useState("");
   const [finePrintText, setFinePrintText] = useState("");
   const [expiryDate, setExpiryDate] = useState<Date | null>(null);
@@ -206,6 +212,7 @@ export default function QuoteDetailScreen() {
   useEffect(() => {
     if (data) {
       setLineItems(data.items);
+      setOptions(data.options.map((o) => ({ id: o.id, name: o.name, description: o.description ?? "", is_recommended: o.is_recommended, sort_order: o.sort_order })));
       setNotes(data.quote.notes ?? "");
       setFinePrintText(data.quote.fine_print_text ?? "");
       setExpiryDate(parseDate(data.quote.expiry_date ?? ""));
@@ -245,9 +252,22 @@ export default function QuoteDetailScreen() {
 
     const { error: rpcError } = await supabase.rpc("replace_quote_line_items", {
       p_quote_id: id,
-      p_items: lineItems,
+      p_items: orderForSave(lineItems, options),
+      p_options: options,
     });
     if (rpcError) throw rpcError;
+  };
+
+  // The office recording which option the client went with.
+  const handleChooseOption = async (optionId: string | null) => {
+    try {
+      await persistQuoteAndLineItems();
+      const { error } = await supabase.rpc("choose_quote_option", { p_quote_id: id, p_option_id: optionId });
+      if (error) throw error;
+      refetch();
+    } catch (e) {
+      setSaveError(getErrorMessage(e, "Couldn't record the choice"));
+    }
   };
 
   const handleSave = async () => {
@@ -281,7 +301,8 @@ export default function QuoteDetailScreen() {
         tenant: tenant as Tenant,
         quote: data.quote,
         client: data.quote.clients,
-        lineItems,
+        lineItems: orderForSave(lineItems, options),
+        options: data.options,
       });
       await exportPdf(html, `Quote ${data.quote.quote_number}`);
     } catch (e) {
@@ -445,7 +466,7 @@ export default function QuoteDetailScreen() {
       // Best-effort PDF auto-attach - a generation failure still lets the
       // email send without it, same as desktop.
       try {
-        const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems });
+        const html = buildQuotePdfHtml({ tenant, quote: data.quote, client: data.quote.clients, lineItems: orderForSave(lineItems, options), options: data.options });
         const pdfDataUri = await buildPdfDataUri(html);
         setEmailDefaultAttachments([{ filename: `Quote ${data.quote.quote_number}.pdf`, content: pdfDataUri }]);
       } catch {
@@ -744,16 +765,19 @@ export default function QuoteDetailScreen() {
               This quote has been {data.quote.approval_status} by the client and its line items are now read-only.
             </Text>
           ) : null}
-          {isAdmin && !isLocked ? (
-            <LineItemEditor
-              items={lineItems}
-              onChange={setLineItems}
-              membershipDiscountCents={data.quote.membership_discount_cents}
-              tenantId={profile?.tenant_id ?? ""}
-            />
-          ) : (
-            <LineItemSummary items={lineItems} membershipDiscountCents={data.quote.membership_discount_cents} />
-          )}
+          <QuoteOptionsEditor
+            options={options}
+            onOptionsChange={setOptions}
+            lineItems={lineItems}
+            onLineItemsChange={setLineItems}
+            savedOptions={data.options}
+            chosenOptionId={data.quote.chosen_option_id}
+            editable={isAdmin && !isLocked}
+            canChoose={isAdmin && data.quote.approval_status !== "accepted" && data.quote.approval_status !== "declined"}
+            onChoose={handleChooseOption}
+            membershipDiscountCents={data.quote.membership_discount_cents}
+            tenantId={profile?.tenant_id ?? ""}
+          />
 
           <View style={styles.fieldSpacing}>
             <ThemedFormField label="Notes" placeholder="Terms, exclusions, etc." value={notes} onChangeText={setNotes} multiline style={styles.multiline} editable={isAdmin && !isLocked} />
@@ -802,7 +826,9 @@ export default function QuoteDetailScreen() {
 
       <ThemedModal visible={convertVisible} onClose={() => setConvertVisible(false)}>
         <Text style={styles.modalTitle}>Convert to Invoice</Text>
-        <Text style={styles.modalTotal}>{formatCentsAsAud(calculateDocumentTotals(lineItems).total_cents)}</Text>
+        <Text style={styles.modalTotal}>
+          {formatCentsAsAud(data.options.length ? data.quote.total_cents : calculateDocumentTotals(lineItems).total_cents)}
+        </Text>
         <ThemedDateField label="Due date (optional)" value={dueDate} onChange={setDueDate} mode="date" placeholder="No due date" />
         {convertError ? <Text style={styles.error}>{convertError}</Text> : null}
         <View style={styles.modalActions}>

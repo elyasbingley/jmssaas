@@ -77,7 +77,8 @@ async function fetchPriceBookLines(): Promise<PriceBookLines> {
   const c = ANALYTICS_COLUMNS;
   const [invoiceRows, quoteRows, items, categories] = await Promise.all([
     fetchAllRows<InvoiceLineRow>("invoice_line_items", c.invoice_line_items, linkedOnly),
-    fetchAllRows<QuoteLineRow>("quote_line_items", c.quote_line_items, linkedOnly),
+    // Only the option each quote counts as (quote options).
+    fetchAllRows<QuoteLineRow>("quote_line_items", c.quote_line_items, (query) => linkedOnly(query).eq("in_quote_total", true)),
     fetchAllRows<PriceBookLines["items"][number]>("price_book_items", c.price_book_items),
     fetchAllRows<AnalyticsNamed>("price_book_categories", c.price_book_categories),
   ]);

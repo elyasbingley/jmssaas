@@ -86,6 +86,38 @@ async function notifyDocumentAccepted(docType: DocType, token: string, acceptedB
   }
 }
 
+// "Client viewed your quote" - a push notification the first time the
+// client opens their quote link, and again when they come back to it a day
+// or more later (record_quote_view decides; at most one a day per quote,
+// none once it's accepted or declined). Best-effort, like
+// notifyDocumentAccepted.
+async function notifyQuoteViewed(token: string): Promise<void> {
+  if (!SUPABASE_SERVICE_ROLE_KEY) return;
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: view, error } = await admin.rpc("record_quote_view", { p_token: token });
+  if (error || !view?.notify) return;
+  const { data: quote } = await admin.from("quotes").select("total_cents, clients(name)").eq("id", view.quote_id).maybeSingle();
+  const clientName = (quote as any)?.clients?.name || "A client";
+  try {
+    const res = await fetch(SEND_NOTIFICATION_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: view.tenant_id,
+        type: "quote_viewed",
+        title: view.return_visit ? "Quote viewed again" : "Quote viewed",
+        body: view.return_visit
+          ? `${clientName} came back to Quote #${view.quote_number} - a good time to follow up`
+          : `${clientName} opened Quote #${view.quote_number}`,
+        data: { quote_id: view.quote_id },
+      }),
+    });
+    if (!res.ok) console.error("[approve] quote viewed notification failed", res.status, await res.text());
+  } catch (e) {
+    console.error("[approve] quote viewed notification threw", e);
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -122,7 +154,14 @@ Deno.serve(async (req: Request) => {
     // the page can offer "Pay deposit" or "Pay $X balance".
     if ((docType === "quote" || docType === "invoice") && data && !data.error) {
       const { data: summary } = await supabase.rpc("get_payment_summary_by_token", { p_type: docType, p_token: token });
-      return json({ ...data, payment_summary: summary ?? null, online_payment_available: !!STRIPE_SECRET_KEY });
+      // Quote options (Good / Better / Best) and the "viewed" alert.
+      let quoteOptions = null;
+      if (docType === "quote") {
+        const { data: options } = await supabase.rpc("get_quote_options_by_token", { p_token: token });
+        quoteOptions = options ?? null;
+        await notifyQuoteViewed(token);
+      }
+      return json({ ...data, payment_summary: summary ?? null, quote_options: quoteOptions, online_payment_available: !!STRIPE_SECRET_KEY });
     }
     return json(data);
   }
@@ -139,6 +178,7 @@ Deno.serve(async (req: Request) => {
       invoice_id?: string;
       approval_page_url?: string;
       included_optional_item_ids?: string[];
+      option_id?: string;
     };
     try {
       body = await req.json();
@@ -156,6 +196,7 @@ Deno.serve(async (req: Request) => {
       invoice_id,
       approval_page_url,
       included_optional_item_ids,
+      option_id,
     } = body;
 
     // Stripe Checkout link creation - the office's own admin-authenticated
@@ -225,6 +266,8 @@ Deno.serve(async (req: Request) => {
       };
       if (rpcPrefix === "quote") {
         rpcParams.p_included_optional_item_ids = included_optional_item_ids ?? [];
+        // The option the client picked, when the quote has options.
+        rpcParams.p_option_id = option_id ?? null;
       }
       const { data, error } = await supabase.rpc(`accept_${rpcPrefix}_by_token`, rpcParams);
       if (error) return json({ error: "server_error" }, 500);

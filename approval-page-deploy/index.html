@@ -54,6 +54,17 @@
       .item-image { max-width: 160px; max-height: 100px; border-radius: 6px; object-fit: cover; }
       .optional-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #7e22ce; background: #f3e8ff; border-radius: 10px; padding: 2px 8px; margin-left: 6px; }
       tr.excluded-row td { opacity: 0.5; }
+      .section-label { margin: 20px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #6b7280; }
+      .option-card { margin-top: 18px; border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+      .option-card.selected { border-color: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
+      .option-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+      .option-name { font-size: 17px; font-weight: 700; }
+      .option-rec { font-size: 11px; font-weight: 700; color: #5c4402; background: #fac715; border-radius: 10px; padding: 2px 8px; }
+      .option-price { margin-left: auto; font-size: 18px; font-weight: 800; }
+      .option-desc { color: #374151; font-size: 13px; margin: 6px 0 4px; white-space: pre-wrap; }
+      .choose-option-btn { margin-top: 10px; background: #f3f4f6; color: #1f2937; }
+      .option-card.selected .choose-option-btn { background: #16a34a; color: #fff; }
+      .totals-caption { text-align: right; font-size: 12px; color: #6b7280; margin: 16px 0 0; }
       .message-title { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
       .message-body { color: #374151; font-size: 14px; line-height: 1.6; }
       canvas.sig-pad { width: 100%; height: 150px; border: 1px solid #d1d5db; border-radius: 8px; touch-action: none; margin-bottom: 4px; background: #fff; }
@@ -230,6 +241,75 @@
       // things on/off never disagrees with what accept_quote_by_token will
       // actually recompute and persist server-side once they submit. Never
       // trusted as-is by the server - purely a live preview.
+      // ---- Quote options (Good / Better / Best) ----
+      // doc.quote_options (from the approve function): the options, which
+      // line belongs to which option (lines not listed are in every
+      // option), and the chosen one. The client picks one; the totals, the
+      // optional extras that count and what's accepted follow that pick.
+      var selectedOptionId = null;
+      function optionsOf(doc) {
+        return doc.quote_options && doc.quote_options.options && doc.quote_options.options.length ? doc.quote_options.options : null;
+      }
+      function optionOfItem(doc, item) {
+        var map = (doc.quote_options && doc.quote_options.line_item_options) || {};
+        return map[item.id] || null;
+      }
+      function itemsForOption(doc, optionId) {
+        return doc.line_items.filter(function (item) {
+          var o = optionOfItem(doc, item);
+          return !o || o === optionId;
+        });
+      }
+      function itemsInPlay(doc) {
+        return optionsOf(doc) ? itemsForOption(doc, selectedOptionId) : doc.line_items;
+      }
+      function selectedOption(doc) {
+        var opts = optionsOf(doc);
+        if (!opts) return null;
+        for (var i = 0; i < opts.length; i++) if (opts[i].id === selectedOptionId) return opts[i];
+        return null;
+      }
+      function optionLabel(doc, option) {
+        return "Option " + (optionsOf(doc).indexOf(option) + 1) + ": " + option.name;
+      }
+      function renderOptionsSection(doc, resolved) {
+        var opts = optionsOf(doc);
+        var chosenId = doc.quote_options.chosen_option_id;
+        var shared = doc.line_items.filter(function (item) { return !optionOfItem(doc, item); });
+        var html = "";
+        if (shared.length) html += '<p class="section-label">Included in every option</p>' + renderLineItemsTable(shared);
+        // Once accepted, just the option they chose.
+        var shown = resolved && chosenId ? opts.filter(function (o) { return o.id === chosenId; }) : opts;
+        shown.forEach(function (o) {
+          html +=
+            '<div class="option-card' + (o.id === selectedOptionId ? " selected" : "") + '" data-option-id="' + escapeHtml(o.id) + '">' +
+            '<div class="option-head"><span class="option-name">' + escapeHtml(optionLabel(doc, o)) + "</span>" +
+            (o.is_recommended ? '<span class="option-rec">Recommended</span>' : "") +
+            '<span class="option-price" id="option-total-' + escapeHtml(o.id) + '">' + formatCentsAsAud(o.total_cents) + "</span></div>" +
+            (o.description ? '<p class="option-desc">' + escapeHtml(o.description) + "</p>" : "") +
+            renderLineItemsTable(doc.line_items.filter(function (item) { return optionOfItem(doc, item) === o.id; })) +
+            (resolved ? "" : '<button type="button" class="choose-option-btn" data-option-id="' + escapeHtml(o.id) + '">' + (o.id === selectedOptionId ? "Selected" : "Choose this option") + "</button>") +
+            "</div>";
+        });
+        return html;
+      }
+      function attachOptionHandlers(doc) {
+        document.querySelectorAll(".choose-option-btn").forEach(function (button) {
+          button.addEventListener("click", function () {
+            selectedOptionId = button.getAttribute("data-option-id");
+            document.querySelectorAll(".option-card").forEach(function (card) {
+              var isSelected = card.getAttribute("data-option-id") === selectedOptionId;
+              card.classList.toggle("selected", isSelected);
+              var b = card.querySelector(".choose-option-btn");
+              if (b) b.textContent = isSelected ? "Selected" : "Choose this option";
+            });
+            updateLiveTotals(doc);
+            var form = document.getElementById("accept-form");
+            if (form) form.scrollIntoView({ behavior: "smooth", block: "center" });
+          });
+        });
+      }
+
       function computeLiveTotals(items) {
         var subtotal = 0;
         var gst = 0;
@@ -245,7 +325,7 @@
       }
 
       function updateLiveTotals(doc) {
-        var totals = computeLiveTotals(doc.line_items);
+        var totals = computeLiveTotals(itemsInPlay(doc));
         // The doc's own subtotal/gst/total as first loaded already has any
         // membership discount baked in (see accept_quote_by_token's own
         // comment on why it's carried through rather than recomputed here) -
@@ -253,6 +333,19 @@
         // every live recompute, so ticking an optional item on/off never
         // makes a member's discount silently disappear from this preview.
         var membershipDiscountCents = doc.subtotal_cents + doc.gst_cents - doc.total_cents;
+        var chosen = selectedOption(doc);
+        if (optionsOf(doc)) {
+          membershipDiscountCents = chosen ? chosen.membership_discount_cents || 0 : 0;
+          // Each option's price, with the extras ticked in it.
+          optionsOf(doc).forEach(function (o) {
+            var el = document.getElementById("option-total-" + o.id);
+            if (el) el.textContent = formatCentsAsAud(computeLiveTotals(itemsForOption(doc, o.id)).total_cents - (o.membership_discount_cents || 0));
+          });
+          var caption = document.getElementById("totals-caption");
+          if (caption) caption.textContent = chosen ? "Total for " + optionLabel(doc, chosen) : "";
+          var acceptBtn = document.getElementById("accept-submit");
+          if (acceptBtn && chosen) acceptBtn.textContent = "I accept " + optionLabel(doc, chosen);
+        }
         var subtotalEl = document.getElementById("totals-subtotal");
         var gstEl = document.getElementById("totals-gst");
         var totalEl = document.getElementById("totals-total");
@@ -353,14 +446,20 @@
             // page right now is the client's final say on what's included,
             // sent alongside name/signature so accept_quote_by_token can
             // resolve is_included and recompute the real total server-side.
+            var inPlay = itemsInPlay(doc).map(function (item) { return String(item.id); });
             var includedOptionalItemIds = Array.prototype.map.call(
               document.querySelectorAll(".optional-checkbox:checked"),
               function (checkbox) { return checkbox.getAttribute("data-item-id"); }
-            );
+            ).filter(function (id) { return inPlay.indexOf(id) !== -1; });
+            if (optionsOf(doc) && !selectedOptionId) {
+              renderMessage("Choose an option", "Please choose one of the options, then accept.");
+              return;
+            }
             submitAction("accept", {
               name: name,
               signature_svg: sigPad ? sigPad.toDataUrl() : "",
               included_optional_item_ids: includedOptionalItemIds,
+              option_id: selectedOptionId,
             });
           });
         }
@@ -435,6 +534,7 @@
             if (data.error === "already_resolved") return renderMessage("Already resolved", "This has already been resolved.");
             if (data.error === "not_found") return renderMessage("Not found", "This link doesn't match anything.");
             if (data.error === "name_required") return renderMessage("Name required", "Please enter your name to accept.");
+            if (data.error === "option_required") return renderMessage("Choose an option", "Please choose one of the options, then accept.");
             if (data.error) return renderMessage("Something went wrong", "Please try again, or contact us directly.");
             if (action === "approve") return renderMessage("Approved", "Thanks - the " + title + " has been approved. The job can now be completed.");
             if (action === "accept" && docType === "invoice") {
@@ -676,6 +776,14 @@
           statusBadge = '<span class="badge declined">Declined</span>';
         }
 
+        var opts = optionsOf(doc);
+        if (opts) {
+          var known = opts.some(function (o) { return o.id === selectedOptionId; });
+          if (!known) {
+            var rec = opts.filter(function (o) { return o.is_recommended; })[0];
+            selectedOptionId = doc.quote_options.chosen_option_id || (rec ? rec.id : opts[0].id);
+          }
+        }
         var summary = doc.payment_summary || null;
         var onlinePay = doc.online_payment_available !== false;
         var paidBanner = justPaid
@@ -686,7 +794,9 @@
         var depositLine = "";
         if (docType === "quote" && summary && summary.deposit_due_cents > 0) {
           depositLine = summary.deposit_percent
-            ? Number(summary.deposit_percent) + "% of the quote total (" + formatCentsAsAud(summary.deposit_due_cents) + ")"
+            ? opts && doc.status !== "accepted"
+              ? Number(summary.deposit_percent) + "% of the option you choose"
+              : Number(summary.deposit_percent) + "% of the quote total (" + formatCentsAsAud(summary.deposit_due_cents) + ")"
             : formatCentsAsAud(summary.deposit_due_cents);
         }
 
@@ -743,7 +853,7 @@
             '<label>Sign to accept</label>' +
             '<div class="sig-row"><span class="sig-hint">Draw your signature below</span><button type="button" class="sig-clear" id="sig-clear">Clear</button></div>' +
             '<canvas class="sig-pad" id="sig-canvas"></canvas>' +
-            '<button type="submit" class="accept-btn" style="background: ' + accent + ';">I accept this ' + title.toLowerCase() + "</button>" +
+            '<button type="submit" id="accept-submit" class="accept-btn" style="background: ' + accent + ';">I accept this ' + title.toLowerCase() + "</button>" +
             "</form>" +
             '<form id="decline-form">' +
             '<label for="decline-reason">Decline instead (optional reason)</label>' +
@@ -775,8 +885,9 @@
           (isQuote ? '<hr class="accent-rule" />' : "") +
           renderBillToSite(doc) +
           (isQuote ? renderJobSummary(doc.notes) : "") +
-          renderLineItemsTable(doc.line_items) +
+          (opts ? renderOptionsSection(doc, doc.status === "accepted" || doc.status === "declined") : renderLineItemsTable(doc.line_items)) +
           (isQuote ? renderTrustBadges(doc.tenant_license_number) : "") +
+          (opts ? '<p class="totals-caption" id="totals-caption"></p>' : "") +
           '<div class="totals' + (isQuote ? "" : " invoice-accent") + '">' +
           '<div class="totals-row"><span>Sub Total</span><span id="totals-subtotal">' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
           '<div class="totals-row"><span>GST (10%)</span><span id="totals-gst">' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
@@ -793,6 +904,10 @@
 
         attachOptionalCheckboxHandlers(doc);
         attachActionHandlers(doc);
+        if (opts) {
+          attachOptionHandlers(doc);
+          updateLiveTotals(doc);
+        }
       }
 
       if (docType !== "quote" && docType !== "invoice" && docType !== "nte_variation" && docType !== "po_quote") {

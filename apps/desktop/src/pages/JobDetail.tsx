@@ -224,7 +224,7 @@ async function fetchLinkedInvoices(jobId: string): Promise<Invoice[]> {
 
 async function fetchQuoteLineItems(quoteIds: string[]): Promise<QuoteLineItem[]> {
   if (quoteIds.length === 0) return [];
-  const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", quoteIds);
+  const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", quoteIds).eq("in_quote_total", true);
   if (error) throw error;
   return data as QuoteLineItem[];
 }

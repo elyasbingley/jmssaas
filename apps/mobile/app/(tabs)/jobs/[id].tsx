@@ -590,7 +590,7 @@ export default function JobDetailScreen() {
   const { data: quoteLineItems, loading: quoteLineItemsLoading } = useSupabaseFetch<QuoteLineItem[]>(async () => {
     const ids = quoteIds ? quoteIds.split(",") : [];
     if (!isOnline || activeTab !== "costing" || ids.length === 0) return [];
-    const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", ids);
+    const { data, error } = await supabase.from("quote_line_items").select("*").in("quote_id", ids).eq("in_quote_total", true);
     if (error) throw error;
     return (data ?? []) as QuoteLineItem[];
   }, [isOnline, activeTab, quoteIds]);

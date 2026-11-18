@@ -8,6 +8,7 @@ import {
   type Invoice,
   type LineItemFormInput,
   type Quote,
+  type QuoteOption,
   type Tenant,
 } from "@jmssaas/shared";
 
@@ -662,14 +663,76 @@ function drawUnsignedApprovalBlock(cursor: Cursor) {
   cursor.y += 6;
 }
 
+// Quote options (quote_options migration): a heading for each option - its
+// number, name, price and "Recommended" - with its description under it.
+function renderOptionHeading(cursor: Cursor, index: number, option: QuoteOption, chosen: boolean) {
+  const descLines = option.description ? (cursor.doc.splitTextToSize(option.description, CONTENT_WIDTH - 6) as string[]) : [];
+  cursor.ensureSpace(16 + descLines.length * 4.5);
+  cursor.y += 3;
+  cursor.doc.setFillColor(...CHARCOAL_DARK);
+  cursor.doc.rect(MARGIN, cursor.y - 5, CONTENT_WIDTH, 8, "F");
+  const tag = chosen ? "  -  CHOSEN" : option.is_recommended ? "  -  RECOMMENDED" : "";
+  cursor.doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(255, 255, 255);
+  cursor.doc.text(`OPTION ${index + 1}: ${option.name.toUpperCase()}${tag}`, MARGIN + 3, cursor.y);
+  cursor.doc.text(formatCentsAsAud(option.total_cents), PAGE_WIDTH - MARGIN - 3, cursor.y, { align: "right" });
+  cursor.y += 7;
+  for (const line of descLines) {
+    cursor.text(line, MARGIN + 3, 9, CHARCOAL_MUTED);
+    cursor.y += 4.5;
+  }
+  if (descLines.length) cursor.y += 2;
+}
+
+function renderSharedHeading(cursor: Cursor) {
+  cursor.ensureSpace(12);
+  cursor.bold("INCLUDED IN EVERY OPTION", MARGIN, 9, CHARCOAL_MUTED);
+  cursor.y += 5;
+}
+
+function optionsCardHeight(count: number): number {
+  return count * 6.5 + 14;
+}
+
+// Before the client chooses: every option's total in one card, instead of
+// a single total.
+function renderOptionsCard(cursor: Cursor, accent: [number, number, number], options: QuoteOption[]) {
+  const cardWidth = 95;
+  const cardX = PAGE_WIDTH - MARGIN - cardWidth;
+  const height = optionsCardHeight(options.length);
+  const top = cursor.y;
+  cursor.doc.setDrawColor(...accent);
+  cursor.doc.setLineWidth(0.6);
+  cursor.doc.roundedRect(cardX, top, cardWidth, height, 1.5, 1.5, "S");
+  cursor.doc.setLineWidth(0.2);
+  cursor.y = top + 7;
+  cursor.bold("Your options (inc GST)", cardX + 5, 9.5, CHARCOAL_MUTED);
+  cursor.y += 7;
+  options.forEach((option, i) => {
+    const label = `${i + 1}. ${option.name}${option.is_recommended ? " (recommended)" : ""}`;
+    cursor.text(label, cardX + 5, 9.5, CHARCOAL_DARK);
+    cursor.bold(formatCentsAsAud(option.total_cents), cardX + cardWidth - 5, 10, CHARCOAL_DARK, "right");
+    cursor.y += 6.5;
+  });
+  cursor.y = top + height + 6;
+}
+
 export async function buildQuotePdfBytes(params: {
   tenant: Tenant;
   quote: Quote;
   client: Client;
   lineItems: LineItemFormInput[];
   site?: ClientSite | null;
+  // The quote's options, if it has any (with their saved totals).
+  options?: QuoteOption[];
 }): Promise<Blob> {
-  const { tenant, quote, client, lineItems, site } = params;
+  const { tenant, quote, client, site } = params;
+  const options = [...(params.options ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+  const chosenOption = options.find((o) => o.id === quote.chosen_option_id) ?? null;
+  // With options, the totals card is for the shared lines + the chosen
+  // option's; before a choice there's a card of option totals instead.
+  const lineItems = options.length
+    ? params.lineItems.filter((item) => !item.option_id || (chosenOption && item.option_id === chosenOption.id))
+    : params.lineItems;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cursor = new Cursor(doc);
 
@@ -679,7 +742,21 @@ export async function buildQuotePdfBytes(params: {
   ]);
   renderBillToSiteAndDates(cursor, client, site ?? null, null);
   renderJobSummary(cursor, quote.notes);
-  await renderLineItemsTable(cursor, ACCENT.quote, lineItems);
+  if (options.length) {
+    const shared = params.lineItems.filter((item) => !item.option_id);
+    if (shared.length) {
+      renderSharedHeading(cursor);
+      await renderLineItemsTable(cursor, ACCENT.quote, shared);
+    }
+    // Once chosen, just that option (what was agreed); before, all of them.
+    const shown = chosenOption ? [chosenOption] : options;
+    for (const option of shown) {
+      renderOptionHeading(cursor, options.indexOf(option), option, option === chosenOption);
+      await renderLineItemsTable(cursor, ACCENT.quote, params.lineItems.filter((item) => item.option_id === option.id));
+    }
+  } else {
+    await renderLineItemsTable(cursor, ACCENT.quote, lineItems);
+  }
 
   // Trust badges + totals card + approval/signature block are treated as
   // ONE unit for pagination: a single ensureSpace covering everything that
@@ -690,14 +767,15 @@ export async function buildQuotePdfBytes(params: {
   const trailingHeight =
     trustBadgesHeight() +
     6 +
-    totalsCardHeight(lineItems, null, quote.membership_discount_cents) +
+    (options.length && !chosenOption ? optionsCardHeight(options.length) : totalsCardHeight(lineItems, null, quote.membership_discount_cents)) +
     6 +
     (isAccepted ? signatureBlockHeight() : 24) +
     (quote.fine_print_text ? 12 : 0);
   cursor.ensureSpace(trailingHeight);
 
   drawTrustBadges(cursor, tenant);
-  renderTotalsCard(cursor, ACCENT.quote, lineItems, null, quote.membership_discount_cents, true);
+  if (options.length && !chosenOption) renderOptionsCard(cursor, ACCENT.quote, options);
+  else renderTotalsCard(cursor, ACCENT.quote, lineItems, null, chosenOption ? chosenOption.membership_discount_cents : quote.membership_discount_cents, true);
   if (isAccepted) {
     await renderSignature(cursor, quote.accepted_by_name, quote.accepted_at, quote.accepted_signature_svg);
   } else {

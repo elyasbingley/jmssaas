@@ -26,13 +26,13 @@ const STATUS_COLOR_VAR: Record<QuoteStatus, string> = {
 
 const STATUS_FILTERS: QuoteStatus[] = ["draft", "sent", "accepted", "declined", "expired"];
 
-type QuoteRow = Quote & { clients: { name: string } | null };
+type QuoteRow = Quote & { clients: { name: string } | null; quote_options: { total_cents: number }[] };
 type SortKey = "number" | "client" | "status" | "total" | "issued";
 
 async function fetchQuotes(): Promise<QuoteRow[]> {
   const { data, error } = await supabase
     .from("quotes")
-    .select("*, clients(name)")
+    .select("*, clients(name), quote_options!quote_options_quote_id_fkey(total_cents)")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data as QuoteRow[];
@@ -255,6 +255,13 @@ export default function QuotesPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-semibold" style={{ color: "var(--jms-text)" }}>
                       {formatCentsAsAud(quote.total_cents)}
+                      {/* Options: the quote counts as the recommended/chosen
+                          option; show the cheapest too until one's chosen. */}
+                      {quote.quote_options?.length > 1 && !quote.chosen_option_id ? (
+                        <div className="font-normal" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+                          {quote.quote_options.length} options · from {formatCentsAsAud(Math.min(...quote.quote_options.map((o) => o.total_cents)))}
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 );

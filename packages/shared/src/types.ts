@@ -774,6 +774,9 @@ export interface LineItemInput {
   is_included?: boolean;
   bundle_name?: string | null;
   image_url?: string | null;
+  // Quote options (quote_options migration): which option this quote line
+  // belongs to; null/absent = the shared section, in every option.
+  option_id?: string | null;
   // Itemised quoting rework (line_item_rework_schema migration). All
   // optional/additive - a line with pricing_model unset or 'legacy' behaves
   // exactly as before, still priced by the labour_rate_cents/labour_hours/
@@ -935,6 +938,29 @@ export interface Quote {
   deposit_percent: number | null;
   deposit_fixed_cents: number | null;
   deposit_paid_cents: number;
+  // Quote options: the option the client (or the office) went with. The
+  // quote's totals are that option's, or the recommended one's until then.
+  chosen_option_id: string | null;
+  last_viewed_at: string | null;
+  last_view_notified_at: string | null;
+}
+
+// One of a quote's options (quote_options migration). Totals include the
+// shared lines, the option's own lines and its included optional extras,
+// less any membership discount.
+export interface QuoteOption {
+  id: string;
+  tenant_id: string;
+  quote_id: string;
+  name: string;
+  description: string | null;
+  is_recommended: boolean;
+  sort_order: number;
+  subtotal_cents: number;
+  gst_cents: number;
+  membership_discount_cents: number;
+  total_cents: number;
+  created_at: string;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -2559,7 +2585,7 @@ export interface NoteAttachment {
 // Supabase-direct/polled rather than PowerSync-synced.
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "invoice_accepted";
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2595,6 +2621,8 @@ export type Notification =
   | (NotificationBase & { type: "channel_message"; data: ChannelMessageNotificationData })
   | (NotificationBase & { type: "inbox_message"; data: InboxMessageNotificationData })
   | (NotificationBase & { type: "quote_accepted"; data: QuoteAcceptedNotificationData })
+  // The client opened their quote link (first time, or back after a day).
+  | (NotificationBase & { type: "quote_viewed"; data: QuoteAcceptedNotificationData })
   | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData });
 
 export interface PushToken {

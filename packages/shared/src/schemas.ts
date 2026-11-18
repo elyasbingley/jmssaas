@@ -288,6 +288,8 @@ export const lineItemSchema = priceBreakdownSchema.extend({
   is_included: z.boolean().default(true),
   bundle_name: z.string().nullable().optional(),
   image_url: z.string().nullable().optional(),
+  // Quote options: the option this line belongs to; null = shared section.
+  option_id: z.string().nullable().optional(),
   // Itemised quoting rework - see types.ts's LineItemInput comment for how
   // these fields relate to the breakdown fields above. All optional/
   // additive; a form building a legacy-style line simply omits them.
