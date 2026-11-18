@@ -118,6 +118,12 @@ Deno.serve(async (req: Request) => {
     // so this generic template still lines up.
     const { data, error } = await supabase.rpc(`get_${docType}_for_approval`, { p_token: token });
     if (error) return json({ error: "server_error" }, 500);
+    // Deposit / amount paid / balance (payments migration), merged in so
+    // the page can offer "Pay deposit" or "Pay $X balance".
+    if ((docType === "quote" || docType === "invoice") && data && !data.error) {
+      const { data: summary } = await supabase.rpc("get_payment_summary_by_token", { p_type: docType, p_token: token });
+      return json({ ...data, payment_summary: summary ?? null, online_payment_available: !!STRIPE_SECRET_KEY });
+    }
     return json(data);
   }
 
@@ -167,6 +173,12 @@ Deno.serve(async (req: Request) => {
     // generate anything first.
     if (docType === "invoice" && action === "get_payment_link" && token) {
       return getPaymentLinkForToken(token, approval_page_url);
+    }
+
+    // A quote's deposit, paid online from the client's quote link once
+    // they've accepted it.
+    if (docType === "quote" && action === "get_deposit_link" && token) {
+      return getDepositLinkForToken(token, approval_page_url);
     }
 
     if (!token) {
@@ -234,36 +246,36 @@ Deno.serve(async (req: Request) => {
 });
 
 // Shared by both entry points below: given an already-fetched invoice row
-// (admin/service-role client, full columns), returns its Stripe Checkout
-// URL - reusing an existing session if one's already been created (Stripe
-// Checkout Sessions stay open, and their url usable, for 24 hours by
-// default, so this avoids handing out a second, different link for the
-// same invoice while the first one's still valid), otherwise creating one
-// via the Stripe REST API directly over fetch (no SDK - a single REST call
-// doesn't need the extra dependency weight).
-async function getOrCreateStripeCheckoutUrl(
-  admin: ReturnType<typeof createClient>,
-  invoice: Record<string, any>,
-  approvalPageUrl: string | undefined
-): Promise<{ ok: true; checkout_url: string } | { ok: false; error: string; detail?: string; status: number }> {
-  if (invoice.approval_status !== "accepted") return { ok: false, error: "not_accepted", status: 400 };
-  if (invoice.status === "paid") return { ok: false, error: "already_paid", status: 400 };
-  if (invoice.stripe_checkout_url) return { ok: true, checkout_url: invoice.stripe_checkout_url };
-  if (!STRIPE_SECRET_KEY) return { ok: false, error: "stripe_not_configured", status: 400 };
+// (admin/service-role client, full columns), returns a Stripe Checkout URL
+// for what's still owing on it. The balance, not the total - deposits and
+// part payments already recorded come off (payments migration).
+//
+// A link already made for the same balance in the last 23 hours is handed
+// out again (Checkout Sessions stay usable for 24 hours), so the client
+// doesn't get a second, different link for the same thing. Any payment
+// recorded against the invoice clears the cached link, so a link for an
+// old balance is never reused. Created via the Stripe REST API directly
+// over fetch (no SDK - a single REST call doesn't need the dependency).
+const CHECKOUT_REUSE_MS = 23 * 60 * 60 * 1000;
 
-  const successUrl = approvalPageUrl ? `${approvalPageUrl}?type=invoice&token=${invoice.access_token}&paid=1` : "https://example.com/paid";
-  const cancelUrl = approvalPageUrl ? `${approvalPageUrl}?type=invoice&token=${invoice.access_token}` : "https://example.com";
-
+async function createCheckoutSession(params: {
+  amountCents: number;
+  name: string;
+  metadata: Record<string, string>;
+  customerEmail?: string | null;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ ok: true; id: string; url: string } | { ok: false; detail?: string }> {
   const form = new URLSearchParams();
   form.set("mode", "payment");
-  form.set("success_url", successUrl);
-  form.set("cancel_url", cancelUrl);
+  form.set("success_url", params.successUrl);
+  form.set("cancel_url", params.cancelUrl);
   form.set("line_items[0][price_data][currency]", "aud");
-  form.set("line_items[0][price_data][product_data][name]", `Invoice ${invoice.invoice_number}`);
-  form.set("line_items[0][price_data][unit_amount]", String(invoice.total_cents));
+  form.set("line_items[0][price_data][product_data][name]", params.name);
+  form.set("line_items[0][price_data][unit_amount]", String(params.amountCents));
   form.set("line_items[0][quantity]", "1");
-  form.set("metadata[invoice_id]", invoice.id);
-  if (invoice.clients?.email) form.set("customer_email", invoice.clients.email);
+  for (const [key, value] of Object.entries(params.metadata)) form.set(`metadata[${key}]`, value);
+  if (params.customerEmail) form.set("customer_email", params.customerEmail);
 
   const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -273,16 +285,85 @@ async function getOrCreateStripeCheckoutUrl(
   const stripeBody = await stripeRes.json();
   if (!stripeRes.ok) {
     console.error("[approve] Stripe checkout session creation failed", stripeBody);
-    return { ok: false, error: "stripe_error", detail: stripeBody?.error?.message, status: 500 };
+    return { ok: false, detail: stripeBody?.error?.message };
   }
+  return { ok: true, id: stripeBody.id as string, url: stripeBody.url as string };
+}
+
+async function getOrCreateStripeCheckoutUrl(
+  // A service-role client. Typed loosely: there are no generated database
+  // types here, and ReturnType<typeof createClient> resolves to a client
+  // whose tables are all `never`.
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  invoice: Record<string, any>,
+  approvalPageUrl: string | undefined
+): Promise<{ ok: true; checkout_url: string } | { ok: false; error: string; detail?: string; status: number }> {
+  if (invoice.approval_status !== "accepted") return { ok: false, error: "not_accepted", status: 400 };
+  if (invoice.status === "void") return { ok: false, error: "void", status: 400 };
+  const balanceCents = Math.max(Number(invoice.total_cents) - Number(invoice.amount_paid_cents ?? 0), 0);
+  if (invoice.status === "paid" || balanceCents <= 0) return { ok: false, error: "already_paid", status: 400 };
+  if (
+    invoice.stripe_checkout_url &&
+    Number(invoice.stripe_checkout_amount_cents) === balanceCents &&
+    invoice.stripe_checkout_created_at &&
+    Date.now() - new Date(invoice.stripe_checkout_created_at).getTime() < CHECKOUT_REUSE_MS
+  ) {
+    return { ok: true, checkout_url: invoice.stripe_checkout_url };
+  }
+  if (!STRIPE_SECRET_KEY) return { ok: false, error: "stripe_not_configured", status: 400 };
+
+  const pageUrl = approvalPageUrl ? `${approvalPageUrl}?type=invoice&token=${invoice.access_token}` : null;
+  const session = await createCheckoutSession({
+    amountCents: balanceCents,
+    name: balanceCents < Number(invoice.total_cents) ? `Invoice ${invoice.invoice_number} - balance owing` : `Invoice ${invoice.invoice_number}`,
+    metadata: { invoice_id: invoice.id, kind: "payment" },
+    customerEmail: invoice.clients?.email,
+    successUrl: pageUrl ? `${pageUrl}&paid=1` : "https://example.com/paid",
+    cancelUrl: pageUrl ?? "https://example.com",
+  });
+  if (!session.ok) return { ok: false, error: "stripe_error", detail: session.detail, status: 500 };
 
   const { error: updateError } = await admin
     .from("invoices")
-    .update({ stripe_checkout_url: stripeBody.url, stripe_checkout_session_id: stripeBody.id })
+    .update({
+      stripe_checkout_url: session.url,
+      stripe_checkout_session_id: session.id,
+      stripe_checkout_amount_cents: balanceCents,
+      stripe_checkout_created_at: new Date().toISOString(),
+    })
     .eq("id", invoice.id);
   if (updateError) return { ok: false, error: "server_error", status: 500 };
 
-  return { ok: true, checkout_url: stripeBody.url as string };
+  return { ok: true, checkout_url: session.url };
+}
+
+// Public, token-authenticated - the client's own quote link, after they've
+// accepted it. Charges what's left of the deposit the quote asks for.
+async function getDepositLinkForToken(token: string, approvalPageUrl: string | undefined): Promise<Response> {
+  if (!SUPABASE_SERVICE_ROLE_KEY) return json({ error: "server_error" }, 500);
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: quote } = await admin.from("quotes").select("*, clients(name, email)").eq("access_token", token).maybeSingle();
+  if (!quote) return json({ error: "not_found" }, 404);
+  if (quote.token_expires_at && new Date(quote.token_expires_at) < new Date()) return json({ error: "expired" }, 400);
+  if (quote.approval_status !== "accepted") return json({ error: "not_accepted" }, 400);
+
+  const { data: summary } = await admin.rpc("get_payment_summary_by_token", { p_type: "quote", p_token: token });
+  const remainingCents = Number(summary?.deposit_remaining_cents ?? 0);
+  if (remainingCents <= 0) return json({ error: "already_paid" }, 400);
+  if (!STRIPE_SECRET_KEY) return json({ error: "stripe_not_configured" }, 400);
+
+  const pageUrl = approvalPageUrl ? `${approvalPageUrl}?type=quote&token=${quote.access_token}` : null;
+  const session = await createCheckoutSession({
+    amountCents: remainingCents,
+    name: `Deposit for quote ${quote.quote_number}`,
+    metadata: { quote_id: quote.id, kind: "deposit" },
+    customerEmail: quote.clients?.email,
+    successUrl: pageUrl ? `${pageUrl}&paid=1` : "https://example.com/paid",
+    cancelUrl: pageUrl ?? "https://example.com",
+  });
+  if (!session.ok) return json({ error: "stripe_error", detail: session.detail }, 500);
+  return json({ ok: true, checkout_url: session.url });
 }
 
 // Admin-authenticated path - caller's own bearer token, scoped to their

@@ -114,11 +114,11 @@ async function processInvoiceEvent(admin: ReturnType<typeof createClient>, event
     return;
   }
 
-  // "Paid" here means fully paid, matching this app's own binary paid/
-  // unpaid model (no partial-payment tracking - see quote-invoice-pdf.ts's
-  // own comment on Balance Due) - a partial payment recorded in Xero
-  // (AmountDue > 0, Status still AUTHORISED) deliberately doesn't flip
-  // anything here yet.
+  // Only a fully paid Xero invoice is read back - a partial payment in
+  // Xero (AmountDue > 0, Status still AUTHORISED) doesn't change anything
+  // here. Marking it paid makes the database record the rest of the
+  // balance as an "Other - Marked as paid" payment (payments migration,
+  // invoices_record_manual_paid), so the payments list still adds up.
   if (xeroInvoice.Status === "PAID") {
     await admin.from("invoices").update({ status: "paid" }).eq("id", invoice.id);
   }

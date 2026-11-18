@@ -53,6 +53,14 @@ export interface AnalyticsInvoice {
   issue_date: string;
   due_date: string | null;
   paid_at: string | null;
+  // Deposits / part payments received (payments migration). Optional so
+  // older callers and test data without it count as nothing paid.
+  amount_paid_cents?: number;
+}
+
+// What's still owing on an invoice once deposits/part payments come off.
+export function invoiceOwingCents(invoice: Pick<AnalyticsInvoice, "total_cents" | "amount_paid_cents">): number {
+  return Math.max(invoice.total_cents - (invoice.amount_paid_cents ?? 0), 0);
 }
 
 export interface AnalyticsClient {
@@ -678,7 +686,8 @@ export interface AgedBucket {
   invoices: AnalyticsInvoice[];
 }
 
-// Every unpaid issued invoice as of `today`, by days since it was issued.
+// Every unpaid issued invoice as of `today`, by days since it was issued -
+// counting what's still owing on it, not its full total.
 export function agedReceivables(ix: AnalyticsIndex, today: string): AgedBucket[] {
   const buckets: (AgedBucket & { max: number })[] = [
     { key: "0-30", label: "0-30 days", max: 30, cents: 0, invoices: [] },
@@ -689,7 +698,7 @@ export function agedReceivables(ix: AnalyticsIndex, today: string): AgedBucket[]
     if (!isUnpaidInvoice(inv)) continue;
     const age = Math.max(0, daysBetween(inv.issue_date, today));
     const bucket = buckets.find((b) => age <= b.max)!;
-    bucket.cents += inv.total_cents;
+    bucket.cents += invoiceOwingCents(inv);
     bucket.invoices.push(inv);
   }
   for (const bucket of buckets) bucket.invoices.sort((a, b) => a.issue_date.localeCompare(b.issue_date));

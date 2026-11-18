@@ -92,7 +92,12 @@ export default function JobBillingScreen() {
             <Pressable key={inv.id} style={styles.row} onPress={() => router.push(`/sales/invoices/${inv.id}`)}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowText}>{inv.invoice_number}</Text>
-                <Text style={styles.rowMeta}>{inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}</Text>
+                <Text style={styles.rowMeta}>
+                  {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
+                  {inv.status !== "paid" && inv.status !== "void" && inv.amount_paid_cents > 0
+                    ? ` · ${formatCentsAsAud(Math.max(inv.total_cents - inv.amount_paid_cents, 0))} owing`
+                    : ""}
+                </Text>
               </View>
               <Text style={styles.rowTotal}>{formatCentsAsAud(inv.total_cents)}</Text>
             </Pressable>

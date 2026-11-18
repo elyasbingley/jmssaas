@@ -500,8 +500,8 @@ function drawTrustBadges(cursor: Cursor, tenant: Tenant) {
   cursor.y = top + 16 + 6;
 }
 
-function totalsCardHeight(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents: number): number {
-  const rowCount = 2 + (membershipDiscountCents > 0 ? 1 : 0) + 1 + (balanceDueCents !== null ? 1 : 0);
+function totalsCardHeight(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents: number, paidCents = 0): number {
+  const rowCount = 2 + (membershipDiscountCents > 0 ? 1 : 0) + 1 + (balanceDueCents !== null ? 1 : 0) + (paidCents > 0 ? 1 : 0);
   return rowCount * 6.5 + 10;
 }
 
@@ -518,12 +518,15 @@ function renderTotalsCard(
   lineItems: LineItemFormInput[],
   balanceDueCents: number | null,
   membershipDiscountCents: number,
-  highlightGrandTotal: boolean
+  highlightGrandTotal: boolean,
+  // Deposits / part payments already received (invoices only) - shown as
+  // "Less paid" above the balance due.
+  paidCents = 0
 ) {
   const totals = calculateDocumentTotals(lineItems);
   const cardWidth = 85;
   const cardX = PAGE_WIDTH - MARGIN - cardWidth;
-  const height = totalsCardHeight(lineItems, balanceDueCents, membershipDiscountCents);
+  const height = totalsCardHeight(lineItems, balanceDueCents, membershipDiscountCents, paidCents);
   const top = cursor.y;
 
   cursor.doc.setDrawColor(...accent);
@@ -560,6 +563,11 @@ function renderTotalsCard(
   }
   cursor.y += 7;
 
+  if (balanceDueCents !== null && paidCents > 0) {
+    cursor.text("Less paid", labelX, 9.5, CHARCOAL_MUTED);
+    cursor.text(`-${formatCentsAsAud(paidCents)}`, valueX, 9.5, CHARCOAL_DARK, "right");
+    cursor.y += 6.5;
+  }
   if (balanceDueCents !== null) {
     cursor.text("Balance Due", labelX, 10, CHARCOAL_MUTED);
     cursor.bold(formatCentsAsAud(balanceDueCents), valueX, 11, CHARCOAL_DARK, "right");
@@ -712,7 +720,9 @@ export async function buildInvoicePdfBytes(params: {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cursor = new Cursor(doc);
 
-  const balanceDueCents = invoice.status === "paid" ? 0 : invoice.total_cents;
+  // Deposits and part payments come off (payments migration).
+  const paidCents = invoice.amount_paid_cents ?? 0;
+  const balanceDueCents = invoice.status === "paid" ? 0 : Math.max(invoice.total_cents - paidCents, 0);
   const billToOverride = agencyBilling
     ? {
         name: agencyBilling.billToLandlord
@@ -735,9 +745,9 @@ export async function buildInvoicePdfBytes(params: {
 
   const isAccepted = invoice.approval_status === "accepted" && !!invoice.accepted_signature_svg;
   const trailingHeight =
-    totalsCardHeight(lineItems, balanceDueCents, invoice.membership_discount_cents) + 6 + (isAccepted ? signatureBlockHeight() : 0);
+    totalsCardHeight(lineItems, balanceDueCents, invoice.membership_discount_cents, paidCents) + 6 + (isAccepted ? signatureBlockHeight() : 0);
   cursor.ensureSpace(trailingHeight);
-  renderTotalsCard(cursor, ACCENT.invoice, lineItems, balanceDueCents, invoice.membership_discount_cents, false);
+  renderTotalsCard(cursor, ACCENT.invoice, lineItems, balanceDueCents, invoice.membership_discount_cents, false, paidCents);
   if (isAccepted) await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);
 
   renderNotes(cursor, invoice.notes);

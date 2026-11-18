@@ -32,6 +32,7 @@ import { blobToDataUrl, buildQuotePdfBytes, downloadBlob } from "../lib/quote-in
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
+import { PaymentsPanel, QuoteDepositControl } from "../components/PaymentsPanel";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
@@ -783,6 +784,9 @@ export default function QuoteDetailPage() {
           {linkError}
         </p>
       ) : null}
+
+      <QuoteDepositControl quote={data.quote} onChanged={invalidate} />
+      <PaymentsPanel target={{ kind: "quote", quote: data.quote }} onChanged={invalidate} />
 
       <h2 className="mb-2 mt-6 uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
         Status

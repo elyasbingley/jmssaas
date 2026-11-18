@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
   collectRecipientEmails,
+  formatCentsAsAud,
   renderTemplate,
   type Agency,
   type ApprovalStatus,
@@ -28,6 +29,7 @@ import { blobToDataUrl, buildInvoicePdfBytes, downloadBlob } from "../lib/quote-
 import { LineItemEditor, LineItemSummary } from "../components/LineItemEditor";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
+import { PaymentsPanel } from "../components/PaymentsPanel";
 import { EmailComposeModal } from "../components/EmailComposeModal";
 import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsModal";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
@@ -855,14 +857,16 @@ export default function InvoiceDetailPage() {
         </p>
       ) : null}
 
+      <PaymentsPanel target={{ kind: "invoice", invoice: data.invoice }} onChanged={invalidate} />
+
       {data.invoice.approval_status === "accepted" && data.invoice.status !== "paid" ? (
         <div className="mt-3 rounded p-3" style={{ border: "1px solid var(--jms-accent)", backgroundColor: "var(--jms-surface)" }}>
           <p className="mb-1 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}>
             Stripe payment link
           </p>
           <p className="mb-2" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-            Once accepted, the invoice's own link (the one already emailed to the client) takes them straight here instead of back to the
-            acceptance page.
+            Charges the balance owing ({formatCentsAsAud(Math.max(data.invoice.total_cents - data.invoice.amount_paid_cents, 0))}). Once accepted,
+            the invoice's own link (the one already emailed to the client) takes them straight here instead of back to the acceptance page.
           </p>
           {data.invoice.stripe_checkout_url ? (
             <div className="flex items-center gap-2">

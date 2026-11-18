@@ -105,6 +105,10 @@
       var params = new URLSearchParams(location.search);
       var docType = params.get("type");
       var token = params.get("token");
+      // Back from Stripe Checkout after paying (the success_url the approve
+      // function sets). Stripe tells the app a moment later, so the amounts
+      // below may not include this payment yet.
+      var justPaid = params.get("paid") === "1";
       // Shorter path form - /q/<code> or /i/<code> - purely an additional
       // accepted format alongside the ?type=&token= query string above
       // (what every link actually sent to a client uses today, and what
@@ -370,7 +374,11 @@
 
         var payButton = document.getElementById("pay-now-btn");
         if (payButton) {
-          payButton.addEventListener("click", function () { fetchAndGoToPaymentLink(payButton); });
+          payButton.addEventListener("click", function () { fetchAndGoToPaymentLink(payButton, "invoice", "get_payment_link"); });
+        }
+        var depositButton = document.getElementById("pay-deposit-btn");
+        if (depositButton) {
+          depositButton.addEventListener("click", function () { fetchAndGoToPaymentLink(depositButton, "quote", "get_deposit_link"); });
         }
 
         if (action === "accept" && acceptForm) {
@@ -389,13 +397,14 @@
       // comment on email security gateways prefetching links), fetches (or
       // creates) the invoice's Stripe Checkout URL via the same token this
       // page already loaded with, then redirects the browser to it.
-      function fetchAndGoToPaymentLink(button) {
+      // Also used for a quote's deposit (action get_deposit_link).
+      function fetchAndGoToPaymentLink(button, type, linkAction) {
         button.disabled = true;
         button.textContent = "Preparing payment page...";
         fetch(functionUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ type: "invoice", token: token, action: "get_payment_link", approval_page_url: location.origin + location.pathname }),
+          body: JSON.stringify({ type: type, token: token, action: linkAction, approval_page_url: location.origin + location.pathname }),
         })
           .then(function (res) { return res.json(); })
           .then(function (data) {
@@ -404,7 +413,7 @@
               return;
             }
             if (data.error === "stripe_not_configured") return renderMessage("Payment not available yet", "Online payment isn't set up yet - please pay using the bank details on the invoice, or contact us directly.");
-            if (data.error === "already_paid") return renderMessage("Already paid", "This invoice has already been paid. Thank you!");
+            if (data.error === "already_paid") return renderMessage("Already paid", type === "quote" ? "The deposit has already been paid. Thank you!" : "This invoice has already been paid. Thank you!");
             renderMessage("Something went wrong", "Please try again, or contact us directly.");
           })
           .catch(function () {
@@ -435,6 +444,17 @@
               return fetch(functionUrl + "?type=invoice&token=" + encodeURIComponent(token))
                 .then(function (res) { return res.json(); })
                 .then(function (freshDoc) { renderDoc(freshDoc); });
+            }
+            if (action === "accept" && docType === "quote") {
+              // Re-render so a deposit (if the quote asks for one) can be
+              // paid straight away.
+              return fetch(functionUrl + "?type=quote&token=" + encodeURIComponent(token))
+                .then(function (res) { return res.json(); })
+                .then(function (freshDoc) {
+                  var summary = freshDoc.payment_summary;
+                  if (summary && summary.deposit_remaining_cents > 0) return renderDoc(freshDoc);
+                  renderMessage("Thank you", "You've accepted this quote. We'll be in touch shortly.");
+                });
             }
             if (action === "accept") return renderMessage("Thank you", "You've accepted this " + title.toLowerCase() + ". We'll be in touch shortly.");
             return renderMessage("Received", "You've declined this " + title.toLowerCase() + ". Thanks for letting us know.");
@@ -656,20 +676,55 @@
           statusBadge = '<span class="badge declined">Declined</span>';
         }
 
+        var summary = doc.payment_summary || null;
+        var onlinePay = doc.online_payment_available !== false;
+        var paidBanner = justPaid
+          ? '<p class="message-body" style="margin-top: 20px; padding: 12px; border-radius: 8px; background: #dcfce7; color: #15803d;">Thank you - your payment went through. It can take a minute to show below.</p>'
+          : "";
+        // What a quote's deposit is, in words: "30% of the quote total
+        // ($330.00)" or "$500.00".
+        var depositLine = "";
+        if (docType === "quote" && summary && summary.deposit_due_cents > 0) {
+          depositLine = summary.deposit_percent
+            ? Number(summary.deposit_percent) + "% of the quote total (" + formatCentsAsAud(summary.deposit_due_cents) + ")"
+            : formatCentsAsAud(summary.deposit_due_cents);
+        }
+
         var actionSection = "";
         if (doc.status === "accepted") {
           // Once an invoice is accepted, the link should take a client
           // straight to paying it, not leave them at a dead-end "already
           // accepted" message - that's the whole point of this branch vs.
           // the quote one below it, which really has nothing further to do.
-          if (docType === "invoice" && doc.payment_status === "paid") {
-            actionSection = '<p class="message-body" style="margin-top: 20px;">This invoice has already been paid. Thank you!</p>';
+          var balanceCents = summary ? summary.balance_cents : doc.total_cents;
+          if (docType === "invoice" && (doc.payment_status === "paid" || (summary && balanceCents <= 0))) {
+            actionSection = '<p class="message-body" style="margin-top: 20px;">This invoice has been paid in full. Thank you!</p>';
+          } else if (docType === "invoice" && !onlinePay) {
+            actionSection =
+              '<p class="message-body" style="margin-top: 20px;">This invoice has been accepted' +
+              (doc.accepted_by_name ? " by " + escapeHtml(doc.accepted_by_name) : "") +
+              ". Please pay " + formatCentsAsAud(balanceCents) + " using the bank details on the invoice, or contact us directly.</p>";
           } else if (docType === "invoice") {
             actionSection =
               '<p class="message-body" style="margin-top: 20px;">This invoice has been accepted' +
               (doc.accepted_by_name ? " by " + escapeHtml(doc.accepted_by_name) : "") +
               '. Ready to pay?</p>' +
-              '<button id="pay-now-btn" class="pay-btn">Pay Now</button>';
+              '<button id="pay-now-btn" class="pay-btn">Pay ' + formatCentsAsAud(balanceCents) + " now</button>";
+          } else if (summary && summary.deposit_due_cents > 0) {
+            // An accepted quote that asks for a deposit.
+            if (summary.deposit_remaining_cents <= 0) {
+              actionSection = '<p class="message-body" style="margin-top: 20px;">You\'ve accepted this quote and your deposit of ' + formatCentsAsAud(summary.deposit_paid_cents) + " has been received. Thank you - we'll be in touch to book the work in.</p>";
+            } else if (!onlinePay) {
+              actionSection =
+                '<p class="message-body" style="margin-top: 20px;">Thank you for accepting this quote. A deposit of ' + depositLine +
+                " is payable before work starts - please contact us to arrange payment.</p>";
+            } else {
+              actionSection =
+                '<p class="message-body" style="margin-top: 20px;">Thank you for accepting this quote. A deposit of ' + depositLine +
+                (summary.deposit_paid_cents > 0 ? " (" + formatCentsAsAud(summary.deposit_paid_cents) + " received so far)" : "") +
+                " is payable before work starts.</p>" +
+                '<button id="pay-deposit-btn" class="pay-btn">Pay ' + formatCentsAsAud(summary.deposit_remaining_cents) + " deposit now</button>";
+            }
           } else {
             actionSection = '<p class="message-body" style="margin-top: 20px;">This ' + title.toLowerCase() + " has already been accepted. No further action is needed.</p>";
           }
@@ -679,6 +734,9 @@
             (doc.decline_reason ? ': "' + escapeHtml(doc.decline_reason) + '"' : ".") + "</p>";
         } else {
           actionSection =
+            (depositLine
+              ? '<p class="message-body" style="margin-top: 20px;">A deposit of ' + depositLine + " is payable when you accept - you can pay it online by card straight after.</p>"
+              : "") +
             '<form id="accept-form">' +
             '<label for="accept-name">Type your full name to accept this ' + title.toLowerCase() + "</label>" +
             '<input type="text" id="accept-name" placeholder="Full name" required />' +
@@ -723,9 +781,14 @@
           '<div class="totals-row"><span>Sub Total</span><span id="totals-subtotal">' + formatCentsAsAud(doc.subtotal_cents) + "</span></div>" +
           '<div class="totals-row"><span>GST (10%)</span><span id="totals-gst">' + formatCentsAsAud(doc.gst_cents) + "</span></div>" +
           '<div class="totals-row total' + (isQuote ? " highlight" : "") + '"><span>Total</span><span id="totals-total">' + formatCentsAsAud(doc.total_cents) + "</span></div>" +
+          (!isQuote && summary && summary.amount_paid_cents > 0
+            ? '<div class="totals-row"><span>Paid</span><span>-' + formatCentsAsAud(summary.amount_paid_cents) + "</span></div>" +
+              '<div class="totals-row total"><span>Balance due</span><span>' + formatCentsAsAud(summary.balance_cents) + "</span></div>"
+            : "") +
           "</div>" +
           (!isQuote && doc.notes ? '<div class="notes"><strong>Notes</strong><br/>' + escapeHtml(doc.notes) + "</div>" : "") +
           (doc.fine_print_text ? '<div class="notes"><strong>Fine Print</strong><br/>' + escapeHtml(doc.fine_print_text) + "</div>" : "") +
+          paidBanner +
           actionSection;
 
         attachOptionalCheckboxHandlers(doc);

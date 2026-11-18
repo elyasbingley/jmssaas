@@ -20,6 +20,7 @@ import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedDateField } from "../../../components/theme/ThemedDateField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
+import { PaymentSummaryCard } from "../../../components/PaymentSummaryCard";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
 import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
@@ -794,6 +795,8 @@ export default function InvoiceDetailScreen() {
             </Pressable>
           ) : null}
           {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
+
+          <PaymentSummaryCard kind="invoice" id={data.invoice.id} />
 
           {data.invoice.approval_status === "accepted" && data.invoice.status !== "paid" ? (
             <View style={styles.paymentLinkCard}>

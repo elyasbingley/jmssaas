@@ -99,6 +99,7 @@ export default function SettingsPage() {
   const [bankAccountName, setBankAccountName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankBsb, setBankBsb] = useState("");
+  const [defaultDepositPercent, setDefaultDepositPercent] = useState("");
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [categoryColors, setCategoryColors] = useState<CalendarCategoryColors>(DEFAULT_CALENDAR_CATEGORY_COLORS);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export default function SettingsPage() {
       setBankAccountName(tenant.bank_account_name ?? "");
       setBankAccountNumber(tenant.bank_account_number ?? "");
       setBankBsb(tenant.bank_bsb ?? "");
+      setDefaultDepositPercent(tenant.default_deposit_percent ? String(Number(tenant.default_deposit_percent)) : "");
       setXeroSalesAccountCode(tenant.xero_sales_account_code ?? "200");
       setCategoryColors(tenant.calendar_category_colors ?? DEFAULT_CALENDAR_CATEGORY_COLORS);
     }
@@ -489,6 +491,7 @@ export default function SettingsPage() {
         bank_account_number: bankAccountNumber,
         bank_bsb: bankBsb,
         xero_sales_account_code: xeroSalesAccountCode,
+        default_deposit_percent: defaultDepositPercent,
       });
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Check the form for errors");
       if (!profile) throw new Error("Not signed in");
@@ -511,6 +514,7 @@ export default function SettingsPage() {
           bank_account_number: result.data.bank_account_number || null,
           bank_bsb: result.data.bank_bsb || null,
           xero_sales_account_code: result.data.xero_sales_account_code || "200",
+          default_deposit_percent: result.data.default_deposit_percent,
           calendar_category_colors: categoryColors,
         })
         .eq("id", profile.tenant_id);
@@ -888,6 +892,21 @@ export default function SettingsPage() {
       <ThemedFormField label="Account name" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} />
       <ThemedFormField label="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} />
       <ThemedFormField label="BSB" value={bankBsb} onChange={(e) => setBankBsb(e.target.value)} />
+
+      <h2 className="mb-2 mt-6 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Payments
+      </h2>
+      <ThemedFormField
+        label="Default deposit on new quotes (%)"
+        value={defaultDepositPercent}
+        onChange={(e) => setDefaultDepositPercent(e.target.value)}
+        inputMode="decimal"
+        placeholder="e.g. 30 - leave blank for no deposit"
+      />
+      <p className="-mt-2 mb-4" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        Each quote can change its own deposit (a % or a fixed amount). Clients can pay it online once they accept, or take it with Tap to Pay
+        on the phone. Card payments are charged at the quoted price - no surcharge.
+      </p>
 
       {saveError ? (
         <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>

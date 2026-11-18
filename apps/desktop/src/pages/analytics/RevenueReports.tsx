@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agedReceivables,
+  invoiceOwingCents,
   computeKpis,
   daysBetween,
   formatCentsAsAud,
@@ -233,7 +234,7 @@ export function AgedReceivablesPage() {
         <StatTile label="Unpaid, right now" value={formatCentsAsAud(total)} sub={`${invoices.length} invoice${invoices.length === 1 ? "" : "s"}`} />
         <StatTile
           label="Past due date"
-          value={formatCentsAsAud(overdue.reduce((sum, inv) => sum + inv.total_cents, 0))}
+          value={formatCentsAsAud(overdue.reduce((sum, inv) => sum + invoiceOwingCents(inv), 0))}
           sub={`${overdue.length} invoice${overdue.length === 1 ? "" : "s"}`}
           tone={overdue.length > 0 ? "danger" : undefined}
           onClick={overdue.length ? () => openDrill({ title: "Invoices past their due date", invoices: overdue }) : undefined}
@@ -269,8 +270,8 @@ export function AgedReceivablesPage() {
                 onClick={() =>
                   downloadCsv(
                     `aged-receivables-${today}.csv`,
-                    ["Invoice", "Client", "Issued", "Due", "Days old", "Status", "Amount inc GST ($)"],
-                    invoices.map((inv) => [inv.invoice_number, clientName(inv.client_id), inv.issue_date, inv.due_date ?? "", daysBetween(inv.issue_date, today), inv.status, dollars(inv.total_cents)])
+                    ["Invoice", "Client", "Issued", "Due", "Days old", "Status", "Amount inc GST ($)", "Paid ($)", "Owing ($)"],
+                    invoices.map((inv) => [inv.invoice_number, clientName(inv.client_id), inv.issue_date, inv.due_date ?? "", daysBetween(inv.issue_date, today), inv.status, dollars(inv.total_cents), dollars(inv.amount_paid_cents ?? 0), dollars(invoiceOwingCents(inv))])
                   )
                 }
               />
@@ -301,8 +302,9 @@ export function AgedReceivablesPage() {
                 },
                 { header: "Days old", align: "right", render: (inv) => daysBetween(inv.issue_date, today) },
                 { header: "Amount", align: "right", render: (inv) => formatCentsAsAud(inv.total_cents) },
+                { header: "Owing", align: "right", render: (inv) => formatCentsAsAud(invoiceOwingCents(inv)) },
               ]}
-              footer={["Total", "", "", "", "", formatCentsAsAud(total)]}
+              footer={["Total", "", "", "", "", "", formatCentsAsAud(total)]}
             />
           </Panel>
         </>

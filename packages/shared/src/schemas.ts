@@ -453,6 +453,13 @@ export const updateCompanySettingsSchema = z.object({
   bank_account_number: z.string().optional(),
   bank_bsb: z.string().optional(),
   xero_sales_account_code: z.string().optional(),
+  // The deposit every new quote asks for (payments migration). Blank = 0 =
+  // no deposit.
+  default_deposit_percent: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? Number(v.trim().replace(/%$/, "")) : 0))
+    .refine((n) => Number.isFinite(n) && n >= 0 && n <= 100, "Default deposit must be a % between 0 and 100"),
 });
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
 

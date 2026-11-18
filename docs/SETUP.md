@@ -5226,10 +5226,10 @@ function's logs in the Supabase dashboard.
 ### Known gaps / judgment calls
 
 - **Full payment only** - a partial payment in Xero (invoice still
-  `AUTHORISED`, `AmountDue > 0`) doesn't change anything here, matching
-  this app's own binary paid/unpaid model (see quote-invoice-pdf.ts's own
-  comment on Balance Due - there's no partial-payment tracking to update
-  even if this function tried).
+  `AUTHORISED`, `AmountDue > 0`) doesn't change anything here. When Xero
+  shows the invoice fully paid, the app records the rest of the balance as
+  an "Other - Marked as paid" payment (see section 95, Payments). Part
+  payments made in the app aren't sent to Xero.
 - **Voided Xero invoices aren't reflected** - only a `PAID` status is
   read back; a `VOIDED` Xero invoice doesn't flip the matching invoice
   here to `void`. Deliberately conservative for this first pass, to
@@ -11166,3 +11166,192 @@ screens were typechecked only.
   and nothing else is recorded; trying again copies them again.
 - "Create job" in Channels still always creates a new client, even when the
   conversation is already linked to one.
+
+## 95. Payments: Tap to Pay, deposits and part payments
+
+Every payment is now a row of its own, so an invoice can be paid in parts and
+a quote can take a deposit. Card payments are charged at the invoice amount.
+There is no card surcharge (surcharging isn't allowed in Australia any more).
+
+- **Tap to Pay (Android phone app):** on an invoice or quote, tap "Take
+  payment" (or "Take deposit"). Enter the amount; anything up to the balance
+  owing is fine, and less is a part payment. Tap "Tap to Pay", and the client
+  taps their card, phone or watch on the back of your phone. It's recorded
+  against the invoice as soon as Stripe confirms. Stripe emails the client a
+  receipt when they have an email address on file.
+- **Cash / bank transfer / cheque / card on another machine:** "Record
+  payment" on the invoice or quote (desktop), or "Cash / transfer / other" on
+  the phone's Take payment screen. Anyone can record one; only an admin can
+  remove one.
+- **Deposits:** Settings > Company Details > Payments sets the deposit %
+  every new quote asks for (leave it blank for none). Each quote can change
+  it: "Deposit: Change" on the quote picks no deposit, a %, or a fixed
+  amount. The client's quote link says the deposit is payable on acceptance.
+  Straight after they accept, it offers "Pay $X deposit now" by card online.
+  You can also take the deposit with Tap to Pay or record it as cash/transfer.
+  Deposits can't be taken on a draft quote; send it first.
+- **When the quote becomes an invoice**, its deposits move onto the invoice
+  and count towards it, so the invoice shows the deposit as paid and only the
+  balance owing.
+- **The invoice turns Paid by itself** once its payments cover the total. If
+  a payment is removed it goes back to Sent (or Overdue if past due). Clicking
+  "Paid" by hand still works: it records the rest of the balance as an
+  "Other - Marked as paid" payment, and clicking back off "Paid" removes that
+  entry. The paid receipt message, referral fee, reminder cancelling and Xero
+  sync all still run off the move to Paid, as before.
+- **The client's invoice link** shows what's been paid and the balance, and
+  "Pay $X now" charges the balance, not the full total. The invoice PDF shows
+  "Less paid" and "Balance Due".
+- **Analytics > Aged Receivables** counts what's still owing on each invoice
+  and has a new "Owing" column.
+- Existing paid invoices got a single payment row each ("Paid before payment
+  tracking"), so totals add up from day one.
+
+### What you need to do once
+
+1. **Database and functions:**
+   ```powershell
+   git pull origin main
+   pnpm install
+   npx supabase db push
+   npx supabase functions deploy approve --no-verify-jwt
+   npx supabase functions deploy stripe-webhook --no-verify-jwt
+   npx supabase functions deploy stripe-terminal
+   ```
+   `stripe-terminal` is deployed **with** the normal sign-in check (no
+   `--no-verify-jwt`); only signed-in staff can call it.
+2. **Stripe key:** if you haven't already, set `STRIPE_SECRET_KEY` (see the
+   Stripe section earlier). Tap to Pay and the online links use the same key
+   and the same Stripe account. Start with a test key (`sk_test_...`). With a
+   test key, Tap to Pay uses a **simulated** reader: tapping the on-screen
+   card completes a test payment, and no real card is charged. Switch to the
+   live key (`sk_live_...`) when you're ready to take real money.
+3. **Stripe webhook:** in Stripe Dashboard > Developers > Webhooks, edit
+   your existing `stripe-webhook` endpoint and add these events alongside
+   `checkout.session.completed`:
+   - `payment_intent.succeeded` (a backstop for Tap to Pay: it records the
+     payment if the phone lost signal straight after the tap)
+   - `checkout.session.async_payment_succeeded`
+4. **Business address:** Settings > Company Details must have the street,
+   suburb, state and postcode filled in. Stripe needs a Terminal "location"
+   for Tap to Pay, and the app makes it from that address the first time you
+   use Tap to Pay.
+5. **Stripe account:** Tap to Pay on Android is part of Stripe Terminal and
+   is available in Australia. If Stripe says Terminal or Tap to Pay isn't
+   enabled on your account, turn it on in the Stripe Dashboard (Terminal) or
+   ask Stripe support.
+6. **Client approval page:** re-upload the `approval-page-deploy/` folder to
+   Netlify (same drag-and-drop as before). It now has the deposit button and
+   the paid/balance lines.
+7. **New phone build:** Tap to Pay needs native code, so an over-the-air
+   update isn't enough. Build a new app:
+   ```powershell
+   cd apps/mobile
+   npx eas build --profile preview --platform android
+   ```
+   Install it on the phone. Use the **preview** build for real (live)
+   payments: Stripe refuses live Tap to Pay in a debuggable app, which the
+   `development` build is. An app installed before this change shows "This
+   copy of the app was built before Tap to Pay was added" instead of the Tap
+   to Pay button. Cash/transfer recording works either way.
+
+### Phone requirements for Tap to Pay
+
+- Android 8.0 or newer (the app now needs it on every phone) with NFC
+  switched on. A Pixel is fine.
+- Location access for the app: it asks the first time. Stripe and the card
+  networks require it for in-person payments.
+- Stripe may refuse to run live Tap to Pay on a rooted phone, or one with
+  developer options / USB debugging switched on. If you see a security error
+  in live mode, turn those off.
+- A connection is needed; Tap to Pay doesn't work offline.
+
+### Build changes for Tap to Pay (why the app config changed)
+
+- New packages: `@stripe/stripe-terminal-react-native` (Stripe Terminal) and
+  `expo-build-properties`.
+- `apps/mobile/plugins/withTapToPay.js` (new Expo config plugin):
+  - adds Stripe's "Tap to Pay process" check to `MainApplication.onCreate()`,
+    because the card-reading screen runs as a separate process of the app;
+  - pins the Kotlin Gradle plugin to 2.2.0, because Stripe's Android SDK
+    needs a Kotlin 2.2 compiler and React Native 0.86 brings 2.1;
+  - keeps precise location working on Android 12+. Stripe's library caps it
+    at Android 11, and the timesheet location stamps need it.
+
+  Stripe's own Expo plugin isn't used: it adds that same location cap, plus
+  Bluetooth permissions Tap to Pay doesn't need.
+- `expo-build-properties` sets `minSdkVersion` 26 and Kotlin 2.2.0, through
+  `KOTLIN_VERSION` in `app.config.js`.
+- These settings were checked with `expo prebuild`: the generated Android
+  project has the guard, the Kotlin version and the manifest entry. A full
+  Gradle build wasn't possible here, so the first EAS build is the real
+  test. If it fails on a Kotlin or KSP version error, send me the log.
+- iOS isn't set up for Tap to Pay (the app is Android-only for this).
+
+### Where it lives
+
+- Migration `20261118000100_payments.sql`:
+  - New `payments` table. Clients can read it; nothing writes it directly.
+  - `record_payment` (staff, for manual methods) and `delete_payment`
+    (admin only).
+  - `record_stripe_payment` (Edge Functions only). It's idempotent per
+    Stripe payment intent, so the phone and the webhook can both report the
+    same charge without double counting.
+  - New columns: `invoices.amount_paid_cents`, the quote deposit fields and
+    `tenants.default_deposit_percent`.
+  - Triggers that keep invoice status, paid date and quote deposit totals in
+    step.
+  - `get_payment_summary_by_token` for the client page.
+- Edge Functions:
+  - `stripe-terminal` (new): connection token, location, card-present
+    payment intent, confirm.
+  - `stripe-webhook`: records Checkout and Tap to Pay payments.
+  - `approve`: balance and deposit Checkout links, plus the payment summary
+    on the client page.
+- Desktop: `components/PaymentsPanel.tsx` (payments list, record/remove,
+  quote deposit control), shown on the invoice and quote pages, and the
+  default deposit in Company Settings.
+- Phone: `app/take-payment.tsx`, `lib/payments.ts`,
+  `components/PaymentSummaryCard.tsx` (on the invoice and quote screens).
+- Shared: `packages/shared/src/payments.ts` (deposit and balance maths, with
+  tests).
+
+### How this was verified
+
+- **Database:** on a local Postgres with every migration applied, plus a
+  copy of the demo data:
+  - deposits, part payments and overpayment refusal;
+  - quote-to-invoice carrying deposits over;
+  - removing payments, and marking paid / unpaid by hand;
+  - editing an invoice total after payment;
+  - a technician, another company and a signed-out caller being refused;
+  - the backfill: 212 paid invoices, every one balancing.
+- **Edge Functions:** ran under Deno against that database with Stripe
+  faked:
+  - location setup, including when it's missing the address or has been
+    deleted in Stripe;
+  - part payments by Tap to Pay, confirmed by the phone and by the webhook
+    without double counting;
+  - online balance and deposit links reused, and remade when the balance
+    changes;
+  - bad webhook signatures refused.
+- **Client page and desktop:** in a headless browser:
+  - client page: accept a quote, then pay the deposit; the balance on a
+    part-paid invoice;
+  - desktop: record, remove and pay off an invoice; set a quote deposit;
+    the company default.
+- **Phone:** typechecked, and the Android project generated with `expo
+  prebuild`. Tap to Pay itself can only be tried on a real phone with the
+  new build.
+
+### Known gaps
+
+- Refunds aren't in the app. Refund in the Stripe Dashboard, then remove the
+  payment here (the Remove button warns that it doesn't refund).
+- Taking a payment on the phone, and recording cash there, needs a
+  connection (the rest of the phone app still works offline).
+- Online payment from the client's link is always the full balance (or the
+  full remaining deposit). A part payment is taken in person or recorded by
+  you.
+- Xero gets the invoice as before, but individual part payments aren't sent
+  to Xero as Xero payments.

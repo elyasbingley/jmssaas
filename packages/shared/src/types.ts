@@ -109,6 +109,11 @@ export interface Tenant {
   // Financial-year (1 July - 30 June) revenue goal, set from Analytics >
   // Revenue > FY Target. Null until one is set.
   fy_revenue_target_cents: number | null;
+  // Payments migration: the deposit % every new quote asks for (0 = none,
+  // changeable per quote), and the Stripe Terminal location Tap to Pay
+  // registers phones under (made by the stripe-terminal function).
+  default_deposit_percent: number;
+  stripe_terminal_location_id: string | null;
   // How many days out a task's due_date has to be before the Eisenhower
   // Matrix suggests (never silently applies) is_urgent - see the
   // eisenhower_matrix migration.
@@ -920,6 +925,12 @@ export interface Quote {
   membership_discount_percent: number;
   membership_discount_cents: number;
   membership_discount_overridden: boolean;
+  // Deposit asked for (payments migration): a % of the total or a fixed
+  // amount, never both; both null = no deposit. deposit_paid_cents is kept
+  // up to date from the payments taken against this quote.
+  deposit_percent: number | null;
+  deposit_fixed_cents: number | null;
+  deposit_paid_cents: number;
 }
 
 export interface QuoteLineItem extends LineItemInput {
@@ -996,6 +1007,38 @@ export interface Invoice {
   membership_discount_percent: number;
   membership_discount_cents: number;
   membership_discount_overridden: boolean;
+  // Sum of the payments against this invoice (deposits included), kept up
+  // to date by the database - see the payments migration. status turns
+  // 'paid' by itself once this covers total_cents.
+  amount_paid_cents: number;
+  // What the cached stripe_checkout_url charges, and when it was made.
+  stripe_checkout_amount_cents: number | null;
+  stripe_checkout_created_at: string | null;
+}
+
+export type PaymentMethod = "tap_to_pay" | "card_online" | "card" | "cash" | "bank_transfer" | "cheque" | "other";
+
+// One payment received - see the payments migration. Written only through
+// the record_payment / delete_payment RPCs (and the Stripe functions).
+export interface Payment {
+  id: string;
+  tenant_id: string;
+  client_id: string | null;
+  job_card_id: string | null;
+  // A deposit is taken against a quote; once the quote has an invoice it
+  // also points at that invoice.
+  quote_id: string | null;
+  invoice_id: string | null;
+  kind: "deposit" | "payment";
+  method: PaymentMethod;
+  amount_cents: number;
+  paid_at: string;
+  reference: string | null;
+  notes: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_checkout_session_id: string | null;
+  recorded_by: string | null;
+  created_at: string;
 }
 
 export interface InvoiceLineItem extends LineItemInput {

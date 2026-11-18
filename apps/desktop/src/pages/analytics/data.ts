@@ -25,7 +25,7 @@ import { fetchAllRows } from "../../lib/fetch-all-rows";
 export const ANALYTICS_COLUMNS = {
   job_cards: "id, number, title, client_id, site_id, created_at, completed_at, service_category_id, lifecycle_stage_id, lead_source_id, callback_of_job_card_id",
   quotes: "id, job_card_id, client_id, quote_number, status, total_cents, issue_date, lost_reason_category",
-  invoices: "id, job_card_id, client_id, site_id, invoice_number, status, total_cents, issue_date, due_date, paid_at",
+  invoices: "id, job_card_id, client_id, site_id, invoice_number, status, total_cents, amount_paid_cents, issue_date, due_date, paid_at",
   clients: "id, name, suburb, postcode, google_review_stars, google_review_recorded_at",
   client_sites: "id, suburb, postcode",
   service_categories: "id, name",

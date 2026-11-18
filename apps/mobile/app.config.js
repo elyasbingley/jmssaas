@@ -28,6 +28,8 @@ const dotEnv = loadDotEnv();
 // EXPO_PUBLIC_ var would be. See docs/SETUP.md for how to obtain this key.
 const googleMapsApiKeyAndroid = process.env.GOOGLE_MAPS_API_KEY_ANDROID || dotEnv.GOOGLE_MAPS_API_KEY_ANDROID;
 
+const KOTLIN_VERSION = "2.2.0";
+
 module.exports = {
   expo: {
     name: "Bingley Job Management",
@@ -88,6 +90,23 @@ module.exports = {
       "expo-dev-client",
       "expo-updates",
       "./plugins/withOnUserLeaveHintFix.js",
+      // Tap to Pay on Android (Stripe Terminal) - see the plugin's comment.
+      // Stripe Terminal needs Android 8.0+ (API 26) and a Kotlin 2.2
+      // compiler (its Android SDK ships Kotlin 2.3 libraries, which the
+      // Kotlin 2.1 that React Native 0.86 defaults to can't read).
+      // KOTLIN_VERSION is 2.2.0 exactly: a version Expo's own build tooling
+      // (KSP and its compiler plugins) has a matching release for. See
+      // docs/SETUP.md.
+      ["./plugins/withTapToPay.js", { kotlinVersion: KOTLIN_VERSION }],
+      [
+        "expo-build-properties",
+        {
+          android: {
+            minSdkVersion: 26,
+            kotlinVersion: KOTLIN_VERSION,
+          },
+        },
+      ],
       [
         "expo-image-picker",
         {

@@ -305,6 +305,18 @@ test("aged receivables bucket boundaries", () => {
   ]);
 });
 
+test("aged receivables count only what's still owing after part payments", () => {
+  const today = "2026-11-16";
+  const ix = data({
+    invoices: [
+      inv({ id: "part", issue_date: today, total_cents: 110000, amount_paid_cents: 30000 }),
+      inv({ id: "none", issue_date: today, total_cents: 5000 }),
+    ],
+  });
+  assert.equal(a.agedReceivables(ix, today)[0].cents, 85000);
+  assert.equal(a.invoiceOwingCents({ total_cents: 100, amount_paid_cents: 150 }), 0);
+});
+
 test("quote pipeline only holds sent quotes, bucketed by days waiting", () => {
   const today = "2026-11-16";
   const ix = data({

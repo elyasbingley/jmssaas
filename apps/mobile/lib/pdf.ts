@@ -326,7 +326,7 @@ function renderItemsTable(docType: "quote" | "invoice", lineItems: LineItemFormI
 // card - everywhere else yellow would read as "caution tape" rather than
 // drawing the eye to the number that matters, same reasoning as the
 // desktop PDF path's own totals card.
-function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0, highlightGrandTotal = false): string {
+function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | null, membershipDiscountCents = 0, highlightGrandTotal = false, paidCents = 0): string {
   const totals = calculateDocumentTotals(lineItems);
   const grandTotalLabel = balanceDueCents !== null ? "Total" : "Grand Total";
   return `
@@ -339,6 +339,11 @@ function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | 
           : ""
       }
       <div class="totals-row total${highlightGrandTotal ? " highlight" : ""}"><span>${grandTotalLabel}</span><span>${formatCentsPlain(totals.total_cents - membershipDiscountCents)}</span></div>
+      ${
+        balanceDueCents !== null && paidCents > 0
+          ? `<div class="totals-row"><span>Less paid</span><span>-${formatCentsPlain(paidCents)}</span></div>`
+          : ""
+      }
       ${
         balanceDueCents !== null
           ? `<div class="totals-row total"><span>Balance Due</span><span>${formatCentsAsAud(balanceDueCents)}</span></div>`
@@ -439,7 +444,9 @@ export function buildInvoicePdfHtml(params: {
   // No payment/partial-payment tracking exists in this schema (see
   // docs/SETUP.md known-gaps), so "Balance Due" is binary: the full total
   // while unpaid, zero once marked paid.
-  const balanceDueCents = invoice.status === "paid" ? 0 : invoice.total_cents;
+  // Deposits and part payments come off (payments migration).
+  const paidCents = invoice.amount_paid_cents ?? 0;
+  const balanceDueCents = invoice.status === "paid" ? 0 : Math.max(invoice.total_cents - paidCents, 0);
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -460,7 +467,7 @@ export function buildInvoicePdfHtml(params: {
     </div>
 
     ${renderItemsTable("invoice", lineItems)}
-    ${renderTotals(lineItems, balanceDueCents, invoice.membership_discount_cents)}
+    ${renderTotals(lineItems, balanceDueCents, invoice.membership_discount_cents, false, paidCents)}
     ${renderNotes(invoice.notes)}
     ${renderFinePrint(invoice.fine_print_text)}
     ${renderBankDetails(tenant)}

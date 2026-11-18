@@ -34,6 +34,7 @@ import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedDateField } from "../../../components/theme/ThemedDateField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
+import { PaymentSummaryCard } from "../../../components/PaymentSummaryCard";
 import { SendSmsModal } from "../../../components/theme/SendSmsModal";
 import { LineItemEditor, LineItemSummary } from "../../../components/LineItemEditor";
 import { EmailComposeModal, type EmailTemplateOption } from "../../../components/EmailComposeModal";
@@ -715,6 +716,8 @@ export default function QuoteDetailScreen() {
             </Pressable>
           ) : null}
           {linkError ? <Text style={styles.error}>{linkError}</Text> : null}
+
+          <PaymentSummaryCard kind="quote" id={data.quote.id} />
 
           <Text style={styles.sectionTitle}>Status</Text>
           <View style={styles.statusRow}>
