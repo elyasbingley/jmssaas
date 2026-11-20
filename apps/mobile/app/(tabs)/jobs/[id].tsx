@@ -1222,13 +1222,19 @@ export default function JobDetailScreen() {
   // force-closing the app. Every branch below keeps the same back button
   // the loaded screen has, so that trap can't happen regardless of why
   // `job` is missing.
+  // Back always lands on the job list. router.back() went to wherever the
+  // job was opened from (e.g. Home), leaving this card on top of the Jobs
+  // tab with no list underneath it. dismissTo goes back to the list if it's
+  // underneath, and otherwise swaps this card for it.
+  const backToJobList = () => router.dismissTo("/jobs");
+
   if (!job) {
     return (
       <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
         <StatusBar style="light" />
         <View style={styles.section}>
           <View style={styles.titleRow}>
-            <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Pressable onPress={backToJobList} hitSlop={8}>
               <Text style={styles.link}>‹ Back</Text>
             </Pressable>
           </View>
@@ -1246,7 +1252,7 @@ export default function JobDetailScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
       <View style={styles.section}>
         <View style={styles.titleRow}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Pressable onPress={backToJobList} hitSlop={8}>
             <Text style={styles.link}>‹ Back</Text>
           </Pressable>
           <Text style={styles.number}>{job.number ?? "Pending sync"}</Text>
