@@ -513,31 +513,168 @@ grant execute on function public.accept_quote_by_token(text, text, text, uuid[],
 -- Quote -> invoice: only the shared lines and the chosen option's
 -- ---------------------------------------------------------------------------
 
-do $$
+-- The latest version of this function (20261116000300_analytics_tracking)
+-- with two changes: an invoice needs the client's option chosen first, and
+-- only shared lines and that option's lines are copied. Written out in
+-- full rather than patched by find-and-replace, because the live copy's
+-- text can differ (e.g. Windows line endings when it was pushed from a PC)
+-- and the patch then refuses to apply.
+create or replace function public.convert_quote_to_invoice(p_quote_id uuid, p_due_date date, p_invoice_number text DEFAULT NULL::text)
+returns uuid
+language plpgsql
+as $$
 declare
-  v_def text := pg_get_functiondef('public.convert_quote_to_invoice(uuid, date, text)'::regprocedure);
-  v_new text;
+  v_quote public.quotes;
+  v_items jsonb;
+  v_adjustment record;
+  v_totals record;
+  v_invoice_id uuid := gen_random_uuid();
+  v_item jsonb;
+  v_quote_line_item_id uuid;
+  v_invoice_line_item_id uuid;
 begin
-  v_new := replace(v_def,
-    $q$  if v_quote.id is null then
-    raise exception 'Quote % not found', p_quote_id;
-  end if;$q$,
-    $q$  if v_quote.id is null then
+  select * into v_quote from public.quotes where id = p_quote_id;
+  if v_quote.id is null then
     raise exception 'Quote % not found', p_quote_id;
   end if;
   -- Quote options: an invoice is for the option the client went with.
   if v_quote.chosen_option_id is null and exists (select 1 from public.quote_options where quote_id = p_quote_id) then
     raise exception 'Choose which option the client went with before creating the invoice';
-  end if;$q$);
-  v_new := replace(v_new,
-    'where quote_id = p_quote_id and is_included = true;',
-    'where quote_id = p_quote_id and is_included = true and (option_id is null or option_id = v_quote.chosen_option_id);');
-  if v_new = v_def or position('chosen_option_id is null and exists' in v_new) = 0 or position('option_id = v_quote.chosen_option_id' in v_new) = 0 then
-    raise exception 'convert_quote_to_invoice is not in the expected shape - update this migration';
   end if;
-  execute v_new;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', id,
+        'description', description,
+        'quantity', quantity,
+        'unit', unit,
+        'labour_rate_cents', labour_rate_cents,
+        'labour_hours', labour_hours,
+        'material_cost_cents', material_cost_cents,
+        'markup_percent', markup_percent,
+        'unit_price_cents', unit_price_cents,
+        'gst_applicable', gst_applicable,
+        'sort_order', sort_order,
+        'is_callout_fee', is_callout_fee,
+        'is_subcontracted', is_subcontracted,
+        'subcontractor_cost_cents', subcontractor_cost_cents,
+        'bundle_name', bundle_name,
+        'image_url', image_url,
+        'pricing_model', pricing_model,
+        'labour_cost_rate_cents', labour_cost_rate_cents,
+        'labour_charge_out_rate_cents', labour_charge_out_rate_cents,
+        'material_margin_percent', material_margin_percent,
+        'subcontractor_margin_percent', subcontractor_margin_percent,
+        'waste_percent', waste_percent,
+        'contingency_percent', contingency_percent,
+        'tip_fees_cents', tip_fees_cents,
+        'equipment_hire_cents', equipment_hire_cents,
+        'travel_cost_cents', travel_cost_cents,
+        'warranty_text', warranty_text,
+        'internal_notes', internal_notes,
+        'price_book_item_id', price_book_item_id
+      )
+      order by sort_order
+    ),
+    '[]'::jsonb
+  )
+  into v_items
+  from public.quote_line_items
+  where quote_id = p_quote_id and is_included = true and (option_id is null or option_id = v_quote.chosen_option_id);
+
+  select * into v_adjustment
+  from public.apply_membership_adjustments(v_items, v_quote.client_id, v_quote.tenant_id);
+
+  select * into v_totals from public.calculate_line_item_totals(v_adjustment.adjusted_items);
+
+  insert into public.invoices (
+    id, tenant_id, client_id, job_card_id, quote_id, site_id, invoice_number, status,
+    issue_date, due_date, subtotal_cents, gst_cents, total_cents, notes, created_by,
+    membership_discount_percent, membership_discount_cents, client_membership_id
+  ) values (
+    v_invoice_id, v_quote.tenant_id, v_quote.client_id, v_quote.job_card_id, v_quote.id, v_quote.site_id, p_invoice_number, 'draft',
+    current_date, p_due_date, v_totals.subtotal_cents, v_totals.gst_cents,
+    v_totals.subtotal_cents + v_totals.gst_cents - v_adjustment.membership_discount_cents,
+    v_quote.notes, auth.uid(),
+    v_adjustment.membership_discount_percent, v_adjustment.membership_discount_cents, v_adjustment.client_membership_id
+  );
+
+  for v_item in select * from jsonb_array_elements(v_adjustment.adjusted_items)
+  loop
+    v_quote_line_item_id := (v_item ->> 'id')::uuid;
+
+    insert into public.invoice_line_items (
+      id, tenant_id, invoice_id, description, quantity, unit,
+      labour_rate_cents, labour_hours, material_cost_cents, markup_percent,
+      unit_price_cents, gst_applicable, sort_order, is_callout_fee, waived_amount_cents,
+      is_subcontracted, subcontractor_cost_cents, bundle_name, image_url,
+      pricing_model, labour_cost_rate_cents, labour_charge_out_rate_cents,
+      material_margin_percent, subcontractor_margin_percent,
+      waste_percent, contingency_percent, tip_fees_cents, equipment_hire_cents, travel_cost_cents,
+      warranty_text, internal_notes, price_book_item_id
+    )
+    values (
+      gen_random_uuid(),
+      v_quote.tenant_id,
+      v_invoice_id,
+      v_item ->> 'description',
+      (v_item ->> 'quantity')::numeric,
+      v_item ->> 'unit',
+      coalesce((v_item ->> 'labour_rate_cents')::bigint, 0),
+      coalesce((v_item ->> 'labour_hours')::numeric, 0),
+      coalesce((v_item ->> 'material_cost_cents')::bigint, 0),
+      coalesce((v_item ->> 'markup_percent')::numeric, 0),
+      (v_item ->> 'unit_price_cents')::bigint,
+      (v_item ->> 'gst_applicable')::boolean,
+      (v_item ->> 'sort_order')::int,
+      coalesce((v_item ->> 'is_callout_fee')::boolean, false),
+      coalesce((v_item ->> 'waived_amount_cents')::bigint, 0),
+      coalesce((v_item ->> 'is_subcontracted')::boolean, false),
+      coalesce((v_item ->> 'subcontractor_cost_cents')::bigint, 0),
+      v_item ->> 'bundle_name',
+      v_item ->> 'image_url',
+      coalesce(v_item ->> 'pricing_model', 'legacy'),
+      (v_item ->> 'labour_cost_rate_cents')::bigint,
+      (v_item ->> 'labour_charge_out_rate_cents')::bigint,
+      (v_item ->> 'material_margin_percent')::numeric,
+      (v_item ->> 'subcontractor_margin_percent')::numeric,
+      (v_item ->> 'waste_percent')::numeric,
+      (v_item ->> 'contingency_percent')::numeric,
+      (v_item ->> 'tip_fees_cents')::bigint,
+      (v_item ->> 'equipment_hire_cents')::bigint,
+      (v_item ->> 'travel_cost_cents')::bigint,
+      v_item ->> 'warranty_text',
+      v_item ->> 'internal_notes',
+      (v_item ->> 'price_book_item_id')::uuid
+    )
+    returning id into v_invoice_line_item_id;
+
+    if v_quote_line_item_id is not null then
+      insert into public.invoice_line_item_crew (
+        id, tenant_id, invoice_line_item_id, labour_cost_entry_id, worker_name,
+        cost_rate_cents, charge_out_rate_cents, hours, sort_order
+      )
+      select
+        gen_random_uuid(), v_quote.tenant_id, v_invoice_line_item_id, labour_cost_entry_id, worker_name,
+        cost_rate_cents, charge_out_rate_cents, hours, sort_order
+      from public.quote_line_item_crew
+      where quote_line_item_id = v_quote_line_item_id;
+
+      insert into public.invoice_line_item_materials (
+        id, tenant_id, invoice_line_item_id, description, quantity, unit_cost_cents, sort_order
+      )
+      select
+        gen_random_uuid(), v_quote.tenant_id, v_invoice_line_item_id, description, quantity, unit_cost_cents, sort_order
+      from public.quote_line_item_materials
+      where quote_line_item_id = v_quote_line_item_id;
+    end if;
+  end loop;
+
+  return v_invoice_id;
 end;
 $$;
+
 
 -- ---------------------------------------------------------------------------
 -- The client's quote link
