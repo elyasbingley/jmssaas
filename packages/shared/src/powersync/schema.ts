@@ -130,6 +130,11 @@ const job_cards = new Table(
     // trigger when the linked invoice is marked paid, not something this
     // device ever writes; referral_fee_paid is a manual admin toggle.
     referral_partner_id: column.text,
+    // Where the job came from (lead_sources migration). Sync rules already
+    // select * from job_cards, so this just exposes the synced column to
+    // the phone's job card. lead_sources itself isn't synced - the picker
+    // loads it from Supabase while online.
+    lead_source_id: column.text,
     referral_fee_paid: column.integer,
     referral_fee_amount_cents: column.integer,
   },

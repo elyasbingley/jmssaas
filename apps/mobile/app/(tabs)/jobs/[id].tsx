@@ -43,6 +43,7 @@ import {
   type PurchaseOrder,
   type Quote,
   type QuoteLineItem,
+  type LeadSource,
   type ReferralPartner,
   type ReportInstance,
   type ReportTemplate,
@@ -1017,11 +1018,13 @@ export default function JobDetailScreen() {
     setWorkdriveModalVisible(false);
   };
 
-  // --- Referral source - same "settable any time, not just at creation"
-  // gap as WorkDrive/real estate assignment above. referral_partners isn't
-  // a PowerSync table (see jobs/index.tsx's own comment), so the picker's
-  // options only load while online; the job itself still updates via
-  // PowerSync like every other job_cards field on this screen.
+  // --- Lead source + referral partner - the phone version of desktop's
+  // LeadSourceModal: pick where the job came from; picking the referral
+  // source then asks who referred it, and picking anything else clears the
+  // partner (same rule as desktop, so a partner never dangles on a non-
+  // referral job). lead_sources and referral_partners aren't PowerSync
+  // tables, so the options only load while online; the job itself still
+  // updates via PowerSync like every other job_cards field on this screen.
   const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
     if (!isOnline) return [];
     const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
@@ -1030,6 +1033,34 @@ export default function JobDetailScreen() {
   }, [isOnline]);
   const [referralPickerVisible, setReferralPickerVisible] = useState(false);
   const currentReferralPartner = (referralPartners ?? []).find((p) => p.id === job?.referral_partner_id) ?? null;
+  const { data: leadSources } = useSupabaseFetch<LeadSource[]>(async () => {
+    if (!isOnline) return [];
+    const { data, error } = await supabase.from("lead_sources").select("*").order("sort_order");
+    if (error) throw error;
+    return data as LeadSource[];
+  }, [isOnline]);
+  const [leadSourcePickerVisible, setLeadSourcePickerVisible] = useState(false);
+  const currentLeadSource = (leadSources ?? []).find((s) => s.id === job?.lead_source_id) ?? null;
+
+  const openLeadSourcePicker = () => {
+    if (!isOnline) {
+      Alert.alert("You're offline", "Connect to the internet to change where this job came from.");
+      return;
+    }
+    setLeadSourcePickerVisible(true);
+  };
+
+  const handleSelectLeadSource = async (source: LeadSource | null) => {
+    await powersync.execute("UPDATE job_cards SET lead_source_id = ?, referral_partner_id = ?, updated_at = ? WHERE id = ?", [
+      source?.id ?? null,
+      source?.is_referral_source ? job?.referral_partner_id ?? null : null,
+      new Date().toISOString(),
+      id,
+    ]);
+    // Straight on to "who referred it?" - after the first picker has
+    // finished closing, as two modals can't animate at once.
+    if (source?.is_referral_source) setTimeout(() => setReferralPickerVisible(true), 400);
+  };
 
   const handleSelectReferralPartner = async (partner: ReferralPartner | null) => {
     await powersync.execute("UPDATE job_cards SET referral_partner_id = ?, updated_at = ? WHERE id = ?", [
@@ -1297,12 +1328,29 @@ export default function JobDetailScreen() {
         {job.workdrive_url ? <Text style={styles.clientCardMeta}>{job.workdrive_url}</Text> : null}
 
         <View style={styles.workdriveRow}>
-          <Text style={styles.workdriveLabel}>Referral source</Text>
-          <Pressable onPress={() => setReferralPickerVisible(true)}>
-            <Text style={styles.link}>{job.referral_partner_id ? "Edit" : "+ Add"}</Text>
+          <Text style={styles.workdriveLabel}>Lead source</Text>
+          <Pressable onPress={openLeadSourcePicker} hitSlop={8}>
+            <Text style={styles.link}>{job.lead_source_id ? "Edit" : "+ Add"}</Text>
           </Pressable>
         </View>
-        <Text style={styles.clientCardMeta}>{currentReferralPartner ? partnerDisplayName(currentReferralPartner) : "None"}</Text>
+        <Text style={styles.clientCardMeta}>
+          {currentLeadSource ? (
+            <Text style={styles.leadSourceName}>{currentLeadSource.name}</Text>
+          ) : job.lead_source_id ? (
+            isOnline ? "Loading..." : "Recorded - go online to see it"
+          ) : (
+            "None"
+          )}
+          {currentReferralPartner ? ` · referred by ${partnerDisplayName(currentReferralPartner)}` : null}
+          {currentLeadSource?.is_referral_source && !job.referral_partner_id ? <Text style={styles.leadSourceWarning}> · no referral partner linked</Text> : null}
+        </Text>
+        {currentLeadSource?.is_referral_source ? (
+          <Pressable onPress={() => setReferralPickerVisible(true)} hitSlop={8}>
+            <Text style={[styles.link, { fontSize: styles.clientCardMeta.fontSize, marginTop: 4 }]}>
+              {job.referral_partner_id ? "Change referral partner" : "+ Link referral partner"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Pressable
           style={styles.bigLinkRow}
@@ -1899,8 +1947,18 @@ export default function JobDetailScreen() {
     />
 
     <ThemedPickerModal
+      visible={leadSourcePickerVisible}
+      title="Where did this job come from?"
+      items={[null, ...(leadSources ?? [])]}
+      getKey={(s) => s?.id ?? "none"}
+      getLabel={(s) => (s ? s.name : "None")}
+      onSelect={handleSelectLeadSource}
+      onClose={() => setLeadSourcePickerVisible(false)}
+    />
+
+    <ThemedPickerModal
       visible={referralPickerVisible}
-      title="Referral source"
+      title="Who referred this job?"
       items={[null, ...(referralPartners ?? [])]}
       getKey={(p) => p?.id ?? "none"}
       getLabel={(p) => (p ? partnerDisplayName(p) : "None")}
@@ -2157,6 +2215,8 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     clientCard: { marginTop: 12, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.border, borderRadius: 4, padding: 12, gap: 2 },
     clientCardName: { fontSize: font.body, fontWeight: "700" as const, color: tokens.textPrimary, ...mono },
     clientCardMeta: { fontSize: font.label, color: tokens.textMuted, ...mono },
+    leadSourceName: { color: tokens.textPrimary, fontWeight: "700" as const },
+    leadSourceWarning: { color: tokens.warning },
     agencyCard: { marginTop: 12, backgroundColor: tokens.surface, borderWidth: 1, borderColor: tokens.accent, borderRadius: 4, padding: 12, gap: 2 },
     agencyBadge: { fontSize: font.label, fontWeight: "700" as const, color: tokens.accent, marginBottom: 2, letterSpacing: 1, ...mono },
     workdriveRow: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginTop: 12 },
