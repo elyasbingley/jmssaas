@@ -58,6 +58,7 @@ const NAV: { heading: string | null; items: NavItem[] }[] = [
   {
     heading: "Timesheets",
     items: [
+      { to: "/analytics/timesheets/mine", label: "My Timesheet", usesRange: true },
       { to: "/analytics/timesheets/activity", label: "Activity Timesheet", usesRange: true },
       { to: "/analytics/timesheets/all", label: "All Timesheets", usesRange: true },
       { to: "/analytics/timesheets/weekly", label: "Weekly Timesheets", usesRange: true },

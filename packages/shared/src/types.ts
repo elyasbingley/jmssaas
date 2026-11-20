@@ -2650,7 +2650,9 @@ export const TIMESHEET_ACTIVITY_LABELS: Record<TimesheetActivityType, string> = 
   admin: "Admin / yard",
 };
 
-export type TimesheetSource = "timer" | "manual";
+// timer: the phone's buttons. desktop: the desktop app's buttons (no
+// location). manual: typed in afterwards.
+export type TimesheetSource = "timer" | "desktop" | "manual";
 
 interface TimesheetEntryBase {
   id: string;

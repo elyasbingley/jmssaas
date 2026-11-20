@@ -27,11 +27,15 @@ import { useAuth } from "../../lib/auth-context";
 import { getErrorMessage } from "../../lib/errors";
 import { fetchAllRows, useAnalytics } from "./data";
 import { ACCENT, CONTEXT, Columns, DataTable, Empty, ExportButton, PageHeading, Panel, RankedBars, StatTile, downloadCsv, formatDay } from "./ui";
+import { TimesheetClock } from "../../components/TimesheetClock";
 
 // Analytics > Timesheets. Time is recorded on phones (apps/mobile's timer
-// card and Job Card button); this is where the office reads it, corrects
-// it and signs it off:
+// card and Job Card button), or on the desktop (My Timesheet's clock and
+// the job page's timer button); this is where the office reads it,
+// corrects it and signs it off:
 //
+//   My Timesheet           your own clock on/off and entries (main menu >
+//                          Timesheets)
 //   Activity Timesheet     where the time went - every job/travel/break/
 //                          admin entry
 //   All Timesheets         every shift (clock on to clock off)
@@ -411,7 +415,7 @@ export function ActivityTimesheetPage() {
     <>
       <PageHeading
         title="Activity timesheet"
-        description="Where the time went: every job, travel, break and admin entry that started in the timeframe. Time on a job is started from the job's screen in the mobile app; the others from the Home screen."
+        description="Where the time went: every job, travel, break and admin entry that started in the timeframe. Time on a job is started from the job's screen (phone or desktop); the others from the phone's Home screen or Timesheets > My Timesheet."
       />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <StaffFilter people={data.people} value={staff} onChange={setStaff} />
@@ -491,7 +495,7 @@ export function ActivityTimesheetPage() {
                 { header: "Start", render: (a) => clock(a.started_at) },
                 { header: "Finish", render: (a) => (a.ended_at ? clock(a.ended_at) : <span style={{ color: "var(--jms-accent)" }}>running</span>) },
                 { header: "Hours", align: "right", render: (a) => hours(entryMinutes(a, now)) },
-                { header: "Notes", render: (a) => <span style={muted}>{[a.source === "manual" ? "Entered manually" : null, a.edited_at ? "Edited" : null, a.note].filter(Boolean).join(" · ")}</span> },
+                { header: "Notes", render: (a) => <span style={muted}>{[a.source === "manual" ? "Entered manually" : a.source === "desktop" ? "From a computer" : null, a.edited_at ? "Edited" : null, a.note].filter(Boolean).join(" · ")}</span> },
                 { header: "Where", render: (a) => <LocationLinks entry={a} /> },
                 { header: "", render: (a) => <EditCell locked={!!approvalOf(a.profile_id, a.started_at)} onEdit={() => editor.open({ kind: "activity", entry: a })} /> },
               ]}
@@ -609,6 +613,121 @@ export function AllTimesheetsPage() {
           </Panel>
         </>
       )}
+      {editor.element}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// My Timesheet - your own clock, shifts and activities, for office staff
+// who work at a computer rather than from the phone app.
+// ---------------------------------------------------------------------------
+
+export function MyTimesheetPage() {
+  const { ix, range } = useAnalytics();
+  const { profile } = useAuth();
+  const { data, error, now, approvalOf } = useTimesheets();
+  const me = useMemo(() => (profile ? [{ id: profile.id, full_name: profile.full_name }] : []), [profile]);
+  const editor = useEditor(me, approvalOf);
+  const summaries = useMemo(
+    () => summariseShifts((data?.shifts ?? []).filter((s) => s.profile_id === profile?.id), data?.activities ?? [], range, now),
+    [data, range, now, profile]
+  );
+  const activities = useMemo(
+    () =>
+      (data?.activities ?? [])
+        .filter((a) => {
+          const day = toDayKey(a.started_at);
+          return a.profile_id === profile?.id && day >= range.from && day <= range.to;
+        })
+        .sort((a, b) => b.started_at.localeCompare(a.started_at)),
+    [data, range, profile]
+  );
+  if (!data || !profile) return <LoadState error={error} />;
+
+  const paid = summaries.reduce((sum, s) => sum + s.paidMinutes, 0);
+  const onJobs = summaries.reduce((sum, s) => sum + s.minutesByType.job, 0);
+  const thisWeek = weekStartOf(toDayKey(now));
+  const thisWeekMinutes = summariseShifts(
+    data.shifts.filter((s) => s.profile_id === profile.id),
+    data.activities,
+    { from: thisWeek, to: addDays(thisWeek, 6) },
+    now
+  ).reduce((sum, s) => sum + s.paidMinutes, 0);
+  const jobName = (id: string | null) => {
+    const job = id ? ix.jobById.get(id) : undefined;
+    return job ? `${job.number ?? "Pending"} - ${job.title}` : "Deleted job";
+  };
+  const isLocked = (startedAt: string) => !!approvalOf(profile.id, startedAt);
+
+  return (
+    <>
+      <PageHeading
+        title="My timesheet"
+        description="Clock on and off from the computer, and fix your own entries. Time you record on the phone shows here too - it's the same timesheet. Team-wide reports are under Timesheets on the left."
+      />
+      <TimesheetClock />
+      <div className="mb-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatTile label="This week" value={hours(thisWeekMinutes)} sub={approvalOf(profile.id, now) ? "Approved" : "Paid hours, Mon-Sun"} />
+        <StatTile label="Paid hours" value={hours(paid)} sub={`${summaries.length} shift${summaries.length === 1 ? "" : "s"} in the timeframe`} />
+        <StatTile label="On jobs" value={hours(onJobs)} sub={paid > 0 ? `${Math.round((onJobs / paid) * 100)}% of paid time` : undefined} />
+        <StatTile label="Breaks" value={hours(summaries.reduce((sum, s) => sum + s.breakMinutes, 0))} sub="Not paid" />
+      </div>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <AddButtons open={editor.open} />
+        <span style={muted}>Forgot to clock on? Add the shift with the times you worked. Approved weeks are locked.</span>
+      </div>
+      <Panel title="My shifts">
+        {summaries.length === 0 ? (
+          <Empty>No shifts in this timeframe.</Empty>
+        ) : (
+          <DataTable
+            rows={summaries}
+            rowKey={(s) => s.shift.id}
+            columns={[
+              { header: "Date", render: (s) => formatDay(s.day) },
+              { header: "On", render: (s) => clock(s.shift.started_at) },
+              { header: "Off", render: (s) => (s.shift.ended_at ? clock(s.shift.ended_at) : <span style={{ color: "var(--jms-accent)" }}>running</span>) },
+              { header: "Break", align: "right", render: (s) => hours(s.breakMinutes) },
+              { header: "Paid hrs", align: "right", render: (s) => <span className="font-semibold">{hours(s.paidMinutes)}</span> },
+              { header: "On jobs", align: "right", render: (s) => hours(s.minutesByType.job) },
+              { header: "Notes", render: (s) => <span style={muted}>{[...s.flags.filter((f) => f !== "running").map((f) => SHIFT_FLAG_LABELS[f]), s.shift.note].filter(Boolean).join(" · ")}</span> },
+              { header: "", render: (s) => <EditCell locked={isLocked(s.shift.started_at)} onEdit={() => editor.open({ kind: "shift", entry: s.shift })} /> },
+            ]}
+          />
+        )}
+      </Panel>
+      <Panel title="My activities">
+        {activities.length === 0 ? (
+          <Empty>No activities in this timeframe.</Empty>
+        ) : (
+          <DataTable
+            rows={activities}
+            rowKey={(a) => a.id}
+            columns={[
+              { header: "Date", render: (a) => formatDay(toDayKey(a.started_at)) },
+              { header: "Activity", render: (a) => TIMESHEET_ACTIVITY_LABELS[a.activity_type] },
+              {
+                header: "Job",
+                render: (a) =>
+                  a.activity_type !== "job" ? (
+                    ""
+                  ) : a.job_card_id && ix.jobById.has(a.job_card_id) ? (
+                    <Link to={`/jobs/${a.job_card_id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
+                      {jobName(a.job_card_id)}
+                    </Link>
+                  ) : (
+                    jobName(null)
+                  ),
+              },
+              { header: "Start", render: (a) => clock(a.started_at) },
+              { header: "Finish", render: (a) => (a.ended_at ? clock(a.ended_at) : <span style={{ color: "var(--jms-accent)" }}>running</span>) },
+              { header: "Hours", align: "right", render: (a) => hours(entryMinutes(a, now)) },
+              { header: "", render: (a) => <EditCell locked={isLocked(a.started_at)} onEdit={() => editor.open({ kind: "activity", entry: a })} /> },
+            ]}
+          />
+        )}
+      </Panel>
       {editor.element}
     </>
   );

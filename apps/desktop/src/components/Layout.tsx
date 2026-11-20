@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
 import { GlobalSearch } from "./GlobalSearch";
 
@@ -7,7 +7,13 @@ interface NavItem {
   to: string;
   label: string;
   end?: boolean;
+  // Overrides NavLink's own matching: the Timesheets item lives inside
+  // Analytics (/analytics/timesheets/*), and only one of the two should
+  // light up.
+  activeWhen?: (path: string) => boolean;
 }
+
+const isTimesheets = (path: string) => path.startsWith("/analytics/timesheets");
 
 const navSections: { heading: string | null; items: NavItem[] }[] = [
   {
@@ -32,7 +38,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/clients", label: "Clients" },
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },
-      { to: "/analytics", label: "Analytics" },
+      { to: "/analytics", label: "Analytics", activeWhen: (path) => path.startsWith("/analytics") && !isTimesheets(path) },
       { to: "/inventory", label: "Inventory" },
       { to: "/real-estate", label: "Real Estate & Strata" },
       { to: "/membership", label: "Membership" },
@@ -48,6 +54,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
     heading: null,
     items: [
       { to: "/calendar", label: "Calendar" },
+      { to: "/analytics/timesheets/mine", label: "Timesheets", activeWhen: isTimesheets },
       { to: "/team", label: "Team" },
     ],
   },
@@ -68,6 +75,7 @@ const linkClasses = ({ isActive }: { isActive: boolean }) => `block rounded px-3
 
 export function Layout({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth();
+  const { pathname } = useLocation();
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: "var(--jms-bg)", fontFamily: "var(--jms-font)" }}>
@@ -93,7 +101,12 @@ export function Layout({ children }: { children: ReactNode }) {
               ) : null}
               <div className="space-y-1">
                 {section.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} end={item.end} className={linkClasses}>
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={item.activeWhen ? () => linkClasses({ isActive: item.activeWhen!(pathname) }) : linkClasses}
+                  >
                     {item.label}
                   </NavLink>
                 ))}

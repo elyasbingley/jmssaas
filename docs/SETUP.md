@@ -11628,3 +11628,73 @@ options.
   - recording the client's choice;
   - both PDFs, and converting to an invoice.
 - **Phone:** typechecked only.
+
+## 98. Timesheets on the desktop
+
+Office staff can now record their own time from the computer. Before, it
+could only be recorded on the phone.
+
+**Nothing to deploy except the desktop app.** There are no database
+changes. Desktop entries go in the same `timesheet_shifts` and
+`timesheet_activities` tables, under the same rules.
+
+### Where it is
+
+- **Main menu > Timesheets** opens **My Timesheet**, which is also listed
+  under Analytics > Timesheets.
+  - **Clock on / Clock off.**
+  - **Travel, Break, Admin / yard** buttons, which work like the phone's.
+    Starting one ends the last, and clocks you on if you aren't.
+  - **What's running now**, with a link to the job if it's a job timer.
+  - **This week's paid hours**, plus paid hours, time on jobs and breaks
+    for the timeframe.
+  - **My shifts** and **My activities** tables, with **Edit** and
+    **+ Add shift / + Add activity**. This is how you fix a forgotten
+    clock-off or add a day you didn't record. Approved weeks stay locked.
+- **Job page:** a **▶ Start timer** button beside Email / SMS.
+  - It logs your time to that job.
+  - If something else is running, it reads **Switch timer here**.
+  - While it's running it shows **■ Stop timer · 1h 5m**.
+  - Stopping it keeps you clocked on.
+- The team-wide pages (Activity, All, Weekly with approval, Graph) are
+  unchanged. They show desktop and phone time together.
+
+### Good to know
+
+- **Desktop entries are tagged "From a computer"** (`source = 'desktop'`).
+  Computers don't record a location, so the reports show "From a
+  computer" rather than flagging "No location".
+- **Phone and desktop share one timesheet.** Clock on at the computer and
+  the phone shows you clocked on, and the other way round. The desktop
+  re-checks every minute, and before every button press.
+- **Stopping a timer isn't counted as an edit.** Changing a time through
+  Edit is, as before.
+
+### Code
+
+- `apps/desktop/src/lib/use-timesheet-timer.ts`: the desktop's timer
+  writes. It uses the phone's rules (`timerWrites` in
+  `@jmssaas/shared`).
+- `apps/desktop/src/components/TimesheetClock.tsx`: the clock card and
+  `JobTimerButton`.
+- `MyTimesheetPage` in `pages/analytics/TimesheetReports.tsx`, at the
+  route `/analytics/timesheets/mine`.
+- Shared: `TimesheetSource` now includes `desktop`, and there's a new
+  shift flag, `desktop`.
+
+### How this was verified
+
+In a headless browser against a local Postgres with every migration
+applied:
+- The main menu link opens My Timesheet, and only "Timesheets" is
+  highlighted.
+- Clocking on writes a desktop shift, and Admin / yard runs inside it.
+- On the job page, "Switch timer here" ends Admin / yard and starts the
+  job.
+- My Timesheet shows the job running.
+- Stopping the job keeps the shift, and clocking off closes everything.
+- No entries are marked as edited.
+- The shift is listed as "From a computer".
+- Add shift defaults to you and saves.
+
+Shared unit tests pass (43), and desktop and mobile typecheck.

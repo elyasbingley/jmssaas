@@ -77,6 +77,7 @@ import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { referralPartnerLabel } from "../components/ReferralPartnerModal";
 import { LeadSourceModal } from "../components/LeadSourceModal";
 import { CallbackJobControl } from "../components/CallbackJobControl";
+import { JobTimerButton } from "../components/TimesheetClock";
 import { TRADE_LABELS, TIER_LABELS } from "./Subcontractors";
 
 // Same labels/cycle order as mobile's jobs/[id].tsx and desktop's own
@@ -1173,6 +1174,7 @@ export default function JobDetailPage() {
             >
               SMS
             </button>
+            <JobTimerButton jobCardId={job.id} />
             {isAdmin ? <DeleteJobButton jobCardId={job.id} /> : null}
           </div>
         </div>

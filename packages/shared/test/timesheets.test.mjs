@@ -170,3 +170,11 @@ test("timer buttons", () => {
   const messy = { openShifts: [{ id: "s1", started_at: NOW }, { id: "s2", started_at: NOW }], openActivities: [{ id: "a1", started_at: NOW, activity_type: "job", job_card_id: "j1" }, { id: "a2", started_at: NOW, activity_type: "travel", job_card_id: null }] };
   assert.deepEqual(t.timerWrites(messy, { kind: "clock_off" }).map((w) => w.id), ["a1", "a2", "s1", "s2"]);
 });
+
+test("a shift clocked on from a computer is labelled, not flagged for missing location", async () => {
+  const t = await import("../src/timesheets.ts");
+  const shift = { id: "d1", tenant_id: "t", profile_id: "p", started_at: "2026-11-17T08:00:00+11:00", ended_at: "2026-11-17T12:00:00+11:00", source: "desktop", start_latitude: null, start_longitude: null, end_latitude: null, end_longitude: null, edited_at: null, note: null };
+  const flags = t.summariseShift(shift, [], [shift], "2026-11-17T13:00:00+11:00").flags;
+  assert.ok(flags.includes("desktop"));
+  assert.ok(!flags.includes("no_location"));
+});

@@ -58,7 +58,7 @@ export function weeksInRange(range: DateRange): string[] {
   return weeks;
 }
 
-export type ShiftFlag = "running" | "long" | "edited" | "manual" | "no_location" | "overlap";
+export type ShiftFlag = "running" | "long" | "edited" | "manual" | "no_location" | "desktop" | "overlap";
 
 export const SHIFT_FLAG_LABELS: Record<ShiftFlag, string> = {
   running: "Still clocked on",
@@ -66,6 +66,8 @@ export const SHIFT_FLAG_LABELS: Record<ShiftFlag, string> = {
   edited: "Edited",
   manual: "Entered manually",
   no_location: "No location",
+  // Clocked on from the desktop app - computers don't record a location.
+  desktop: "From a computer",
   overlap: "Overlaps another shift",
 };
 
@@ -100,6 +102,7 @@ export function summariseShift(shift: TimesheetShift, activities: TimesheetActiv
   if (shift.edited_at) flags.push("edited");
   if (shift.source === "manual") flags.push("manual");
   if (shift.source === "timer" && shift.start_latitude === null) flags.push("no_location");
+  if (shift.source === "desktop") flags.push("desktop");
   if (allShifts.some((other) => other.id !== shift.id && other.profile_id === shift.profile_id && overlapMinutes(other, shift, now) > 0)) flags.push("overlap");
 
   return {
