@@ -45,7 +45,7 @@ export const TIER_LABELS: Record<number, string> = {
 };
 
 // classes stays a Tailwind className string (its shape is relied on by
-// ComplianceTrackerTab.tsx, out of scope for this retheme) - themed here via
+// ComplianceTrackerTab.tsx too) - themed here via
 // arbitrary-value classes reading the --jms-* custom properties (same
 // pattern already used for hover states in JobDetail.tsx) rather than fixed
 // hex, so a subcontractor's status pill still tracks the tenant's chosen

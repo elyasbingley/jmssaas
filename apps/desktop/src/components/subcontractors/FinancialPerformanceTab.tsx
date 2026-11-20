@@ -48,29 +48,35 @@ export function FinancialPerformanceTab({
     { paid: 0, revenue: 0, margin: 0 }
   );
 
+  const tile = (label: string, cents: number, tone?: string) => (
+    <div className="rounded p-4" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)", boxShadow: "0 0 12px var(--jms-accent-glow)" }}>
+      <p className="uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+        {label}
+      </p>
+      <p className="mt-1 font-bold" style={{ color: tone ?? "var(--jms-text)", fontSize: "calc(var(--jms-font-body) * 1.6)" }}>
+        {formatCentsAsAud(cents)}
+      </p>
+    </div>
+  );
+  const marginColor = (cents: number) => (cents < 0 ? "var(--jms-danger)" : "var(--jms-accent)");
+
   return (
-    <div>
-      <div className="mb-6 grid grid-cols-3 gap-4">
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Total Paid To Subbies</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.paid)}</p>
-        </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Total Revenue Generated</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.revenue)}</p>
-        </div>
-        <div className="rounded-lg border border-gray-300 bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Total Margin Made</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{formatCentsAsAud(totals.margin)}</p>
-        </div>
+    <div style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+        {tile("Total Paid To Subbies", totals.paid)}
+        {tile("Total Revenue Generated", totals.revenue)}
+        {tile("Total Margin Made", totals.margin, rows.length ? marginColor(totals.margin) : undefined)}
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-gray-500">No purchase orders yet.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No purchase orders yet.</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+        <div className="overflow-x-auto rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Subcontractor</th>
                 <th className="px-4 py-2 text-right font-semibold">Total Paid To Subbie</th>
@@ -81,18 +87,18 @@ export function FinancialPerformanceTab({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.sub.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                <tr key={r.sub.id} className="jms-nav-link last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
                   <td className="px-4 py-3">
-                    <Link to={`/subcontractors/${r.sub.id}`} className="font-medium text-blue-700 hover:underline">
+                    <Link to={`/subcontractors/${r.sub.id}`} className="font-medium hover:underline" style={{ color: "var(--jms-accent)" }}>
                       {r.sub.company_name}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(r.totalPaidCents)}</td>
-                  <td className="px-4 py-3 text-right">{formatCentsAsAud(r.revenueCents)}</td>
-                  <td className={`px-4 py-3 text-right font-semibold ${r.marginCents < 0 ? "text-red-600" : "text-green-700"}`}>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(r.totalPaidCents)}</td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text)" }}>{formatCentsAsAud(r.revenueCents)}</td>
+                  <td className="px-4 py-3 text-right font-semibold" style={{ color: marginColor(r.marginCents) }}>
                     {formatCentsAsAud(r.marginCents)}
                   </td>
-                  <td className="px-4 py-3 text-right">{r.marginPercent.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right" style={{ color: "var(--jms-text-muted)" }}>{r.marginPercent.toFixed(1)}%</td>
                 </tr>
               ))}
             </tbody>

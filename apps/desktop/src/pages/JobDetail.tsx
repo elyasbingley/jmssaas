@@ -1278,18 +1278,38 @@ export default function JobDetailPage() {
           )}
         </div>
 
-        <div className="mb-4 flex items-center justify-between rounded p-3" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
-          <span style={{ color: "var(--jms-text-muted)" }}>
-            Lead source: {leadSource?.name ?? "None"}
-            {leadSource?.is_referral_source ? ` - ${referralPartner ? referralPartnerLabel(referralPartner) : "no partner linked"}` : ""}
-          </span>
-          <button
-            onClick={() => setLeadSourceModalOpen(true)}
-            className="font-semibold hover:underline"
-            style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
-          >
-            {job.lead_source_id ? "Edit" : "+ Add"}
-          </button>
+        {/* Same card shape as WorkDrive above: heading + action, value below. */}
+        <div className="mb-4 rounded p-3" style={{ border: "1px solid var(--jms-border)", fontSize: "var(--jms-font-body)" }}>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+              Lead source
+            </h3>
+            <button
+              onClick={() => setLeadSourceModalOpen(true)}
+              className="font-semibold hover:underline"
+              style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+            >
+              {job.lead_source_id ? "Edit" : "+ Add"}
+            </button>
+          </div>
+          {leadSource ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="font-semibold" style={{ color: "var(--jms-text)" }}>
+                {leadSource.name}
+              </span>
+              {leadSource.is_referral_source ? (
+                referralPartner ? (
+                  <span style={{ color: "var(--jms-text-muted)" }}>· referred by {referralPartnerLabel(referralPartner)}</span>
+                ) : (
+                  <span style={{ color: "var(--jms-warning)" }}>· no referral partner linked</span>
+                )
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-1" style={{ color: "var(--jms-text-muted)" }}>
+              Where this job came from isn't recorded yet.
+            </p>
+          )}
         </div>
 
         <CallbackJobControl jobId={job.id} clientId={job.client_id} callbackOfJobCardId={job.callback_of_job_card_id} />

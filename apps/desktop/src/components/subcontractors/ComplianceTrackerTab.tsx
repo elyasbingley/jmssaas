@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import type { SubcontractorComplianceDoc, SubcontractorCompany, SubcontractorDocType } from "@jmssaas/shared";
 import { supabase } from "../../lib/supabase";
 import { STATUS_BADGE } from "../../pages/Subcontractors";
@@ -35,12 +36,14 @@ function daysUntil(dateString: string): number {
   return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function cellClasses(expiryDate: string | null): string {
-  if (!expiryDate) return "text-gray-300";
+// Theme colours: danger = expired, warning = expiring within 30 days,
+// accent = current, muted = no doc on file.
+function cellStyle(expiryDate: string | null): React.CSSProperties {
+  if (!expiryDate) return { color: "var(--jms-text-muted)" };
   const days = daysUntil(expiryDate);
-  if (days < 0) return "bg-red-50 text-red-700 font-semibold";
-  if (days <= 30) return "bg-amber-50 text-amber-800 font-semibold";
-  return "bg-green-50 text-green-700";
+  if (days < 0) return { color: "var(--jms-danger)", fontWeight: 600 };
+  if (days <= 30) return { color: "var(--jms-warning)", fontWeight: 600 };
+  return { color: "var(--jms-accent)" };
 }
 
 export function ComplianceTrackerTab({ subcontractors }: { subcontractors: SubcontractorCompany[] }) {
@@ -63,23 +66,34 @@ export function ComplianceTrackerTab({ subcontractors }: { subcontractors: Subco
   const visibleSubs = holdOnly ? subcontractors.filter((s) => s.status === "compliance_hold") : subcontractors;
 
   return (
-    <div>
-      <div className="mb-4 flex items-center gap-3">
+    <div style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
           onClick={() => setHoldOnly((v) => !v)}
-          className={`rounded-full px-3 py-1.5 text-sm font-semibold ${holdOnly ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"}`}
+          className="rounded-full border px-3 py-1.5 font-semibold"
+          style={
+            holdOnly
+              ? { borderColor: "var(--jms-danger)", color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }
+              : { borderColor: "var(--jms-border)", color: "var(--jms-text)", fontSize: "var(--jms-font-body)" }
+          }
         >
           🔴 Compliance Hold only
         </button>
-        <p className="text-xs text-gray-400">Red = expired · Amber = expiring within 30 days · Green = current · Blank = no doc on file</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
+          <span style={{ color: "var(--jms-danger)" }}>Red</span> = expired · <span style={{ color: "var(--jms-warning)" }}>Amber</span> = expiring within 30 days ·{" "}
+          <span style={{ color: "var(--jms-accent)" }}>Green</span> = current · Blank = no doc on file
+        </p>
       </div>
 
       {visibleSubs.length === 0 ? (
-        <p className="text-sm text-gray-500">No subcontractors to show.</p>
+        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>No subcontractors to show.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-300 bg-gray-50 text-xs uppercase text-gray-500">
+        <div className="overflow-x-auto rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
+          <table className="w-full text-left" style={{ fontSize: "var(--jms-font-body)" }}>
+            <thead
+              className="uppercase"
+              style={{ borderBottom: "1px solid var(--jms-border)", backgroundColor: "var(--jms-bg)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
+            >
               <tr>
                 <th className="px-4 py-2 font-semibold">Subcontractor</th>
                 <th className="px-4 py-2 font-semibold">Status</th>
@@ -92,17 +106,21 @@ export function ComplianceTrackerTab({ subcontractors }: { subcontractors: Subco
             </thead>
             <tbody>
               {visibleSubs.map((sub) => (
-                <tr key={sub.id} className="border-b border-gray-200 last:border-0">
-                  <td className="px-4 py-3 font-medium text-gray-900">{sub.company_name}</td>
+                <tr key={sub.id} className="last:border-0" style={{ borderBottom: "1px solid var(--jms-border)" }}>
+                  <td className="px-4 py-3 font-medium">
+                    <Link to={`/subcontractors/${sub.id}`} className="hover:underline" style={{ color: "var(--jms-accent)" }}>
+                      {sub.company_name}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[sub.status].classes}`}>
+                    <span className={`whitespace-nowrap rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGE[sub.status].classes}`} style={{ fontSize: "var(--jms-font-label)" }}>
                       {STATUS_BADGE[sub.status].label}
                     </span>
                   </td>
                   {DOC_TYPES.map((type) => {
                     const doc = docsBySub.get(sub.id)?.get(type);
                     return (
-                      <td key={type} className={`px-4 py-3 ${cellClasses(doc?.expiry_date ?? null)}`}>
+                      <td key={type} className="whitespace-nowrap px-4 py-3" style={cellStyle(doc?.expiry_date ?? null)}>
                         {doc?.expiry_date ? new Date(`${doc.expiry_date}T00:00:00`).toLocaleDateString("en-AU") : doc ? "No expiry" : "-"}
                       </td>
                     );
