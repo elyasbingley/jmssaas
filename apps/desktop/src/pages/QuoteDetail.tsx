@@ -176,7 +176,7 @@ export default function QuoteDetailPage() {
   const { profile, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({ queryKey: ["quote", id], queryFn: () => fetchQuote(id!), enabled: !!id });
+  const { data, isLoading, error: loadError, refetch } = useQuery({ queryKey: ["quote", id], queryFn: () => fetchQuote(id!), enabled: !!id });
   const { data: tenant } = useQuery({
     queryKey: ["tenant", profile?.tenant_id],
     queryFn: () => fetchTenant(profile!.tenant_id),
@@ -641,6 +641,19 @@ export default function QuoteDetailPage() {
       setExporting(false);
     }
   };
+
+  // Show a failed load instead of "Loading..." forever (e.g. a database
+  // update not applied yet).
+  if (loadError && !data) {
+    return (
+      <div className="p-8" style={{ fontFamily: "var(--jms-font)", fontSize: "var(--jms-font-body)" }}>
+        <p style={{ color: "var(--jms-danger)" }}>Couldn't load this quote: {getErrorMessage(loadError, "unknown error")}</p>
+        <button onClick={() => refetch()} className="mt-3 font-semibold hover:underline" style={{ color: "var(--jms-accent)" }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (

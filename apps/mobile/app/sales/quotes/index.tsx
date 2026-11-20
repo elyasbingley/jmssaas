@@ -27,7 +27,7 @@ export default function QuotesScreen() {
   const isOnline = useIsOnline();
   const styles = useThemedStyles(createStyles);
 
-  const { data: quotes, loading, refetch } = useSupabaseFetch<QuoteRow[]>(async () => {
+  const { data: quotes, loading, error, refetch } = useSupabaseFetch<QuoteRow[]>(async () => {
     const { data, error } = await supabase
       .from("quotes")
       .select("*, clients(name)")
@@ -75,7 +75,7 @@ export default function QuotesScreen() {
                 </View>
               </Pressable>
             )}
-            ListEmptyComponent={!loading ? <Text style={styles.empty}>No quotes yet.</Text> : null}
+            ListEmptyComponent={!loading ? <Text style={styles.empty}>{error ? `Couldn't load quotes: ${error}` : "No quotes yet."}</Text> : null}
             contentContainerStyle={(quotes ?? []).length === 0 ? styles.emptyContainer : styles.listContent}
           />
         )}

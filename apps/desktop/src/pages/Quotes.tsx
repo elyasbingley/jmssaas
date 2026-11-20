@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { formatCentsAsAud, type Quote, type QuoteStatus } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { getErrorMessage } from "../lib/errors";
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
   draft: "Draft",
@@ -90,7 +91,7 @@ function SortHeader({
 }
 
 export default function QuotesPage() {
-  const { data: quotes, isLoading } = useQuery({ queryKey: ["quotes"], queryFn: fetchQuotes });
+  const { data: quotes, isLoading, error: loadError } = useQuery({ queryKey: ["quotes"], queryFn: fetchQuotes });
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | "all">("all");
@@ -203,7 +204,11 @@ export default function QuotesPage() {
       />
 
       <div className="overflow-hidden rounded" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
-        {isLoading ? (
+        {loadError && !quotes ? (
+          <p className="p-6" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
+            Couldn't load quotes: {getErrorMessage(loadError, "unknown error")}
+          </p>
+        ) : isLoading ? (
           <p className="p-6" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>
             Loading...
           </p>
