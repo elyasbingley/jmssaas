@@ -87,3 +87,13 @@ verify_jwt = false
 # by signed-in users - the function checks the caller itself (see its own
 # comment), so the platform's JWT gateway is off.
 verify_jwt = false
+
+# Follow-up sequences. checklist-signup is the website's sign-up forms
+# (public, no JWT). process-follow-ups is called by the schedule with the
+# service role key and checks signed-in admins itself.
+[functions.checklist-signup]
+verify_jwt = false
+
+[functions.process-follow-ups]
+verify_jwt = false
+

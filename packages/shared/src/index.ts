@@ -20,3 +20,4 @@ export * from "./analytics";
 export * from "./timesheets";
 export * from "./payments";
 export * from "./quote-options";
+export * from "./follow-ups";

@@ -11698,3 +11698,178 @@ applied:
 - Add shift defaults to you and saves.
 
 Shared unit tests pass (43), and desktop and mobile typecheck.
+
+## 99. Follow-up sequences and website checklist sign-ups
+
+These are sequences 1, 3 and 4 from the Sell Like Crazy plan's "Follow-up
+sequences to build in JMS" section, plus the website sign-up forms that feed
+them. Everything is under **Sales > Follow-ups**.
+
+- **Website sign-ups** (`/storm-check` now, `/hot-water-check` later). Each
+  sign-up creates a lead in JMS:
+  - the client, matched by mobile if they're already in JMS;
+  - a job in your first stage ("Enquiry"), with lead source **Checklist:
+    roof** or **Checklist: hot water**, so sign-ups show in Analytics' Lead
+    Sources report;
+  - a notification on your phone.
+
+  Roof sign-ups also start sequence 1 once it's switched on. Hot water
+  sign-ups are a lead and a notification for now (sequence 2 isn't built).
+- **Sequence 1, storm checklist sign-up:** day 0 (text, plus an email if
+  they gave one), 2, 4, 7 and 14, worded exactly as in the plan.
+- **Sequence 3, the morning after a storm:** a button. Pick the suburbs the
+  storm hit, and it texts:
+  - everyone who signed up for a checklist, plus past clients (a finished
+    job or an invoice sent) in those suburbs;
+  - with a mobile and not opted out;
+  - skipping anyone who's had a storm text in the last 14 days.
+- **Sequence 4, quotes that go quiet:** starts when a quote is sent to a
+  client with a mobile. Texts go on days 2, 5, 10 and 21, each ending
+  "Reply STOP to opt out", as the plan says to add.
+  - Day 5 leaves out the payment plan line until you have a payment
+    provider. The line to paste back in is shown under the guarantee
+    setting.
+  - `{guarantee}` is a setting, defaulting to the Dry Ceiling Guarantee
+    wording. You can set a different one per job category, e.g. plumbing.
+  - A newer quote replaces the older one's texts.
+
+**Rules for every sequence:**
+- **They stop** when the person replies (the reply lands in Channels for you
+  to answer), a job of theirs is booked (scheduled, or moved past the first
+  stage), they accept a quote, or they text STOP. For sequence 4, a declined
+  or expired quote stops it too.
+- **Texts only go between 8:30am and 6pm Sydney time.**
+  - A sign-up at 9pm gets day 0 at 8:30am.
+  - "Day N" texts go on day N at the time of day they signed up, kept
+    between 8:30am and 5:45pm.
+  - A text more than 36 hours late (e.g. the sequence was switched off for
+    a while) is skipped rather than sent late.
+- **Sent from your SMS number,** in Elyas's name. The sign-up email comes
+  from "Elyas", which you can change, and has an unsubscribe link.
+- **Straight apostrophes only:** curly quotes and long dashes, including
+  ones in a client's name or a job title, are changed to plain ones so a
+  text doesn't double in cost. The page shows how many SMS parts each text
+  is, and warns about emoji. Most of the plan's texts are 2 parts.
+- **Everything starts off.** Switching on checks the SMS number, checklist
+  link, video links and guarantee are filled in.
+
+**Testing with your own number before switching on:**
+1. Add your mobile as a **test number** at the top of the page. Texts to it
+   go out even while a sequence is off.
+2. On a sequence's tab, press **Start a test run**. It uses sample details:
+   your first name, Blacktown, a $650 roof leak repair.
+3. Press **Send next now** to fast-forward to the next text, skipping the
+   wait and the 8:30-6 window. Only a test run can be fast-forwarded.
+4. Reply to a test text from your phone, then press Send next now again: it
+   shows "stopped: They replied".
+5. Signing up on the website form with your test number starts a test run
+   too, so you can check the whole path.
+6. For the storm text, use **Send me a test** on the Storm morning tab.
+
+### What you need to do once
+
+1. **Database and functions** (from the project folder):
+   ```bash
+   git pull origin main
+   npx supabase db push --remote
+   npx supabase functions deploy checklist-signup --no-verify-jwt
+   npx supabase functions deploy process-follow-ups --no-verify-jwt
+   npx supabase functions deploy twilio-sms-webhook --no-verify-jwt
+   ```
+   `twilio-sms-webhook` is redeployed so that a reply or STOP stops that
+   number's texts straight away. Deploy it with the same flag you used
+   before.
+2. **Schedule the sender every 5 minutes.** In Supabase > SQL Editor, run
+   this with your project ref and service role key, the same as the Xero
+   sync schedule:
+   ```sql
+   select cron.schedule(
+     'process-follow-ups',
+     '*/5 * * * *',
+     $$
+     select net.http_post(
+       url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/process-follow-ups',
+       headers := jsonb_build_object('Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY', 'Content-Type', 'application/json'),
+       body := '{}'::jsonb
+     );
+     $$
+   );
+   ```
+3. **Website forms.** Sales > Follow-ups > Website forms has the form code
+   for each page, with your form key already in it. On bingleytrades.com.au,
+   replace the Web3Forms form on `/storm-check` with it (and later on
+   `/hot-water-check`).
+   - It works as a plain form, and with JavaScript it shows mistakes (like
+     a landline) on the page.
+   - After signing up, people land on the `/thanks` page.
+   - It includes a hidden "botcheck" field to catch bots. Sign-ups are also
+     limited to 5 a minute from one address, and repeats within a day are
+     ignored.
+   - Allowed thank-you page hosts are `bingleytrades.com.au` and `www.`.
+     Override with the `CHECKLIST_REDIRECT_HOSTS` secret.
+4. **Fill in the links:** the checklist link, the two video links (days 2
+   and 4) and the email sender name. Run a test, then switch each sequence
+   on.
+
+### Where it lives
+
+- Migration `20261121000100_follow_up_sequences.sql`:
+  - tables `follow_up_sequences`, `follow_up_steps` (the wording),
+    `follow_up_enrolments` (one per person per run) and
+    `follow_up_messages`;
+  - the stop rules (`follow_up_stop_reason`), the send window and day
+    maths;
+  - the quote-sent trigger. It can never block sending a quote: a failure
+    there is only logged.
+  - `checklist_signup`, the storm functions, and test runs with
+    fast-forward;
+  - the new tenant settings `follow_up_test_numbers` and
+    `checklist_signup_key`.
+- Functions:
+  - `checklist-signup`: the website forms, plus the email's unsubscribe
+    link;
+  - `process-follow-ups`: sends due texts through Twilio, logs them in
+    Channels, and sends the sign-up email through Resend;
+  - `twilio-sms-webhook`: now calls `follow_up_inbound`.
+- Desktop: `pages/FollowUps.tsx`. Shared: `follow-ups.ts` (previews and SMS
+  part counts).
+- Phone: a "lead_signup" notification opens the lead's job card.
+
+### How this was verified
+
+- **Database** (local Postgres, every migration applied):
+  - every seeded text matches the plan word for word;
+  - sign-ups: matching by mobile, the duplicate guard, the lead and lead
+    source, opt-out cleared on a new sign-up, hot water;
+  - switching on refuses until everything's filled in, and only an admin
+    can switch;
+  - the window at 7am, 12pm, 5:59pm, 6pm and 11pm, and day N from a 9pm
+    sign-up;
+  - fast-forward on test runs only;
+  - stops on reply, booking, STOP and Twilio's "unsubscribed";
+  - a late step skipped, and a missing link logged;
+  - quotes: sent, re-saved, newer quote, accepted, declined, category
+    guarantee, no mobile;
+  - storm: who's included, the 14-day rule, test texts not counting;
+  - permissions: technicians, another company, anonymous callers.
+- **Functions** (under Deno, with Twilio and Resend faked):
+  - a form post, through the lead, notification, first text word for word,
+    the email from "Elyas" with an unsubscribe link, and the Channels log;
+  - double submits, a landline, a wrong key, the honeypot, the rate limit,
+    the unsubscribe page;
+  - a test run and fast-forward, and that a real person can't be
+    fast-forwarded;
+  - a Twilio opt-out, the storm button and sweep;
+  - a reply through the real SMS webhook stopping a run.
+- **Desktop** (headless browser):
+  - test numbers, editing wording (curly apostrophe straightened, emoji
+    and missing opt-out flagged);
+  - switch-on refused with a missing video link;
+  - a sequence 1 test run (day 0, then Send next now for day 2, then a
+    reply stops it);
+  - sequence 4 days 2 and 5;
+  - storm suburbs, the test text, sending and the 14-day rule straight
+    after;
+  - the people list and the website form code.
+- **Not checked:** real Twilio and Resend sends, and the live website. Use
+  the test number steps above before switching on.

@@ -2585,7 +2585,7 @@ export interface NoteAttachment {
 // Supabase-direct/polled rather than PowerSync-synced.
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted";
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2601,6 +2601,11 @@ export interface InboxMessageNotificationData {
 
 export interface QuoteAcceptedNotificationData {
   quote_id: string;
+}
+
+// A website checklist sign-up (checklist-signup function) - opens the lead.
+export interface LeadSignupNotificationData {
+  job_card_id: string;
 }
 
 export interface InvoiceAcceptedNotificationData {
@@ -2623,7 +2628,8 @@ export type Notification =
   | (NotificationBase & { type: "quote_accepted"; data: QuoteAcceptedNotificationData })
   // The client opened their quote link (first time, or back after a day).
   | (NotificationBase & { type: "quote_viewed"; data: QuoteAcceptedNotificationData })
-  | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData });
+  | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData })
+  | (NotificationBase & { type: "lead_signup"; data: LeadSignupNotificationData });
 
 export interface PushToken {
   id: string;

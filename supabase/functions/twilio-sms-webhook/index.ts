@@ -257,6 +257,17 @@ Deno.serve(async (req: Request) => {
     return json({ error: "server_error" }, 500);
   }
 
+  // Follow-up sequences: any reply stops that number's automatic texts
+  // straight away (it's in the inbox for a person to answer), and STOP also
+  // marks every client with that mobile as opted out. Best-effort - the
+  // sender checks the same rules before every text anyway.
+  try {
+    const { error: followUpError } = await admin.rpc("follow_up_inbound", { p_tenant_id: tenant.id, p_phone: from, p_opt_out: isOptOutMessage(body) });
+    if (followUpError) console.error("[twilio-sms-webhook] follow_up_inbound failed", followUpError);
+  } catch (e) {
+    console.error("[twilio-sms-webhook] follow_up_inbound threw", e);
+  }
+
   await notifyNewMessage(tenant.id, conversationId, "New SMS message", preview || "(attachment)");
 
   return json({ ok: true, conversation_id: conversationId });
