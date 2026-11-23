@@ -21,3 +21,4 @@ export * from "./timesheets";
 export * from "./payments";
 export * from "./quote-options";
 export * from "./follow-ups";
+export * from "./client-export";

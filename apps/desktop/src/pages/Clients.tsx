@@ -8,6 +8,7 @@ import { getErrorMessage } from "../lib/errors";
 import { ThemedModal } from "../components/theme/ThemedModal";
 import { ThemedButton } from "../components/theme/ThemedButton";
 import { ThemedFormField } from "../components/theme/ThemedFormField";
+import { ClientExportModal } from "../components/ClientExportModal";
 
 async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from("clients").select("*").order("name");
@@ -63,6 +64,7 @@ export default function ClientsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>("");
+  const [exportOpen, setExportOpen] = useState(false);
 
   const tagsByClientId = new Map<string, ClientTag[]>();
   for (const a of tagAssignments ?? []) {
@@ -137,6 +139,9 @@ export default function ClientsPage() {
           <Link to="/clients/import">
             <ThemedButton variant="secondary">Import from CSV</ThemedButton>
           </Link>
+          <ThemedButton variant="secondary" onClick={() => setExportOpen(true)}>
+            Export
+          </ThemedButton>
           <ThemedButton onClick={() => setModalOpen(true)}>+ New client</ThemedButton>
         </div>
       </div>
@@ -272,6 +277,13 @@ export default function ClientsPage() {
           </table>
         )}
       </div>
+
+      <ClientExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        shownIds={search || reviewOnly || tagFilter ? filteredClients.map((c) => c.id) : null}
+        totalCount={clients?.length ?? 0}
+      />
 
       <ThemedModal open={modalOpen} onClose={() => setModalOpen(false)} title="New client">
         <div className="mb-4 flex gap-2">

@@ -11873,3 +11873,36 @@ them. Everything is under **Sales > Follow-ups**.
   - the people list and the website form code.
 - **Not checked:** real Twilio and Resend sends, and the live website. Use
   the test number steps above before switching on.
+
+## 100. Exporting clients (Excel, Google Sheets, Mailchimp)
+
+Clients > **Export** downloads a CSV file in one of two formats.
+
+- **Excel or Google Sheets:** every client, with these columns:
+  - first name, last name, company, type;
+  - email, phone, address, suburb, state, postcode;
+  - tags and lead source (from their first job with one);
+  - number of jobs, date of their last job, total paid;
+  - Google review, marketing status ("OK" or "Opted out"), client since,
+    and their JMS ID.
+- **Mailchimp:** columns use Mailchimp's own names (Email Address, First
+  Name, Last Name, Phone Number, Company, Address, Suburb, State, Postcode,
+  Tags), so its import matches them without any mapping.
+  - Only clients with a valid email who haven't opted out of marketing are
+    included, one row per email.
+  - After downloading, it says how many were left out and why.
+  - In Mailchimp: Audience, then Add contacts, then Import contacts. Map
+    "Tags" to tags.
+
+When a search or tag filter is on, you can export just the clients shown.
+
+**Made safe to open in Excel:**
+- Phone numbers are spaced (0412 345 678) and postcodes like 0800 are kept
+  as text, so Excel doesn't drop the leading 0.
+- Accented names (Zoë) show correctly.
+- Anything that would run as a formula is neutralised. This matters because
+  names can now come in from the public sign-up form.
+
+No deploy step beyond the desktop app (Vercel picks it up from `main`).
+Code: `packages/shared/src/client-export.ts` (with tests) and
+`apps/desktop/src/components/ClientExportModal.tsx`.
