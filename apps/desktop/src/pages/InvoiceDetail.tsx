@@ -21,6 +21,7 @@ import {
   type Tenant,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
+import { fetchInstalledAssetsForJob } from "../lib/assets-data";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { queueAndSendEmail } from "../lib/send-email";
@@ -389,7 +390,7 @@ export default function InvoiceDetailPage() {
                 ownerLandlordEmail: property?.owner_landlord_email ?? null,
               }
             : undefined;
-        const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
+        const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite, installedAssets: await fetchInstalledAssetsForJob(data.invoice.job_card_id) });
         const pdfDataUrl = await blobToDataUrl(pdfBlob);
         setEmailDefaultAttachments([{ filename: `Invoice ${data.invoice.invoice_number}.pdf`, content: pdfDataUrl }]);
       } catch {
@@ -657,7 +658,7 @@ export default function InvoiceDetailPage() {
               ownerLandlordEmail: property?.owner_landlord_email ?? null,
             }
           : undefined;
-      const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite });
+      const pdfBlob = await buildInvoicePdfBytes({ tenant, invoice: data.invoice, client: data.invoice.clients, lineItems: data.items, agencyBilling, site: currentSite, installedAssets: await fetchInstalledAssetsForJob(data.invoice.job_card_id) });
       downloadBlob(pdfBlob, `Invoice ${data.invoice.invoice_number}.pdf`);
     } catch (e) {
       setExportError(getErrorMessage(e, "Failed to export PDF"));

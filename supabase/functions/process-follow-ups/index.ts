@@ -6,7 +6,8 @@
 // it, and reports back with follow_up_record.
 //
 // Called by:
-//   * the schedule, every 5 minutes (service role key, {} or {"action":"sweep"});
+//   * the schedule, every 5 minutes (service role key, {} or {"action":"sweep"}),
+//     which first queues any asset service / replacement reminders now due;
 //   * checklist-signup, to send a sign-up's first text straight away
 //     (service role key, {"enrolment_id"});
 //   * the desktop Follow-ups page (signed-in admin):
@@ -221,7 +222,16 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (authHeader === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
-      return json({ ok: true, ...(await run(admin, { enrolmentId: body.enrolment_id })) });
+      // The scheduled run also queues asset service / replacement reminders
+      // that have come due (asset_register migration). Only on the
+      // schedule's sweep, not a single sign-up's first text.
+      let reminders: unknown = null;
+      if (!body.enrolment_id) {
+        const { data, error } = await admin.rpc("asset_reminders_enrol");
+        if (error) console.error("[process-follow-ups] asset reminders failed", error);
+        reminders = data;
+      }
+      return json({ ok: true, reminders, ...(await run(admin, { enrolmentId: body.enrolment_id })) });
     }
 
     // A signed-in admin.

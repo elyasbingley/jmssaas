@@ -1,387 +1,231 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createPropertyAssetSchema,
-  type PropertyAsset,
-  type PropertyAssetAttributes,
-  type PropertyAssetCategory,
+  assetAgeYears,
+  assetSummary,
+  serviceState,
+  sydneyToday,
+  warrantyState,
+  type Asset,
+  type AssetService,
+  type AssetType,
+  type AssetWarranty,
 } from "@jmssaas/shared";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
-import { ThemedModal } from "./theme/ThemedModal";
+import { ASSETS_KEY, fetchAssetTypes, fetchAssetsFor, type AssetOwner } from "../lib/assets-data";
 import { ThemedButton } from "./theme/ThemedButton";
-import { ThemedFormField, ThemedSelectField } from "./theme/ThemedFormField";
+import { AssetEditor, STATE_COLOURS, fmtDay } from "./AssetEditor";
+import { HomeRecordButton } from "./HomeRecordButton";
 
-// Extracted from PropertyDetail.tsx's original inline "Asset Register" tab
-// (property_assets was always property-only until the client_assets
-// migration widened it to also allow a client as owner) - now shared by
-// PropertyDetail.tsx (property owner), ClientDetail.tsx (client owner), and
-// JobDetail.tsx (whichever owner the job resolves to: its linked property
-// for an agency-managed job, its client otherwise), so this logic exists
-// in exactly one place instead of three.
-
-type AssetOwner = { type: "property"; id: string } | { type: "client"; id: string };
+// A client's or property's assets (asset register). On a job page
+// (jobCardId set) each service can be ticked off as done on this job, and
+// assets the job installed can be added from its price book items.
 
 interface AssetsSectionProps {
   owner: AssetOwner;
-  // PropertyDetail.tsx already renders its own "Asset Register" tab label
-  // above this - passing bare skips the redundant bordered box + heading
-  // this component otherwise wraps itself in for ClientDetail.tsx/
-  // JobDetail.tsx, where there's no other heading doing that job.
   bare?: boolean;
   title?: string;
+  jobCardId?: string | null;
+  jobSiteId?: string | null;
 }
 
-async function fetchAssets(owner: AssetOwner): Promise<PropertyAsset[]> {
-  const column = owner.type === "property" ? "property_id" : "client_id";
-  const { data, error } = await supabase
-    .from("property_assets")
-    .select("*")
-    .eq(column, owner.id)
-    .order("category")
-    .order("asset_name");
-  if (error) throw error;
-  return data as PropertyAsset[];
+const muted = { color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" } as const;
+const link = { color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" } as const;
+
+export function bestWarranty(warranties: AssetWarranty[], today: string): { text: string; state: string } | null {
+  if (warranties.length === 0) return null;
+  const live = warranties.filter((w) => w.expires_on && w.expires_on >= today).sort((a, b) => (a.expires_on! < b.expires_on! ? 1 : -1));
+  if (live.length) {
+    const w = live[0]!;
+    return { text: `Warranty to ${fmtDay(w.expires_on)}${w.label ? ` (${w.label.toLowerCase()})` : ""}`, state: warrantyState(w.expires_on, today) };
+  }
+  return warranties.some((w) => w.expires_on) ? { text: "Warranty expired", state: "expired" } : { text: "Warranty dates not set", state: "unknown" };
 }
 
-const ASSET_CATEGORY_OPTIONS: { value: PropertyAssetCategory; label: string }[] = [
-  { value: "plumbing", label: "Plumbing" },
-  { value: "roofing", label: "Roofing" },
-  { value: "hvac", label: "HVAC" },
-  { value: "general", label: "General" },
-];
-
-const CATEGORY_ICON: Record<PropertyAssetCategory, string> = {
-  plumbing: "🚰",
-  roofing: "🏠",
-  hvac: "❄️",
-  general: "🔧",
-};
-
-function isWarrantyActive(warrantyExpiryDate?: string): boolean {
-  if (!warrantyExpiryDate) return false;
-  return new Date(warrantyExpiryDate).getTime() > Date.now();
-}
-
-export function AssetsSection({ owner, bare = false, title = "Assets" }: AssetsSectionProps) {
+export function AssetsSection({ owner, bare = false, title = "Assets", jobCardId = null, jobSiteId = null }: AssetsSectionProps) {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
-  const queryKey = ["assets", owner.type, owner.id];
+  const today = sydneyToday();
+  const { data, error } = useQuery({ queryKey: [...ASSETS_KEY, owner.type, owner.id], queryFn: () => fetchAssetsFor(owner) });
+  const { data: types } = useQuery({ queryKey: [...ASSETS_KEY, "types"], queryFn: fetchAssetTypes });
+  const { data: sites } = useQuery({
+    queryKey: ["client-sites", owner.id],
+    enabled: owner.type === "client",
+    queryFn: async () => {
+      const { data: rows, error: e } = await supabase.from("client_sites").select("id, label, address_line1, suburb").eq("client_id", owner.id).order("created_at");
+      if (e) throw e;
+      return (rows ?? []).map((s) => ({ id: s.id as string, label: [s.label, [s.address_line1, s.suburb].filter(Boolean).join(", ")].filter(Boolean).join(" - ") }));
+    },
+  });
+  const { data: jobRecords } = useQuery({
+    queryKey: [...ASSETS_KEY, "job-records", jobCardId],
+    enabled: !!jobCardId,
+    queryFn: async () => {
+      const { data: rows, error: e } = await supabase.from("asset_service_records").select("id, service_id, done_by").eq("job_card_id", jobCardId!);
+      if (e) throw e;
+      return rows as { id: string; service_id: string | null; done_by: string | null }[];
+    },
+  });
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [editing, setEditing] = useState<{ id: string | null } | null>(null);
+  const [installResult, setInstallResult] = useState<string | null>(null);
 
-  const { data: assets } = useQuery({ queryKey, queryFn: () => fetchAssets(owner) });
+  const typeById = useMemo(() => new Map((types ?? []).map((t) => [t.id, t])), [types]);
+  const siteLabel = (id: string | null) => (id ? sites?.find((s) => s.id === id)?.label ?? "Other address" : sites && sites.length ? "Main address" : null);
+  const assets = (data?.assets ?? [])
+    .filter((a) => showRemoved || a.status === "active")
+    // On a job, the assets at the job's address come first.
+    .sort((a, b) => Number(b.site_id === jobSiteId) - Number(a.site_id === jobSiteId) || a.asset_name.localeCompare(b.asset_name));
 
-  const [assetModalOpen, setAssetModalOpen] = useState(false);
-  const [editingAsset, setEditingAsset] = useState<PropertyAsset | null>(null);
-  const [assetCategory, setAssetCategory] = useState<PropertyAssetCategory | "">("plumbing");
-  const [assetName, setAssetName] = useState("");
-  const [attrs, setAttrs] = useState<PropertyAssetAttributes>({});
-  const [assetError, setAssetError] = useState<string | null>(null);
-
-  const openNewAsset = () => {
-    setEditingAsset(null);
-    setAssetCategory("plumbing");
-    setAssetName("");
-    setAttrs({});
-    setAssetError(null);
-    setAssetModalOpen(true);
-  };
-  const openEditAsset = (asset: PropertyAsset) => {
-    setEditingAsset(asset);
-    setAssetCategory(asset.category);
-    setAssetName(asset.asset_name);
-    setAttrs(asset.attributes);
-    setAssetError(null);
-    setAssetModalOpen(true);
-  };
-
-  const saveAsset = useMutation({
-    mutationFn: async () => {
-      const result = createPropertyAssetSchema.safeParse({
-        property_id: owner.type === "property" ? owner.id : undefined,
-        client_id: owner.type === "client" ? owner.id : undefined,
-        category: assetCategory || "general",
-        asset_name: assetName,
-        attributes: attrs,
-      });
-      if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid asset");
-      if (!profile) throw new Error("Not signed in");
-
-      if (editingAsset) {
-        const { error } = await supabase
-          .from("property_assets")
-          .update({ category: result.data.category, asset_name: result.data.asset_name, attributes: result.data.attributes })
-          .eq("id", editingAsset.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("property_assets").insert({
-          tenant_id: profile.tenant_id,
-          property_id: result.data.property_id ?? null,
-          client_id: result.data.client_id ?? null,
-          category: result.data.category,
-          asset_name: result.data.asset_name,
-          attributes: result.data.attributes,
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ASSETS_KEY });
+  const tick = useMutation({
+    mutationFn: async ({ asset, service, done }: { asset: Asset; service: AssetService; done: boolean }) => {
+      if (done) {
+        const { error: e } = await supabase.from("asset_service_records").insert({
+          tenant_id: asset.tenant_id,
+          asset_id: asset.id,
+          service_id: service.id,
+          job_card_id: jobCardId,
+          done_on: today,
+          done_by: profile?.id ?? null,
         });
-        if (error) throw error;
+        if (e) throw e;
+      } else {
+        const ids = (jobRecords ?? []).filter((r) => r.service_id === service.id).map((r) => r.id);
+        const { error: e } = await supabase.from("asset_service_records").delete().in("id", ids);
+        if (e) throw e;
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-      setAssetModalOpen(false);
+    onSettled: refresh,
+  });
+  const fromJob = useMutation({
+    mutationFn: async () => {
+      const { data: count, error: e } = await supabase.rpc("create_assets_from_job", { p_job_card_id: jobCardId });
+      if (e) throw e;
+      return count as number;
     },
-    onError: (e) => setAssetError(getErrorMessage(e, "Failed to save asset")),
+    onSuccess: (count) => {
+      setInstallResult(
+        count
+          ? `Added ${count} asset${count === 1 ? "" : "s"} from this job's price book items.`
+          : "Nothing new to add - none of this job's invoice or accepted quote lines use a price book item marked 'creates an asset' (or they're already added)."
+      );
+      refresh();
+    },
   });
 
-  const deleteAsset = useMutation({
-    mutationFn: async (asset: PropertyAsset) => {
-      const { error } = await supabase.from("property_assets").delete().eq("id", asset.id);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-  });
-
-  const noAssetsLabel = owner.type === "property" ? "No assets recorded for this property yet." : "No assets recorded for this client yet.";
-
+  const removedCount = (data?.assets ?? []).filter((a) => a.status === "removed").length;
   const content = (
-    <div>
-      <div className="mb-4 flex justify-end">
-        <ThemedButton onClick={openNewAsset} style={{ paddingBlock: 6, paddingInline: 12, fontSize: "var(--jms-font-label)" }}>
-          + Add Asset
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <ThemedButton onClick={() => setEditing({ id: null })} style={{ paddingBlock: 4, paddingInline: 12 }}>
+          + Add asset
         </ThemedButton>
+        {jobCardId ? (
+          <button onClick={() => fromJob.mutate()} className="font-semibold hover:underline" style={link} disabled={fromJob.isPending}>
+            Add assets installed on this job
+          </button>
+        ) : null}
+        {owner.type === "client" && (data?.assets ?? []).length > 0 ? <HomeRecordButton clientId={owner.id} /> : null}
+        {removedCount ? (
+          <button onClick={() => setShowRemoved((v) => !v)} className="ml-auto hover:underline" style={muted}>
+            {showRemoved ? "Hide removed" : `Show ${removedCount} removed`}
+          </button>
+        ) : null}
       </div>
-      {!assets || assets.length === 0 ? (
-        <p style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}>{noAssetsLabel}</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          {assets.map((asset) => (
-            <button
+      {installResult ? <p className="mb-2" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>{installResult}</p> : null}
+      {error || fromJob.error || tick.error ? (
+        <p className="mb-2" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>{getErrorMessage(error ?? fromJob.error ?? tick.error, "Something went wrong")}</p>
+      ) : null}
+      {data && assets.length === 0 ? <p style={muted}>No assets recorded yet.</p> : null}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {assets.map((asset) => {
+          const type: AssetType | null = asset.asset_type_id ? typeById.get(asset.asset_type_id) ?? null : null;
+          const services = (data?.services ?? []).filter((s) => s.asset_id === asset.id);
+          const warranty = bestWarranty((data?.warranties ?? []).filter((w) => w.asset_id === asset.id), today);
+          const photos = (data?.files ?? []).filter((f) => f.asset_id === asset.id).length;
+          const age = assetAgeYears(asset, today);
+          const where = [siteLabel(asset.site_id), asset.location].filter(Boolean).join(" · ");
+          return (
+            <div
               key={asset.id}
-              onClick={() => openEditAsset(asset)}
-              className="jms-nav-link rounded-lg p-4 text-left"
-              style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}
+              className="rounded p-3"
+              style={{ border: `1px solid ${asset.needs_details ? "var(--jms-warning)" : "var(--jms-border)"}`, backgroundColor: "var(--jms-bg)", opacity: asset.status === "removed" ? 0.6 : 1 }}
+              data-testid="asset-card"
             >
-              <div className="mb-2 flex items-center gap-2">
-                <span className="text-xl">{CATEGORY_ICON[asset.category]}</span>
-                <span className="font-bold" style={{ color: "var(--jms-text)" }}>
-                  {asset.asset_name}
-                </span>
+              <div className="flex items-start gap-2">
+                <span style={{ fontSize: "1.3rem" }}>{type?.icon ?? "🔧"}</span>
+                <div className="min-w-0 flex-1">
+                  <button onClick={() => setEditing({ id: asset.id })} className="text-left font-semibold hover:underline" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-body)" }}>
+                    {asset.asset_name}
+                  </button>
+                  <p style={muted}>
+                    {[type?.name, assetSummary(asset), age !== null ? `${age} yr${age === 1 ? "" : "s"} old` : null].filter(Boolean).join(" · ")}
+                    {asset.status === "removed" ? ` · removed ${fmtDay(asset.removed_on)}` : ""}
+                  </p>
+                  {where ? <p style={muted}>{where}</p> : null}
+                </div>
+                {asset.needs_details ? <span style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}>needs details</span> : null}
               </div>
-              <div className="flex flex-wrap gap-1">
-                {asset.attributes.warranty_expiry_date ? (
-                  <span
-                    className="rounded-full border px-2 py-0.5 font-semibold"
-                    style={
-                      isWarrantyActive(asset.attributes.warranty_expiry_date)
-                        ? { borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }
-                        : { borderColor: "var(--jms-border)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }
-                    }
-                  >
-                    {isWarrantyActive(asset.attributes.warranty_expiry_date) ? "Under warranty" : "Warranty expired"}
-                  </span>
-                ) : null}
-                {asset.attributes.roof_type ? (
-                  <span
-                    className="rounded-full border px-2 py-0.5 font-semibold"
-                    style={{ borderColor: "var(--jms-warning)", color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }}
-                  >
-                    {asset.attributes.roof_type}
-                  </span>
-                ) : null}
-                {asset.attributes.gutter_clean_interval_months ? (
-                  <span
-                    className="rounded-full border px-2 py-0.5 font-semibold"
-                    style={{ borderColor: "var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
-                  >
-                    Gutter clean every {asset.attributes.gutter_clean_interval_months}mo
-                  </span>
-                ) : null}
-                {asset.attributes.fuel_type ? (
-                  <span
-                    className="rounded-full border px-2 py-0.5 font-semibold"
-                    style={{ borderColor: "var(--jms-text-muted)", color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}
-                  >
-                    {asset.attributes.fuel_type}
-                  </span>
-                ) : null}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+              {warranty ? (
+                <p className="mt-1" style={{ color: STATE_COLOURS[warranty.state], fontSize: "var(--jms-font-label)" }}>
+                  {warranty.text}
+                </p>
+              ) : null}
+              {services.length ? (
+                <ul className="mt-1 space-y-0.5">
+                  {services.map((s) => {
+                    const state = serviceState(s.next_due_on, today, type?.lead_days ?? 28);
+                    // While a tick is saving, show it straight away.
+                    const pending = tick.isPending && tick.variables?.service.id === s.id ? tick.variables.done : null;
+                    const doneHere = pending ?? (jobRecords ?? []).some((r) => r.service_id === s.id);
+                    return (
+                      <li key={s.id} className="flex items-center gap-2" style={{ fontSize: "var(--jms-font-label)" }}>
+                        {jobCardId && asset.status === "active" ? (
+                          <input
+                            type="checkbox"
+                            checked={doneHere}
+                            onChange={(e) => tick.mutate({ asset, service: s, done: e.target.checked })}
+                            aria-label={`${s.name} done on this job`}
+                          />
+                        ) : null}
+                        <span style={{ color: "var(--jms-text)" }}>{s.name}</span>
+                        <span style={{ color: STATE_COLOURS[doneHere ? "ok" : state] }}>
+                          {doneHere ? "done on this job" : s.next_due_on ? `${state === "overdue" ? "overdue since" : "due"} ${fmtDay(s.next_due_on)}` : "no date yet"}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              {photos ? <p className="mt-1" style={muted}>📷 {photos}</p> : null}
+            </div>
+          );
+        })}
+      </div>
+      {editing ? (
+        <AssetEditor
+          open
+          onClose={() => setEditing(null)}
+          owner={owner}
+          assetId={editing.id}
+          sites={sites}
+          defaultSiteId={jobSiteId}
+          jobCardId={jobCardId}
+        />
+      ) : null}
+    </>
   );
 
+  if (bare) return content;
   return (
-    <>
-      {bare ? (
-        content
-      ) : (
-        <div className="mb-6 rounded-lg p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
-          <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
-            {title}
-          </h2>
-          {content}
-        </div>
-      )}
-
-      <ThemedModal open={assetModalOpen} onClose={() => setAssetModalOpen(false)} title={editingAsset ? "Edit asset" : "New asset"}>
-        <ThemedSelectField label="Category" value={assetCategory} onChange={setAssetCategory} options={ASSET_CATEGORY_OPTIONS} placeholder="Select category" />
-        <ThemedFormField label="Asset name" value={assetName} onChange={(e) => setAssetName(e.target.value)} placeholder="e.g. Main Hot Water Unit" />
-
-        {assetCategory === "plumbing" ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
-              <ThemedFormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
-            </div>
-            <ThemedFormField
-              label="Serial number"
-              value={attrs.serial_number ?? ""}
-              onChange={(e) => setAttrs({ ...attrs, serial_number: e.target.value })}
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedSelectField
-                label="Fuel type"
-                value={attrs.fuel_type ?? ""}
-                onChange={(v) => setAttrs({ ...attrs, fuel_type: v || undefined })}
-                options={[
-                  { value: "gas", label: "Gas" },
-                  { value: "electric", label: "Electric" },
-                  { value: "solar", label: "Solar" },
-                ]}
-              />
-              <ThemedFormField
-                label="Capacity (litres)"
-                type="number"
-                value={attrs.capacity_litres ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, capacity_litres: e.target.value ? Number(e.target.value) : undefined })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField
-                label="Installation date"
-                type="date"
-                value={attrs.installation_date ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, installation_date: e.target.value || undefined })}
-              />
-              <ThemedFormField
-                label="Warranty expiry"
-                type="date"
-                value={attrs.warranty_expiry_date ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, warranty_expiry_date: e.target.value || undefined })}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {assetCategory === "roofing" ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedSelectField
-                label="Roof type"
-                value={attrs.roof_type ?? ""}
-                onChange={(v) => setAttrs({ ...attrs, roof_type: v || undefined })}
-                options={[
-                  { value: "colorbond", label: "Colorbond" },
-                  { value: "tile", label: "Tile" },
-                  { value: "slate", label: "Slate" },
-                ]}
-              />
-              <ThemedFormField
-                label="Roof age (years)"
-                type="number"
-                value={attrs.roof_age_years ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, roof_age_years: e.target.value ? Number(e.target.value) : undefined })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField
-                label="Last gutter clean"
-                type="date"
-                value={attrs.last_gutter_clean_date ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, last_gutter_clean_date: e.target.value || undefined })}
-              />
-              <ThemedFormField
-                label="Clean interval (months)"
-                type="number"
-                value={attrs.gutter_clean_interval_months ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, gutter_clean_interval_months: e.target.value ? Number(e.target.value) : undefined })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField
-                label="Screw condition"
-                value={attrs.screw_condition ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, screw_condition: e.target.value || undefined })}
-              />
-              <ThemedFormField
-                label="Ridge condition"
-                value={attrs.ridge_condition ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, ridge_condition: e.target.value || undefined })}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {assetCategory === "hvac" || assetCategory === "general" ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField label="Brand" value={attrs.brand ?? ""} onChange={(e) => setAttrs({ ...attrs, brand: e.target.value })} />
-              <ThemedFormField label="Model" value={attrs.model ?? ""} onChange={(e) => setAttrs({ ...attrs, model: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ThemedFormField
-                label="Installation date"
-                type="date"
-                value={attrs.installation_date ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, installation_date: e.target.value || undefined })}
-              />
-              <ThemedFormField
-                label="Warranty expiry"
-                type="date"
-                value={attrs.warranty_expiry_date ?? ""}
-                onChange={(e) => setAttrs({ ...attrs, warranty_expiry_date: e.target.value || undefined })}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {assetError ? (
-          <p className="mb-4" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}>
-            {assetError}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-between gap-3">
-          {editingAsset ? (
-            <button
-              onClick={() => {
-                if (window.confirm(`Delete "${editingAsset.asset_name}"?`)) {
-                  deleteAsset.mutate(editingAsset);
-                  setAssetModalOpen(false);
-                }
-              }}
-              className="font-semibold hover:underline"
-              style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-body)" }}
-            >
-              Delete
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-3">
-            <button
-              onClick={() => setAssetModalOpen(false)}
-              className="px-4 py-2 font-semibold"
-              style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-body)" }}
-            >
-              Cancel
-            </button>
-            <ThemedButton onClick={() => saveAsset.mutate()} disabled={saveAsset.isPending || !assetName.trim()}>
-              {saveAsset.isPending ? "Saving..." : "Save"}
-            </ThemedButton>
-          </div>
-        </div>
-      </ThemedModal>
-    </>
+    <div className="mt-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }} data-testid="assets-section">
+      <h2 className="mb-3 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
+        {title}
+      </h2>
+      {content}
+    </div>
   );
 }

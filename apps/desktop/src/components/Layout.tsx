@@ -36,6 +36,7 @@ const navSections: { heading: string | null; items: NavItem[] }[] = [
       { to: "/quotes", label: "Quotes" },
       { to: "/invoices", label: "Invoices" },
       { to: "/clients", label: "Clients" },
+      { to: "/assets", label: "Assets" },
       { to: "/follow-ups", label: "Follow-ups" },
       { to: "/price-book", label: "Price Book" },
       { to: "/job-costing", label: "Job Costing" },

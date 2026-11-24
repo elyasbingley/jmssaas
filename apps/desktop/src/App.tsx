@@ -5,6 +5,8 @@ import LoginPage from "./pages/Login";
 import DashboardPage from "./pages/Dashboard";
 import DashboardSettingsPage from "./pages/DashboardSettings";
 import ClientsPage from "./pages/Clients";
+import AssetsPage from "./pages/Assets";
+import AssetTypesPage from "./pages/AssetTypes";
 import ClientImportPage from "./pages/ClientImport";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
@@ -134,6 +136,7 @@ export default function App() {
                 <Route path="/invoices/new" element={<InvoiceNewPage />} />
                 <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
                 <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/assets" element={<AssetsPage />} />
                 <Route path="/clients/import" element={<ClientImportPage />} />
                 <Route path="/clients/:id" element={<ClientDetailPage />} />
                 <Route path="/price-book" element={<PriceBookPage />} />
@@ -187,6 +190,7 @@ export default function App() {
                 <Route path="/settings/dashboard" element={<DashboardSettingsPage />} />
                 <Route path="/settings/ui-settings" element={<UISettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
+                <Route path="/settings/asset-types" element={<AssetTypesPage />} />
                 <Route path="/settings/sms-templates" element={<SmsTemplatesPage />} />
                 <Route path="/settings/whatsapp-templates" element={<WhatsappTemplatesPage />} />
                 <Route path="/settings/client-tags" element={<ClientTagsPage />} />

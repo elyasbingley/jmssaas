@@ -503,13 +503,16 @@ async function buildEntityContext(
       const { data: pm } = await admin.from("property_managers").select("first_name").eq("id", property.property_manager_id).single();
       if (pm?.first_name) pmFirstName = pm.first_name;
     }
-    const attrs = (asset.attributes ?? {}) as { last_gutter_clean_date?: string; gutter_clean_interval_months?: number };
-    let dueDate: string | null = null;
-    if (attrs.last_gutter_clean_date && attrs.gutter_clean_interval_months) {
-      const d = new Date(`${attrs.last_gutter_clean_date}T00:00:00Z`);
-      d.setUTCMonth(d.getUTCMonth() + attrs.gutter_clean_interval_months);
-      dueDate = d.toISOString().slice(0, 10);
-    }
+    // The earliest due service on the asset (asset_register migration).
+    const { data: nextService } = await admin
+      .from("asset_services")
+      .select("next_due_on")
+      .eq("asset_id", asset.id)
+      .not("next_due_on", "is", null)
+      .order("next_due_on")
+      .limit(1)
+      .maybeSingle();
+    const dueDate: string | null = (nextService?.next_due_on as string | undefined) ?? null;
     context.property = {
       address: formatAddress(property) ?? property.address_line1,
       pm_first_name: pmFirstName,

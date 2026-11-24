@@ -2,7 +2,7 @@
 // themselves are rendered by the database (follow_up_render); these are the
 // same rules for the desktop's previews and text counts.
 
-export type FollowUpSequenceKey = "storm_checklist" | "storm_morning" | "quote_quiet";
+export type FollowUpSequenceKey = "storm_checklist" | "storm_morning" | "quote_quiet" | "asset_service" | "asset_replacement";
 
 export interface FollowUpSequence {
   id: string;
@@ -83,6 +83,8 @@ export const FOLLOW_UP_FIELDS: Record<FollowUpSequenceKey, string[]> = {
   storm_checklist: ["{first_name}", "{suburb}", "{checklist_link}", "{video_link}"],
   storm_morning: ["{first_name}", "{suburb}"],
   quote_quiet: ["{first_name}", "{job}", "{quote_total}", "{guarantee}"],
+  asset_service: ["{first_name}", "{items}", "{address}"],
+  asset_replacement: ["{first_name}", "{item}", "{age}", "{address}"],
 };
 
 // Same as the database's sms_plain_text: straight quotes, no long dashes.

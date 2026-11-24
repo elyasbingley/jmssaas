@@ -9,16 +9,13 @@
 // same as every other trigger_key (see that function's `property_asset`
 // branch in buildEntityContext).
 //
-// Scoped specifically to the gutter-clean schedule already captured on a
-// roofing property_assets row (last_gutter_clean_date +
-// gutter_clean_interval_months) - see the migration's own comment for why
-// the spec's other example (backflow inspections) isn't modelled here.
-//
-// Idempotency mirrors process-retention-campaigns: "has a
-// property_maintenance_due row been queued for this asset SINCE its
-// last_gutter_clean_date" - once the asset's last_gutter_clean_date is
-// updated after the clean actually happens, the next due cycle gets a
-// fresh reminder without ever double-sending for the same cycle.
+// Since the asset_register migration this reads the asset service plans
+// (asset_services) of every active asset on an agency property - gutter
+// cleans, backflow tests, anything with an interval - rather than the old
+// gutter-clean fields on a roofing asset. One reminder per asset per due
+// date: asset_services.pm_reminded_for records which due date the property
+// manager has been told about, so ticking the service off (which moves the
+// due date on) makes the next cycle remind again.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -32,20 +29,11 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-interface PropertyAssetRow {
+interface DueServiceRow {
   id: string;
-  tenant_id: string;
-  property_id: string;
-  attributes: { last_gutter_clean_date?: string; gutter_clean_interval_months?: number };
-}
-
-function computeDueDate(asset: PropertyAssetRow): Date | null {
-  const { last_gutter_clean_date, gutter_clean_interval_months } = asset.attributes ?? {};
-  if (!last_gutter_clean_date || !gutter_clean_interval_months) return null;
-  const d = new Date(`${last_gutter_clean_date}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setUTCMonth(d.getUTCMonth() + gutter_clean_interval_months);
-  return d;
+  next_due_on: string;
+  pm_reminded_for: string | null;
+  property_assets: { id: string; property_id: string | null; status: string } | null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -87,40 +75,33 @@ Deno.serve(async (req: Request) => {
     const matchingTemplates = (templates ?? []).filter((t) => rule.channel === "both" || rule.channel === t.type);
     if (matchingTemplates.length === 0) continue;
 
-    const { data: assets, error: assetsError } = await admin
-      .from("property_assets")
-      .select("id, tenant_id, property_id, attributes")
+    const { data: services, error: servicesError } = await admin
+      .from("asset_services")
+      .select("id, next_due_on, pm_reminded_for, property_assets!inner(id, property_id, status)")
       .eq("tenant_id", tenant.id)
-      .eq("category", "roofing");
-    if (assetsError) {
-      console.error(`[process-real-estate-maintenance] Failed to fetch assets for tenant ${tenant.id}`, assetsError.message);
+      .not("property_assets.property_id", "is", null)
+      .eq("property_assets.status", "active")
+      .not("next_due_on", "is", null)
+      .lte("next_due_on", reminderThreshold.toISOString().slice(0, 10));
+    if (servicesError) {
+      console.error(`[process-real-estate-maintenance] Failed to fetch services for tenant ${tenant.id}`, servicesError.message);
       continue;
     }
 
-    for (const asset of (assets ?? []) as PropertyAssetRow[]) {
-      const dueDate = computeDueDate(asset);
-      if (!dueDate) continue;
+    // One reminder per asset, covering every service of it that's due.
+    const byAsset = new Map<string, { propertyId: string; serviceIds: string[] }>();
+    for (const service of (services ?? []) as unknown as DueServiceRow[]) {
       scanned++;
-      if (dueDate > reminderThreshold) continue;
+      const asset = service.property_assets;
+      if (!asset?.property_id || service.pm_reminded_for === service.next_due_on) continue;
+      const entry = byAsset.get(asset.id) ?? { propertyId: asset.property_id, serviceIds: [] };
+      entry.serviceIds.push(service.id);
+      byAsset.set(asset.id, entry);
+    }
 
-      const { data: existing } = await admin
-        .from("scheduled_communications")
-        .select("id")
-        .eq("entity_type", "property_asset")
-        .eq("entity_id", asset.id)
-        .eq("trigger_key", "property_maintenance_due")
-        .gte("created_at", asset.attributes.last_gutter_clean_date!)
-        .limit(1)
-        .maybeSingle();
-      if (existing) continue;
-
-      const { data: property } = await admin
-        .from("properties")
-        .select("property_manager_id")
-        .eq("id", asset.property_id)
-        .single();
+    for (const [assetId, { propertyId, serviceIds }] of byAsset) {
+      const { data: property } = await admin.from("properties").select("property_manager_id").eq("id", propertyId).single();
       if (!property?.property_manager_id) continue;
-
       const { data: pm } = await admin.from("property_managers").select("email").eq("id", property.property_manager_id).single();
       if (!pm?.email) continue;
 
@@ -128,7 +109,7 @@ Deno.serve(async (req: Request) => {
         await admin.from("scheduled_communications").insert({
           tenant_id: tenant.id,
           entity_type: "property_asset",
-          entity_id: asset.id,
+          entity_id: assetId,
           trigger_key: "property_maintenance_due",
           template_id: template.id,
           channel: template.type,
@@ -139,6 +120,11 @@ Deno.serve(async (req: Request) => {
           status: "pending",
         });
         queued++;
+      }
+      // Remember which due date this was for.
+      for (const serviceId of serviceIds) {
+        const service = ((services ?? []) as unknown as DueServiceRow[]).find((x) => x.id === serviceId)!;
+        await admin.from("asset_services").update({ pm_reminded_for: service.next_due_on }).eq("id", serviceId);
       }
     }
   }

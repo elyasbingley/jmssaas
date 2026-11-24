@@ -200,7 +200,7 @@ async function renderHeader(
   cursor.doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(...accent);
   cursor.doc.text(title, PAGE_WIDTH - MARGIN, cursor.y + 7, { align: "right" });
   cursor.doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(...CHARCOAL_DARK);
-  cursor.doc.text(`# ${number}`, PAGE_WIDTH - MARGIN, cursor.y + 14, { align: "right" });
+  if (number) cursor.doc.text(`# ${number}`, PAGE_WIDTH - MARGIN, cursor.y + 14, { align: "right" });
   let rightY = cursor.y + 14;
   if (balanceDueCents !== null) {
     cursor.doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(...CHARCOAL_MUTED);
@@ -578,6 +578,94 @@ function renderTotalsCard(
   cursor.y = top + height + 6;
 }
 
+// Asset register (asset_register migration): what was installed and its
+// warranties - on the invoice for the job that installed it, and on a
+// client's Home record.
+export interface PdfAsset {
+  name: string;
+  detail: string;
+  installed: string | null;
+  location: string | null;
+  warranties: { label: string; until: string | null }[];
+  services: { name: string; next: string | null }[];
+}
+
+function renderAssetBlocks(cursor: Cursor, assets: PdfAsset[]) {
+  for (const a of assets) {
+    const detailLines = a.detail ? (cursor.doc.splitTextToSize(a.detail, CONTENT_WIDTH - 6) as string[]) : [];
+    const warrantyText = a.warranties.length
+      ? "Warranty: " + a.warranties.map((w) => `${w.label || "Warranty"} to ${w.until ? formatDate(w.until) : "-"}`).join("  ·  ")
+      : "";
+    const serviceText = a.services.length ? "Servicing: " + a.services.map((x) => `${x.name}${x.next ? ` next due ${formatDate(x.next)}` : ""}`).join("  ·  ") : "";
+    const extra = [warrantyText, serviceText].filter(Boolean).flatMap((t) => cursor.doc.splitTextToSize(t, CONTENT_WIDTH - 6) as string[]);
+    const height = 6 + detailLines.length * 4.3 + extra.length * 4.3 + 4;
+    cursor.ensureSpace(height);
+    const top = cursor.y - 4;
+    cursor.doc.setDrawColor(229, 231, 235);
+    cursor.doc.setFillColor(249, 250, 251);
+    cursor.doc.rect(MARGIN, top, CONTENT_WIDTH, height, "FD");
+    cursor.doc.setFillColor(...YELLOW);
+    cursor.doc.rect(MARGIN, top, 1.2, height, "F");
+    cursor.y += 1;
+    cursor.bold(a.name, MARGIN + 4, 10, CHARCOAL_DARK);
+    const right = [a.installed ? `Installed ${formatDate(a.installed)}` : null, a.location].filter(Boolean).join("  ·  ");
+    if (right) cursor.text(right, PAGE_WIDTH - MARGIN - 3, 8.5, CHARCOAL_MUTED, "right");
+    cursor.y += 4.8;
+    for (const line of detailLines) {
+      cursor.text(line, MARGIN + 4, 8.5, CHARCOAL_MUTED);
+      cursor.y += 4.3;
+    }
+    for (const line of extra) {
+      cursor.text(line, MARGIN + 4, 8.5, CHARCOAL);
+      cursor.y += 4.3;
+    }
+    cursor.y = top + height + 6;
+  }
+}
+
+function renderInstalledAssets(cursor: Cursor, assets: PdfAsset[] | undefined) {
+  if (!assets || assets.length === 0) return;
+  cursor.ensureSpace(16);
+  cursor.bold("Installed on this job", MARGIN, 9, CHARCOAL_MUTED);
+  cursor.y += 7;
+  renderAssetBlocks(cursor, assets);
+  cursor.y += 1;
+}
+
+// One page (or more) listing everything recorded at a client's addresses -
+// for the client to keep with the house's papers, an insurer or a sale.
+export async function buildHomeRecordPdf(params: {
+  tenant: Tenant;
+  client: Pick<Client, "name" | "company_name" | "client_type" | "address_line1" | "address_line2" | "suburb" | "state" | "postcode">;
+  groups: { address: string; assets: PdfAsset[] }[];
+  preparedOn: string;
+}): Promise<Blob> {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const cursor = new Cursor(doc);
+  await renderHeader(cursor, params.tenant, CHARCOAL, "HOME RECORD", "", null, [{ label: "Prepared", value: formatDate(params.preparedOn) }]);
+  cursor.text("Prepared for", MARGIN, 9, CHARCOAL_MUTED);
+  cursor.y += 5;
+  cursor.bold(params.client.client_type === "company" && params.client.company_name ? params.client.company_name : params.client.name, MARGIN, 11, CHARCOAL_DARK);
+  cursor.y += 8;
+  for (const group of params.groups) {
+    cursor.ensureSpace(20);
+    cursor.bold(group.address, MARGIN, 10.5, CHARCOAL_DARK);
+    cursor.y += 7;
+    renderAssetBlocks(cursor, group.assets);
+    cursor.y += 2;
+  }
+  cursor.ensureSpace(16);
+  const note = doc.splitTextToSize(
+    "Keep this with your home's documents. Manufacturer warranties are on the manufacturer's terms; for a service, a repair or a warranty claim, contact us and quote the details above.",
+    CONTENT_WIDTH
+  ) as string[];
+  for (const line of note) {
+    cursor.text(line, MARGIN, 8.5, CHARCOAL_MUTED);
+    cursor.y += 4.3;
+  }
+  return doc.output("blob");
+}
+
 function renderNotes(cursor: Cursor, notes: string | null) {
   if (!notes) return;
   cursor.ensureSpace(12);
@@ -793,8 +881,9 @@ export async function buildInvoicePdfBytes(params: {
   lineItems: LineItemFormInput[];
   site?: ClientSite | null;
   agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null };
+  installedAssets?: PdfAsset[];
 }): Promise<Blob> {
-  const { tenant, invoice, client, lineItems, site, agencyBilling } = params;
+  const { tenant, invoice, client, lineItems, site, agencyBilling, installedAssets } = params;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cursor = new Cursor(doc);
 
@@ -828,6 +917,7 @@ export async function buildInvoicePdfBytes(params: {
   renderTotalsCard(cursor, ACCENT.invoice, lineItems, balanceDueCents, invoice.membership_discount_cents, false, paidCents);
   if (isAccepted) await renderSignature(cursor, invoice.accepted_by_name, invoice.accepted_at, invoice.accepted_signature_svg);
 
+  renderInstalledAssets(cursor, installedAssets);
   renderNotes(cursor, invoice.notes);
   renderFinePrint(cursor, invoice.fine_print_text);
   renderBankDetails(cursor, tenant);

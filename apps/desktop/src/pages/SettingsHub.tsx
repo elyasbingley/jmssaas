@@ -21,6 +21,7 @@ const TILES = [
   { to: "/settings/whatsapp-templates", label: "WhatsApp Templates", emoji: "🟢" },
   { to: "/settings/client-tags", label: "Client Tags", emoji: "🏷️" },
   { to: "/settings/job-setup", label: "Job Setup", emoji: "🛠️" },
+  { to: "/settings/asset-types", label: "Asset Types", emoji: "🔥" },
   { to: "/settings/job-templates", label: "Job Templates", emoji: "📝" },
   { to: "/settings/bundles", label: "Bundles", emoji: "📦" },
   { to: "/settings/leak-check-templates", label: "Leak Check Templates", emoji: "🔧" },

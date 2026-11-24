@@ -1932,7 +1932,9 @@ export default function JobDetailPage() {
 
       <AssetsSection
         owner={job.property_id ? { type: "property", id: job.property_id } : { type: "client", id: job.client_id }}
-        title={job.property_id ? "Property assets" : "Client assets"}
+        title={job.property_id ? "Property assets - tick the services done on this job" : "Client assets - tick the services done on this job"}
+        jobCardId={job.id}
+        jobSiteId={job.property_id ? null : job.site_id ?? null}
       />
 
       <QuoteToolsSection jobCardId={id!} />

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PriceBookAssetSettings, type PriceBookAssetFields } from "../components/PriceBookAssetSettings";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -545,6 +546,8 @@ function PriceBookItemForm({
       <ThemedButton onClick={() => save.mutate()} disabled={save.isPending} style={{ paddingBlock: 12, paddingInline: 24 }}>
         {save.isPending ? "Saving..." : "Save changes"}
       </ThemedButton>
+
+      <PriceBookAssetSettings itemId={id} item={item as PriceBookAssetFields} />
 
       <h2 className="mb-2 mt-8 font-bold uppercase tracking-wide" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-label)", letterSpacing: "0.1em" }}>
         Variations

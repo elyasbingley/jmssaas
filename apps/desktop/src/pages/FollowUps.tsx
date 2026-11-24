@@ -25,7 +25,7 @@ import { ThemedBadge } from "../components/theme/ThemedBadge";
 // time - plus the storm morning button, everyone currently in a sequence,
 // and the code for the website's sign-up forms.
 
-type Tab = "storm_checklist" | "storm_morning" | "quote_quiet" | "people" | "website";
+type Tab = FollowUpSequenceKey | "people" | "website";
 type Enrolment = FollowUpEnrolment & { clients: { name: string } | null };
 interface TenantFollowUpSettings {
   sms_phone_number: string | null;
@@ -43,6 +43,8 @@ const SEQUENCE_TITLES: Record<FollowUpSequenceKey, string> = {
   storm_checklist: "1. Storm checklist sign-up",
   storm_morning: "3. The morning after a storm",
   quote_quiet: "4. Quotes that go quiet",
+  asset_service: "Asset service reminders",
+  asset_replacement: "Asset replacement reminders",
 };
 
 function when(iso: string | null): string {
@@ -124,6 +126,8 @@ export default function FollowUpsPage() {
     { key: "storm_checklist", label: "1. Storm checklist" },
     { key: "storm_morning", label: "3. Storm morning" },
     { key: "quote_quiet", label: "4. Quiet quotes" },
+    { key: "asset_service", label: "Service due" },
+    { key: "asset_replacement", label: "Replacement due" },
     { key: "people", label: "Who's in a sequence" },
     { key: "website", label: "Website forms" },
   ];
@@ -176,6 +180,8 @@ export default function FollowUpsPage() {
           <PeopleTab sequences={sequences.data} steps={steps.data} enrolments={enrolments.data} />
         ) : tab === "website" ? (
           <WebsiteTab tenant={tenant.data} />
+        ) : !seq(tab) ? (
+          <p style={muted}>This sequence isn't set up yet - run the latest database update (supabase db push).</p>
         ) : (
           <SequenceTab
             key={tab}
@@ -296,6 +302,10 @@ function SequenceTab({ sequence, steps, tenant, enrolments }: { sequence: Follow
     checklist_link: settings.checklist_link || "[checklist link]",
     video_link: d.video_link || "[video link]",
     guarantee: settings.guarantee || "[guarantee]",
+    items: "hot water system (relief valve check) and gutters (gutter clean)",
+    address: "4 Sample St, Blacktown",
+    item: "hot water system",
+    age: "11",
   });
 
   const live = enrolments.filter((e) => !e.is_test);
@@ -311,6 +321,10 @@ function SequenceTab({ sequence, steps, tenant, enrolments }: { sequence: Follow
     storm_checklist: "Starts when someone signs up at bingleytrades.com.au/storm-check (see Website forms). The day 0 text goes straight away, or at 8:30am if they sign up overnight.",
     storm_morning: "One text, sent when you press the button on the morning after a storm. Nobody gets more than one storm text in 14 days.",
     quote_quiet: "Starts when a quote is sent to a client with a mobile. Days count from the day the quote was sent. Stops if they accept, decline, reply, book or text STOP. A newer quote replaces it.",
+    asset_service:
+      "From the asset register: sent each morning for a client's assets with a service due in the next few weeks (each type's reminder lead time, set in Settings > Asset types). One text per client per address, listing everything due there. Agency properties go to the property manager by email instead (Real Estate & Strata).",
+    asset_replacement:
+      "From the asset register: sent once per asset when it reaches its type's 'replace around' age (Settings > Asset types). Never repeats for the same asset. Agency properties are skipped.",
   };
 
   return (
@@ -508,7 +522,7 @@ function TestRuns({ sequence, steps, tenant, enrolments, dirty }: { sequence: Fo
               {start.isPending ? "Starting..." : "Start a test run"}
             </ThemedButton>
             <span style={muted}>
-              Uses sample details (your first name, Blacktown{sequence.key === "quote_quiet" ? ", a $650.00 roof leak repair" : ""}). Reply to a test text to see it stop.
+              Uses sample details (your first name, Blacktown{sequence.key === "quote_quiet" ? ", a $650.00 roof leak repair" : sequence.key === "asset_service" ? ", a hot water system and gutters due" : sequence.key === "asset_replacement" ? ", an 11 year old hot water system" : ""}). Reply to a test text to see it stop.
             </span>
           </div>
         )}
