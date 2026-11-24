@@ -12029,8 +12029,13 @@ register:
    `powersync/sync-rules.yaml` and deploy. Until you do, phones don't see
    assets. The migration adds the asset tables to the `powersync`
    publication if it lists tables one by one.
-3. **Phones:** run `eas update`, or do the next build. There are no new
-   native parts.
+3. **Phones:** send an update (there are no new native parts):
+   ```bash
+   cd apps/mobile
+   npx eas-cli update --channel preview --platform android --message "..."
+   ```
+   Keep `--platform android`: without it Expo also tries a web build,
+   which fails on the photo viewer.
 4. **Desktop** deploys from `main` as usual.
 5. **Before switching reminders on:**
    - check the service plans in Settings > Asset types;
@@ -12166,9 +12171,15 @@ follow-up texts.
    else needs scheduling.
 2. No PowerSync change is needed: the visits are ordinary jobs. On the
    phone they show in the To book stage like any other job.
-3. **Phones:** `eas update` so tapping the "recurring jobs to book"
+3. **Phones:** send an update so tapping the "recurring jobs to book"
    notification opens the job. This is optional; the notification still
    arrives without it.
+   ```bash
+   cd apps/mobile
+   npx eas-cli update --channel preview --platform android --message "..."
+   ```
+   Keep `--platform android`: without it Expo also tries a web build,
+   which fails on the photo viewer.
 4. **Desktop** deploys from `main` as usual.
 5. **Before switching the text on:** set up one recurring job, then send a
    test from **Follow-ups > Recurring due** to your own number.
