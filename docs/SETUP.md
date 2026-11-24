@@ -12012,13 +12012,16 @@ register:
 1. **Database and functions** (from the project folder):
    ```bash
    git pull origin main
-   npx supabase db push
+   npx supabase db push --remote
    npx supabase functions deploy process-follow-ups --no-verify-jwt
    npx supabase functions deploy process-real-estate-maintenance --no-verify-jwt
    npx supabase functions deploy process-scheduled-comms --no-verify-jwt
    ```
-   Use `db push --linked` if the CLI asks which database. Deploy each
-   function with the same flag you used for it before.
+   `--remote` sends it to your live project. Without it, newer CLIs try a
+   local database and fail with "connect ECONNREFUSED 127.0.0.1:54322".
+   Run `db push` before the sync rules step: PowerSync warns "Table not
+   found" until the tables exist. Deploy each function with the same flag
+   you used for it before.
    - `process-follow-ups` (already scheduled every 5 minutes) now also
      picks up asset reminders.
    - The other two now read service due dates from the register.
