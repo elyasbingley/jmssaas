@@ -12219,3 +12219,147 @@ follow-up texts.
   resume, the client page, skip, and the Follow-ups tab.
 - **Not checked:** real texts and push notifications. Test with your own
   number first.
+
+## 103. JMS API and MCP server (Nebula and other AI tools)
+
+Outside tools can work with JMS through the `jms-api` function, either as a
+REST API (with an OpenAPI spec) or as an MCP server, using an API key you
+control. It was built for Nebula, but any tool that takes an OpenAPI spec or
+an MCP server URL can use it.
+
+### What it can do
+
+| Permission (ticked on the key) | Tools |
+|---|---|
+| Look things up | `search_clients`, `get_client`, `search_jobs`, `get_job`, `list_team_and_stages`, `check_availability`, `search_price_book` |
+| Create and book jobs | `create_job`, `schedule_job` |
+| Add job notes | `add_job_note` |
+| Create draft quotes | `create_draft_quote` |
+| Text and email | `send_sms`, `send_email` |
+
+**What each lookup returns:**
+- **`get_client`:** contact details, other addresses, contacts, recent jobs,
+  quotes, invoices with what's owing, assets with service due dates, and
+  recurring services.
+- **`check_availability`:** everyone's bookings on a day, and their free gaps
+  between 7am and 5pm.
+
+**Booking (`schedule_job`):**
+- It books the way Dispatch does: a calendar event for the job, plus the
+  technician assigned.
+- Times are Sydney time, e.g. `2026-12-03T09:00`.
+- It reports any clash in that technician's day.
+- `move_existing` moves the job's next booking instead of adding another.
+- Bookings reach Google Calendar through the hourly catch-up sync.
+
+**Draft quotes:**
+- They are **drafts only**. Nothing is sent; you check them and send them from
+  JMS.
+- Price book items use their current price, worked out the same way as on
+  the desktop.
+- Typed lines take a price each, in dollars excluding GST.
+
+**Job notes** end with "- via (key name)", so you can see which ones came
+from the AI.
+
+**Texts and emails:**
+- They only go to people already in JMS: the client, their contacts, or the
+  team.
+- They're sent from your SMS number and your email address.
+- Texts are logged in Channels, so replies thread there.
+- Clients who've opted out (STOP) aren't texted.
+
+**What no key can do:** take payments, delete anything, or send quotes or
+invoices.
+
+### Setting up Nebula
+
+1. Deploy (below).
+2. In JMS go to **Settings > API keys** and create a key called "Nebula". Tick
+   what it can do; "Text and email" is off by default. Copy the key: it's
+   shown once only.
+3. In Nebula, add JMS as an **MCP server** (best). Use the MCP server URL
+   shown on the API keys page:
+   `https://<project>.supabase.co/functions/v1/jms-api/mcp`.
+   - Authentication: the API key as a Bearer token
+     (`Authorization: Bearer jms_...`).
+   - Or add it as a **custom API** using the OpenAPI spec URL,
+     `.../jms-api/openapi.json`, with the same key.
+4. Try it read-only first, e.g. "look up Nina Nebula's jobs". Then try a
+   draft quote and a booking on a test client.
+
+Every call (who, what, and whether it worked) shows under **Recent activity**
+on the API keys page. **Revoke** stops a key immediately.
+
+### Security
+
+- Only a SHA-256 hash of each key is stored.
+- A key only reaches its own company. Every query is limited to that
+  company by hand, because the function uses the service role.
+- A key only does what was ticked on it. Asked for anything else, the API
+  refuses with a message saying which permission is missing.
+- Limits: 120 calls a minute per key (`JMS_API_RATE_LIMIT`), at most 50 lines
+  per quote, and capped text lengths.
+- Work done through a key is recorded as done by the admin who created it.
+- Only admins can create or revoke keys and see the activity.
+
+### Also changed: "booked" means on the calendar
+
+JMS books jobs as calendar events, so the following now count a job as
+booked once it's on the calendar:
+- the follow-up rule "stops when a job is booked";
+- the recurring jobs "Skip this visit" rule;
+- the "booked" label on the Recurring box.
+
+### What you need to do once
+
+```bash
+git pull origin main
+npx supabase db push --remote
+npx supabase functions deploy jms-api --no-verify-jwt
+```
+
+- `--no-verify-jwt` is needed because the API key, not a Supabase login, is
+  what signs requests in.
+- The function uses the `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+  Twilio secrets already set for your other functions.
+- The desktop deploys from `main` as usual. No phone or PowerSync change.
+
+### Where it lives
+
+- Migration `20261127000100_api_keys.sql`:
+  - `api_keys` and `api_request_log`;
+  - `create_api_key` / `revoke_api_key`;
+  - the "booked" fix.
+- `supabase/functions/jms-api/`:
+  - `index.ts`: keys, logging, REST, OpenAPI and MCP;
+  - `actions.ts`: the tools;
+  - `pricing.ts`: a copy of the line pricing, kept identical by
+    `packages/shared/test/api-pricing.test.mjs`.
+- `apps/desktop/src/pages/ApiKeys.tsx`.
+
+### How this was verified
+
+- **The function, under Deno against a local database (Twilio faked), 53
+  checks:**
+  - keys: missing, wrong, revoked, and the `x-api-key` header;
+  - searching by name, street, and phone with or without spaces;
+  - other companies' data refused;
+  - every tool;
+  - permissions per key;
+  - Sydney time conversion and clashes;
+  - quote totals: 6 m at $276, a $120 call-out and a $300 GST-free skip come
+    to $2,076 + $177.60 GST;
+  - texts to a client, a contact and staff; unknown numbers and opted-out
+    clients refused;
+  - email queueing;
+  - MCP: initialize, tools list per key, tool calls, errors, batches, and no
+    key;
+  - the activity log.
+- **Database:** only admins create or revoke keys; another company can't
+  see or revoke them; the booked fix.
+- **Desktop (headless browser):** create a key, use it, it's hidden after a
+  reload, revoke it, and the activity list.
+- **Not checked:** Nebula itself, and real texts and emails. Connect Nebula
+  with a key that can only look things up first, and check the activity
+  list.

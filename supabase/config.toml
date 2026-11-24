@@ -97,3 +97,6 @@ verify_jwt = false
 [functions.process-follow-ups]
 verify_jwt = false
 
+
+[functions.jms-api]
+verify_jwt = false

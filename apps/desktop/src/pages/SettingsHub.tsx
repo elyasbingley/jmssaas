@@ -22,6 +22,7 @@ const TILES = [
   { to: "/settings/client-tags", label: "Client Tags", emoji: "🏷️" },
   { to: "/settings/job-setup", label: "Job Setup", emoji: "🛠️" },
   { to: "/settings/asset-types", label: "Asset Types", emoji: "🔥" },
+  { to: "/settings/api-keys", label: "API Keys", emoji: "🔑" },
   { to: "/settings/job-templates", label: "Job Templates", emoji: "📝" },
   { to: "/settings/bundles", label: "Bundles", emoji: "📦" },
   { to: "/settings/leak-check-templates", label: "Leak Check Templates", emoji: "🔧" },

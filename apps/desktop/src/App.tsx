@@ -7,6 +7,7 @@ import DashboardSettingsPage from "./pages/DashboardSettings";
 import ClientsPage from "./pages/Clients";
 import AssetsPage from "./pages/Assets";
 import AssetTypesPage from "./pages/AssetTypes";
+import ApiKeysPage from "./pages/ApiKeys";
 import ClientImportPage from "./pages/ClientImport";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
@@ -191,6 +192,7 @@ export default function App() {
                 <Route path="/settings/ui-settings" element={<UISettingsPage />} />
                 <Route path="/settings/automation" element={<AutomationSettingsPage />} />
                 <Route path="/settings/asset-types" element={<AssetTypesPage />} />
+                <Route path="/settings/api-keys" element={<ApiKeysPage />} />
                 <Route path="/settings/sms-templates" element={<SmsTemplatesPage />} />
                 <Route path="/settings/whatsapp-templates" element={<WhatsappTemplatesPage />} />
                 <Route path="/settings/client-tags" element={<ClientTagsPage />} />

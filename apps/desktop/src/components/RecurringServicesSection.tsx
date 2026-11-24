@@ -35,6 +35,7 @@ interface Visit {
   recurring_service_id: string;
   recurring_due_on: string;
   scheduled_at: string | null;
+  booked: boolean;
   stage: string | null;
   closed: boolean;
 }
@@ -85,7 +86,11 @@ export function RecurringServicesSection(props: { job: RecurringJob } | { client
         scheduled_at: string | null;
         job_lifecycle_stages: { name: string; is_closed: boolean } | null;
       }>("job_cards", "id, number, recurring_service_id, recurring_due_on, scheduled_at, job_lifecycle_stages(name, is_closed)", (q) => q.in("recurring_service_id", ids));
-      return rows.map((r) => ({ ...r, stage: r.job_lifecycle_stages?.name ?? null, closed: !!r.job_lifecycle_stages?.is_closed })) as Visit[];
+      // Booked = on the calendar (how JMS books jobs) or scheduled_at set.
+      const onCalendar = new Set(
+        rows.length ? (await fetchAllRows<{ job_card_id: string }>("calendar_events", "job_card_id", (q) => q.in("job_card_id", rows.map((r) => r.id)))).map((e) => e.job_card_id) : []
+      );
+      return rows.map((r) => ({ ...r, booked: !!r.scheduled_at || onCalendar.has(r.id), stage: r.job_lifecycle_stages?.name ?? null, closed: !!r.job_lifecycle_stages?.is_closed })) as Visit[];
     },
   });
 
@@ -110,7 +115,8 @@ export function RecurringServicesSection(props: { job: RecurringJob } | { client
   });
 
   const thisVisitService = job?.recurring_service_id ? (services ?? []).find((s) => s.id === job.recurring_service_id) : null;
-  const canSkip = !!job?.recurring_service_id && !job.scheduled_at;
+  const thisVisitBooked = !!job?.scheduled_at || !!(visits ?? []).find((v) => v.id === job?.id)?.booked;
+  const canSkip = !!job?.recurring_service_id && !thisVisitBooked && !!visits;
   const list = services ?? [];
   if (!job && list.length === 0) return null;
 
@@ -143,7 +149,7 @@ export function RecurringServicesSection(props: { job: RecurringJob } | { client
       {thisVisitService && job?.recurring_due_on ? (
         <p className="mb-2" style={body}>
           This is the {fmtDay(job.recurring_due_on)} visit of <strong>{thisVisitService.title}</strong>, {describeRepeat(thisVisitService.interval_count, thisVisitService.interval_unit)}.
-          {job.scheduled_at ? "" : " Not booked yet."}
+          {thisVisitBooked ? "" : " Not booked yet."}
         </p>
       ) : null}
       {error || setStatus.error || skip.error ? (
@@ -220,7 +226,7 @@ export function RecurringServicesSection(props: { job: RecurringJob } | { client
                   Visits:
                   {mine.slice(0, 6).map((v) => (
                     <Link key={v.id} to={`/jobs/${v.id}`} className="hover:underline" style={{ color: v.id === job?.id ? "var(--jms-text)" : "var(--jms-accent)" }}>
-                      {fmtDay(v.recurring_due_on)} {v.closed ? "done" : v.scheduled_at ? "booked" : (v.stage ?? "to book").toLowerCase()}
+                      {fmtDay(v.recurring_due_on)} {v.closed ? "done" : v.booked ? "booked" : (v.stage ?? "to book").toLowerCase()}
                     </Link>
                   ))}
                 </div>
