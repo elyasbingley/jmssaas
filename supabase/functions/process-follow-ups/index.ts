@@ -211,6 +211,50 @@ async function run(admin: SupabaseClient, opts: { enrolmentId?: string; force?: 
   return { claimed, sent, failed };
 }
 
+// Creates the recurring visits that have come within their lead time and
+// tells each company's admins how many are waiting to be booked.
+interface NewRecurringJob {
+  tenant_id: string;
+  job_card_id: string;
+  title: string;
+  client: string | null;
+  due_on: string;
+}
+
+async function createRecurringJobs(admin: SupabaseClient): Promise<number> {
+  const { data, error } = await admin.rpc("recurring_jobs_generate");
+  if (error) {
+    console.error("[process-follow-ups] recurring jobs failed", error);
+    return 0;
+  }
+  const jobs = (data ?? []) as NewRecurringJob[];
+  const byTenant = new Map<string, NewRecurringJob[]>();
+  for (const j of jobs) byTenant.set(j.tenant_id, [...(byTenant.get(j.tenant_id) ?? []), j]);
+  for (const [tenantId, list] of byTenant) {
+    try {
+      const { data: admins } = await admin.from("profiles").select("id").eq("tenant_id", tenantId).eq("role", "admin");
+      const recipients = (admins ?? []).map((p: { id: string }) => p.id);
+      if (recipients.length === 0) continue;
+      const names = list.slice(0, 3).map((j) => `${j.title}${j.client ? ` - ${j.client}` : ""}`);
+      await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          recipient_profile_ids: recipients,
+          type: "recurring_jobs",
+          title: list.length === 1 ? "1 recurring job to book" : `${list.length} recurring jobs to book`,
+          body: names.join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : ""),
+          data: { job_card_id: list[0]!.job_card_id, count: list.length },
+        }),
+      });
+    } catch (e) {
+      console.error("[process-follow-ups] recurring jobs notification failed", e);
+    }
+  }
+  return jobs.length;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -225,13 +269,17 @@ Deno.serve(async (req: Request) => {
       // The scheduled run also queues asset service / replacement reminders
       // that have come due (asset_register migration). Only on the
       // schedule's sweep, not a single sign-up's first text.
+      // Recurring jobs (recurring_jobs migration) are created here too, before
+      // the texts go, so a new visit's confirm text goes in this same run.
       let reminders: unknown = null;
+      let recurring = 0;
       if (!body.enrolment_id) {
+        recurring = await createRecurringJobs(admin);
         const { data, error } = await admin.rpc("asset_reminders_enrol");
         if (error) console.error("[process-follow-ups] asset reminders failed", error);
         reminders = data;
       }
-      return json({ ok: true, reminders, ...(await run(admin, { enrolmentId: body.enrolment_id })) });
+      return json({ ok: true, reminders, recurring, ...(await run(admin, { enrolmentId: body.enrolment_id })) });
     }
 
     // A signed-in admin.

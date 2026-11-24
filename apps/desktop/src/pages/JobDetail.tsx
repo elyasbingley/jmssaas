@@ -72,6 +72,7 @@ import { SendSmsModal, type PhoneOption } from "../components/channels/SendSmsMo
 import { QuoteToolsSection } from "../components/quote-tools/QuoteToolsSection";
 import { JobMembershipBenefitSection } from "../components/JobMembershipBenefitSection";
 import { AssetsSection } from "../components/AssetsSection";
+import { RecurringServicesSection } from "../components/RecurringServicesSection";
 import { RealEstateAssignmentModal } from "../components/RealEstateAssignmentModal";
 import { WorkOrderNumberModal } from "../components/WorkOrderNumberModal";
 import { referralPartnerLabel } from "../components/ReferralPartnerModal";
@@ -1496,6 +1497,8 @@ export default function JobDetailPage() {
           </ThemedButton>
         </div>
       </ThemedModal>
+
+      <RecurringServicesSection job={job} />
 
       <h2 className="mb-2 font-bold uppercase tracking-wide" style={{ color: "var(--jms-text-muted)", fontSize: "var(--jms-font-label)" }}>
         Billing

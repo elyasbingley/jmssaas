@@ -12084,3 +12084,127 @@ register:
   - its local queries run against SQLite.
 - **Not checked:** a real PowerSync sync and photo upload from a device,
   and real texts. Check those with a test job and your test number.
+
+## 102. Recurring jobs (gutter cleans and any ongoing service)
+
+For ongoing work that comes round on a schedule: gutter cleans, backflow
+tests, filter changes, roof inspections, or any other service.
+
+### Setting one up
+
+Open a job and press **Make this recurring** (in the Recurring box, above
+Billing). Then choose:
+
+- **Title and description:** these go on every visit's job.
+- **Repeats every N weeks or months.**
+  - Counted from each due date, so a visit done late doesn't push the
+    schedule out.
+- **Next visit due:** suggested as one interval after the job was done.
+- **Days before:** how far ahead each visit's job is created (28 by
+  default).
+- **Line items:** copied from the job's invoice, or its accepted quote if
+  there's no invoice.
+  - Change quantities and prices, add or remove lines.
+  - Prices stay as saved until you change them here.
+- **Looks after an asset's service** (optional), e.g. "Main roof - Gutter
+  clean":
+  - completing each visit ticks that service off in the asset register;
+  - the asset's own "service due" text is skipped, so the client isn't
+    texted twice.
+- **Text the client:** on by default. Not offered for agency jobs.
+
+Only admins can set up, edit, pause or stop recurring jobs.
+
+### What happens each time
+
+That many days before each due date (checked every 5 minutes by
+`process-follow-ups`), the next visit's job is created:
+
+- **Stage:** it goes in **To book**. That stage is added straight after your
+  first stage the first time it's needed, and you can rename it.
+- **Job details:** same client, address, category, title and description.
+  For agency jobs, the same agency, property manager and property.
+- **Draft invoice:** has the saved line items, ready to send once the work
+  is done. Drafts never go to Xero.
+- **Office notification:** "3 recurring jobs to book". On the phone, tapping
+  it opens the job or the jobs list.
+- **Confirm text** to the client: "Hi {first_name}, Elyas here. Your
+  {service} at {address} is due around {due_date}. Does that suit? Reply
+  with a day that works and I'll book you in. Reply STOP to opt out".
+  - Edit the wording under **Follow-ups > Recurring due**.
+  - It's **off** until you switch it on there.
+  - Replies land in Channels for you to book.
+  - It follows the usual 8:30am to 6pm window, STOP and opt-out rules.
+
+If there's no reply, the job stays in To book for you to ring them. An
+unbooked visit doesn't count as "a job booked" for the client's other
+follow-up texts.
+
+### Managing them
+
+- **The job it was set up from, and each visit's job:** the Recurring box
+  shows how often it repeats, the next due dates, the price per visit and
+  past visits. It has **Edit**, **Pause** / **Resume** and **Stop**.
+  - Paused: no visits are created.
+  - Resumed after a long pause: it picks up from the latest due date
+    rather than creating every missed visit.
+- **On an unbooked visit:** **Skip this visit** removes that job and its
+  draft invoice and stops its text. The next visit still comes round on
+  schedule.
+  - It isn't offered once the visit is booked, invoiced or paid.
+  - The skipped draft's invoice number isn't reused.
+- **The client page** lists all their recurring jobs.
+
+### What you need to do once
+
+1. ```bash
+   git pull origin main
+   npx supabase db push --remote
+   npx supabase functions deploy process-follow-ups --no-verify-jwt
+   ```
+   `process-follow-ups` is already scheduled every 5 minutes, so nothing
+   else needs scheduling.
+2. No PowerSync change is needed: the visits are ordinary jobs. On the
+   phone they show in the To book stage like any other job.
+3. **Phones:** `eas update` so tapping the "recurring jobs to book"
+   notification opens the job. This is optional; the notification still
+   arrives without it.
+4. **Desktop** deploys from `main` as usual.
+5. **Before switching the text on:** set up one recurring job, then send a
+   test from **Follow-ups > Recurring due** to your own number.
+
+### Where it lives
+
+- Migration `20261125000100_recurring_jobs.sql`:
+  - the `recurring_services` table, and `job_cards.recurring_service_id` /
+    `recurring_due_on`;
+  - `recurring_jobs_generate` (the sweep), `recurring_create_job`,
+    `recurring_skip_visit` and `recurring_line_items_from_job`;
+  - the asset service tick on completion;
+  - the "recurring_confirm" text.
+- `packages/shared/src/recurring.ts` (with tests).
+- `apps/desktop/src/components/RecurringServicesSection.tsx`.
+- The sweep call in `supabase/functions/process-follow-ups`.
+
+### How this was verified
+
+- **Database** (local Postgres):
+  - line items copied from an invoice (a void one ignored) and from an
+    accepted quote (left-out lines skipped);
+  - jobs created on time: weekly, monthly, paused, far off, and a service
+    100 days behind catching up;
+  - the To book stage, and the draft invoice and its totals;
+  - next due dates, and running twice;
+  - texts only when switched on; none for agency jobs or with the text off;
+  - unbooked visits not counting as a booking;
+  - completing a visit ticks the asset's service, and the asset text is
+    skipped while linked;
+  - skip rules;
+  - permissions: technicians and another company.
+- **Function** (under Deno, Twilio faked): two visits created, both texts
+  sent, one office notification, nothing new on a second run.
+- **Desktop** (headless browser): make recurring with edited lines and an
+  asset link, the sweep's visit with its draft invoice, edit, pause and
+  resume, the client page, skip, and the Follow-ups tab.
+- **Not checked:** real texts and push notifications. Test with your own
+  number first.

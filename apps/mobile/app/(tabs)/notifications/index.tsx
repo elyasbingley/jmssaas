@@ -19,6 +19,7 @@ function routeForNotification(n: Notification): string | null {
   if (n.type === "quote_accepted" || n.type === "quote_viewed") return `/sales/quotes/${n.data.quote_id}`;
   if (n.type === "invoice_accepted") return `/sales/invoices/${n.data.invoice_id}`;
   if (n.type === "lead_signup") return `/jobs/${n.data.job_card_id}`;
+  if (n.type === "recurring_jobs") return n.data.count === 1 ? `/jobs/${n.data.job_card_id}` : "/jobs";
   return null;
 }
 

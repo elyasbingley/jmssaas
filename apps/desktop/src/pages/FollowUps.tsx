@@ -45,6 +45,7 @@ const SEQUENCE_TITLES: Record<FollowUpSequenceKey, string> = {
   quote_quiet: "4. Quotes that go quiet",
   asset_service: "Asset service reminders",
   asset_replacement: "Asset replacement reminders",
+  recurring_confirm: "Recurring job due",
 };
 
 function when(iso: string | null): string {
@@ -128,6 +129,7 @@ export default function FollowUpsPage() {
     { key: "quote_quiet", label: "4. Quiet quotes" },
     { key: "asset_service", label: "Service due" },
     { key: "asset_replacement", label: "Replacement due" },
+    { key: "recurring_confirm", label: "Recurring due" },
     { key: "people", label: "Who's in a sequence" },
     { key: "website", label: "Website forms" },
   ];
@@ -306,6 +308,8 @@ function SequenceTab({ sequence, steps, tenant, enrolments }: { sequence: Follow
     address: "4 Sample St, Blacktown",
     item: "hot water system",
     age: "11",
+    service: "gutter clean",
+    due_date: "14 March",
   });
 
   const live = enrolments.filter((e) => !e.is_test);
@@ -325,6 +329,8 @@ function SequenceTab({ sequence, steps, tenant, enrolments }: { sequence: Follow
       "From the asset register: sent each morning for a client's assets with a service due in the next few weeks (each type's reminder lead time, set in Settings > Asset types). One text per client per address, listing everything due there. Agency properties go to the property manager by email instead (Real Estate & Strata).",
     asset_replacement:
       "From the asset register: sent once per asset when it reaches its type's 'replace around' age (Settings > Asset types). Never repeats for the same asset. Agency properties are skipped.",
+    recurring_confirm:
+      "Sent when a recurring job's next visit is created (4 weeks before it's due, or whatever the recurring job says). One text per visit, asking if the week suits - replies land in Channels for you to book it. Not sent for agency jobs, or a recurring job with its text turned off.",
   };
 
   return (
@@ -522,7 +528,7 @@ function TestRuns({ sequence, steps, tenant, enrolments, dirty }: { sequence: Fo
               {start.isPending ? "Starting..." : "Start a test run"}
             </ThemedButton>
             <span style={muted}>
-              Uses sample details (your first name, Blacktown{sequence.key === "quote_quiet" ? ", a $650.00 roof leak repair" : sequence.key === "asset_service" ? ", a hot water system and gutters due" : sequence.key === "asset_replacement" ? ", an 11 year old hot water system" : ""}). Reply to a test text to see it stop.
+              Uses sample details (your first name, Blacktown{sequence.key === "quote_quiet" ? ", a $650.00 roof leak repair" : sequence.key === "asset_service" ? ", a hot water system and gutters due" : sequence.key === "asset_replacement" ? ", an 11 year old hot water system" : sequence.key === "recurring_confirm" ? ", a gutter clean due 14 March" : ""}). Reply to a test text to see it stop.
             </span>
           </div>
         )}

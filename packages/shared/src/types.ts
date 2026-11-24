@@ -2585,7 +2585,13 @@ export interface NoteAttachment {
 // Supabase-direct/polled rather than PowerSync-synced.
 // ---------------------------------------------------------------------------
 
-export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup";
+// New recurring visits waiting to be booked (recurring_jobs migration).
+export interface RecurringJobsNotificationData {
+  job_card_id: string;
+  count: number;
+}
+
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup" | "recurring_jobs";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2629,7 +2635,8 @@ export type Notification =
   // The client opened their quote link (first time, or back after a day).
   | (NotificationBase & { type: "quote_viewed"; data: QuoteAcceptedNotificationData })
   | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData })
-  | (NotificationBase & { type: "lead_signup"; data: LeadSignupNotificationData });
+  | (NotificationBase & { type: "lead_signup"; data: LeadSignupNotificationData })
+  | (NotificationBase & { type: "recurring_jobs"; data: RecurringJobsNotificationData });
 
 export interface PushToken {
   id: string;

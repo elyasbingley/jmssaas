@@ -24,6 +24,7 @@ import { ThemedFormField, ThemedTextAreaField } from "../components/theme/Themed
 import { CommunicationLog } from "../components/CommunicationLog";
 import { ClientMembershipSection } from "../components/ClientMembershipSection";
 import { AssetsSection } from "../components/AssetsSection";
+import { RecurringServicesSection } from "../components/RecurringServicesSection";
 
 async function fetchClient(id: string): Promise<Client> {
   const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
@@ -824,6 +825,9 @@ export default function ClientDetailPage() {
 
       <ClientMembershipSection clientId={id!} />
 
+      <div className="mt-6">
+        <RecurringServicesSection clientId={id!} />
+      </div>
       <AssetsSection owner={{ type: "client", id: id! }} />
 
       <div className="mt-6 rounded p-6" style={{ border: "1px solid var(--jms-border)", backgroundColor: "var(--jms-surface)" }}>
