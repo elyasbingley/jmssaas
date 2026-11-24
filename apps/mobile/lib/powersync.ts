@@ -16,6 +16,7 @@ import {
   SupabaseRemoteStorageAdapter,
   jobFileMetaData,
   leakCheckItemFileMetaData,
+  assetFileMetaData,
   taskFileMetaData,
   watchFileAttachments,
 } from "./attachments";
@@ -205,6 +206,47 @@ export async function addLeakCheckItemPhoto(params: {
           fileName,
           params.mediaType,
           attachment.size ?? null,
+          params.uploadedBy,
+          new Date().toISOString(),
+        ]
+      );
+    },
+  });
+}
+
+// Same pattern again, for asset register photos (data plate, the install).
+export async function addAssetPhoto(params: {
+  tenantId: string;
+  assetId: string;
+  uploadedBy: string;
+  imageArrayBuffer: ArrayBuffer;
+  mediaType: string;
+  fileExtension: string;
+  caption?: string | null;
+}): Promise<void> {
+  const id = uuidv4();
+  const fileName = `${id}.${params.fileExtension}`;
+
+  await attachmentQueue.saveFile({
+    id,
+    data: params.imageArrayBuffer,
+    fileExtension: params.fileExtension,
+    mediaType: params.mediaType,
+    metaData: assetFileMetaData(params.tenantId, params.assetId),
+    updateHook: async (tx: Transaction, attachment: AttachmentRecord) => {
+      await tx.execute(
+        `INSERT INTO asset_files
+           (id, tenant_id, asset_id, kind, storage_path, file_name, mime_type, size_bytes, caption, uploaded_by, created_at)
+         VALUES (?, ?, ?, 'photo', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          attachment.id,
+          params.tenantId,
+          params.assetId,
+          `${params.tenantId}/asset-${params.assetId}/${fileName}`,
+          fileName,
+          params.mediaType,
+          attachment.size ?? null,
+          params.caption ?? null,
           params.uploadedBy,
           new Date().toISOString(),
         ]

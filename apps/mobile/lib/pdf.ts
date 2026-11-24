@@ -354,6 +354,36 @@ function renderTotals(lineItems: LineItemFormInput[], balanceDueCents: number | 
   `;
 }
 
+// Asset register: what this job installed, with warranties and when it's
+// next due for a service (asset_register migration).
+export interface PdfAsset {
+  name: string;
+  detail: string;
+  installed: string | null;
+  location: string | null;
+  warranties: { label: string; until: string | null }[];
+  services: { name: string; next: string | null }[];
+}
+
+function renderInstalledAssets(assets: PdfAsset[] | undefined): string {
+  if (!assets?.length) return "";
+  const blocks = assets
+    .map((a) => {
+      const lines = [
+        a.detail,
+        a.location ? `Location: ${a.location}` : "",
+        a.warranties.length ? "Warranty: " + a.warranties.map((w) => `${w.label || "Warranty"} to ${w.until ? formatDate(w.until) : "-"}`).join("  ·  ") : "",
+        a.services.length ? "Servicing: " + a.services.map((s) => `${s.name}${s.next ? ` next due ${formatDate(s.next)}` : ""}`).join("  ·  ") : "",
+      ].filter(Boolean);
+      return `<div style="border-left: 3px solid #f5c518; background: #f9fafb; padding: 8px 12px; margin-bottom: 6px; break-inside: avoid; page-break-inside: avoid;">
+        <div style="display: flex; justify-content: space-between; font-size: 11px;"><strong>${escapeHtml(a.name)}</strong>${a.installed ? `<span style="color: #6b7280;">Installed ${formatDate(a.installed)}</span>` : ""}</div>
+        ${lines.map((l) => `<div style="font-size: 10px; color: #374151; margin-top: 2px;">${escapeHtml(l)}</div>`).join("")}
+      </div>`;
+    })
+    .join("");
+  return `<div class="section-title">Installed on this job</div>${blocks}`;
+}
+
 function renderNotes(notes: string | null): string {
   if (!notes) return "";
   return `
@@ -480,6 +510,7 @@ export function buildInvoicePdfHtml(params: {
   client: Client;
   lineItems: LineItemFormInput[];
   agencyBilling?: { ownerLandlordName: string | null; agencyName: string; billToLandlord?: boolean; ownerLandlordPhone?: string | null; ownerLandlordEmail?: string | null };
+  installedAssets?: PdfAsset[];
 }): string {
   const { tenant, invoice, client, lineItems, agencyBilling } = params;
   // Invoices don't have their own persisted "terms" field distinct from
@@ -513,6 +544,7 @@ export function buildInvoicePdfHtml(params: {
 
     ${renderItemsTable("invoice", lineItems)}
     ${renderTotals(lineItems, balanceDueCents, invoice.membership_discount_cents, false, paidCents)}
+    ${renderInstalledAssets(params.installedAssets)}
     ${renderNotes(invoice.notes)}
     ${renderFinePrint(invoice.fine_print_text)}
     ${renderBankDetails(tenant)}

@@ -87,6 +87,7 @@ import { MaterialTallyCounter } from "../../../components/MaterialTallyCounter";
 import { PhotoMarkupEditor } from "../../../components/PhotoMarkupEditor";
 import { ConcreteCalculatorTool } from "../../../components/ConcreteCalculatorTool";
 import { LeakCheckTool } from "../../../components/LeakCheckTool";
+import { JobAssetsSection } from "../../../components/JobAssetsSection";
 import { MaterialOrderFormTool } from "../../../components/MaterialOrderFormTool";
 import { TIER_LABELS, TRADE_LABELS } from "../../subcontractors/index";
 import { RequiresConnectionNotice } from "../../../components/RequiresConnectionNotice";
@@ -1570,6 +1571,11 @@ export default function JobDetailScreen() {
         ) : (
           <Text style={styles.empty}>No description yet. Tap Edit to add one.</Text>
         )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{job.property_id ? "Property assets" : "Client assets"}</Text>
+        <JobAssetsSection jobCardId={id} clientId={job.client_id ?? null} propertyId={job.property_id ?? null} siteId={job.site_id ?? null} />
       </View>
 
       <View style={styles.section}>

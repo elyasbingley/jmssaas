@@ -187,6 +187,17 @@ bucket_definitions:
       - select * from leak_check_templates where tenant_id = bucket.tenant_id
       - select * from leak_check_template_categories where tenant_id = bucket.tenant_id
       - select * from leak_check_template_items where tenant_id = bucket.tenant_id
+      # Asset register (asset_register migration): tenant-wide so a tech on
+      # any job sees the client's assets, ticks services and adds new ones
+      # offline. Insert/update is open to every member by RLS; delete is
+      # admin-only.
+      - select * from asset_types where tenant_id = bucket.tenant_id
+      - select * from property_assets where tenant_id = bucket.tenant_id
+      - select * from asset_warranties where tenant_id = bucket.tenant_id
+      - select * from asset_services where tenant_id = bucket.tenant_id
+      - select * from asset_service_records where tenant_id = bucket.tenant_id
+      - select * from asset_files where tenant_id = bucket.tenant_id
+      - select * from asset_warranty_claims where tenant_id = bucket.tenant_id
 
   admin_job_data:
     parameters: select tenant_id from profiles where id = request.user_id() and role = 'admin'

@@ -816,6 +816,128 @@ const timesheet_week_approvals = new Table(
   { indexes: { profile_week: ["profile_id", "week_start"] } }
 );
 
+// Asset register (asset_register migration) - tenant-wide like clients, so
+// a tech on any job can see and add to the client's assets offline. JSON
+// columns (fields, default_services, default_warranties, attributes) sync
+// as text; parse them on read.
+const asset_types = new Table({
+  tenant_id: column.text,
+  name: column.text,
+  icon: column.text,
+  category: column.text,
+  fields: column.text,
+  default_services: column.text,
+  default_warranties: column.text,
+  replace_after_years: column.real,
+  lead_days: column.integer,
+  sort_order: column.integer,
+  is_archived: column.integer,
+});
+
+const property_assets = new Table(
+  {
+    tenant_id: column.text,
+    property_id: column.text,
+    client_id: column.text,
+    site_id: column.text,
+    category: column.text,
+    asset_type_id: column.text,
+    asset_name: column.text,
+    attributes: column.text,
+    installed_on: column.text,
+    install_year: column.integer,
+    location: column.text,
+    notes: column.text,
+    status: column.text,
+    removed_on: column.text,
+    removed_reason: column.text,
+    replaced_by_asset_id: column.text,
+    installed_by_job_id: column.text,
+    source_line_key: column.text,
+    needs_details: column.integer,
+    replacement_reminded_at: column.text,
+    created_by: column.text,
+    created_at: column.text,
+    updated_at: column.text,
+  },
+  { indexes: { client: ["client_id"], job: ["installed_by_job_id"] } }
+);
+
+const asset_warranties = new Table(
+  {
+    tenant_id: column.text,
+    asset_id: column.text,
+    kind: column.text,
+    label: column.text,
+    starts_on: column.text,
+    expires_on: column.text,
+    notes: column.text,
+    created_at: column.text,
+  },
+  { indexes: { asset: ["asset_id"] } }
+);
+
+const asset_services = new Table(
+  {
+    tenant_id: column.text,
+    asset_id: column.text,
+    name: column.text,
+    interval_months: column.integer,
+    last_done_on: column.text,
+    next_due_on: column.text,
+    notes: column.text,
+    created_at: column.text,
+  },
+  { indexes: { asset: ["asset_id"] } }
+);
+
+const asset_service_records = new Table(
+  {
+    tenant_id: column.text,
+    asset_id: column.text,
+    service_id: column.text,
+    job_card_id: column.text,
+    done_on: column.text,
+    done_by: column.text,
+    note: column.text,
+    created_at: column.text,
+  },
+  { indexes: { asset: ["asset_id"], job: ["job_card_id"] } }
+);
+
+const asset_files = new Table(
+  {
+    tenant_id: column.text,
+    asset_id: column.text,
+    kind: column.text,
+    storage_path: column.text,
+    file_name: column.text,
+    mime_type: column.text,
+    size_bytes: column.integer,
+    caption: column.text,
+    uploaded_by: column.text,
+    created_at: column.text,
+  },
+  { indexes: { asset: ["asset_id"] } }
+);
+
+const asset_warranty_claims = new Table(
+  {
+    tenant_id: column.text,
+    asset_id: column.text,
+    warranty_id: column.text,
+    job_card_id: column.text,
+    lodged_on: column.text,
+    claim_with: column.text,
+    reference: column.text,
+    status: column.text,
+    parts_supplied: column.text,
+    notes: column.text,
+    created_at: column.text,
+  },
+  { indexes: { asset: ["asset_id"] } }
+);
+
 // Tracks local download/upload state for job_files/task_files attachments
 // (photos). See lib/attachments.ts in apps/mobile for the queue that drives
 // this - one AttachmentTable is shared by both, since PowerSync's queue is
@@ -861,6 +983,13 @@ export const AppSchema = new Schema({
   timesheet_shifts,
   timesheet_activities,
   timesheet_week_approvals,
+  asset_types,
+  property_assets,
+  asset_warranties,
+  asset_services,
+  asset_service_records,
+  asset_files,
+  asset_warranty_claims,
   attachments,
 });
 

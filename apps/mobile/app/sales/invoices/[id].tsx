@@ -11,6 +11,7 @@ import { supabase } from "../../../lib/supabase";
 import { getErrorMessage } from "../../../lib/errors";
 import { triggerImmediateDispatch } from "../../../lib/dispatch-now";
 import { buildInvoicePdfHtml } from "../../../lib/pdf";
+import { fetchInstalledAssetsForJob } from "../../../lib/installed-assets";
 import { buildPdfDataUri, exportPdf } from "../../../lib/print";
 import { startChannelConversation } from "../../../lib/channels";
 import { useThemedStyles, type StyleTheme } from "../../../lib/use-themed-styles";
@@ -368,6 +369,7 @@ export default function InvoiceDetailScreen() {
         client: data.invoice.clients,
         lineItems,
         agencyBilling,
+        installedAssets: await fetchInstalledAssetsForJob(data.invoice.job_card_id),
       });
       await exportPdf(html, `Invoice ${data.invoice.invoice_number}`);
     } catch (e) {
@@ -603,7 +605,7 @@ export default function InvoiceDetailScreen() {
                 ownerLandlordEmail: property?.owner_landlord_email ?? null,
               }
             : undefined;
-        const html = buildInvoicePdfHtml({ tenant: tenant as Tenant, invoice: data.invoice, client: data.invoice.clients, lineItems, agencyBilling });
+        const html = buildInvoicePdfHtml({ tenant: tenant as Tenant, invoice: data.invoice, client: data.invoice.clients, lineItems, agencyBilling, installedAssets: await fetchInstalledAssetsForJob(data.invoice.job_card_id) });
         const pdfDataUri = await buildPdfDataUri(html);
         setEmailDefaultAttachments([{ filename: `Invoice ${data.invoice.invoice_number}.pdf`, content: pdfDataUri }]);
       } catch {

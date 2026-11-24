@@ -11906,3 +11906,178 @@ When a search or tag filter is on, you can export just the clients shown.
 No deploy step beyond the desktop app (Vercel picks it up from `main`).
 Code: `packages/shared/src/client-export.ts` (with tests) and
 `apps/desktop/src/components/ClientExportModal.tsx`.
+
+## 101. Asset register (every client)
+
+One register for everything you install or look after at clients' homes
+and agency properties: hot water systems, roofs, gutters and downpipes,
+backflow devices, pumps, tanks, filters, tempering valves, skylights,
+whirlybirds, solar bird-proofing, air conditioning, or anything else.
+It tracks warranties and services, and tells you who to contact for
+service work.
+
+### Where to find it
+
+- **Assets** (desktop menu, under Clients) is the whole register, in five
+  tabs:
+  - **Due for service:** services due within each type's reminder lead
+    time. You can widen this to 3, 6 or 12 months, or show overdue only.
+  - **Due for replacement:** assets at or near their type's "replace
+    around" age.
+  - **Warranties:** warranties expiring within 90 days, or a range you
+    pick.
+  - **Claims:** warranty claims, with status, who they're lodged with and
+    the reference.
+  - **All assets.**
+
+  Filter by type, suburb or search (serial number, client, address). **Export
+  CSV** downloads the tab you're on, with phone numbers, for ringing around.
+- **Client, property and job pages** show their assets. On a job, each
+  service has a tick box: tick it when it's done on that job. That records
+  it in the asset's history and moves the next due date on.
+- **Phone app:** the job card's Details tab has the same list. Techs can:
+  - tick off services;
+  - add an asset;
+  - fill in the serial number and other details;
+  - take data-plate and install photos.
+
+  All of this works offline.
+- **Settings > Asset types:** each type sets:
+  - the details to record (brand, model, serial number, type, size...);
+  - its service plan: several services, each with its own interval;
+  - its manufacturer and workmanship warranties;
+  - the age to replace it around;
+  - how many days before a service falls due to remind (28 by default).
+
+  Changes apply to assets added from then on.
+
+### How assets get in
+
+1. **From invoices (the main way).** On a price book item, set **Asset
+   register > Creates an asset**, with the brand, model and (optionally)
+   that product's own warranties. When a job is completed, every invoice
+   line using that item becomes an asset. If there's no invoice yet, the
+   accepted quote's lines are used.
+   - An item sold "each" makes one asset per unit, up to 10.
+   - The assets come with the type's services and warranties, dated from
+     the completion date.
+   - They're marked **needs details** until someone fills in the serial
+     number.
+   - The **Add assets installed on this job** button (desktop) or **Add
+     what this job installed** (phone) does the same thing at any time.
+     It never adds the same line twice.
+2. **Techs on the phone:** + Add asset on the job card.
+3. **The office on the desktop:** + Add asset on a client, property or job
+   page.
+
+The invoice PDF lists what the job installed, with warranties and service
+due dates, in an **Installed on this job** section. On a client's page,
+**Home record PDF** downloads or emails them a record of everything at
+their home, grouped by address.
+
+### Reminders
+
+Clients get texts from Follow-ups. There are two new tabs, **Service due**
+and **Replacement due**. Both are **off** until you switch them on. Edit
+the wording there, and test with your own number first (same as the other
+sequences).
+
+- **Service due:** one text per client per address, listing everything due
+  there. For example: "your hot water system (relief valve check) and
+  gutters (gutter clean)".
+  - It goes when a service is within the type's lead time (4 weeks by
+    default).
+  - A service more than 7 days overdue isn't texted; it's on the Due for
+    service list for you to ring.
+  - Each due date is texted once.
+- **Replacement due:** one text when an asset reaches its type's "replace
+  around" age. It never repeats for that asset.
+- Agency properties aren't texted. The property manager keeps getting the
+  maintenance email (Real Estate & Strata), now from the same services.
+- Texts follow the usual rules: they go out between 8:30am and 6pm, stop
+  on a reply or STOP, and skip anyone who has opted out.
+
+### Your existing assets
+
+The update moves the real estate assets you already have into the new
+register:
+- the installation date becomes the install date;
+- roof age becomes an install year;
+- the warranty expiry becomes a manufacturer warranty;
+- the gutter clean date and interval become a "Gutter clean" service;
+- each asset gets its type's service plan.
+
+### What you need to do once
+
+1. **Database and functions** (from the project folder):
+   ```bash
+   git pull origin main
+   npx supabase db push
+   npx supabase functions deploy process-follow-ups --no-verify-jwt
+   npx supabase functions deploy process-real-estate-maintenance --no-verify-jwt
+   npx supabase functions deploy process-scheduled-comms --no-verify-jwt
+   ```
+   Use `db push --linked` if the CLI asks which database. Deploy each
+   function with the same flag you used for it before.
+   - `process-follow-ups` (already scheduled every 5 minutes) now also
+     picks up asset reminders.
+   - The other two now read service due dates from the register.
+2. **PowerSync dashboard > Sync Rules:** paste the updated
+   `powersync/sync-rules.yaml` and deploy. Until you do, phones don't see
+   assets. The migration adds the asset tables to the `powersync`
+   publication if it lists tables one by one.
+3. **Phones:** run `eas update`, or do the next build. There are no new
+   native parts.
+4. **Desktop** deploys from `main` as usual.
+5. **Before switching reminders on:**
+   - check the service plans in Settings > Asset types;
+   - mark your hot water and other install items in the price book;
+   - run a test from each Follow-ups tab.
+
+### Where it lives
+
+- Migration `20261123000100_asset_register.sql`:
+  - types, warranties, services, service records, files and claims;
+  - the next-due rules;
+  - assets from completed jobs (`create_assets_from_job`);
+  - reminders (`asset_reminders_enrol`);
+  - moving existing assets across.
+- `packages/shared/src/assets.ts` holds the same date rules for the apps,
+  with tests.
+- Desktop:
+  - `pages/Assets.tsx` and `pages/AssetTypes.tsx`;
+  - `components/AssetsSection.tsx`, `AssetEditor.tsx`,
+    `HomeRecordButton.tsx` and `PriceBookAssetSettings.tsx`.
+- Phone:
+  - `components/JobAssetsSection.tsx`;
+  - `addAssetPhoto` in `lib/powersync.ts`;
+  - `lib/installed-assets.ts`.
+
+### How this was verified
+
+- **Database** (local Postgres, every migration applied):
+  - assets from a completed job: idempotent, falls back to the accepted
+    quote, quantity rule, product warranties;
+  - next due dates: a tick, an older record, an untick, a typed date, a
+    changed interval;
+  - reminders: grouped per address, once only, overdue skipped, one
+    replacement text, removed assets skipped, the rendered texts;
+  - permissions: technicians, another company;
+  - existing assets migrated;
+  - the publication.
+- **Functions** (under Deno): the property manager email goes once from
+  the services.
+- **Desktop** (headless browser):
+  - every register tab, the filters and CSV export;
+  - editing a type and adding a new one;
+  - the price book setting;
+  - ticking a service on a job;
+  - adding installed assets from the job's invoice and filling in the
+    serial;
+  - the home record PDF, and the invoice PDF's installed section;
+  - the Follow-ups tabs.
+- **Phone:**
+  - typechecked;
+  - its local queries run against SQLite.
+- **Not checked:** a real PowerSync sync and photo upload from a device,
+  and real texts. Check those with a test job and your test number.

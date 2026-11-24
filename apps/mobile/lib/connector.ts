@@ -39,6 +39,8 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   // Eisenhower Matrix work adds mobile writes that hit this same path.
   tasks: ["is_milestone", "is_urgent", "is_important"],
   leak_check_templates: ["is_archived"],
+  property_assets: ["needs_details"],
+  asset_types: ["is_archived"],
 };
 
 function coerceBooleanColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
@@ -85,8 +87,31 @@ function coerceListColumns(table: string, data: Record<string, unknown>): Record
   return result;
 }
 
+// jsonb columns (asset register): PowerSync keeps them as JSON text, and
+// sent as-is Postgres would store a JSON *string* rather than the object -
+// so parse them back before upload, same idea as the list columns above.
+const JSON_COLUMNS_BY_TABLE: Record<string, string[]> = {
+  property_assets: ["attributes"],
+};
+
+function coerceJsonColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
+  const jsonColumns = JSON_COLUMNS_BY_TABLE[table];
+  if (!jsonColumns) return data;
+  const result = { ...data };
+  for (const column of jsonColumns) {
+    if (typeof result[column] === "string") {
+      try {
+        result[column] = JSON.parse(result[column] as string);
+      } catch {
+        // Leave it for Postgres to accept or reject, as above.
+      }
+    }
+  }
+  return result;
+}
+
 function coerceOutgoingColumns(table: string, data: Record<string, unknown>): Record<string, unknown> {
-  return coerceListColumns(table, coerceBooleanColumns(table, data));
+  return coerceJsonColumns(table, coerceListColumns(table, coerceBooleanColumns(table, data)));
 }
 
 // Bridges PowerSync to Supabase: fetchCredentials hands PowerSync the

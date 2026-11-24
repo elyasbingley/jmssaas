@@ -53,6 +53,12 @@ export function leakCheckItemFileMetaData(tenantId: string, itemId: string): str
   return `${tenantId}/leak-${itemId}`;
 }
 
+// Asset register photos (data plates, installs) under `<tenant_id>/asset-
+// <asset_id>/` (asset_register migration's storage policies).
+export function assetFileMetaData(tenantId: string, assetId: string): string {
+  return `${tenantId}/asset-${assetId}`;
+}
+
 export class ExpoLocalStorageAdapter implements LocalStorageAdapter {
   async initialize(): Promise<void> {
     await this.makeDir(ATTACHMENTS_DIR);
@@ -137,14 +143,18 @@ export class SupabaseRemoteStorageAdapter implements RemoteStorageAdapter {
 // packages/shared/src/powersync/schema.ts), so this watches all of them
 // with one combined query rather than running three separate
 // AttachmentQueues.
+// asset_files joins too, photos only: documents (PDF certificates etc.)
+// open online from the desktop and aren't worth holding on every phone.
 export function watchFileAttachments(db: AbstractPowerSyncDatabase) {
   return (onUpdate: (items: WatchedAttachmentItem[]) => Promise<void>, signal: AbortSignal) => {
     db.watch(
-      `SELECT id, file_name, mime_type, tenant_id, job_card_id, NULL as task_id, NULL as item_id FROM job_files
+      `SELECT id, file_name, mime_type, tenant_id, job_card_id, NULL as task_id, NULL as item_id, NULL as asset_id FROM job_files
        UNION ALL
-       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, task_id, NULL as item_id FROM task_files
+       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, task_id, NULL as item_id, NULL as asset_id FROM task_files
        UNION ALL
-       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, NULL as task_id, item_id FROM job_leak_check_item_files`,
+       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, NULL as task_id, item_id, NULL as asset_id FROM job_leak_check_item_files
+       UNION ALL
+       SELECT id, file_name, mime_type, tenant_id, NULL as job_card_id, NULL as task_id, NULL as item_id, asset_id FROM asset_files WHERE kind = 'photo'`,
       [],
       {
         onResult: (result: { rows?: { _array: any[] } }) => {
@@ -152,7 +162,9 @@ export function watchFileAttachments(db: AbstractPowerSyncDatabase) {
             id: row.id,
             filename: row.file_name,
             mediaType: row.mime_type ?? undefined,
-            metaData: row.item_id
+            metaData: row.asset_id
+              ? assetFileMetaData(row.tenant_id, row.asset_id)
+              : row.item_id
               ? leakCheckItemFileMetaData(row.tenant_id, row.item_id)
               : row.job_card_id
                 ? jobFileMetaData(row.tenant_id, row.job_card_id)

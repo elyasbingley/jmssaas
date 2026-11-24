@@ -904,3 +904,20 @@ begin
   return v_id;
 end;
 $$;
+
+-- PowerSync replicates through a publication named "powersync". If it was
+-- created FOR ALL TABLES these are already in it; if it lists tables one
+-- by one, add the asset tables the phones now sync (property_assets too,
+-- which phones didn't sync before).
+do $$
+declare
+  t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'powersync' and not puballtables) then
+    foreach t in array array['asset_types', 'property_assets', 'asset_warranties', 'asset_services', 'asset_service_records', 'asset_files', 'asset_warranty_claims'] loop
+      if not exists (select 1 from pg_publication_tables where pubname = 'powersync' and schemaname = 'public' and tablename = t) then
+        execute format('alter publication powersync add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
