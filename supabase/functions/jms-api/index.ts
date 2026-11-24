@@ -65,7 +65,10 @@ async function sha256Hex(text: string): Promise<string> {
 
 async function authenticate(db: SupabaseClient, req: Request): Promise<Key | Response> {
   const header = req.headers.get("authorization") ?? "";
-  const raw = (header.toLowerCase().startsWith("bearer ") ? header.slice(7) : req.headers.get("x-api-key") ?? "").trim();
+  // Take the jms_ key from wherever it was put - "Bearer jms_...", a bare
+  // key, "Bearer Bearer jms_...", quoted, or the x-api-key header - since
+  // tools differ in how they send a pasted token.
+  const raw = `${header} ${req.headers.get("x-api-key") ?? ""}`.match(/jms_[0-9a-f]{48}/i)?.[0]?.toLowerCase() ?? "";
   if (!raw.startsWith("jms_")) return apiError(401, "unauthorized", "Send your JMS API key as 'Authorization: Bearer jms_...' (create one in JMS: Settings > API keys).");
   const { data: key } = await db.from("api_keys").select("id, tenant_id, name, scopes, created_by, revoked_at, last_used_at").eq("key_hash", await sha256Hex(raw)).maybeSingle();
   if (!key || key.revoked_at) return apiError(401, "unauthorized", "That API key isn't valid or has been revoked.");
