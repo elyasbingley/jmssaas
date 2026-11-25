@@ -12396,6 +12396,14 @@ there's one bar across the top.
   address...). Technicians only find what they could already open.
 - **Inbox and Channels icons.** Red badges show emails still to process and
   unread messages. They update every minute.
+- **The bell.** Shows the same notifications the phone shows on its
+  Notifications tab: quotes viewed or accepted, invoices accepted, new
+  Channels messages and inbox emails, website sign-ups, and recurring jobs
+  to book.
+  - Its red badge counts the unread ones, and it updates every 30 seconds.
+  - Clicking one marks it read and opens the quote, job, conversation or
+    email. **Mark all read** clears them all.
+  - Reading one on the desktop marks it read on the phone too.
 - **Your name menu.** Shows your email, **Change password** and **Sign out**.
   Change password asks for your current password first. The new password
   needs at least 8 characters, and it works on the phone too.

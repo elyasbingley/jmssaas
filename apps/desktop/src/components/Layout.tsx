@@ -5,13 +5,14 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { getErrorMessage } from "../lib/errors";
 import { GlobalSearch } from "./GlobalSearch";
+import { NotificationBell } from "./NotificationBell";
 import { ThemedModal } from "./theme/ThemedModal";
 import { ThemedButton } from "./theme/ThemedButton";
 
 // The app shell, ServiceM8 style: one bar across the top with Dashboard,
 // Jobs, Invoicing, Analytics and More (every other module lives on the More
 // page and the Dashboard tiles), search, Inbox and Channels with unread
-// counts, and the signed-in person's menu.
+// counts, the notifications bell, and the signed-in person's menu.
 
 const NAV: { to: string; label: string; match: (path: string) => boolean }[] = [
   { to: "/", label: "Dashboard", match: (p) => p === "/" },
@@ -252,6 +253,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <path d="M8 9h8M8 13h5" />
             </svg>
           </IconLink>
+          <NotificationBell />
           <UserMenu />
         </div>
       </header>
