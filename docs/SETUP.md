@@ -12530,3 +12530,138 @@ The calculations are in `packages/shared/src/invoicing.ts`, with tests.
 ### Deploy
 
 No deploy steps: no database change. The desktop deploys from `main`.
+
+## 107. Dispatch board: Map, Schedule, Stages, Tasks, Recurring
+
+**Dispatch** is rebuilt along the lines of ServiceM8's board. Tabs across the
+top choose the view, and the **Jobs panel** sits down the right of every view.
+Hide it with "Hide ›" and bring it back with "‹ Jobs".
+
+### Jobs panel
+
+- **Lists:**
+  - To schedule (the default): open jobs with no booking;
+  - Recurring to book;
+  - Booked;
+  - All open;
+  - Completed (last 14 days).
+- **Search box** across job number, client, phone and address.
+- **Order:** members come first (priority scheduling), then the jobs that have
+  waited longest.
+- **To book a job,** drag its card onto someone's schedule.
+- **To take a booking off the schedule,** drag it back onto the panel. If it
+  was the job's last booking, the job goes back to nobody and shows under
+  To schedule again.
+
+### Schedule
+
+- **Layouts:**
+  - Day;
+  - Staff 3 days;
+  - Week by day;
+  - 2 weeks;
+  - Month.
+
+  Use ‹ Today › to move through dates. The layout and tab you last used are
+  remembered.
+- **Rows:** one per team member, plus Unassigned.
+- **Hours:** Day and Staff 3 days are timelines from 6am to 6pm. Outside 7am
+  to 5pm is shaded.
+- **Dropping on a timeline:**
+  - a dashed box shows exactly where the booking will land and its times, in
+    15-minute steps;
+  - the card you're holding fades so it doesn't cover the box (Google
+    Calendar does the same);
+  - if the slot overlaps another booking, the box drops into a new row,
+    where the booking will sit.
+
+  A new booking is 2 hours long.
+- **Dropping on Week, 2 weeks or Month:**
+  - a new job goes in that person's first free gap between 7am and 5pm;
+  - a moved booking keeps its time;
+  - Month moves the day only, not the person.
+- **Moving and resizing:**
+  - drag a booking to another time, day or person (moving it to another
+    person's row re-assigns the job);
+  - drag a booking's right edge to change its length.
+- **Opening a booking:** click it to see the job, address, time and tech,
+  then use "Open job" or "Remove booking".
+- **Google Calendar:** changes go to Google Calendar the same way as before.
+
+### Map
+
+- **Pins:**
+  - each job booked on the chosen day, with the tech's initials;
+  - (optionally) every job still to schedule, as smaller amber pins.
+- **Filtering:** filter to one person.
+- **Opening a job:** click a pin for the job and an "Open job" link.
+  Hovering a job in the Jobs panel makes its pin bounce.
+- **Address lookups:** each address is looked up with Google once and saved
+  in `geocode_cache`, so later visits don't look it up again.
+  - Up to 250 new addresses are looked up per visit.
+  - Addresses Google can't place are remembered as not found, and the map
+    says how many jobs aren't shown.
+
+### Stages
+
+- **Columns:** every job stage as a column, scrolling sideways.
+- **Changing a stage:** drag a card to another column.
+- **Time in stage:** each card says how long the job has been in its stage,
+  and turns amber after 14 days.
+- **Order:** the longest-waiting cards come first.
+- **Closed stages:** these (Completed, Invoiced) only show the last 30 days.
+
+The time in stage comes from the new `job_cards.stage_changed_at`. A trigger
+sets it whenever the stage changes. Existing jobs start from their last update.
+
+### Tasks
+
+- **Groups:** tasks are listed as Overdue, Today, Next 7 days, Later and No
+  due date.
+- **Marking done:** use each task's tick box.
+- **Filtering:** filter by person, and choose "Show done" to see the last 7
+  days.
+- **Adding a task (admins):** add it with a due date and who it's for.
+- **Other task tools:** projects, board and matrix stay on the Tasks page.
+
+### Recurring
+
+- **The list:** every recurring service: client, repeat, next due, the visit
+  that's open (booked or to book) and the price per visit.
+- **Changing a service:** Edit, Pause, Resume and Stop work as on the job and
+  client pages, without leaving Dispatch.
+- **Booking visits:** "N visits to book →" opens the Schedule with the Jobs
+  panel on "Recurring to book", ready to drag onto the schedule.
+
+### Deploy
+
+1. Run `npx supabase db push --remote`. It runs the migration
+   `20261130000100_dispatch.sql`, which adds `geocode_cache` and
+   `job_cards.stage_changed_at`.
+2. The map uses the Google Maps key you already have for quote measuring
+   (`VITE_GOOGLE_MAPS_API_KEY`). In Google Cloud, make sure the **Geocoding
+   API** is enabled for that key, as well as the Maps JavaScript API.
+3. The desktop deploys from `main`.
+
+There are no mobile changes.
+
+### How this was verified
+
+- **Database:** the migration applies to a fresh database.
+- **Security rules:** a user can only read and add their own company's
+  cached addresses.
+- **`stage_changed_at`:** changes only when the stage changes.
+- **Browser tests:**
+  - dragging a job from the panel onto a lane books it at the time shown in
+    the box (within a pixel);
+  - moving a booking to another person;
+  - resizing a booking;
+  - clicking a booking (and checking a drag doesn't also open it);
+  - dragging a booking back onto the panel unschedules it and clears the tech;
+  - dropping a job on a week cell;
+  - dragging a card between stage columns;
+  - ticking off and adding tasks;
+  - pausing and editing a recurring service.
+- **Map:** tested against a stand-in Google Maps script. Pins, initials, the
+  bouncing pin, the info window, not-found addresses and the cache all work:
+  the second visit looks up nothing.

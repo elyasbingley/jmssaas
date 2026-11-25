@@ -28,7 +28,7 @@ import { fmtDay } from "./AssetEditor";
 // this visit" for an unbooked visit. On a client: all their recurring
 // services.
 
-type RecurringJob = JobCard & { recurring_service_id?: string | null; recurring_due_on?: string | null };
+export type RecurringJob = JobCard & { recurring_service_id?: string | null; recurring_due_on?: string | null };
 interface Visit {
   id: string;
   number: string | null;
@@ -279,7 +279,7 @@ function suggestFirstDue(job: RecurringJob | null, count: number, unit: Recurrin
   return next;
 }
 
-function RecurringEditor({
+export function RecurringEditor({
   job,
   service,
   onClose,
