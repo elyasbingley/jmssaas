@@ -12436,3 +12436,36 @@ working right now".
   - the Inbox and Channels links;
   - the menu;
   - change password: too short, a mismatch, then a success.
+
+## 105. Accepted quotes move the job to "Accepted"
+
+When a quote is accepted, its job moves to the **Accepted** stage. This
+happens however it's accepted: the client on the approval link, or someone
+setting the quote's status to Accepted in JMS.
+
+- **The stage itself:**
+  - If you don't already have a stage called "Accepted", it's created the
+    first time, straight after your first stage (Enquiry).
+  - You can rename it or move it in Settings > Job Setup. JMS remembers
+    which stage it is.
+- **Forward only:** a job that's already further along stays where it is.
+  That covers Scheduled, In Progress, Completed, Invoiced, or a recurring
+  visit's To book.
+- **What doesn't move a job:**
+  - sending or declining a quote;
+  - a quote with no job.
+- **Follow-ups:** a job in Accepted counts as "booked", so the client's other
+  follow-up texts stop. The quiet-quote texts already stopped when the quote
+  was accepted.
+
+**Deploy:** `npx supabase db push --remote` (migration
+`20261129000100_quote_accepted_stage.sql`). Phones pick up the new stage
+with their next sync. No app update is needed.
+
+**Verified** on a local database:
+- accepted on the approval page, and with the desktop status;
+- sending and declining move nothing;
+- Scheduled and Completed jobs aren't moved back;
+- a quote with no job;
+- one stage only, even when renamed;
+- a company that already has an Accepted stage uses its own.
