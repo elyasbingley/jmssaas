@@ -12665,3 +12665,32 @@ There are no mobile changes.
 - **Map:** tested against a stand-in Google Maps script. Pins, initials, the
   bouncing pin, the info window, not-found addresses and the cache all work:
   the second visit looks up nothing.
+
+## 108. Lead source on the phone's New Job forms
+
+The phone's **New Job** forms (Jobs tab "+", and "New Job" on a client) now
+ask **where the job came from**, like the desktop's New Job form:
+- **Lead source:** pick from the sources set up in Settings, Job setup.
+- **Referral partner:** only shows when the source is your referral one, and
+  asks who referred it. The lead source picker goes straight on to it.
+  Choosing any other source clears the partner, as on the desktop and the
+  job screen.
+
+The Jobs tab form used to have a separate "Referral source" partner picker.
+It's now behind the referral lead source, so a partner is never saved
+without a lead source.
+
+**Offline:** the lead source options need a connection. Offline, the job is
+still created, and the lead source can be added from the job screen once
+you're back online (its Lead source row has been there already).
+
+The shared component is `apps/mobile/components/LeadSourceFields.tsx`. There
+are no database or desktop changes.
+
+### Deploy
+
+Publish the phone update:
+
+```
+npx eas-cli update --channel preview --platform android --message "Lead source on New Job"
+```

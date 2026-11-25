@@ -11,7 +11,6 @@ import {
   type Client,
   type JobCard,
   type JobLifecycleStage,
-  type ReferralPartner,
   type ServiceCategory,
 } from "@jmssaas/shared";
 import { useAuth } from "../../../lib/auth-context";
@@ -24,7 +23,7 @@ import { ThemedModal } from "../../../components/theme/ThemedModal";
 import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { ThemedButton } from "../../../components/theme/ThemedButton";
-import { partnerDisplayName } from "../../b2b-referrals/index";
+import { EMPTY_LEAD_SOURCE, LeadSourceFields, leadSourceColumns, type LeadSourceValue } from "../../../components/LeadSourceFields";
 
 // "My Schedule" - the new Jobs tab landing screen (see the Home/Jobs/
 // Notifications/More tab bar restructure). Every job is split into "Jobs
@@ -52,17 +51,6 @@ export default function JobsScreen() {
   const { data: stages } = useQuery<JobLifecycleStage>("SELECT * FROM job_lifecycle_stages ORDER BY position");
   const clientById = new Map(clients.map((c) => [c.id, c]));
   const stageById = new Map(stages.map((s) => [s.id, s]));
-
-  // referral_partners isn't a PowerSync table (see app/b2b-referrals/
-  // index.tsx), so this picker's options only load while online - offline
-  // job creation still works, just without a referral source pick (settable
-  // later from the B2B & Referrals screen once back online).
-  const { data: referralPartners } = useSupabaseFetch<ReferralPartner[]>(async () => {
-    if (!isOnline) return [];
-    const { data, error } = await supabase.from("referral_partners").select("*").order("contact_first_name");
-    if (error) throw error;
-    return data as ReferralPartner[];
-  }, [isOnline]);
 
   const { data: bookedEvents, refetch: refetchBookedEvents } = useSupabaseFetch<CalendarEvent[]>(async () => {
     if (!isOnline) return [];
@@ -99,11 +87,10 @@ export default function JobsScreen() {
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [stagePickerVisible, setStagePickerVisible] = useState(false);
-  const [referralPartnerPickerVisible, setReferralPartnerPickerVisible] = useState(false);
   const [client, setClient] = useState<Client | null>(null);
   const [category, setCategory] = useState<ServiceCategory | null>(null);
   const [stage, setStage] = useState<JobLifecycleStage | null>(null);
-  const [referralPartner, setReferralPartner] = useState<ReferralPartner | null>(null);
+  const [source, setSource] = useState<LeadSourceValue>(EMPTY_LEAD_SOURCE);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -112,7 +99,7 @@ export default function JobsScreen() {
     setClient(null);
     setCategory(null);
     setStage(null);
-    setReferralPartner(null);
+    setSource(EMPTY_LEAD_SOURCE);
     setTitle("");
     setDescription("");
     setFormError(null);
@@ -130,7 +117,7 @@ export default function JobsScreen() {
       description,
       service_category_id: category?.id,
       lifecycle_stage_id: stage?.id,
-      referral_partner_id: referralPartner?.id,
+      ...leadSourceColumns(source),
     });
     if (!result.success) {
       setFormError(client ? (result.error.issues[0]?.message ?? "Invalid job") : "Pick a client first");
@@ -141,8 +128,8 @@ export default function JobsScreen() {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     await powersync.execute(
-      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, referral_partner_id, assigned_technician_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO job_cards (id, tenant_id, client_id, title, description, service_category_id, lifecycle_stage_id, referral_partner_id, lead_source_id, assigned_technician_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         profile.tenant_id,
@@ -152,6 +139,7 @@ export default function JobsScreen() {
         result.data.service_category_id ?? null,
         result.data.lifecycle_stage_id ?? null,
         result.data.referral_partner_id ?? null,
+        result.data.lead_source_id ?? null,
         // Defaults to whoever created it - desktop's JobDetail.tsx has the
         // only reassignment picker today, so "change it" happens there.
         profile.id,
@@ -290,12 +278,7 @@ export default function JobsScreen() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.pickerField} onPress={() => setReferralPartnerPickerVisible(true)}>
-          <Text style={styles.pickerFieldLabel}>Referral source (optional)</Text>
-          <Text style={referralPartner ? styles.pickerFieldText : styles.pickerFieldPlaceholder}>
-            {referralPartner ? partnerDisplayName(referralPartner) : "None"}
-          </Text>
-        </Pressable>
+        <LeadSourceFields value={source} onChange={setSource} />
 
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
@@ -324,16 +307,6 @@ export default function JobsScreen() {
         getLabel={(c) => c.name}
         onSelect={setCategory}
         onClose={() => setCategoryPickerVisible(false)}
-      />
-
-      <ThemedPickerModal
-        visible={referralPartnerPickerVisible}
-        title="Select referral source"
-        items={referralPartners ?? []}
-        getKey={(p) => p.id}
-        getLabel={(p) => partnerDisplayName(p)}
-        onSelect={setReferralPartner}
-        onClose={() => setReferralPartnerPickerVisible(false)}
       />
 
       <ThemedPickerModal

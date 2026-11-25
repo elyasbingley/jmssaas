@@ -31,6 +31,7 @@ import { ThemedButton } from "../../../components/theme/ThemedButton";
 import { ThemedCommunicationLog } from "../../../components/theme/ThemedCommunicationLog";
 import { ThemedPickerModal } from "../../../components/theme/ThemedPickerModal";
 import { MembershipStatusCard } from "../../../components/MembershipStatusCard";
+import { EMPTY_LEAD_SOURCE, LeadSourceFields, leadSourceColumns, type LeadSourceValue } from "../../../components/LeadSourceFields";
 
 interface ClientTagAssignmentRow {
   id: string;
@@ -107,10 +108,11 @@ export default function ClientDetailScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [source, setSource] = useState<LeadSourceValue>(EMPTY_LEAD_SOURCE);
   const [formError, setFormError] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    const result = createJobCardSchema.safeParse({ client_id: id, title, description });
+    const result = createJobCardSchema.safeParse({ client_id: id, title, description, ...leadSourceColumns(source) });
     if (!result.success) {
       setFormError(result.error.issues[0]?.message ?? "Invalid job");
       return;
@@ -121,9 +123,9 @@ export default function ClientDetailScreen() {
     const now = new Date().toISOString();
     try {
       await powersync.execute(
-        `INSERT INTO job_cards (id, tenant_id, client_id, title, description, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [jobId, profile.tenant_id, id, result.data.title, result.data.description || null, profile.id, now, now]
+        `INSERT INTO job_cards (id, tenant_id, client_id, title, description, lead_source_id, referral_partner_id, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [jobId, profile.tenant_id, id, result.data.title, result.data.description || null, result.data.lead_source_id ?? null, result.data.referral_partner_id ?? null, profile.id, now, now]
       );
     } catch (e) {
       setFormError(getErrorMessage(e, "Failed to create job"));
@@ -132,6 +134,7 @@ export default function ClientDetailScreen() {
 
     setTitle("");
     setDescription("");
+    setSource(EMPTY_LEAD_SOURCE);
     setFormError(null);
     setModalVisible(false);
     router.push(`/jobs/${jobId}`);
@@ -612,6 +615,7 @@ export default function ClientDetailScreen() {
           multiline
           style={styles.multiline}
         />
+        <LeadSourceFields value={source} onChange={setSource} />
         {formError ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.modalActions}>
           <Pressable
