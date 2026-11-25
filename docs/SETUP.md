@@ -12602,6 +12602,13 @@ Hide it with "Hide ›" and bring it back with "‹ Jobs".
   - Addresses Google can't place are remembered as not found, and the map
     says how many jobs aren't shown.
 
+- **If the map shows no pins:** the box in the top-left says why.
+  - "Google wouldn't look up addresses (REQUEST_DENIED…)": turn on the
+    **Geocoding API** for the Maps key in Google Cloud, then reload.
+  - "Saved addresses couldn't be loaded": run
+    `npx supabase db push --remote`. Until then the map still works, but
+    looks every address up on each visit.
+
 ### Stages
 
 - **Columns:** every job stage as a column, scrolling sideways.

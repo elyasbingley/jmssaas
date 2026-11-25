@@ -33,7 +33,15 @@ function useGeocodes(addresses: string[], google: typeof window.google | null) {
       return new Map(rows.map((r) => [r.address_key, r.status === "ok" && r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng } : null]));
     },
     staleTime: Infinity,
+    retry: 1,
   });
+  // If the saved addresses can't be read (e.g. the dispatch database update
+  // hasn't been run yet), still look addresses up - just don't save them.
+  const cacheData = useMemo(() => cache.data ?? (cache.isError ? new Map<string, Coords | null>() : undefined), [cache.data, cache.isError]);
+  const canSave = !!cache.data;
+  // Why Google lookups stopped, if they did (e.g. the Geocoding API isn't
+  // turned on for the key) - shown on the map instead of failing silently.
+  const [problem, setProblem] = useState<string | null>(null);
   const [found, setFound] = useState<Map<string, Coords | null>>(new Map());
   const [pending, setPending] = useState(0);
   // One worker works through a queue, so the pin list changing (a refresh,
@@ -56,9 +64,9 @@ function useGeocodes(addresses: string[], google: typeof window.google | null) {
   }, [addresses]);
 
   useEffect(() => {
-    if (!google || !cache.data || !profile) return;
+    if (!google || !cacheData || !profile || problem) return;
     for (const [key, address] of wanted) {
-      if (cache.data.has(key) || seen.current.has(key) || seen.current.size >= MAX_LOOKUPS_PER_VISIT) continue;
+      if (cacheData.has(key) || seen.current.has(key) || seen.current.size >= MAX_LOOKUPS_PER_VISIT) continue;
       seen.current.add(key);
       queue.current.push({ key, address });
     }
@@ -70,7 +78,8 @@ function useGeocodes(addresses: string[], google: typeof window.google | null) {
       while (queue.current.length && alive.current) {
         const { key, address } = queue.current.shift()!;
         let result: Coords | null = null;
-        let save = true;
+        let save = canSave;
+        let stop: string | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const res = await geocoder.geocode({ address, region: "au" });
@@ -84,11 +93,23 @@ function useGeocodes(addresses: string[], google: typeof window.google | null) {
               await new Promise((r) => setTimeout(r, 2000));
               continue;
             }
-            save = false; // a key or network problem: don't remember it as "not found"
+            // A key or account problem stops every lookup, so stop and say
+            // why; anything else just skips this address for now. Neither
+            // is remembered as "not found".
+            save = false;
+            if (/REQUEST_DENIED|OVER_DAILY_LIMIT|OVER_QUERY_LIMIT|INVALID_REQUEST|ApiNotActivated|RefererNotAllowed|InvalidKey/i.test(code + " " + String((e as Error).message ?? ""))) {
+              stop = `${code}: ${(e as Error).message ?? ""}`.trim();
+            }
             break;
           }
         }
         if (!alive.current) break;
+        if (stop) {
+          queue.current = [];
+          setPending(0);
+          setProblem(stop);
+          break;
+        }
         setFound((prev) => new Map(prev).set(key, result));
         setPending(queue.current.length);
         if (save) {
@@ -100,16 +121,16 @@ function useGeocodes(addresses: string[], google: typeof window.google | null) {
         await new Promise((r) => setTimeout(r, 120));
       }
       running.current = false;
-      if (alive.current) void queryClient.invalidateQueries({ queryKey: ["dispatch", "geocodes"] });
+      if (alive.current && canSave) void queryClient.invalidateQueries({ queryKey: ["dispatch", "geocodes"] });
     })();
-  }, [google, cache.data, wanted, profile, queryClient]);
+  }, [google, cacheData, canSave, wanted, profile, queryClient, problem]);
 
   const lookup = (address: string): Coords | null | undefined => {
     const k = addressKey(address);
     if (found.has(k)) return found.get(k);
-    return cache.data?.get(k);
+    return cacheData?.get(k);
   };
-  return { lookup, pending, ready: !!cache.data };
+  return { lookup, pending, ready: !!cacheData, cacheError: cache.isError ? cache.error : null, problem };
 }
 
 interface Pin {
@@ -179,7 +200,7 @@ export function MapView({
   }, [showBooked, showUnbooked, events, jobs, day, jobsById, places, tech, nameOf, stagesById]);
 
   const addresses = useMemo(() => pins.map((p) => p.address), [pins]);
-  const { lookup, pending, ready } = useGeocodes(addresses, google);
+  const { lookup, pending, ready, cacheError, problem } = useGeocodes(addresses, google);
 
   useEffect(() => {
     let alive = true;
@@ -358,7 +379,17 @@ export function MapView({
           <option value="none">Unassigned</option>
         </select>
         {pending ? <p style={muted}>Finding {pending} address{pending === 1 ? "" : "es"}…</p> : null}
-        {missing ? <p style={muted}>{missing} job{missing === 1 ? "" : "s"} not shown: address not found</p> : null}
+        {problem ? (
+          <p className="max-w-[260px]" style={{ color: "var(--jms-danger)", fontSize: "var(--jms-font-label)" }} data-testid="map-problem">
+            Google wouldn't look up addresses ({problem}). In Google Cloud, turn on the Geocoding API for your Maps key, then reload.
+          </p>
+        ) : null}
+        {cacheError ? (
+          <p className="max-w-[260px]" style={{ color: "var(--jms-warning)", fontSize: "var(--jms-font-label)" }} data-testid="map-cache-problem">
+            Saved addresses couldn't be loaded, so addresses are looked up every visit. Run <code>npx supabase db push --remote</code> to add them.
+          </p>
+        ) : null}
+        {missing && !problem ? <p style={muted}>{missing} job{missing === 1 ? "" : "s"} not shown: address not found</p> : null}
       </div>
     </div>
   );
