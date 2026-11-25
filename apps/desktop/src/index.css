@@ -18,6 +18,18 @@
   color: var(--jms-accent);
 }
 
+/* Dashboard / More module tiles. */
+.jms-tile {
+  transition: border-color 120ms, transform 120ms, box-shadow 120ms;
+}
+.jms-tile:hover,
+.jms-tile:focus-visible {
+  border-color: var(--jms-accent) !important;
+  box-shadow: 0 0 12px var(--jms-accent-glow);
+  transform: translateY(-1px);
+  outline: none;
+}
+
 /* Analytics: anything clickable that opens the records behind a number. */
 .jms-analytics-hit {
   cursor: pointer;

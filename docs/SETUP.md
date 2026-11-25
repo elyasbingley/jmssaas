@@ -12363,3 +12363,76 @@ npx supabase functions deploy jms-api --no-verify-jwt
 - **Not checked:** Nebula itself, and real texts and emails. Connect Nebula
   with a key that can only look things up first, and check the activity
   list.
+
+## 104. Desktop layout: top bar, Dashboard tiles, More, search everything
+
+The desktop now works like ServiceM8. There's no side menu any more; instead
+there's one bar across the top.
+
+### The top bar
+
+- **Dashboard, Jobs, Invoicing, Analytics, More.**
+  - Invoicing opens Invoices.
+  - More lights up on any other page.
+- **Search.** Click it or press `/` anywhere, then type at least two
+  characters. Use the arrow keys and Enter to open a result. It searches:
+  - clients by name, company, email, address, suburb, postcode, or phone
+    number. Spacing and +61 don't matter: "0411000031" finds
+    "0411 000 031";
+  - client contacts and other addresses;
+  - jobs (title, number, description, work order) and job notes;
+  - quotes and invoices (number, PO number, notes);
+  - file names on jobs and tasks;
+  - assets (name, brand, model, serial number, location);
+  - tasks and notes;
+  - Channels conversations and inbox emails;
+  - the price book and knowledge articles;
+  - agency properties (address, tenant, owner, key tag), agencies and
+    property managers;
+  - subcontractors and their contacts, and purchase orders;
+  - the team.
+
+  Results are grouped by type, with a tag showing what matched (phone, note,
+  address...). Technicians only find what they could already open.
+- **Inbox and Channels icons.** Red badges show emails still to process and
+  unread messages. They update every minute.
+- **Your name menu.** Shows your email, **Change password** and **Sign out**.
+  Change password asks for your current password first. The new password
+  needs at least 8 characters, and it works on the phone too.
+
+### Dashboard and More
+
+- **Dashboard** has tiles for Dispatch, Clients, Price Book, Quotes,
+  Invoices, Analytics and Settings. Your usual dashboard widgets are below
+  them (Customise still sets which ones show).
+- **More** has a tile for every part of the app, grouped into Work, Clients
+  & sales, Messages and Business. The list lives in
+  `apps/desktop/src/lib/modules.ts`, so a new module is added there once.
+
+### What you need to do once
+
+```bash
+git pull origin main
+npx supabase db push --remote
+```
+
+This adds the search function (migration
+`20261128000100_global_search.sql`). The desktop deploys from `main` as
+usual. Until the database is updated, the search box says "Search isn't
+working right now".
+
+### How this was verified
+
+- **Search, in the database:**
+  - names, phone numbers with and without spaces or +61, streets, quote and
+    invoice numbers, serial numbers, note text and team members;
+  - a technician only gets their own jobs;
+  - another company gets nothing;
+  - typed `%` matched literally.
+- **Desktop (headless browser):**
+  - the bar, tiles, More page and active states;
+  - the badges;
+  - search results, arrow keys and Enter, and the `/` shortcut;
+  - the Inbox and Channels links;
+  - the menu;
+  - change password: too short, a mismatch, then a success.

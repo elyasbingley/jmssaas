@@ -12,6 +12,8 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth-context";
 import { addDays, isSameDay } from "../lib/datetime";
+import { DASHBOARD_TILES } from "../lib/modules";
+import { ModuleTile } from "../components/ModuleTile";
 
 // The home screen (see App.tsx - "/" renders this, not Dispatch). Shows the
 // four summary widgets from the Dashboard spec: jobs booked today/tomorrow,
@@ -135,8 +137,14 @@ export default function DashboardPage() {
   }, [quotes, invoices]);
 
   return (
-    <div className="p-8" style={{ fontFamily: "var(--jms-font)" }}>
-      <div className="mb-6 flex items-center justify-between">
+    <div className="mx-auto max-w-7xl p-8" style={{ fontFamily: "var(--jms-font)" }}>
+      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7" data-testid="dashboard-tiles">
+        {DASHBOARD_TILES.map((m) => (
+          <ModuleTile key={m.to} module={m} />
+        ))}
+      </div>
+
+      <div className="mb-4 flex items-center justify-between">
         <h1 className="uppercase tracking-widest" style={{ color: "var(--jms-accent)", fontSize: "var(--jms-font-title)" }}>
           Dashboard
         </h1>

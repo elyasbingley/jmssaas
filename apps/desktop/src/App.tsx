@@ -8,6 +8,7 @@ import ClientsPage from "./pages/Clients";
 import AssetsPage from "./pages/Assets";
 import AssetTypesPage from "./pages/AssetTypes";
 import ApiKeysPage from "./pages/ApiKeys";
+import MorePage from "./pages/More";
 import ClientImportPage from "./pages/ClientImport";
 import ClientDetailPage from "./pages/ClientDetail";
 import JobsPage from "./pages/Jobs";
@@ -105,6 +106,7 @@ export default function App() {
             <Layout>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/more" element={<MorePage />} />
                 <Route path="/inbox" element={<InboxPage />} />
                 <Route path="/inbox/:id" element={<InboxMessagePage />} />
                 <Route path="/channels" element={<ChannelsPage />}>
