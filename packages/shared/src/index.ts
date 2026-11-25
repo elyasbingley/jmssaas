@@ -24,3 +24,4 @@ export * from "./follow-ups";
 export * from "./client-export";
 export * from "./assets";
 export * from "./recurring";
+export * from "./invoicing";

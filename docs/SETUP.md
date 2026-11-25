@@ -12477,3 +12477,56 @@ with their next sync. No app update is needed.
 - a quote with no job;
 - one stage only, even when renamed;
 - a company that already has an Accepted stage uses its own.
+
+## 106. Invoicing page
+
+**Invoicing** in the top bar now opens a summary, like ServiceM8's. It has
+these tabs:
+- Summary;
+- All;
+- Draft;
+- Awaiting payment (sent, not yet due);
+- Overdue (past due, with how many days late);
+- Paid.
+
+Each list shows the client, issue and due (or paid) dates, the total and
+what's still owing, and has a filter box.
+
+### The Summary tab
+
+- **Tiles:**
+  - Owed to you;
+  - Overdue;
+  - Invoiced this month, with what's been paid this month;
+  - Average days to pay, from invoices paid in the last 90 days.
+- **Items by status:** count and amount for each of these. Click a row to see
+  them.
+  - quotes waiting on the client;
+  - accepted quotes not invoiced yet;
+  - draft invoices;
+  - awaiting payment;
+  - overdue;
+  - paid this month.
+- **Money coming in:** what's owed, by when it's due. The columns are 60+,
+  31-60 and 1-30 days late, then due this week, due in 8-30 days, and later
+  or no due date. Hover for figures; click a column for its invoices.
+- **Top 10 debtors:** who owes the most, with each one's share of the total
+  and how late their oldest invoice is. Click to open the client. Export CSV
+  lists every debtor.
+- **Invoiced per month:** the last 12 months.
+- **Where the money comes from:** invoiced amounts by job category and by
+  lead source. Choose the last 12 months, this financial year, last quarter
+  or the last 28 days. Click a bar for its invoices.
+
+### How the numbers are worked out
+
+The numbers match Analytics:
+- "invoiced" means issued invoices (not drafts or voids), by issue date,
+  including GST;
+- "owing" is the total less deposits and part payments.
+
+The calculations are in `packages/shared/src/invoicing.ts`, with tests.
+
+### Deploy
+
+No deploy steps: no database change. The desktop deploys from `main`.
