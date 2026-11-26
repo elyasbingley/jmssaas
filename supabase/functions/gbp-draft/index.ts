@@ -25,6 +25,9 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+// Only needed for an API key that isn't scoped to a workspace: the API then
+// asks which workspace to bill (anthropic-workspace-id header).
+const ANTHROPIC_WORKSPACE_ID = Deno.env.get("ANTHROPIC_WORKSPACE_ID") ?? "";
 
 Deno.serve(async (req) => {
   // An unset CRON_SECRET must not let an empty header through.
@@ -285,7 +288,10 @@ For "service_key", pick the one that matches the job from ${input.serviceKeys.le
     additionalProperties: false,
   };
 
-  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({
+    apiKey: ANTHROPIC_API_KEY,
+    defaultHeaders: ANTHROPIC_WORKSPACE_ID ? { "anthropic-workspace-id": ANTHROPIC_WORKSPACE_ID } : undefined,
+  });
   // Server-side fallback: if Claude Sonnet 5.5's safety classifiers decline,
   // the API re-runs the request on a suitable model inside the same call.
   // The fields below are newer than this SDK version's types, so they're
