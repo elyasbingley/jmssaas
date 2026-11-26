@@ -21,6 +21,7 @@ function routeForNotification(n: Notification): string | null {
   if (n.type === "lead_signup") return `/jobs/${n.data.job_card_id}`;
   if (n.type === "recurring_jobs") return n.data.count === 1 ? `/jobs/${n.data.job_card_id}` : "/jobs";
   if (n.type === "gbp_draft") return "/marketing/google-posts";
+  if (n.type === "blog_draft") return "/marketing/blog-posts";
   return null;
 }
 

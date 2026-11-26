@@ -31,6 +31,8 @@ function linkFor(n: Notification): string | null {
       return d.count === 1 && d.job_card_id ? `/jobs/${d.job_card_id}` : "/jobs";
     case "gbp_draft":
       return "/marketing/google-posts";
+    case "blog_draft":
+      return "/marketing/blog-posts";
     default:
       return null;
   }
@@ -45,6 +47,7 @@ const ICONS: Record<string, string> = {
   lead_signup: "🙋",
   recurring_jobs: "🔁",
   gbp_draft: "📣",
+  blog_draft: "📝",
 };
 
 function ago(iso: string): string {

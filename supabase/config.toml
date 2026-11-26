@@ -105,3 +105,8 @@ verify_jwt = false
 # Called by pg_cron (net.http_post) with an x-cron-secret header, not a
 # Supabase JWT - the CRON_SECRET check is done in the function itself.
 verify_jwt = false
+
+[functions.blog-draft]
+# Called by pg_cron with an x-cron-secret header, or by an admin's "Write one
+# now" with their own token - both checked in the function itself.
+verify_jwt = false

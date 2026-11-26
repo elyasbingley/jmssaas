@@ -12721,3 +12721,24 @@ the phone, so publish an update:
 ```
 npx eas-cli update --channel preview --platform android --message "Google posts"
 ```
+
+## 110. Website blog posts from finished jobs
+
+On Tuesday, Thursday and Saturday mornings, Claude writes a case-study blog
+post from a finished job that has photos marked **OK for marketing**. An
+admin edits, approves or skips it in **More → Blog Posts**. Approving commits
+the post and its photos to the website's GitHub repository
+(`bingley-growth-plan`), and Vercel publishes it about a minute later.
+
+The full setup is in `BLOG_SETUP.md` at the repo root:
+- the website branch to merge;
+- the migration `20261202000100_blog_posts.sql`;
+- the `blog-draft` and `blog-publish` functions;
+- the `WEBSITE_GITHUB_TOKEN` secret;
+- the settings and the pg_cron schedule.
+
+**Phone update:** the Blog Posts screen is new on the phone:
+
+```
+npx eas-cli update --channel preview --platform android --message "Blog posts"
+```

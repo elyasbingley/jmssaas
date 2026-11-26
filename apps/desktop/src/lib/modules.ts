@@ -25,6 +25,7 @@ export const MODULES = {
   membership: { to: "/membership", label: "Membership", icon: "🎟️", blurb: "Member plans and benefits" },
   googleReviews: { to: "/google-reviews", label: "Google Reviews", icon: "⭐", blurb: "Review requests and ratings" },
   googlePosts: { to: "/marketing/google-posts", label: "Google Posts", icon: "📣", blurb: "Job photos posted to your Google profile" },
+  blogPosts: { to: "/marketing/blog-posts", label: "Blog Posts", icon: "📝", blurb: "Job write-ups published to your website" },
   referrals: { to: "/b2b-referrals", label: "B2B & Referrals", icon: "🤝", blurb: "Referral partners and fees" },
   realEstate: { to: "/real-estate", label: "Real Estate & Strata", icon: "🏢", blurb: "Agencies, properties and maintenance" },
   channels: { to: "/channels", label: "Channels", icon: "💬", blurb: "SMS, WhatsApp and Messenger" },
@@ -54,7 +55,7 @@ export const MODULE_GROUPS: { heading: string; modules: AppModule[] }[] = [
   { heading: "Work", modules: [MODULES.jobs, MODULES.dispatch, MODULES.calendar, MODULES.tasks, MODULES.timesheets, MODULES.reports, MODULES.subcontractors] },
   {
     heading: "Clients & sales",
-    modules: [MODULES.clients, MODULES.quotes, MODULES.invoices, MODULES.priceBook, MODULES.assets, MODULES.followUps, MODULES.membership, MODULES.googleReviews, MODULES.googlePosts, MODULES.referrals, MODULES.realEstate],
+    modules: [MODULES.clients, MODULES.quotes, MODULES.invoices, MODULES.priceBook, MODULES.assets, MODULES.followUps, MODULES.membership, MODULES.googleReviews, MODULES.googlePosts, MODULES.blogPosts, MODULES.referrals, MODULES.realEstate],
   },
   { heading: "Messages", modules: [MODULES.channels, MODULES.inbox, MODULES.smsBroadcast, MODULES.whatsappBroadcast] },
   { heading: "Business", modules: [MODULES.analytics, MODULES.jobCosting, MODULES.inventory, MODULES.team, MODULES.knowledge, MODULES.notes, MODULES.settings] },

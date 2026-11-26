@@ -602,6 +602,47 @@ export interface GbpPost {
   published_at: string | null;
 }
 
+// Website blog posts from finished jobs (blog_posts migration, see
+// BLOG_SETUP.md). One settings row per company; admins only.
+export type BlogPostStatus = "draft" | "approved" | "published" | "failed" | "skipped";
+export interface BlogSettings {
+  tenant_id: string;
+  enabled: boolean;
+  github_repo: string | null;
+  github_branch: string;
+  site_url: string | null;
+  business_name: string | null;
+  business_description: string | null;
+  voice_notes: string | null;
+  updated_at: string;
+}
+export interface BlogPostPhoto {
+  job_file_id: string | null;
+  url: string;
+  alt: string;
+}
+export interface BlogPost {
+  id: string;
+  tenant_id: string;
+  job_card_id: string | null;
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  suburb: string | null;
+  job_type: string | null;
+  photos: BlogPostPhoto[];
+  cta: { heading?: string; text?: string; button?: string } | null;
+  status: BlogPostStatus;
+  concerns: string[];
+  error: string | null;
+  approved_by: string | null;
+  published_url: string | null;
+  commit_sha: string | null;
+  created_at: string;
+  published_at: string | null;
+}
+
 export interface Task {
   id: string;
   tenant_id: string;
@@ -2631,7 +2672,7 @@ export interface RecurringJobsNotificationData {
   count: number;
 }
 
-export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup" | "recurring_jobs" | "gbp_draft";
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup" | "recurring_jobs" | "gbp_draft" | "blog_draft";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2682,7 +2723,9 @@ export type Notification =
   | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData })
   | (NotificationBase & { type: "lead_signup"; data: LeadSignupNotificationData })
   | (NotificationBase & { type: "recurring_jobs"; data: RecurringJobsNotificationData })
-  | (NotificationBase & { type: "gbp_draft"; data: GbpDraftNotificationData });
+  | (NotificationBase & { type: "gbp_draft"; data: GbpDraftNotificationData })
+  // A new website blog post draft is waiting for review (blog-draft).
+  | (NotificationBase & { type: "blog_draft"; data: GbpDraftNotificationData });
 
 export interface PushToken {
   id: string;

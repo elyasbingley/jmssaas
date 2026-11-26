@@ -40,6 +40,7 @@ const OTHER: MenuItem[] = [
   { href: "/schedule", label: "Schedule / Dispatch", adminOnly: true },
   { href: "/inbox", label: "Inbox", adminOnly: true },
   { href: "/marketing/google-posts", label: "Google Posts", adminOnly: true },
+  { href: "/marketing/blog-posts", label: "Blog Posts", adminOnly: true },
   { href: "/knowledge", label: "Knowledge Base" },
   { href: "/notes", label: "Notes" },
   { href: "/ui-settings", label: "UI Settings" },
