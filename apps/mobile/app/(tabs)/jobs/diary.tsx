@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -12,6 +12,9 @@ import { ThemedFormField } from "../../../components/theme/ThemedFormField";
 import { ThemedPhotoAttachments } from "../../../components/theme/ThemedPhotoAttachments";
 import { addJobPhoto } from "../../../lib/powersync";
 import { useAuth } from "../../../lib/auth-context";
+import { useIsOnline } from "../../../lib/connectivity";
+import { getErrorMessage } from "../../../lib/errors";
+import { flagPhotoForMarketing, unflagPhotoForMarketing } from "../../../lib/marketing-photo";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { useState } from "react";
 
@@ -21,6 +24,8 @@ interface JobFileWithLocalUri {
   file_name: string | null;
   mime_type: string | null;
   upload_state: number | null;
+  marketing_ok: number | null;
+  used_in_post_id: string | null;
 }
 
 // The consolidated Job Card notes/photos/files entry point ("Diary" in the
@@ -40,7 +45,7 @@ export default function JobDiaryScreen() {
   const job = jobRows[0];
 
   const { data: files } = useQuery<JobFileWithLocalUri>(
-    `SELECT jf.id, jf.file_name, jf.mime_type, a.local_uri, a.state AS upload_state
+    `SELECT jf.id, jf.file_name, jf.mime_type, jf.marketing_ok, jf.used_in_post_id, a.local_uri, a.state AS upload_state
        FROM job_files jf
        LEFT JOIN attachments a ON a.id = jf.id
       WHERE jf.job_card_id = ?
@@ -68,6 +73,44 @@ export default function JobDiaryScreen() {
     }
   };
 
+  // Hold a photo: "OK for marketing" (Google Business Profile posts). Makes
+  // a copy without location data in the marketing bucket, so it needs a
+  // connection; the flag syncs back down like any other change.
+  const isOnline = useIsOnline();
+  const [marketingBusy, setMarketingBusy] = useState(false);
+  const handleMarketing = (item: { id: string; local_uri: string | null }) => {
+    const file = files.find((f) => f.id === item.id);
+    if (!file || !profile || !item.local_uri || marketingBusy) return;
+    const flagged = !!file.marketing_ok;
+    if (!isOnline) {
+      Alert.alert("You're offline", "Connect to the internet to change whether this photo can be used for marketing.");
+      return;
+    }
+    const run = async () => {
+      setMarketingBusy(true);
+      try {
+        if (flagged) await unflagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: file.id });
+        else await flagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: file.id, sourceUri: item.local_uri! });
+      } catch (e) {
+        Alert.alert("Couldn't change it", getErrorMessage(e, "Something went wrong. Try again."));
+      } finally {
+        setMarketingBusy(false);
+      }
+    };
+    Alert.alert(
+      flagged ? "Stop using this photo for marketing?" : "OK for marketing?",
+      flagged
+        ? file.used_in_post_id
+          ? "It's already been used in a Google post, which stays. It won't be used again."
+          : "It won't be used in a Google post."
+        : "It may be used in a post on the Google Business Profile. A copy is made without the photo's location data. Check there's no house number, number plate or face in it.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: flagged ? "Stop using it" : "OK for marketing", style: flagged ? "destructive" : "default", onPress: () => void run() },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <StatusBar style="light" />
@@ -82,7 +125,13 @@ export default function JobDiaryScreen() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Panel title="Photos & Files">
-          <ThemedPhotoAttachments photos={files} uploading={uploading} onUpload={handleUploadPhoto} />
+          <ThemedPhotoAttachments
+            photos={files}
+            uploading={uploading || marketingBusy}
+            onUpload={handleUploadPhoto}
+            onLongPressPhoto={handleMarketing}
+            hint="Hold a photo to mark it OK for marketing (📣)."
+          />
         </Panel>
 
         <Panel title="Notes">

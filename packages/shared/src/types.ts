@@ -2631,7 +2631,7 @@ export interface RecurringJobsNotificationData {
   count: number;
 }
 
-export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup" | "recurring_jobs";
+export type NotificationType = "channel_message" | "inbox_message" | "quote_accepted" | "quote_viewed" | "invoice_accepted" | "lead_signup" | "recurring_jobs" | "gbp_draft";
 
 // Per-type `data` shape - a union keyed by `type` so the app can route a
 // tap without a runtime shape-guess. Add a member here alongside each new
@@ -2658,6 +2658,11 @@ export interface InvoiceAcceptedNotificationData {
   invoice_id: string;
 }
 
+// A new Google Business Profile post draft is waiting for review (gbp-draft).
+export interface GbpDraftNotificationData {
+  post_id: string;
+}
+
 interface NotificationBase {
   id: string;
   tenant_id: string;
@@ -2676,7 +2681,8 @@ export type Notification =
   | (NotificationBase & { type: "quote_viewed"; data: QuoteAcceptedNotificationData })
   | (NotificationBase & { type: "invoice_accepted"; data: InvoiceAcceptedNotificationData })
   | (NotificationBase & { type: "lead_signup"; data: LeadSignupNotificationData })
-  | (NotificationBase & { type: "recurring_jobs"; data: RecurringJobsNotificationData });
+  | (NotificationBase & { type: "recurring_jobs"; data: RecurringJobsNotificationData })
+  | (NotificationBase & { type: "gbp_draft"; data: GbpDraftNotificationData });
 
 export interface PushToken {
   id: string;

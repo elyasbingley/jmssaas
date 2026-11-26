@@ -17,6 +17,23 @@
 | `supabase/functions/gbp-publish/index.ts` | Called by the app when you approve |
 | `apps/mobile/lib/marketing-photo.ts` | Flag/unflag a photo for marketing (makes the stripped copy) |
 
+## In the app
+
+- **Marking a photo OK for marketing:**
+  - **Desktop:** on a job, hover a photo and click **📣 OK for marketing?**. It then shows **📣 Marketing**; click again to stop using it.
+  - **Phone:** in the job's Diary, hold a photo, then choose **OK for marketing**. Flagged photos have a 📣 badge. This needs a connection.
+  - **What gets made:** a copy at most 1600px wide, with no location data, in the public `marketing` bucket.
+  - **Unflagging:** removes the copy, unless a post already uses it.
+- **Marketing → Google Posts** (desktop: More → Google Posts; phone: More → Google Posts). Admins only.
+  - **Drafts:** the photo, the caption (edit it here), the button, and any concerns as warning chips. **Approve and post** (or **Approve anyway** when there are concerns) sends it through `gbp-publish`. **Skip** drops it, and the photo isn't suggested again.
+  - **History:** published, failed and skipped posts, with the error for failed ones and **Try again**.
+  - **Settings** (desktop only):
+    - drafts on or off, and auto-publish;
+    - the Zapier webhook (hidden once saved);
+    - the business name and description, and extra rules for the writer;
+    - the default button and link, and the service pages.
+- **Notification:** a new draft notifies admins ("New Google post ready to review"). Tapping it opens Google Posts.
+
 ## Fitted to JMS
 
 The first draft of these files was written without the repo. These are the names it now uses:
@@ -46,7 +63,7 @@ npx supabase functions deploy gbp-publish
 ```
 
 ### 3. Settings
-Fill these in at **Marketing → Google Posts → Settings** in JMS:
+Fill these in at **More → Google Posts → Settings** on the desktop:
 - the Zapier webhook URL;
 - the business name and description;
 - the default button;

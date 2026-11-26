@@ -24,6 +24,9 @@ export interface ThemedPhotoAttachmentItem {
   // existed here.
   file_name?: string | null;
   mime_type?: string | null;
+  // "OK for marketing" (Google Business Profile posting) - shows a 📣
+  // badge. Only job photos carry it.
+  marketing_ok?: number | boolean | null;
 }
 
 function isImageMime(mimeType: string | null | undefined): boolean {
@@ -40,6 +43,9 @@ interface ThemedPhotoAttachmentsProps {
   photos: ThemedPhotoAttachmentItem[];
   uploading: boolean;
   onUpload: (photo: UploadInput) => Promise<void>;
+  // Holding a photo - the job diary uses it for "OK for marketing".
+  onLongPressPhoto?: (photo: ThemedPhotoAttachmentItem) => void;
+  hint?: string;
 }
 
 // The actual job/task/leak-check photo+file upload UI (Job Card Diary, Task
@@ -52,7 +58,7 @@ interface ThemedPhotoAttachmentsProps {
 // only thing stopping a PDF getting attached to a job card. Non-image
 // files render as a name+icon tile instead of an (impossible) thumbnail,
 // and open via the OS's own viewer/share sheet on tap.
-export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPhotoAttachmentsProps) {
+export function ThemedPhotoAttachments({ photos, uploading, onUpload, onLongPressPhoto, hint }: ThemedPhotoAttachmentsProps) {
   const [cameraVisible, setCameraVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const styles = useThemedStyles(createStyles);
@@ -206,8 +212,15 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
                 }
                 if (viewableIndex >= 0) setViewerIndex(viewableIndex);
               }}
+              onLongPress={onLongPressPhoto ? () => onLongPressPhoto(item) : undefined}
+              delayLongPress={400}
             >
               <Image source={{ uri: item.local_uri }} style={styles.photo} />
+              {item.marketing_ok ? (
+                <View style={styles.marketingBadge}>
+                  <Text style={styles.marketingBadgeText}>📣</Text>
+                </View>
+              ) : null}
               {notYetUploaded ? (
                 <View style={styles.pendingBadge}>
                   <Text style={styles.pendingBadgeText}>⏳</Text>
@@ -230,6 +243,7 @@ export function ThemedPhotoAttachments({ photos, uploading, onUpload }: ThemedPh
         </Pressable>
       </View>
       {uploading ? <Text style={styles.uploadingText}>Uploading...</Text> : null}
+      {hint && photos.some((p) => isImageMime(p.mime_type) && p.local_uri) ? <Text style={styles.hintText}>{hint}</Text> : null}
 
       <MultiCaptureCamera visible={cameraVisible} onClose={() => setCameraVisible(false)} onDone={handleCameraDone} />
       <FullScreenImageViewer
@@ -250,6 +264,17 @@ function createStyles({ tokens, font, fontFamily }: StyleTheme) {
     fileTile: { alignItems: "center" as const, justifyContent: "center" as const, padding: 6, gap: 4 },
     fileIcon: { fontSize: 24 },
     fileName: { fontSize: font.label - 1, color: tokens.textPrimary, textAlign: "center" as const, fontFamily: fontFamily.mobileFontFamily },
+    marketingBadge: {
+      position: "absolute" as const,
+      bottom: 4,
+      left: 4,
+      backgroundColor: tokens.accent,
+      borderRadius: 10,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+    },
+    marketingBadgeText: { fontSize: 11 },
+    hintText: { fontSize: font.label, color: tokens.textMuted, fontFamily: fontFamily.mobileFontFamily, marginTop: 6 },
     pendingBadge: {
       position: "absolute" as const,
       top: 4,

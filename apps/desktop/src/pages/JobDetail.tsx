@@ -53,6 +53,7 @@ import { supabase } from "../lib/supabase";
 import { QuadrantBadge } from "../components/tasks/QuadrantBadge";
 import { MOVE_TARGETS, patchForQuadrant } from "../components/tasks/matrixHelpers";
 import { useAuth } from "../lib/auth-context";
+import { flagPhotoForMarketing, unflagPhotoForMarketing } from "../lib/marketing-photo";
 import { getErrorMessage } from "../lib/errors";
 import { triggerImmediateDispatch } from "../lib/dispatch-now";
 import { queueAndSendEmail } from "../lib/send-email";
@@ -855,6 +856,21 @@ export default function JobDetailPage() {
     onError: (e) => setPhotoError(getErrorMessage(e, "Failed to delete file")),
   });
 
+  // "OK for marketing" (Google Business Profile posting): makes the
+  // stripped public copy and flags the photo, or undoes it.
+  const toggleMarketing = useMutation({
+    mutationFn: async (file: JobFile) => {
+      if (!profile) throw new Error("Not signed in");
+      if (file.marketing_ok) await unflagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: file.id, usedInPost: !!file.used_in_post_id });
+      else await flagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: file.id, storagePath: file.storage_path });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+      setPhotoError(null);
+    },
+    onError: (e) => setPhotoError(getErrorMessage(e, "Couldn't change the marketing setting")),
+  });
+
   const [noteBody, setNoteBody] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
 
@@ -1633,6 +1649,31 @@ export default function JobDetailPage() {
                         </div>
                       )}
                     </a>
+                    {isImage ? (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          toggleMarketing.mutate(f);
+                        }}
+                        disabled={toggleMarketing.isPending}
+                        className={`absolute bottom-1 left-1 rounded px-1.5 py-0.5 font-semibold transition-opacity disabled:opacity-60 ${f.marketing_ok ? "" : "opacity-0 group-hover:opacity-100"}`}
+                        style={{
+                          backgroundColor: f.marketing_ok ? "var(--jms-accent)" : "rgba(0,0,0,0.65)",
+                          color: f.marketing_ok ? "var(--jms-bg)" : "var(--jms-text)",
+                          fontSize: "var(--jms-font-label)",
+                        }}
+                        title={
+                          f.marketing_ok
+                            ? f.used_in_post_id
+                              ? "OK for marketing (used in a Google post). Click to stop using it."
+                              : "OK for marketing. Click to stop using it."
+                            : "Mark OK for marketing: a copy without location data can be used in Google posts"
+                        }
+                        data-testid="marketing-toggle"
+                      >
+                        {toggleMarketing.isPending && toggleMarketing.variables?.id === f.id ? "…" : f.marketing_ok ? "📣 Marketing" : "📣 OK for marketing?"}
+                      </button>
+                    ) : null}
                     {isAdmin ? (
                       <button
                         onClick={(e) => {

@@ -61,6 +61,7 @@ import { FeedbackByMonthPage, FeedbackRecentPage, LeadSourcesPage } from "./page
 import { CostOfOpsCoveragePage, JobProfitabilityPage } from "./pages/analytics/ProfitabilityReports";
 import { ActivityTimesheetPage, AllTimesheetsPage, MyTimesheetPage, WeeklyTimesheetsGraphPage, WeeklyTimesheetsPage } from "./pages/analytics/TimesheetReports";
 import TasksPage from "./pages/Tasks";
+import GooglePostsPage from "./pages/GooglePosts";
 import TaskDetailPage from "./pages/TaskDetail";
 import RealEstatePage from "./pages/RealEstate";
 import PropertyDetailPage from "./pages/PropertyDetail";
@@ -115,6 +116,7 @@ export default function App() {
                 <Route path="/whatsapp-broadcast" element={<WhatsappBroadcastPage />} />
                 <Route path="/sms-broadcast" element={<SmsBroadcastPage />} />
                 <Route path="/follow-ups" element={<FollowUpsPage />} />
+                <Route path="/marketing/google-posts" element={<GooglePostsPage />} />
                 <Route path="/knowledge" element={<KnowledgeBasePage />} />
                 <Route path="/knowledge/categories/:id" element={<KnowledgeCategoryPage />} />
                 <Route path="/knowledge/articles/:id" element={<KnowledgeArticlePage />} />

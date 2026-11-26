@@ -12701,3 +12701,23 @@ Publish the phone update:
 ```
 npx eas-cli update --channel preview --platform android --message "Lead source on New Job"
 ```
+
+## 109. Google Business Profile posts (via Zapier)
+
+Job photos marked **OK for marketing** become posts on the Google Business
+Profile. On Monday, Wednesday and Friday mornings Claude drafts a caption
+from one of those photos. An admin approves, edits or skips it in **More →
+Google Posts**. Approved posts go to Google through a Zapier webhook.
+
+The full setup, the files and the deploy steps are in `GBP_SETUP.md` at the
+repo root:
+- the migration `20261201000100_gbp_posts.sql`;
+- the `gbp-draft` and `gbp-publish` functions;
+- the `CRON_SECRET` secret and the pg_cron schedule.
+
+**Phone update:** the photo toggle and the Google Posts screen are new on
+the phone, so publish an update:
+
+```
+npx eas-cli update --channel preview --platform android --message "Google posts"
+```
