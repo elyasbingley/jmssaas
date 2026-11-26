@@ -40,6 +40,7 @@ const BOOLEAN_COLUMNS_BY_TABLE: Record<string, string[]> = {
   tasks: ["is_milestone", "is_urgent", "is_important"],
   leak_check_templates: ["is_archived"],
   property_assets: ["needs_details"],
+  job_files: ["marketing_ok"],
   asset_types: ["is_archived"],
 };
 

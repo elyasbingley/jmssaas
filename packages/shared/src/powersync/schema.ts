@@ -364,6 +364,13 @@ const job_files = new Table(
     size_bytes: column.integer,
     uploaded_by: column.text,
     created_at: column.text,
+    // Google Business Profile posting (gbp_posts migration): "OK for
+    // marketing" (0/1), where its stripped public copy is in the marketing
+    // bucket, and the Google post it was used in. Set through
+    // set_job_file_marketing(), not written locally.
+    marketing_ok: column.integer,
+    marketing_path: column.text,
+    used_in_post_id: column.text,
   },
   { indexes: { job: ["job_card_id"] } }
 );

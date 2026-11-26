@@ -560,6 +560,46 @@ export interface JobFile {
   size_bytes: number | null;
   uploaded_by: string | null;
   created_at: string;
+  // Google Business Profile posting (gbp_posts migration).
+  marketing_ok?: boolean;
+  marketing_path?: string | null;
+  used_in_post_id?: string | null;
+}
+
+// Google Business Profile posting via Zapier (gbp_posts migration, see
+// GBP_SETUP.md). One settings row per company; admins only.
+export type GbpCtaType = "LEARN_MORE" | "CALL";
+export type GbpPostStatus = "draft" | "approved" | "published" | "failed" | "skipped";
+export interface GbpSettings {
+  tenant_id: string;
+  enabled: boolean;
+  zapier_webhook_url: string | null;
+  auto_publish: boolean;
+  business_name: string | null;
+  business_description: string | null;
+  default_cta_type: GbpCtaType;
+  default_cta_url: string | null;
+  service_urls: Record<string, string>;
+  voice_notes: string | null;
+  updated_at: string;
+}
+export interface GbpPost {
+  id: string;
+  tenant_id: string;
+  job_card_id: string | null;
+  job_file_id: string | null;
+  job_type: string | null;
+  photo_url: string;
+  summary: string;
+  service_key: string | null;
+  cta_type: GbpCtaType;
+  cta_url: string | null;
+  status: GbpPostStatus;
+  concerns: string[];
+  error: string | null;
+  approved_by: string | null;
+  created_at: string;
+  published_at: string | null;
 }
 
 export interface Task {
