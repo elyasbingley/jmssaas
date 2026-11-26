@@ -871,6 +871,34 @@ export default function JobDetailPage() {
     onError: (e) => setPhotoError(getErrorMessage(e, "Couldn't change the marketing setting")),
   });
 
+  // "Mark all for marketing": flags every photo on the job that isn't
+  // already, one at a time, so the ones not wanted can be unticked after.
+  const [markAllProgress, setMarkAllProgress] = useState<string | null>(null);
+  const unflaggedPhotos = (files ?? []).filter((f) => !f.marketing_ok && isPhotoFile(f));
+  const markAllMarketing = useMutation({
+    mutationFn: async () => {
+      if (!profile) throw new Error("Not signed in");
+      const todo = unflaggedPhotos;
+      let failed = 0;
+      for (let i = 0; i < todo.length; i++) {
+        setMarkAllProgress(`${i + 1} of ${todo.length}`);
+        try {
+          await flagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: todo[i]!.id, storagePath: todo[i]!.storage_path });
+        } catch {
+          failed++;
+        }
+        void queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+      }
+      if (failed) throw new Error(`${failed} of ${todo.length} photo${todo.length === 1 ? "" : "s"} couldn't be marked. Try them one at a time.`);
+    },
+    onSuccess: () => setPhotoError(null),
+    onError: (e) => setPhotoError(getErrorMessage(e, "Couldn't mark the photos")),
+    onSettled: () => {
+      setMarkAllProgress(null);
+      void queryClient.invalidateQueries({ queryKey: ["job-files", id] });
+    },
+  });
+
   const [noteBody, setNoteBody] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
 
@@ -1589,6 +1617,27 @@ export default function JobDetailPage() {
         <ThemedPanel
           title="Files"
           actions={
+            <div className="flex items-center gap-2">
+            {unflaggedPhotos.length > 0 || markAllMarketing.isPending ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Mark ${unflaggedPhotos.length} photo${unflaggedPhotos.length === 1 ? "" : "s"} OK for marketing?\n\nThey may be used in Google posts and website blog posts. Copies are made without location data. Untick any you don't want (house numbers, number plates, faces).`
+                    )
+                  )
+                    markAllMarketing.mutate();
+                }}
+                disabled={markAllMarketing.isPending}
+                className="rounded px-3 py-1.5 font-semibold uppercase tracking-wide disabled:opacity-60"
+                style={{ border: "1px solid var(--jms-accent)", color: "var(--jms-accent)", fontSize: "var(--jms-font-label)" }}
+                title="Mark every photo on this job OK for marketing, then untick the ones you don't want"
+                data-testid="mark-all-marketing"
+              >
+                {markAllProgress ? `📣 Marking ${markAllProgress}...` : "📣 Mark all for marketing"}
+              </button>
+            ) : null}
             <label
               className="cursor-pointer rounded px-3 py-1.5 font-semibold uppercase tracking-wide"
               style={{
@@ -1610,6 +1659,7 @@ export default function JobDetailPage() {
                 }}
               />
             </label>
+            </div>
           }
         >
           {photoError ? (
@@ -1627,7 +1677,7 @@ export default function JobDetailPage() {
                 // perfectly normal .jpg) - falling back to the extension
                 // means a real photo still renders as a thumbnail instead of
                 // the generic file icon just because its mime_type is blank.
-                const isImage = (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
+                const isImage = isImageFile(f);
                 return (
                   <div
                     key={f.id}
@@ -1667,7 +1717,7 @@ export default function JobDetailPage() {
                             ? f.used_in_post_id
                               ? "OK for marketing (used in a Google post). Click to stop using it."
                               : "OK for marketing. Click to stop using it."
-                            : "Mark OK for marketing: a copy without location data can be used in Google posts"
+                            : "Mark OK for marketing: a copy without location data can be used in Google posts and website blog posts"
                         }
                         data-testid="marketing-toggle"
                       >
@@ -2423,4 +2473,14 @@ export default function JobDetailPage() {
       />
     </div>
   );
+}
+
+// mime_type isn't reliably populated for every upload, so fall back to the
+// extension (see the Files panel).
+function isImageFile(f: { mime_type: string | null; file_name: string }): boolean {
+  return (f.mime_type ?? "").startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(f.file_name);
+}
+/** A photo that can be made into a marketing copy (not a drawing/SVG). */
+function isPhotoFile(f: { mime_type: string | null; file_name: string }): boolean {
+  return isImageFile(f) && !/svg/i.test(f.mime_type ?? "") && !/\.svg$/i.test(f.file_name);
 }

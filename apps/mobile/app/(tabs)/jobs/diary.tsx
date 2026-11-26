@@ -102,11 +102,53 @@ export default function JobDiaryScreen() {
       flagged
         ? file.used_in_post_id
           ? "It's already been used in a Google post, which stays. It won't be used again."
-          : "It won't be used in a Google post."
-        : "It may be used in a post on the Google Business Profile. A copy is made without the photo's location data. Check there's no house number, number plate or face in it.",
+          : "It won't be used in Google posts or blog posts."
+        : "It may be used in Google posts and website blog posts. A copy is made without the photo's location data. Check there's no house number, number plate or face in it.",
       [
         { text: "Cancel", style: "cancel" },
         { text: flagged ? "Stop using it" : "OK for marketing", style: flagged ? "destructive" : "default", onPress: () => void run() },
+      ]
+    );
+  };
+
+  // "Mark all for marketing": flags every photo on the job that isn't
+  // already, one at a time, so the ones not wanted can be unticked after
+  // (hold a photo). Only photos that are on this phone can be copied.
+  const [markAllProgress, setMarkAllProgress] = useState<string | null>(null);
+  const unflaggedPhotos = files.filter((f) => !f.marketing_ok && isPhoto(f));
+  const handleMarkAll = () => {
+    if (!profile || markAllProgress || marketingBusy) return;
+    if (!isOnline) {
+      Alert.alert("You're offline", "Connect to the internet to mark photos for marketing.");
+      return;
+    }
+    const ready = unflaggedPhotos.filter((f) => !!f.local_uri);
+    const notHere = unflaggedPhotos.length - ready.length;
+    if (!ready.length) {
+      Alert.alert("Photos still downloading", "These photos aren't on this phone yet. Try again in a minute.");
+      return;
+    }
+    const run = async () => {
+      let failed = 0;
+      for (let i = 0; i < ready.length; i++) {
+        setMarkAllProgress(`${i + 1} of ${ready.length}`);
+        try {
+          await flagPhotoForMarketing({ tenantId: profile.tenant_id, jobFileId: ready[i]!.id, sourceUri: ready[i]!.local_uri! });
+        } catch {
+          failed++;
+        }
+      }
+      setMarkAllProgress(null);
+      const missed = failed + notHere;
+      if (missed) Alert.alert("Some photos weren't marked", `${missed} of ${unflaggedPhotos.length} couldn't be marked. Hold each one to try it on its own.`);
+    };
+    Alert.alert(
+      `Mark ${ready.length} photo${ready.length === 1 ? "" : "s"} OK for marketing?`,
+      "They may be used in Google posts and website blog posts. Copies are made without location data. Afterwards, hold any you don't want (house numbers, number plates, faces) to untick them." +
+        (notHere ? `\n\n${notHere} more aren't on this phone yet and will be left out.` : ""),
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Mark all", onPress: () => void run() },
       ]
     );
   };
@@ -127,11 +169,21 @@ export default function JobDiaryScreen() {
         <Panel title="Photos & Files">
           <ThemedPhotoAttachments
             photos={files}
-            uploading={uploading || marketingBusy}
+            uploading={uploading || marketingBusy || !!markAllProgress}
             onUpload={handleUploadPhoto}
             onLongPressPhoto={handleMarketing}
-            hint="Hold a photo to mark it OK for marketing (📣)."
+            hint="Hold a photo to mark it OK for marketing (📣), or to untick it."
           />
+          {unflaggedPhotos.length > 0 || markAllProgress ? (
+            <View style={{ marginTop: 10 }}>
+              <ThemedButton
+                label={markAllProgress ? `📣 Marking ${markAllProgress}...` : "📣 Mark all for marketing"}
+                variant="secondary"
+                onPress={handleMarkAll}
+                disabled={!!markAllProgress || marketingBusy}
+              />
+            </View>
+          ) : null}
         </Panel>
 
         <Panel title="Notes">
@@ -157,6 +209,13 @@ export default function JobDiaryScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+// Only real photos can be made into marketing copies (not PDFs or SVGs).
+function isPhoto(f: { mime_type: string | null; file_name: string | null }): boolean {
+  const mime = f.mime_type ?? "";
+  if (mime.includes("svg") || /\.svg$/i.test(f.file_name ?? "")) return false;
+  return mime.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(f.file_name ?? "");
 }
 
 function createStyles({ tokens, font, fontFamily }: StyleTheme) {
