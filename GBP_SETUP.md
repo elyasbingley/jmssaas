@@ -84,22 +84,35 @@ select cron.schedule(
       'Content-Type', 'application/json',
       'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'gbp_cron_secret')
     ),
-    body    := '{}'::jsonb
+    body    := '{}'::jsonb,
+    -- Writing a caption takes longer than pg_net's 5-second default.
+    timeout_milliseconds := 60000
   );
   $$
 );
 ```
+Running `cron.schedule` again with the same name updates the job rather than adding a second one.
 
 ### 5. Test it end to end
 1. Flag 2–3 recent job photos with the **OK for marketing** toggle.
 2. Download one of the `marketing/...jpg` files, open it in **Preview → Tools → Show Inspector**, and confirm there's **no GPS tab**. Also check that it isn't rotated sideways.
-3. Run a draft by hand:
-   ```bash
-   curl -X POST https://qnlxmpxjmmhcnzzpcabd.supabase.co/functions/v1/gbp-draft \
-     -H "Content-Type: application/json" \
-     -H "x-cron-secret: YOUR_CRON_SECRET" \
-     -d '{"tenant_id":"YOUR-TENANT-UUID"}'
+3. Run a draft by hand in the **SQL Editor**. It uses the code saved in Vault, so nothing needs copying:
+   ```sql
+   select net.http_post(
+     url     := 'https://qnlxmpxjmmhcnzzpcabd.supabase.co/functions/v1/gbp-draft',
+     headers := jsonb_build_object(
+       'Content-Type', 'application/json',
+       'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'gbp_cron_secret')
+     ),
+     body    := '{}'::jsonb,
+     timeout_milliseconds := 60000
+   );
    ```
+   About 30 seconds later, check what came back:
+   ```sql
+   select status_code, content, error_msg from net._http_response order by id desc limit 1;
+   ```
+   `"drafted"` means it worked. `"skipped"` says why not: no unused marketing photos, or a draft is already waiting.
 4. Open **Marketing → Google Posts**. Read the caption and any concerns.
 5. Turn the **Zap ON** and approve the draft. Check that the post appears on your profile.
 
