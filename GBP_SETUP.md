@@ -26,7 +26,7 @@
   - **Unflagging:** removes the copy, unless a post already uses it.
 - **Marketing → Google Posts** (desktop: More → Google Posts; phone: More → Google Posts). Admins only.
   - **Drafts:** the photo, the caption (edit it here), the button, and any concerns as warning chips. **Approve and post** (or **Approve anyway** when there are concerns) sends it through `gbp-publish`. **Skip** drops it, and the photo isn't suggested again.
-  - **History:** published, failed and skipped posts, with the error for failed ones and **Try again**.
+  - **History:** published, failed and skipped posts, with the error for failed ones and **Try again**. A published post has **Send to Zapier again**, for when it never reached Google (for example, the Zap was off: Zapier still accepts the post then, so JMS can't tell). If the first send did reach Google, it posts twice.
   - **Settings** (desktop only):
     - drafts on or off, and auto-publish;
     - the Zapier webhook (hidden once saved);

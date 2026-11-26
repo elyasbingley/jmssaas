@@ -7,10 +7,12 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
  * Zapier returning 200 means Zapier received it. If Google then rejects the
  * post, the error shows in Zapier's Zap history (turn on Zapier error emails).
  */
-export async function publishPost(admin: SupabaseClient, postId: string) {
+export async function publishPost(admin: SupabaseClient, postId: string, opts: { resend?: boolean } = {}) {
   const { data: post, error } = await admin.from("gbp_posts").select("*").eq("id", postId).single();
   if (error || !post) throw new Error(`Post not found: ${postId}`);
-  if (post.status === "published") return post;
+  // A published post is only sent again when asked to (e.g. the Zap was
+  // switched off the first time - Zapier still answers 200 then).
+  if (post.status === "published" && !opts.resend) return post;
 
   const { data: settings } = await admin.from("gbp_settings").select("zapier_webhook_url").eq("tenant_id", post.tenant_id).maybeSingle();
   if (!settings?.zapier_webhook_url) {

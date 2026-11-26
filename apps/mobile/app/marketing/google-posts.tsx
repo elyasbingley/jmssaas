@@ -169,10 +169,10 @@ function DraftCard({ post, onDone }: { post: GbpPost; onDone: () => void }) {
 function HistoryRow({ post, onDone }: { post: GbpPost; onDone: () => void }) {
   const styles = useThemedStyles(createStyles);
   const [busy, setBusy] = useState(false);
-  const retry = async () => {
+  const retry = async (resend = false) => {
     setBusy(true);
     try {
-      const { error } = await supabase.functions.invoke("gbp-publish", { body: { post_id: post.id } });
+      const { error } = await supabase.functions.invoke("gbp-publish", { body: { post_id: post.id, resend: resend || undefined } });
       if (error) throw new Error(await functionErrorMessage(error, "Couldn't send the post"));
     } catch (e) {
       Alert.alert("Couldn't post it", getErrorMessage(e, "Something went wrong."));
@@ -193,8 +193,26 @@ function HistoryRow({ post, onDone }: { post: GbpPost; onDone: () => void }) {
         </Text>
         {post.status === "failed" && post.error ? <Text style={[styles.muted, styles.errorText]}>{post.error}</Text> : null}
         {post.status === "failed" || post.status === "approved" ? (
-          <Pressable onPress={retry} disabled={busy} hitSlop={8}>
+          <Pressable onPress={() => void retry()} disabled={busy} hitSlop={8}>
             <Text style={styles.link}>{busy ? "Sending..." : "Try again"}</Text>
+          </Pressable>
+        ) : null}
+        {post.status === "published" ? (
+          <Pressable
+            onPress={() =>
+              Alert.alert(
+                "Send to Zapier again?",
+                "Use this if it never showed up on Google (for example, the Zap was off). If the first one did get through, Google will get it twice.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Send again", onPress: () => void retry(true) },
+                ]
+              )
+            }
+            disabled={busy}
+            hitSlop={8}
+          >
+            <Text style={styles.link}>{busy ? "Sending..." : "Send to Zapier again"}</Text>
           </Pressable>
         ) : null}
       </View>

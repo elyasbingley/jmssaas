@@ -146,7 +146,7 @@ export default function GooglePostsPage() {
 function usePublish() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (p: { post_id: string; summary?: string }) => {
+    mutationFn: async (p: { post_id: string; summary?: string; resend?: boolean }) => {
       const { error } = await supabase.functions.invoke("gbp-publish", { body: p });
       if (error) throw new Error(await functionErrorMessage(error, "Couldn't send the post"));
     },
@@ -283,6 +283,26 @@ function HistoryList({ posts, loaded }: { posts: GbpPost[]; loaded: boolean }) {
             <div className="shrink-0">
               <ThemedButton onClick={() => publish.mutate({ post_id: p.id })} disabled={publish.isPending} style={{ paddingBlock: 4, paddingInline: 12 }}>
                 {publish.isPending && publish.variables?.post_id === p.id ? "Sending..." : "Try again"}
+              </ThemedButton>
+            </div>
+          ) : null}
+          {p.status === "published" ? (
+            <div className="shrink-0">
+              <ThemedButton
+                variant="secondary"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Send this post to Zapier again?\n\nUse this if it never showed up on Google (for example, the Zap was off). If the first one did get through, Google will get it twice."
+                    )
+                  )
+                    publish.mutate({ post_id: p.id, resend: true });
+                }}
+                disabled={publish.isPending}
+                style={{ paddingBlock: 4, paddingInline: 12 }}
+                data-testid="resend"
+              >
+                {publish.isPending && publish.variables?.post_id === p.id ? "Sending..." : "Send to Zapier again"}
               </ThemedButton>
             </div>
           ) : null}

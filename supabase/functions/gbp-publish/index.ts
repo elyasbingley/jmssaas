@@ -1,7 +1,9 @@
 // gbp-publish
 // Called from JMS when an admin taps Approve on a Google post draft (or
 // "Try again" on a failed one).
-// Body: { "post_id": "uuid", "summary"?: "edited caption" }
+// Body: { "post_id": "uuid", "summary"?: "edited caption", "resend"?: true }
+// resend: send an already-published post to Zapier again (e.g. the Zap was
+// off the first time, which Zapier doesn't report as an error).
 // RLS on gbp_posts makes sure only admins of the post's company can see or
 // approve it, so the post is read and approved with the caller's own token.
 //
@@ -25,14 +27,19 @@ Deno.serve(async (req) => {
     });
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { post_id, summary } = await req.json().catch(() => ({}));
+    const { post_id, summary, resend } = await req.json().catch(() => ({}));
     if (!post_id) return json({ error: "post_id is required" }, 400);
 
     // Visible only if the caller is an admin of this company (RLS).
     const { data: post, error } = await userClient.from("gbp_posts").select("id, status").eq("id", post_id).maybeSingle();
     if (error || !post) return json({ error: "Post not found" }, 404);
-    if (!["draft", "approved", "failed"].includes(post.status)) {
+    const resending = resend === true && post.status === "published";
+    if (!resending && !["draft", "approved", "failed"].includes(post.status)) {
       return json({ error: `Post is already ${post.status}` }, 409);
+    }
+    if (resending) {
+      const published = await publishPost(admin, post_id, { resend: true });
+      return json({ ok: true, post: published });
     }
 
     const { data: { user } } = await userClient.auth.getUser();
