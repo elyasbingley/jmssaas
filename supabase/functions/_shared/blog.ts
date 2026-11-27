@@ -152,7 +152,18 @@ export async function commitPost(opts: {
 
   // Retry once if someone else pushed between reading and moving the branch.
   for (let attempt = 0; ; attempt++) {
-    const ref = await call<{ object: { sha: string } }>("GET", `/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
+    const ref = await call<{ object: { sha: string } }>("GET", `/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`).catch((e) => {
+      // GitHub says 404 (not 403) when the token can't see a private repo.
+      if (e instanceof GitHubError && e.status === 401) {
+        throw new Error("GitHub didn't accept the WEBSITE_GITHUB_TOKEN secret (expired or mistyped). Make a new token and set the secret again (BLOG_SETUP.md step 3).");
+      }
+      if (e instanceof GitHubError && (e.status === 404 || e.status === 403)) {
+        throw new Error(
+          `GitHub can't find ${repo} (branch "${branch}") with the WEBSITE_GITHUB_TOKEN token. Check the repository and branch in Settings, and that the token has access to that repository with Contents: Read and write (BLOG_SETUP.md step 3).`,
+        );
+      }
+      throw e;
+    });
     const headSha = ref.object.sha;
     const head = await call<{ tree: { sha: string } }>("GET", `/repos/${repo}/git/commits/${headSha}`);
 
